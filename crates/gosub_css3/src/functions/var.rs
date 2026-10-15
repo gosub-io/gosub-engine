@@ -19,6 +19,12 @@ pub(crate) const MAX_SUBSTITUTION_TOKENS: usize = 1 << 16;
 /// tokens and 4 GiB.
 pub(crate) const MAX_SUBSTITUTION_BYTES: usize = 2 << 20;
 
+/// How many tokens and bytes of text the custom properties one element declares may substitute
+/// between them. Each value staying under the limits above still lets a rule declare a hundred
+/// chains that each reach them, and the element keeps every result.
+pub(crate) const MAX_ELEMENT_SUBSTITUTION_TOKENS: usize = 1 << 18;
+pub(crate) const MAX_ELEMENT_SUBSTITUTION_BYTES: usize = 8 << 20;
+
 /// The custom properties a `var()` can see on one element.
 ///
 /// Most live in the map the element inherits and hands down. The two kinds `@property` adds do
@@ -83,18 +89,45 @@ pub type AttrResolver<'a> = &'a dyn Fn(&[CssValue]) -> Option<Vec<CssValue>>;
 /// `custom_props` is this element's scope, its own declarations over what it inherits, so
 /// `--a: 1px; --b: var(--a)` on one element sees its own `--a`. `None` is the guaranteed-invalid
 /// value: a reference that does not resolve, or a cycle `name` is part of - its own fallbacks do
-/// not rescue it.
+/// not rescue it. So is a value the element's `budget` cannot pay for.
 pub fn compute_custom_property(
     name: &str,
     value: &CssValue,
     custom_props: &CustomScope<'_>,
     attr: AttrResolver<'_>,
+    budget: &mut SubstitutionBudget,
 ) -> Option<Vec<CssValue>> {
     let tokens = match value {
         CssValue::List(list) => list.as_slice(),
         other => std::slice::from_ref(other),
     };
-    substitute(tokens, custom_props, Some(attr), &mut Walk::new(vec![name.to_string()])).ok()
+    let mut walk = Walk {
+        seen: vec![name.to_string()],
+        tokens: budget.tokens.min(MAX_SUBSTITUTION_TOKENS),
+        bytes: budget.bytes.min(MAX_SUBSTITUTION_BYTES),
+    };
+    let (tokens_before, bytes_before) = (walk.tokens, walk.bytes);
+    let computed = substitute(tokens, custom_props, Some(attr), &mut walk);
+    budget.tokens -= tokens_before - walk.tokens;
+    budget.bytes -= bytes_before - walk.bytes;
+    computed.ok()
+}
+
+/// What is left of what one element's custom properties may substitute, shared by every
+/// [`compute_custom_property`] on that element. Work on a value that turns out invalid counts too.
+pub struct SubstitutionBudget {
+    tokens: usize,
+    bytes: usize,
+}
+
+impl SubstitutionBudget {
+    #[must_use]
+    pub fn for_element() -> Self {
+        Self {
+            tokens: MAX_ELEMENT_SUBSTITUTION_TOKENS,
+            bytes: MAX_ELEMENT_SUBSTITUTION_BYTES,
+        }
+    }
 }
 
 /// What one substitution carries along: the custom properties being resolved, outermost first,
@@ -369,8 +402,15 @@ mod tests {
             registry: None,
         };
         let attr = |_: &[CssValue]| None;
-        assert_eq!(compute_custom_property("--p", &declared[0].1, &scope, &attr), None);
-        assert_eq!(compute_custom_property("--q", &declared[1].1, &scope, &attr), None);
+        let mut budget = SubstitutionBudget::for_element();
+        assert_eq!(
+            compute_custom_property("--p", &declared[0].1, &scope, &attr, &mut budget),
+            None
+        );
+        assert_eq!(
+            compute_custom_property("--q", &declared[1].1, &scope, &attr, &mut budget),
+            None
+        );
     }
 
     #[test]
@@ -386,10 +426,14 @@ mod tests {
             registry: None,
         };
         let attr = |_: &[CssValue]| None;
+        let mut budget = SubstitutionBudget::for_element();
 
-        let small = compute_custom_property("--p10", &pairs[10].1, &scope, &attr);
+        let small = compute_custom_property("--p10", &pairs[10].1, &scope, &attr, &mut budget);
         assert_eq!(small.map(|tokens| tokens.len()), Some(1 << 10));
-        assert_eq!(compute_custom_property("--p20", &pairs[20].1, &scope, &attr), None);
+        assert_eq!(
+            compute_custom_property("--p20", &pairs[20].1, &scope, &attr, &mut budget),
+            None
+        );
         // No fallback rescues it, not even an empty one.
         assert_eq!(resolve_var(&[s("--p20"), CssValue::Comma], scope), None);
     }
@@ -407,10 +451,42 @@ mod tests {
             registry: None,
         };
         let attr = |_: &[CssValue]| None;
+        let mut budget = SubstitutionBudget::for_element();
 
-        let small = compute_custom_property("--p4", &pairs[4].1, &scope, &attr);
+        let small = compute_custom_property("--p4", &pairs[4].1, &scope, &attr, &mut budget);
         assert_eq!(small.map(|tokens| tokens.len()), Some(16));
-        assert_eq!(compute_custom_property("--p6", &pairs[6].1, &scope, &attr), None);
+        assert_eq!(
+            compute_custom_property("--p6", &pairs[6].1, &scope, &attr, &mut budget),
+            None
+        );
+    }
+
+    #[test]
+    fn one_element_shares_a_substitution_budget() {
+        // --p15 is 32,768 tokens, under the limit for one value; the element pays for 8 of them.
+        let var = |n: u32| CssValue::Function("var".to_string(), vec![s(&format!("--p{n}"))]);
+        let mut pairs = vec![("--p0".to_string(), s("x"))];
+        pairs.extend((1..=15).map(|n| (format!("--p{n}"), CssValue::List(vec![var(n - 1), var(n - 1)]))));
+        let inherited = HashMap::new();
+        let scope = CustomScope {
+            inherited: &inherited,
+            local: &pairs,
+            registry: None,
+        };
+        let attr = |_: &[CssValue]| None;
+        let mut budget = SubstitutionBudget::for_element();
+
+        for _ in 0..8 {
+            let computed = compute_custom_property("--p15", &pairs[15].1, &scope, &attr, &mut budget);
+            assert_eq!(computed.map(|tokens| tokens.len()), Some(1 << 15));
+        }
+        assert_eq!(
+            compute_custom_property("--p15", &pairs[15].1, &scope, &attr, &mut budget),
+            None
+        );
+        // A fresh element starts over.
+        let mut next = SubstitutionBudget::for_element();
+        assert!(compute_custom_property("--p15", &pairs[15].1, &scope, &attr, &mut next).is_some());
     }
 
     #[test]

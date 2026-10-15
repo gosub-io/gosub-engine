@@ -1,6 +1,8 @@
 use crate::functions::attr::resolve_attr;
 use crate::functions::env::resolve_env;
-use crate::functions::var::{compute_custom_property, resolve_var, AttrResolver, CustomScope, MAX_VAR_DEPTH};
+use crate::functions::var::{
+    compute_custom_property, resolve_var, AttrResolver, CustomScope, SubstitutionBudget, MAX_VAR_DEPTH,
+};
 use crate::matcher::bloom::{ancestor_filter, AncestorFilter};
 use crate::matcher::expansion::{canonical_if_changed, single_value, ExpandedDeclaration};
 use crate::matcher::index::ElementKeys;
@@ -577,6 +579,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
         registry: registry.as_deref(),
     };
     let attr = |args: &[CssValue]| resolve_attr::<C>(args, doc, id);
+    let mut budget = SubstitutionBudget::for_element();
 
     // The ones that inherit are compared with what the element inherits, computed against
     // computed, so that re-declaring the same value shares the parent's map.
@@ -585,7 +588,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     for &(name, value, local) in &declared {
         let value = match value {
             Some(value) if substitutes && holds_custom_substitution(value) => {
-                compute_custom_property(name, value, &declared_scope, &attr)
+                compute_custom_property(name, value, &declared_scope, &attr, &mut budget)
                     .map(|tokens| Cow::Owned(single_value(CssValue::List(tokens))))
             }
             value => value.map(Cow::Borrowed),
