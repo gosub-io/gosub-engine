@@ -14,6 +14,11 @@ pub(crate) const MAX_VAR_DEPTH: usize = 32;
 /// time.
 pub(crate) const MAX_SUBSTITUTION_TOKENS: usize = 1 << 16;
 
+/// How many bytes of text (strings, units, function names) one substitution may copy. The token
+/// limit alone lets a few long strings through: a 64 KiB string doubled 16 times is 65,536
+/// tokens and 4 GiB.
+pub(crate) const MAX_SUBSTITUTION_BYTES: usize = 2 << 20;
+
 /// The custom properties a `var()` can see on one element.
 ///
 /// Most live in the map the element inherits and hands down. The two kinds `@property` adds do
@@ -93,24 +98,36 @@ pub fn compute_custom_property(
 }
 
 /// What one substitution carries along: the custom properties being resolved, outermost first,
-/// and how many more tokens it may write.
+/// and how many more tokens and bytes of text it may write.
 struct Walk {
     seen: Vec<String>,
-    budget: usize,
+    tokens: usize,
+    bytes: usize,
 }
 
 impl Walk {
     fn new(seen: Vec<String>) -> Self {
         Self {
             seen,
-            budget: MAX_SUBSTITUTION_TOKENS,
+            tokens: MAX_SUBSTITUTION_TOKENS,
+            bytes: MAX_SUBSTITUTION_BYTES,
         }
     }
 
-    /// Takes one token from the budget, or fails once it is spent.
-    fn spend(&mut self) -> Result<(), Unresolved> {
-        self.budget = self.budget.checked_sub(1).ok_or(Unresolved::TooLong)?;
+    /// Pays for one token holding `text` bytes of text, before it is copied, or fails once either
+    /// budget is spent.
+    fn spend(&mut self, text: usize) -> Result<(), Unresolved> {
+        self.tokens = self.tokens.checked_sub(1).ok_or(Unresolved::TooLong)?;
+        self.bytes = self.bytes.checked_sub(text).ok_or(Unresolved::TooLong)?;
         Ok(())
+    }
+}
+
+/// The text a token holds itself, not counting a function's arguments.
+fn text_len(value: &CssValue) -> usize {
+    match value {
+        CssValue::String(text) | CssValue::Unit(_, text) | CssValue::Function(text, _) => text.len(),
+        _ => 0,
     }
 }
 
@@ -126,8 +143,9 @@ enum Unresolved {
     /// becomes [`Unresolved::Invalid`] at the property it started from, whose reference is what
     /// the fallback outside the cycle is for.
     Cycle(String),
-    /// The substitution ran past [`MAX_SUBSTITUTION_TOKENS`]. The whole value is invalid, so no
-    /// fallback on the way out applies either; an empty one would otherwise rescue it.
+    /// The substitution ran past [`MAX_SUBSTITUTION_TOKENS`] or [`MAX_SUBSTITUTION_BYTES`]. The
+    /// whole value is invalid, so no fallback on the way out applies either; an empty one would
+    /// otherwise rescue it.
     TooLong,
 }
 
@@ -225,7 +243,7 @@ fn substitute(
             // `linear-gradient(var(--from), white)` - so it is rebuilt around its substituted
             // arguments rather than cloned whole.
             CssValue::Function(name, args) => {
-                walk.spend()?;
+                walk.spend(name.len())?;
                 out.push(CssValue::Function(
                     name.clone(),
                     substitute(args, custom_props, attr, walk)?,
@@ -235,7 +253,7 @@ fn substitute(
             // copies it; what an inner call returns is only moved up. So this counts the output,
             // and it counts work spent on fallbacks that are then thrown away.
             other => {
-                walk.spend()?;
+                walk.spend(text_len(other))?;
                 out.push(other.clone());
             }
         }
@@ -374,6 +392,25 @@ mod tests {
         assert_eq!(compute_custom_property("--p20", &pairs[20].1, &scope, &attr), None);
         // No fallback rescues it, not even an empty one.
         assert_eq!(resolve_var(&[s("--p20"), CssValue::Comma], scope), None);
+    }
+
+    #[test]
+    fn a_substitution_past_the_byte_limit_is_invalid() {
+        // `--p0` is one 64 KiB string, so --pN is 2^N tokens but 2^N * 64 KiB of text.
+        let var = |n: u32| CssValue::Function("var".to_string(), vec![s(&format!("--p{n}"))]);
+        let mut pairs = vec![("--p0".to_string(), s(&"x".repeat(64 << 10)))];
+        pairs.extend((1..=6).map(|n| (format!("--p{n}"), CssValue::List(vec![var(n - 1), var(n - 1)]))));
+        let inherited = HashMap::new();
+        let scope = CustomScope {
+            inherited: &inherited,
+            local: &pairs,
+            registry: None,
+        };
+        let attr = |_: &[CssValue]| None;
+
+        let small = compute_custom_property("--p4", &pairs[4].1, &scope, &attr);
+        assert_eq!(small.map(|tokens| tokens.len()), Some(16));
+        assert_eq!(compute_custom_property("--p6", &pairs[6].1, &scope, &attr), None);
     }
 
     #[test]
