@@ -17,9 +17,10 @@ use crate::layouter::float::{
 use crate::layouter::table::post_process_tables;
 use crate::layouter::text::get_text_layout;
 use crate::layouter::{
-    box_model, BackgroundMedia, CanLayout, ElementContext, ElementContextFormControl, ElementContextImage,
-    ElementContextSelectPopup, ElementContextSvg, ElementContextText, FormControl, LayoutElementId, LayoutElementNode,
-    LayoutTree, MaxHeight, MeterLevel, PopupRow, Resize, SELECT_POPUP_ROW_HEIGHT, SELECT_POPUP_SHADOW,
+    box_model, fraction_between, BackgroundMedia, CanLayout, ElementContext, ElementContextFormControl,
+    ElementContextImage, ElementContextSelectPopup, ElementContextSvg, ElementContextText, FormControl,
+    LayoutElementId, LayoutElementNode, LayoutTree, MaxHeight, MeterLevel, PopupRow, Resize, SELECT_POPUP_ROW_HEIGHT,
+    SELECT_POPUP_SHADOW,
 };
 use crate::rendertree_builder::{RenderNodeId, RenderTree};
 use gosub_fontmanager::ParleyFontSystem;
@@ -30,6 +31,7 @@ use gosub_interface::style::{
     TextTransform as CssTextTransform, VerticalAlign as CssVerticalAlign, WhiteSpace,
 };
 use gosub_interface::used;
+use gosub_shared::microsyntax::parse_floating_point_number;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -3206,7 +3208,9 @@ impl TaffyLayouter {
         let font_info = control_font_info(&**doc, node_id);
         let disabled = data.get_attribute("disabled").is_some();
         let attr = |name: &str| data.get_attribute(name).map(|s| s.trim().to_string());
-        let attr_f64 = |name: &str| attr(name).and_then(|s| s.parse::<f64>().ok());
+        // HTML's rules for parsing floating-point number values, which reject `NaN`, `inf` and
+        // `1e999`: a NaN bound would make the `clamp` calls below panic.
+        let attr_f64 = |name: &str| data.get_attribute(name).and_then(|s| parse_floating_point_number(s));
 
         let (control, dimension) = match tag.as_ref() {
             "input" => {
@@ -3239,8 +3243,8 @@ impl TaffyLayouter {
                     "range" => {
                         let min = attr_f64("min").unwrap_or(0.0);
                         let max = attr_f64("max").unwrap_or(100.0).max(min);
-                        let value = attr_f64("value").unwrap_or((min + max) / 2.0).clamp(min, max);
-                        let fraction = if max > min { (value - min) / (max - min) } else { 0.0 };
+                        let value = attr_f64("value").unwrap_or(min / 2.0 + max / 2.0).clamp(min, max);
+                        let fraction = fraction_between(value, min, max);
                         (
                             FormControl::Range { min, max, fraction },
                             geo::Dimension::new(129.0, 21.0),
@@ -3353,12 +3357,11 @@ impl TaffyLayouter {
             "meter" => {
                 let min = attr_f64("min").unwrap_or(0.0);
                 let max = attr_f64("max").unwrap_or(1.0).max(min);
-                let span = (max - min).max(f64::EPSILON);
                 let low = attr_f64("low").unwrap_or(min).clamp(min, max);
                 let high = attr_f64("high").unwrap_or(max).clamp(low, max);
-                let optimum = attr_f64("optimum").unwrap_or((min + max) / 2.0).clamp(min, max);
+                let optimum = attr_f64("optimum").unwrap_or(min / 2.0 + max / 2.0).clamp(min, max);
                 let value = attr_f64("value").unwrap_or(min).clamp(min, max);
-                let fraction = (value - min) / span;
+                let fraction = fraction_between(value, min, max);
                 // Green when the value shares the optimum's band (below-low / between /
                 // above-high), yellow one band away, red two away.
                 let band = |v: f64| -> u8 {

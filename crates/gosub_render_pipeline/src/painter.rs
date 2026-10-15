@@ -20,8 +20,8 @@ use crate::common::geo::Rect;
 use crate::common::media::MediaStore;
 use crate::layering::layer::LayerList;
 use crate::layouter::{
-    BackgroundMedia, CollapsedCellBorders, ElementContext, ElementContextFormControl, ElementContextSelectPopup,
-    FormControl, LayoutElementId, LayoutElementNode, MeterLevel, PopupRow,
+    fraction_between, BackgroundMedia, CollapsedCellBorders, ElementContext, ElementContextFormControl,
+    ElementContextSelectPopup, FormControl, LayoutElementId, LayoutElementNode, MeterLevel, PopupRow,
 };
 use crate::painter::commands::border::{Border, BorderStyle};
 use crate::painter::commands::brush::Brush;
@@ -38,6 +38,7 @@ use gosub_interface::document::ControlEditState;
 use gosub_interface::font::FontStyle;
 use gosub_interface::font_system::{FontStretch, FontSystem, FontWeight, ShapedText, TextAlign, TextStyle};
 use gosub_interface::used;
+use gosub_shared::microsyntax::parse_floating_point_number;
 use parking_lot::Mutex;
 use std::sync::Arc;
 
@@ -1154,9 +1155,8 @@ impl Painter {
                     .render_tree
                     .doc
                     .control_edit_state(dom_node_id)
-                    .and_then(|s| s.value.trim().parse::<f64>().ok())
-                    .filter(|_| max > min)
-                    .map(|v| ((v - min) / (max - min)).clamp(0.0, 1.0));
+                    .and_then(|s| parse_floating_point_number(&s.value))
+                    .map(|v| fraction_between(v, *min, *max).clamp(0.0, 1.0));
                 let fraction = &live.unwrap_or(*fraction);
                 let cy = content_box.y + content_box.height / 2.0;
                 let track_h = 4.0_f64.min(content_box.height);
