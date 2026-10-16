@@ -4484,6 +4484,67 @@ mod rendertree_from_engine {
         );
     }
 
+    /// A space right after another collapses into it, across the edges of inline elements and
+    /// past an element that holds nothing. Hacker News puts an empty `<span>` between two
+    /// spaces in `4 hours ago <span id="unv_1"></span> | hide`, and both spaces were drawn.
+    #[test]
+    fn spaces_either_side_of_an_empty_element_collapse_to_one() {
+        let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
+          <div><span><a href="/i">ago</a></span> <span></span> | <a id="hide" href="/h">hide</a></div>
+          <div><span><a href="/i">ago</a></span> | <a id="one" href="/h">hide</a></div>
+          <div>a <span><b>x </b></span> <span id="after">b</span></div>
+          <div>a <span><b>x </b></span><span id="after_one">b</span></div>
+        </body></html>"#;
+        let [hide, one, after, after_one] = border_boxes(html, &["hide", "one", "after", "after_one"])[..] else {
+            unreachable!()
+        };
+        assert!(
+            (hide.x - one.x).abs() < 0.5,
+            "the empty element changes nothing, got {hide:?} against {one:?}"
+        );
+        assert!(
+            (after.x - after_one.x).abs() < 0.5,
+            "a space after one that ends an inline element collapses into it, got {after:?} against {after_one:?}"
+        );
+    }
+
+    /// The space a collapse keeps is the first one, inside the element, so the element keeps
+    /// it: `a<span> </span> b` has one space, not none.
+    #[test]
+    fn a_space_kept_inside_an_element_still_separates() {
+        let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
+          <div><span id="a">a</span><span> </span> <span id="b">b</span></div>
+          <div><span id="c">a</span> <span id="d">b</span></div>
+        </body></html>"#;
+        let [a, b, c, d] = border_boxes(html, &["a", "b", "c", "d"])[..] else {
+            unreachable!()
+        };
+        assert!(
+            b.x > a.x + a.width + 1.0,
+            "a space is left between them, got {b:?} after {a:?}"
+        );
+        assert!(
+            ((b.x - a.x) - (d.x - c.x)).abs() < 0.5,
+            "exactly one space, got {b:?} after {a:?} against {d:?} after {c:?}"
+        );
+    }
+
+    /// A wrapped line starts with its first word, not with the space before it. The space was a
+    /// box of its own that wrapped with the word, so the second line of a long Hacker News title
+    /// started one space in. The title's shape matters: a link inside a span, its words joining
+    /// the span's line, and a first word too long for the line, so the space cannot end it.
+    #[test]
+    fn a_wrapped_line_does_not_start_with_a_space() {
+        let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
+          <div style="width: 5ch"><span class="titleline"><a href="/x">aaaaaaaaaa <b id="g">gggg</b></a><span> (<a href="/f">site</a>)</span></span></div>
+        </body></html>"#;
+        let [g] = border_boxes(html, &["g"])[..] else {
+            unreachable!()
+        };
+        assert!(g.y > 10.0, "gggg wraps onto the second line, got {g:?}");
+        assert!(g.x.abs() < 0.5, "the second line starts at the left edge, got {g:?}");
+    }
+
     /// An inline element only gives up its box when the box shows nothing. One with a background
     /// keeps it, and with it a place among its parent's children.
     #[test]
