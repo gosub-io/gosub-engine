@@ -3098,11 +3098,7 @@ mod tests {
             };
             let fetcher = Arc::new(gosub_sonar::Fetcher::new(config, Arc::new(gosub_sonar::NullContext)).unwrap());
             let shutdown = tokio_util::sync::CancellationToken::new();
-            tokio::spawn({
-                let fetcher = fetcher.clone();
-                let shutdown = shutdown.clone();
-                async move { fetcher.run(shutdown).await }
-            });
+            tokio::spawn(fetcher.clone().run(shutdown.clone()));
 
             let doc = Url::parse("http://site.test/form").unwrap();
             let target = Url::parse(&format!("http://127.0.0.1:{port}/submit")).unwrap();

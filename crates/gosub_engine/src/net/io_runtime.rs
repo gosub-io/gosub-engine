@@ -249,15 +249,16 @@ impl IoRouter {
             public: fetcher(AddressSpace::Public)?,
         };
 
-        let running = fetchers.clone();
-        let cancel = zone_shutdown.clone();
+        // `run` opens each queue as it is called, so a request submitted before the loops'
+        // first turn waits for them rather than being refused.
+        let loops = (
+            fetchers.loopback.clone().run(zone_shutdown.clone()),
+            fetchers.local.clone().run(zone_shutdown.clone()),
+            fetchers.public.clone().run(zone_shutdown.clone()),
+        );
         let title = format!("I/O Fetcher Zone {}", zone_id);
         let join_handle = spawn_named(&title, async move {
-            tokio::join!(
-                running.loopback.run(cancel.clone()),
-                running.local.run(cancel.clone()),
-                running.public.run(cancel)
-            );
+            tokio::join!(loops.0, loops.1, loops.2);
         });
 
         self.zones.insert(
@@ -892,6 +893,7 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                     req.req_id,
                                     req.kind,
                                     req.initiator,
+                                    false,
                                 )
                             });
 

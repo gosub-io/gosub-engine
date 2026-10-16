@@ -38,6 +38,9 @@ pub struct EngineEventEmitter {
     /// Whether the request's row has been opened (`ResourceEvent::Started`). See
     /// [`Self::open`].
     opened: std::sync::atomic::AtomicBool,
+    /// A revalidation the fetcher started itself, after the request it refreshes was answered.
+    /// See [`Self::in_background`].
+    background: bool,
 }
 
 impl EngineEventEmitter {
@@ -65,7 +68,17 @@ impl EngineEventEmitter {
             completion_reported: std::sync::atomic::AtomicBool::new(false),
             failure_reported: std::sync::atomic::AtomicBool::new(false),
             opened: std::sync::atomic::AtomicBool::new(false),
+            background: false,
         }
+    }
+
+    /// Report a background revalidation: a request of the fetcher's own, under the reference
+    /// of a request that has already been answered. It gets a row of its own, but its progress
+    /// is not the navigation's or the download's: those have finished.
+    #[must_use]
+    pub fn in_background(mut self) -> Self {
+        self.background = true;
+        self
     }
 
     /// Open the request's row, once. The fetcher opens every request it takes with
@@ -232,6 +245,7 @@ impl NetObserver for EngineEventEmitter {
                     return;
                 }
                 match self.reference {
+                    _ if self.background => {}
                     // Document fetch of a navigation: the shell's load-progress signal.
                     RequestReference::Navigation(nav_id) => {
                         let _ = self.event_tx.send(EngineEvent::Navigation {
