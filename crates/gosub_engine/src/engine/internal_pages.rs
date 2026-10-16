@@ -243,6 +243,7 @@ pub mod builtins {
              .hdr{{display:flex;align-items:center;padding:0 0 20px 0;margin:0 0 20px 0;border-bottom:1px solid #e6e9ef}}\
              .hdr h1{{font-size:30px}} .hdr .sub{{margin:0}} .hdr-text{{padding-left:18px}}\
              .ln{{padding:6px 0}} .ln .muted{{font-size:13px}}\
+             .desc{{color:#8a94a6;font-size:12px;padding-top:2px}}\
              </style></head><body>{}</body></html>",
             escape(title),
             body
@@ -477,7 +478,7 @@ pub mod builtins {
                 body.push_str(&grid_row(
                     stripe(i),
                     &[
-                        (340, format!("<code>{}</code>", escape(&t.namespace))),
+                        (340, timing_label(&t.namespace)),
                         (70, t.count.to_string()),
                         (90, ms(t.avg_us)),
                         (90, ms(t.p95_us)),
@@ -488,6 +489,17 @@ pub mod builtins {
             }
         }
         page("Stats", &body)
+    }
+
+    /// The namespace cell of a timings row: the name, and under it what the engine says it
+    /// measures. A name the engine does not know, such as an embedder's own, keeps just its
+    /// name rather than a guess.
+    pub(super) fn timing_label(namespace: &str) -> String {
+        let mut cell = format!("<code>{}</code>", escape(namespace));
+        if let Some(timing) = gosub_shared::timing::Timing::from_name(namespace) {
+            cell.push_str(&format!("<div class=\"desc\">{}</div>", escape(timing.describes())));
+        }
+        cell
     }
 
     fn config(r: &PageRequest<'_>) -> PageResponse {
@@ -761,6 +773,21 @@ mod tests {
         assert!(html.contains("4321 px"));
         assert!(html.contains("12 tiles, 3.0 MiB"));
         assert!(html.contains("test-backend"));
+    }
+
+    #[test]
+    fn stats_timings_say_what_they_measure() {
+        use gosub_shared::timing::Timing;
+
+        let cell = builtins::timing_label("pipeline.rasterize");
+        assert!(cell.contains("<code>pipeline.rasterize</code>"));
+        assert!(cell.contains(&builtins::escape(Timing::PipelineRasterize.describes())));
+    }
+
+    #[test]
+    fn stats_timings_leave_an_unknown_name_undescribed() {
+        let cell = builtins::timing_label("embedder.<own>");
+        assert_eq!(cell, "<code>embedder.&lt;own&gt;</code>");
     }
 
     #[test]
