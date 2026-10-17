@@ -2113,6 +2113,12 @@ mod tests {
             lines("grid-row: 0 a / span -2 a"),
             [GridLine::Auto, GridLine::Auto, GridLine::Auto, GridLine::Auto]
         );
+        // A quoted `"/"` is not an identifier, so the declaration is dropped and the earlier
+        // placement stands.
+        assert_eq!(
+            lines("grid-row-start: 2; grid-row-start: \"/\""),
+            [GridLine::Line(2), GridLine::Auto, GridLine::Auto, GridLine::Auto]
+        );
     }
 
     #[test]

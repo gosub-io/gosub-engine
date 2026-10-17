@@ -632,12 +632,12 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 // Matching them via the permissive catch-all let `<custom-ident>` swallow
                 // units and numbers, e.g. `transition: 0.2s ease left` had `0.2s` claimed as
                 // the transition-property name. A delimiter (`/`, the brackets of a line-name
-                // list) is a `CssValue::Delim`, so it never reaches this arm.
-                "custom-ident" | "ident" => {
-                    if let CssValue::String(_) = value {
-                        return first_match(input);
-                    }
-                }
+                // list) is a `CssValue::Delim`, so it never reaches this arm, but a quoted `"/"`
+                // still arrives as a String and is no identifier.
+                "custom-ident" | "ident" => match value {
+                    CssValue::String(s) if s != "/" && s != "[" && s != "]" => return first_match(input),
+                    _ => {}
+                },
                 "string" => match value {
                     // An identifier is accepted: a quoted string and a bare identifier both
                     // arrive as `CssValue::String`, so `<string>` cannot tell `"a"` from `a`
