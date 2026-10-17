@@ -1759,6 +1759,72 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A navigation has no deadline for its whole body: a download that takes longer than
+    /// `net.timeout.body_secs` is still offered, as long as it keeps arriving.
+    #[tokio::test]
+    async fn a_download_slower_than_the_body_deadline_is_offered() {
+        use crate::Setting;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let chunk = vec![3u8; 1024];
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\
+                         Content-Disposition: attachment; filename=\"slow.bin\"\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n",
+                        chunk.len() * 6
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    for _ in 0..6 {
+                        tokio::time::sleep(Duration::from_millis(400)).await;
+                        if stream.write_all(&chunk).await.is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        engine
+            .settings()
+            .set("net.timeout.body_secs", Setting::UInt(1))
+            .expect("set body deadline");
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.navigate(format!("http://127.0.0.1:{port}/slow.bin"))
+            .await
+            .expect("navigate");
+
+        let total = tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadRequested { total_bytes, .. }) => return total_bytes,
+                    Ok(EngineEvent::Navigation {
+                        event: crate::events::NavigationEvent::Failed { error, .. },
+                        ..
+                    }) => panic!("navigation failed instead of offering: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for DownloadRequested");
+        assert_eq!(total, Some(6 * 1024));
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// A streamed document reaches the parser whole, also past the 4 MiB a shared body keeps
     /// for a late subscriber: the `<title>` at its very end is the one the tab reports.
     #[tokio::test]

@@ -35,6 +35,8 @@ pub struct Outbound {
     pub body_preview: Option<usize>,
     /// Who is asking: origin, referrer and mixed-content handling.
     pub context: RequestContext,
+    /// No deadline for the whole body; see `NetFetch::no_total_body_timeout`.
+    pub no_total_body_timeout: bool,
 }
 
 impl Outbound {
@@ -50,6 +52,7 @@ impl Outbound {
             cookies: None,
             body_preview: None,
             context: RequestContext::default(),
+            no_total_body_timeout: false,
         }
     }
 }
@@ -1017,6 +1020,7 @@ impl NetProcess {
             cookies,
             body_preview,
             context,
+            no_total_body_timeout,
         } = out;
         let permit = tokio::select! {
             _ = cancel.cancelled() => return NetReply::error("cancelled"),
@@ -1041,6 +1045,7 @@ impl NetProcess {
             cookies,
             body_preview,
             context,
+            no_total_body_timeout,
         }));
         // The link write can block on a full pipe (bodies can be large), so it
         // runs on a blocking thread rather than a runtime worker.

@@ -405,6 +405,7 @@ fn dispatch_to_net_process(
     // No in-process fetcher emits the terminal event that would drop this.
     let req_id = req.req_id;
     let context = crate::net::process::protocol::RequestContext::of(&req);
+    let no_total_body_timeout = req.total_body_timeout == Some(None);
     let mut headers = crate::net::process::protocol::flatten_headers(&req.headers);
 
     // The body crosses the link as plain bytes. Its Content-Type is folded into
@@ -447,6 +448,7 @@ fn dispatch_to_net_process(
             cookies,
             body_preview,
             context,
+            no_total_body_timeout,
         };
         // A process that died is respawned before the request goes out;
         // blocking, so off the runtime's workers.
