@@ -14,7 +14,7 @@ for line in lines:
         authors.append(line)
 
 
-sorted_lines = header + sorted(authors)
+sorted_lines = header + sorted(authors, key=str.casefold)
 
-with open(FILE_NAME, 'w') as f: 
-    f.write('\n'.join(sorted_lines))
+with open(FILE_NAME, 'w') as f:
+    f.write('\n'.join(sorted_lines) + '\n')
