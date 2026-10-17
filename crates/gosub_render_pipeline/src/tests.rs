@@ -1950,6 +1950,46 @@ mod rendertree_from_engine {
         assert!((w - 300.0).abs() < 0.5, "expected 300.0px, got {w}");
     }
 
+    /// Wikipedia's citation brackets: `.reference a::before { content: "[" }`. A string holding
+    /// `[`, `]` or `/` was refused by the grammar as punctuation, so no box was generated.
+    #[test]
+    fn content_strings_of_brackets_and_slashes_generate_their_text() {
+        use crate::common::document::node::NodeType;
+        use crate::common::document::pipeline_doc::PipelineDocument;
+
+        let html = r#"<html><head><style>
+            #cite::before { content: "["; }
+            #cite::after { content: "]"; }
+            #slash::before { content: "/"; }
+        </style></head><body><sup id="cite">1</sup><span id="slash">x</span></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        // The text of every node below `id`, generated or not, in order.
+        fn text_below(adapter: &GosubDocumentAdapter<Config>, id: gosub_shared::node::NodeId, out: &mut String) {
+            for child in adapter.children(id) {
+                if let Some(NodeType::Text(text)) = adapter.get_node_by_id(child).map(|n| n.node_type) {
+                    out.push_str(&text);
+                }
+                text_below(adapter, child, out);
+            }
+        }
+        let text_of = |id: &str| {
+            let mut out = String::new();
+            text_below(
+                &adapter,
+                find_node_by_id_attr(&adapter.doc, root, id).expect(id),
+                &mut out,
+            );
+            out
+        };
+
+        assert_eq!(text_of("cite"), "[1]");
+        assert_eq!(text_of("slash"), "/x");
+    }
+
     #[test]
     fn inline_custom_properties_join_the_scope() {
         // Same element, a descendant, and a pseudo-element all resolve `var()` against the

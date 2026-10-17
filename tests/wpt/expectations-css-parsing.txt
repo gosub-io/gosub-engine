@@ -14157,6 +14157,7 @@ PASS css/css-grid/parsing/grid-area-computed.html :: Property grid-column value 
 FILE css/css-grid/parsing/grid-area-invalid.html
 PASS css/css-grid/parsing/grid-area-invalid.html :: e.style['grid-row'] = "1.0" should not set the property value
 PASS css/css-grid/parsing/grid-area-invalid.html :: e.style['grid-column'] = "1 2" should not set the property value
+PASS css/css-grid/parsing/grid-area-invalid.html :: e.style['grid-row-start'] = "+-3" should not set the property value
 PASS css/css-grid/parsing/grid-area-invalid.html :: e.style['grid-column-start'] = "0" should not set the property value
 PASS css/css-grid/parsing/grid-area-invalid.html :: e.style['grid-column-end'] = "1st" should not set the property value
 PASS css/css-grid/parsing/grid-area-invalid.html :: e.style['grid-area'] = "auto / auto / auto / auto / auto" should not set the property value

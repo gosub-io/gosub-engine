@@ -631,21 +631,18 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 // Identifiers are ident-like tokens only: the parser lowers them to String.
                 // Matching them via the permissive catch-all let `<custom-ident>` swallow
                 // units and numbers, e.g. `transition: 0.2s ease left` had `0.2s` claimed as
-                // the transition-property name. Slashes are separators, not idents.
+                // the transition-property name. A delimiter (`/`, the brackets of a line-name
+                // list) is a `CssValue::Delim`, so it never reaches this arm, but a quoted `"/"`
+                // still arrives as a String and is no identifier.
                 "custom-ident" | "ident" => match value {
-                    // The brackets of a line-name list are structure, not identifiers, or the
-                    // `<custom-ident>*` inside `[ ... ]` would swallow its own closing bracket.
                     CssValue::String(s) if s != "/" && s != "[" && s != "]" => return first_match(input),
                     _ => {}
                 },
-                // A quoted string and a bare identifier both arrive as `CssValue::String`, so
-                // `<string>` cannot yet tell `"a"` from `a`; it can at least refuse the
-                // structural tokens, or `grid-template: [a] 10px` matched its `<string>` piece
-                // against the `[`.
                 "string" => match value {
-                    CssValue::String(s) if s == "/" || s == "[" || s == "]" => return no_match(input),
                     // An identifier is accepted: a quoted string and a bare identifier both
-                    // arrive as `CssValue::String`, so `<string>` cannot tell them apart yet.
+                    // arrive as `CssValue::String`, so `<string>` cannot tell `"a"` from `a`
+                    // yet. A delimiter is its own variant, so a quoted `"["` or `"/"` is a
+                    // string like any other.
                     CssValue::String(_) => return first_match(input),
                     // A function this engine does not implement (`random-item()`) is accepted
                     // as it always was, so an unsupported feature reads as "cannot tell" rather
@@ -673,7 +670,7 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 // `grid-column: 1 / span 2`). Grammar-level separators still match through
                 // the Literal arm.
                 _ if matches!(value, CssValue::Comma) => {}
-                _ if matches!(value, CssValue::String(s) if s == "/") => {}
+                _ if matches!(value, CssValue::Delim(s) if s == "/") => {}
                 _ => {
                     return first_match(input);
                 } // _ => panic!("Unknown built-in datatype: {:?}", datatype),
@@ -713,6 +710,11 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
             }
         }
         SyntaxComponent::Literal { literal, .. } => match value {
+            // The `/` of `font: 14px/1.5`, the `[` and `]` of a line-name list.
+            CssValue::Delim(v) if v == literal => return first_match(input),
+            // Only a word can be spelled by an identifier; a punctuation literal is matched by
+            // a delimiter alone, so a quoted `"/"` is not taken for the separator.
+            CssValue::String(_) if !literal.chars().any(char::is_alphanumeric) => {}
             CssValue::String(v) if v.eq(literal) => return first_match(input),
             CssValue::String(v) if v.eq_ignore_ascii_case(literal) => {
                 log::warn!("Case insensitive literal matched");

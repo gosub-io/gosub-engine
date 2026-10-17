@@ -176,8 +176,8 @@ fn linear_calc(terms: &[CssValue]) -> Option<LengthPercentage> {
     let mut sign = 1.0_f32;
     for term in terms {
         match term {
-            CssValue::String(op) if op == "+" => sign = 1.0,
-            CssValue::String(op) if op == "-" => sign = -1.0,
+            CssValue::Delim(op) if op == "+" => sign = 1.0,
+            CssValue::Delim(op) if op == "-" => sign = -1.0,
             CssValue::Percentage(value) => percent += sign * *value as f32,
             CssValue::Unit(_, unit) if unit == "px" => px += sign * term.unit_to_px(),
             CssValue::Zero => {}
@@ -279,6 +279,10 @@ fn is_keyword(value: &CssValue, keyword: &str) -> bool {
     as_string(value).is_some_and(|word| word.eq_ignore_ascii_case(keyword))
 }
 
+fn is_delim(value: &CssValue, delim: &str) -> bool {
+    matches!(value, CssValue::Delim(d) if d == delim)
+}
+
 /// One side of a track size. A bare number is only a length when it is `0`, the one length CSS
 /// lets you write without a unit (`minmax(0, 1fr)`, Tailwind's equal-width grid).
 fn track_breadth(value: &CssValue) -> Option<TrackBreadth> {
@@ -331,10 +335,10 @@ fn track_items(tokens: &[CssValue], in_repeat: bool) -> Option<Vec<TrackListItem
     let mut index = 0;
     while index < tokens.len() {
         let token = &tokens[index];
-        if is_keyword(token, "[") {
+        if is_delim(token, "[") {
             let mut names = Vec::new();
             index += 1;
-            while index < tokens.len() && !is_keyword(&tokens[index], "]") {
+            while index < tokens.len() && !is_delim(&tokens[index], "]") {
                 names.push(Arc::from(as_string(&tokens[index])?));
                 index += 1;
             }
@@ -2108,6 +2112,12 @@ mod tests {
         assert_eq!(
             lines("grid-row: 0 a / span -2 a"),
             [GridLine::Auto, GridLine::Auto, GridLine::Auto, GridLine::Auto]
+        );
+        // A quoted `"/"` is not an identifier, so the declaration is dropped and the earlier
+        // placement stands.
+        assert_eq!(
+            lines("grid-row-start: 2; grid-row-start: \"/\""),
+            [GridLine::Line(2), GridLine::Auto, GridLine::Auto, GridLine::Auto]
         );
     }
 
