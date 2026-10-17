@@ -87,7 +87,8 @@ async fn stream_to_file(
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     const REPORT_EVERY: u64 = 256 * 1024;
-    let mut reader = crate::net::SharedBody::combined_reader(peek_buf, shared);
+    // Lossless: the body waits for the disk rather than dropping this reader.
+    let mut reader = crate::net::SharedBody::combined_reader_lossless(peek_buf, shared);
     let mut file = tokio::fs::File::create(path)
         .await
         .with_context(|| format!("create {}", path.display()))?;
@@ -2008,10 +2009,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
             .with_priority(Priority::High)
             .with_kind(ResourceKind::Document.to_net())
             .with_initiator(Initiator::Navigation.to_net())
-            // Use buffered mode so the full document body is available before parsing.
-            // The streaming path has a race where SharedBody can close before parse_stream
-            // subscribes, causing truncated HTML (only the 5 KB peek buffer is parsed).
-            .with_streaming(false)
+            // Streamed, so a download is spooled to disk instead of held to the fetcher's cap
+            // on a buffered body. A parser that subscribes late still gets the whole body:
+            // the shared body replays its start to every subscriber.
+            .with_streaming(true)
             .with_auto_decode(true);
         req = navigation(req, initiator, referrer_policy.unwrap_or(self.referrer_policy));
         if let Some(body) = body {
@@ -2185,7 +2186,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     // survives instead of becoming a message string.
                     let error = match e.downcast_ref::<NetError>() {
                         Some(net) => NavigationError::Net(net.clone()),
-                        None => NavigationError::NetworkError(format!("Routing error: {e}")),
+                        None => NavigationError::NetworkError(format!("Routing error: {e:#}")),
                     };
                     let _ = tx_done.send(NavigationResult::Err { nav_id, error });
                 }

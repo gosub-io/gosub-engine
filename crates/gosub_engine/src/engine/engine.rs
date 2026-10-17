@@ -1699,6 +1699,134 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A navigation streams its body, so a download is not held to the fetcher's cap on a
+    /// buffered body (64 MiB): it spools to disk and is offered, up to `max_spool_bytes`.
+    #[tokio::test]
+    async fn a_download_past_the_buffered_body_cap_is_offered() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        const SIZE: usize = 80 * 1024 * 1024;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\
+                         Content-Disposition: attachment; filename=\"big.iso\"\r\n\
+                         Content-Length: {SIZE}\r\nConnection: close\r\n\r\n"
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let chunk = vec![7u8; 1024 * 1024];
+                    for _ in 0..SIZE / chunk.len() {
+                        if stream.write_all(&chunk).await.is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.navigate(format!("http://127.0.0.1:{port}/big.iso"))
+            .await
+            .expect("navigate");
+
+        let total = tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadRequested { total_bytes, .. }) => return total_bytes,
+                    Ok(EngineEvent::Navigation {
+                        event: crate::events::NavigationEvent::Failed { error, .. },
+                        ..
+                    }) => panic!("navigation failed instead of offering: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for DownloadRequested");
+        assert_eq!(total, Some(SIZE as u64));
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A streamed document reaches the parser whole, also past the 4 MiB a shared body keeps
+    /// for a late subscriber: the `<title>` at its very end is the one the tab reports.
+    #[tokio::test]
+    async fn a_large_streamed_document_is_parsed_to_its_end() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let mut page = String::from("<!doctype html><html><head></head><body>");
+        while page.len() < 6 * 1024 * 1024 {
+            page.push_str("<p>filler filler filler filler filler filler filler</p>\n");
+        }
+        page.push_str("<title>the end</title></body></html>");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let page = page.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n",
+                        page.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(page.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.navigate(format!("http://127.0.0.1:{port}/long.html"))
+            .await
+            .expect("navigate");
+
+        tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::Navigation {
+                        event: crate::events::NavigationEvent::Finished { .. },
+                        ..
+                    }) => return,
+                    Ok(EngineEvent::Navigation {
+                        event: crate::events::NavigationEvent::Failed { error, .. },
+                        ..
+                    }) => panic!("navigation failed: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for the navigation to finish");
+        // The handle learns the title from the worker's next state update.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while tab.title().is_empty() && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(tab.title(), "the end", "the document was cut short");
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// Without `child_process::dispatch()` the process settings must not survive
     /// `start()`: a child would re-exec into this test binary's own startup.
     #[cfg(feature = "process-isolation")]

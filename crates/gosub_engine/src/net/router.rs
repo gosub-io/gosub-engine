@@ -89,7 +89,9 @@ async fn spool_body_to_temp(
             file.write_all(&body).await.context("write download temp file")?;
         }
         BodyContent::Stream { shared } => {
-            let mut reader = SharedBody::combined_reader(peek_buf, shared);
+            // Lossless: writing to disk is slower than the network, and a lagging reader of a
+            // shared body is dropped; this one makes the body wait for it instead.
+            let mut reader = SharedBody::combined_reader_lossless(peek_buf, shared);
             let mut buf = vec![0u8; 64 * 1024];
             let mut total: u64 = 0;
             loop {

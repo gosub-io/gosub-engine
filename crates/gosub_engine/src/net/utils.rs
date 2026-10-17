@@ -13,7 +13,8 @@ use tokio::io::AsyncReadExt;
 /// Convert a streaming body to a buffered fetch-result by reading it to the end.
 pub async fn stream_to_bytes(peek_buf: PeekBuf, shared: Arc<SharedBody>) -> anyhow::Result<Bytes> {
     let mut out = Vec::with_capacity(peek_buf.len() + 8192);
-    let mut reader = SharedBody::combined_reader(peek_buf, shared);
+    // Lossless: a reader that must have the whole body is waited for, never dropped.
+    let mut reader = SharedBody::combined_reader_lossless(peek_buf, shared);
     if let Err(e) = reader.read_to_end(&mut out).await {
         return Err(NetError::Io(Arc::new(e)).into());
     }
