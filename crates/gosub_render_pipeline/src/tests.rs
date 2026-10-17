@@ -4211,6 +4211,83 @@ mod rendertree_from_engine {
         assert!(ib.x > 0.0, "it stays on the line after \"before\", got {ib:?}");
     }
 
+    /// A `flow-root` establishes a block formatting context (css-display-3 §2.2): it grows to
+    /// contain its floats, and its first child's top margin stays inside it instead of collapsing
+    /// through. A plain block next to it shows both going the other way.
+    #[test]
+    fn a_flow_root_contains_its_floats_and_keeps_its_childs_margin() {
+        let html = r#"<html><body style="margin: 0">
+          <div id="root" style="display: flow-root"><div style="float: left; width: 50px; height: 40px"></div></div>
+          <div id="plain"><div style="float: left; width: 50px; height: 40px"></div></div>
+          <div id="m-root" style="display: flow-root; margin-top: 100px"><div id="m-root-child" style="margin-top: 10px; height: 5px"></div></div>
+          <div id="m-plain" style="margin-top: 100px"><div id="m-plain-child" style="margin-top: 10px; height: 5px"></div></div>
+        </body></html>"#;
+        let [root, plain, m_root, m_root_child, m_plain, m_plain_child] = border_boxes(
+            html,
+            &["root", "plain", "m-root", "m-root-child", "m-plain", "m-plain-child"],
+        )[..] else {
+            unreachable!()
+        };
+
+        assert!(
+            (root.height - 40.0).abs() < 0.5,
+            "the flow-root grows to its float, got {root:?}"
+        );
+        assert!(plain.height < 0.5, "a plain block does not, got {plain:?}");
+
+        assert!(
+            (m_root_child.y - m_root.y - 10.0).abs() < 0.5,
+            "the child's margin stays inside the flow-root, got {m_root:?} around {m_root_child:?}"
+        );
+        assert!(
+            (m_plain_child.y - m_plain.y).abs() < 0.5,
+            "in a plain block it collapses through, got {m_plain:?} around {m_plain_child:?}"
+        );
+    }
+
+    /// The children of a `display: contents` element are laid out as children of its parent
+    /// (css-display-3 §2.5): inside a flex container they are flex items, side by side, and the
+    /// wrapper's padding has no box to apply to.
+    #[test]
+    fn a_contents_wrappers_children_are_its_parents_flex_items() {
+        let html = r#"<html><body style="margin: 0">
+          <div id="row" style="display: flex">
+            <div id="a" style="width: 50px; height: 20px"></div>
+            <div style="display: contents; padding: 30px"><div id="b" style="width: 50px; height: 20px"></div><div id="c" style="width: 50px; height: 20px"></div></div>
+          </div>
+        </body></html>"#;
+        let [row, a, b, c] = border_boxes(html, &["row", "a", "b", "c"])[..] else {
+            unreachable!()
+        };
+
+        assert!(
+            (a.y - b.y).abs() < 0.5 && (b.y - c.y).abs() < 0.5,
+            "all three share the flex row, got {a:?} {b:?} {c:?}"
+        );
+        assert!(
+            (b.x - 50.0).abs() < 0.5 && (c.x - 100.0).abs() < 0.5,
+            "one after the other with no padding in between, got {b:?} {c:?}"
+        );
+        assert!((row.height - 20.0).abs() < 0.5, "the row is one item tall, got {row:?}");
+    }
+
+    /// Inside a line, a `display: contents` span leaves its content on the line, in order.
+    #[test]
+    fn a_contents_span_keeps_its_content_on_the_line() {
+        let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
+          <p><i id="a">a</i> <span style="display: contents">b <b id="c">c</b></span> <i id="d">d</i></p>
+        </body></html>"#;
+        let [a, c, d] = border_boxes(html, &["a", "c", "d"])[..] else {
+            unreachable!()
+        };
+
+        assert!(
+            (a.y - c.y).abs() < 0.5 && (c.y - d.y).abs() < 0.5,
+            "one line, got {a:?} {c:?} {d:?}"
+        );
+        assert!(a.x < c.x && c.x < d.x, "in document order, got {a:?} {c:?} {d:?}");
+    }
+
     /// `height` does not apply to a non-replaced inline box (CSS 2 §10.6.1), so a percentage on
     /// one is not turned into the block's height: the span stays one line tall.
     #[test]

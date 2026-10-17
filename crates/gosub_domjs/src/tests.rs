@@ -810,6 +810,20 @@ fn display_reads_back_in_its_short_form_and_blockifies_when_positioned() {
     assert_eq!(value, "inline-block|inline-block#block#list-item");
 }
 
+/// `display: contents` computes to `none` on a replaced element or form control and to `block`
+/// on the root (css-display-3 Appendix B and §2.8); elsewhere, a button included, it stays.
+#[test]
+fn display_contents_computes_to_none_or_block_where_it_cannot_splice() {
+    let value = eval(
+        "<div id=d style=display:contents></div><img id=i style=display:contents>\
+         <button id=b style=display:contents></button>",
+        "const v = id => getComputedStyle(document.getElementById(id)).display; \
+         document.documentElement.style.display = 'contents'; \
+         v('d') + '|' + v('i') + '|' + v('b') + '|' + getComputedStyle(document.documentElement).display;",
+    );
+    assert_eq!(value, "contents|none|contents|block");
+}
+
 /// CSSOM §6.1: a block holds longhands. A shorthand is stored as the longhands it sets - so
 /// `length` counts them, a longhand reads back, and removing one keeps the others - while the
 /// shorthand itself still reads back as written for as long as it is whole.

@@ -474,6 +474,8 @@ fn grid_areas(value: &CssValue) -> Option<GridAreas> {
 fn display_of(keyword: &str) -> Display {
     match keyword {
         "block" => Display::Block,
+        "flow-root" => Display::FlowRoot,
+        "contents" => Display::Contents,
         "inline" => Display::Inline,
         "inline-block" => Display::InlineBlock,
         "none" => Display::None,
@@ -491,8 +493,8 @@ fn display_of(keyword: &str) -> Display {
         "table-row-group" => Display::TableRowGroup,
         "table-column" => Display::TableColumn,
         "table-column-group" => Display::TableColumnGroup,
-        // `contents` and `list-item` among others: no box type of their own here, and a block
-        // box is the closest this engine has.
+        // `list-item` and `ruby` among others: no box type of their own here, and a block box
+        // is the closest this engine has.
         _ => Display::Block,
     }
 }

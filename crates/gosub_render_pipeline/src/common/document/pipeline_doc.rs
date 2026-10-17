@@ -972,7 +972,11 @@ where
         }
         if is_pseudo_id(u64::from(id)) {
             let (owner, role) = decode_pseudo(id);
-            // Text child's parent is its pseudo-element; the pseudo-element's parent is the owner.
+            // Text child's parent is its pseudo-element; the pseudo-element's parent is the owner,
+            // or the owner's box parent when the owner is `display: contents`.
+            if !role_is_text(role) && self.is_spliced_away(owner) {
+                return self.parent(owner);
+            }
             return Some(if role_is_text(role) {
                 encode_pseudo(
                     owner,
@@ -986,7 +990,13 @@ where
                 owner
             });
         }
-        self.flat_parent(id)
+        let parent = self.flat_parent(id)?;
+        // A slot or `display: contents` element spliced out of the box tree is still the style
+        // parent (`flat_parent`), but the box parent is wherever it was spliced into.
+        if self.is_spliced_away(parent) {
+            return self.parent(parent);
+        }
+        Some(parent)
     }
 
     /// The flat-tree parent of a real node: the slot it was projected into, or the host
@@ -1037,9 +1047,11 @@ where
     ///  - a **shadow host** renders its shadow tree, so it yields the shadow root's children.
     ///    The shadow root itself is spliced out: it generates no box and carries no styles.
     ///  - a **`<slot>`** is replaced by the nodes projected into it, or by its own children as
-    ///    fallback when nothing was. Like `display: contents`, which this engine has no general
-    ///    support for, the slot generates no box - but it stays the *style* parent of what it
-    ///    projects, which [`parent`](Self::parent) is what makes true.
+    ///    fallback when nothing was. The user-agent sheet makes it `display: contents`, so it
+    ///    generates no box - but it stays the *style* parent of what it projects, which
+    ///    [`flat_parent`](Self::flat_parent) is what makes true.
+    ///  - a **`display: contents`** element is replaced by its own `::before`, children and
+    ///    `::after` (css-display-3 §2.5), and likewise stays their style parent.
     ///  - a **light child no slot claimed** is dropped, which is what makes unassigned content
     ///    invisible rather than merely unstyled.
     fn flat_children(&self, id: NodeId) -> Vec<NodeId> {
@@ -1054,8 +1066,12 @@ where
         let source = self.doc.shadow_root(id).unwrap_or(id);
 
         let children = self.doc.children(source);
-        // The overwhelmingly common case: no slot among them, so nothing to rewrite.
-        if !children.iter().any(|&child| self.is_slot(child)) {
+        // The overwhelmingly common case: nothing among them to splice away, so nothing to
+        // rewrite.
+        if !children
+            .iter()
+            .any(|&child| self.is_slot(child) || self.is_spliced_contents(child))
+        {
             return children.to_vec();
         }
 
@@ -1068,27 +1084,84 @@ where
 
     /// Whether a `<slot>` keeps a box of its own instead of being spliced away.
     ///
-    /// The user-agent sheet gives every slot `display: contents`, which this engine has no
-    /// `Display` variant for - it falls through to `Block` - so the *computed* value cannot
-    /// tell the UA default apart from an authored `display: block`. The raw declared keyword
-    /// can, so read that: only `contents` (or nothing at all) makes the slot transparent.
+    /// The user-agent sheet gives every slot `display: contents`; an author can give it a box
+    /// back. With no `display` at all (no user-agent sheet) it stays transparent too.
     fn slot_generates_a_box(&self, slot: NodeId) -> bool {
-        let arc = self.cached_styles(slot);
-
-        match <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), "display").and_then(|p| p.as_string()) {
-            Some("contents") | None => false,
-            Some(_) => true,
-        }
+        !matches!(self.display_of(slot), None | Some(Display::Contents))
     }
 
-    /// Appends `node` to `out`, or - when it is a slot that generates no box - whatever stands
-    /// in its place.
+    /// Whether `id` is an element whose `display: contents` this adapter splices away: it
+    /// generates no box, and its `::before`, children and `::after` take its place.
+    ///
+    /// Not inside a table, a row group or a row, and not when its own children are table parts:
+    /// the anonymous table boxes are built over DOM siblings and DOM parents, which splicing
+    /// would no longer match. There it keeps a block box, as it had before `contents` was read.
+    /// A slot is answered by [`slot_generates_a_box`](Self::slot_generates_a_box) instead.
+    fn is_spliced_contents(&self, id: NodeId) -> bool {
+        let raw = u64::from(id);
+        if is_pseudo_id(raw) || is_anon_box_id(raw) || self.doc.node_type(id) != GosubNodeType::ElementNode {
+            return false;
+        }
+        if self.is_slot(id) || self.display_of(id) != Some(Display::Contents) {
+            return false;
+        }
+        let in_table_part = self.flat_parent(id).is_some_and(|parent| {
+            matches!(
+                self.display_of(parent),
+                Some(
+                    Display::Table
+                        | Display::TableRowGroup
+                        | Display::TableHeaderGroup
+                        | Display::TableFooterGroup
+                        | Display::TableRow
+                )
+            )
+        });
+        let holds_table_parts = self
+            .doc
+            .children(self.doc.shadow_root(id).unwrap_or(id))
+            .iter()
+            .any(|&child| {
+                self.display_of(child)
+                    .is_some_and(|d| needs_table_parent(&d, Some(&Display::Block)))
+            });
+        !in_table_part && !holds_table_parts
+    }
+
+    /// Whether `id` was spliced out of the box tree: a slot without a box of its own, or a
+    /// `display: contents` element.
+    fn is_spliced_away(&self, id: NodeId) -> bool {
+        (self.is_slot(id) && !self.slot_generates_a_box(id)) || self.is_spliced_contents(id)
+    }
+
+    /// The box children of a real element, before any anonymous table box is wrapped around
+    /// them: `::before`, the flat-tree children, `::after`.
+    fn box_children(&self, id: NodeId) -> Vec<NodeId> {
+        let mut out = Vec::new();
+        // `::before` is inserted as the first child, `::after` as the last.
+        if self.pseudo_box(id, false).is_some() {
+            out.push(encode_pseudo(id, ROLE_BEFORE_ELEM));
+        }
+        out.extend(self.flat_children(id));
+        if self.pseudo_box(id, true).is_some() {
+            out.push(encode_pseudo(id, ROLE_AFTER_ELEM));
+        }
+        out
+    }
+
+    /// Appends `node` to `out`, or - when it is a slot that generates no box, or a
+    /// `display: contents` element - whatever stands in its place.
     ///
     /// The expansion recurses because what a slot projects can be another slot: a `<slot>` in
     /// the light DOM of a nested host is a slottable of the inner tree *and* a slot of the
     /// outer one, so content flows through both. It always terminates - projection steps move
     /// strictly outwards through the host nesting, fallback steps strictly down the tree.
     fn push_flattened(&self, node: NodeId, out: &mut Vec<NodeId>) {
+        if self.is_spliced_contents(node) {
+            // Its children were flattened already, so a `contents` among them is spliced too.
+            out.extend(self.box_children(node));
+            return;
+        }
         if !self.is_slot(node) || self.slot_generates_a_box(node) {
             out.push(node);
             return;
@@ -1275,7 +1348,24 @@ where
 
         let parent = self.inherited_from(id);
         let map = self.cached_styles(id);
-        map.computed_style(parent.as_deref())
+        let mut style = map.computed_style(parent.as_deref());
+        if style.box_group.display == Display::Contents {
+            if let Some(display) = self.contents_computes_to(id) {
+                style.box_mut().display = display;
+            }
+        }
+        style
+    }
+
+    /// What `display: contents` computes to on this element, where it cannot mean "no box"; the
+    /// rule is [`Display::contents_computes_to`].
+    fn contents_computes_to(&self, id: NodeId) -> Option<Display> {
+        let is_root = self
+            .doc
+            .parent(id)
+            .is_none_or(|parent| self.doc.node_type(parent) == GosubNodeType::DocumentNode);
+        let tag = self.doc.tag_name(id).unwrap_or("");
+        Display::contents_computes_to(tag, is_root)
     }
 
     /// The cascaded property map of `id`.
@@ -1731,15 +1821,7 @@ where
             };
         }
 
-        let mut out = Vec::new();
-        // `::before` is inserted as the first child, `::after` as the last.
-        if self.pseudo_box(id, false).is_some() {
-            out.push(encode_pseudo(id, ROLE_BEFORE_ELEM));
-        }
-        out.extend(self.flat_children(id));
-        if self.pseudo_box(id, true).is_some() {
-            out.push(encode_pseudo(id, ROLE_AFTER_ELEM));
-        }
+        let out = self.box_children(id);
         let display = self.display_of(id);
         let out = self.wrap_anon_table_runs(display.as_ref(), out);
         let out = self.wrap_anon_row_runs(display.as_ref(), out);

@@ -241,6 +241,12 @@ impl<'a> CssTaffyConverter<'a> {
         if ts.align_content.is_none() && matches!(ts.display, Display::Flex | Display::Grid) {
             ts.align_content = Some(AlignContent::FLEX_START);
         }
+        // That same rule is how a `flow-root` tells taffy it establishes a block formatting
+        // context, so no margin collapses through it (CSS 2 §8.3.1). `start` puts the content
+        // where `normal` would; float containment is ours, in `float::establishes_bfc`.
+        if ts.align_content.is_none() && self.declared_display() == Some(CssDisplay::FlowRoot) {
+            ts.align_content = Some(AlignContent::START);
+        }
 
         ts
     }

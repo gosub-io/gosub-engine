@@ -1,5 +1,5 @@
-//! The flat tree: how shadow hosts, slots and slotted content are traversed once the pipeline
-//! looks at a document, and what that does to style inheritance.
+//! The flat tree: how shadow hosts, slots, slotted content and `display: contents` elements are
+//! traversed once the pipeline looks at a document, and what that does to style inheritance.
 
 use std::sync::Arc;
 
@@ -212,14 +212,25 @@ fn a_slot_in_a_nested_hosts_light_dom_belongs_to_the_outer_tree() {
 // ── the flat tree is what styles resolve through ─────────────────────────────
 
 #[test]
-fn a_projected_nodes_parent_is_the_slot_it_landed_in() {
+fn a_projected_nodes_box_parent_is_where_its_slot_was_spliced() {
     let a =
         adapter("<body><div id=host><template shadowrootmode=open><slot id=s></slot></template><p id=p>x</p></div>");
     let projected = by_id(&a, "p");
 
-    // The DOM parent is still the host; only the flat tree moves.
+    // The DOM parent is still the host. The slot generates no box, so the box parent is the
+    // host as well, matching the host's children; the slot stays the style parent (see
+    // `a_projected_node_inherits_from_the_slot_not_from_its_host`).
     assert_eq!(a.doc.parent(projected), Some(by_id(&a, "host")));
-    assert_eq!(PipelineDocument::parent(&a, projected), Some(by_id(&a, "s")));
+    assert_eq!(PipelineDocument::parent(&a, projected), Some(by_id(&a, "host")));
+}
+
+#[test]
+fn a_projected_nodes_parent_is_the_slot_when_the_slot_has_a_box() {
+    let a = adapter(
+        "<body><div id=host><template shadowrootmode=open>\
+         <style>slot{display:block}</style><slot id=s></slot></template><p id=p>x</p></div>",
+    );
+    assert_eq!(PipelineDocument::parent(&a, by_id(&a, "p")), Some(by_id(&a, "s")));
 }
 
 #[test]
@@ -312,4 +323,67 @@ fn the_render_tree_contains_no_shadow_root_and_no_slot() {
         assert_ne!(doc.tag_name(id), Some("slot"), "a slot must not generate a box");
         assert!(doc.shadow_host(id).is_none(), "a shadow root must not generate a box");
     }
+}
+
+// ── display: contents ────────────────────────────────────────────────────────
+
+#[test]
+fn a_contents_element_is_replaced_by_its_children() {
+    // css-display-3 §2.5: no box of its own, its `::before`, children and `::after` stand in
+    // its place - and a `contents` inside it is spliced as well.
+    assert_eq!(
+        flat_tree(
+            "<head><style>#w::before{content:\"(\"}#w::after{content:\")\"}</style></head>\
+             <body><div id=w style=display:contents><p>a</p><i style=display:contents><b>b</b></i></div><em>c</em>"
+        ),
+        "<body>\n  ?\n    ?\n  <p>\n    \"a\"\n  <b>\n    \"b\"\n  ?\n    ?\n  <em>\n    \"c\"\n"
+    );
+}
+
+#[test]
+fn a_contents_element_stays_the_style_parent_but_not_the_box_parent() {
+    let a = adapter("<body id=body><div id=w style=\"display:contents;color:rgb(0,128,0)\"><p id=p>text</p></div>");
+    let p = by_id(&a, "p");
+    let text = a.doc.children(p)[0];
+
+    assert_eq!(a.parent(p), Some(by_id(&a, "body")), "the box parent skips the wrapper");
+    assert_eq!(
+        a.computed_style(text).inherited.color,
+        gosub_interface::style::Color::rgba(0, 128, 0, 255),
+        "inheritance still runs through it"
+    );
+}
+
+#[test]
+fn contents_on_the_root_or_a_replaced_element_has_nothing_to_splice() {
+    use gosub_interface::style::Display;
+
+    let a = adapter(
+        "<html id=root style=display:contents><body><img id=img style=display:contents>\
+         <input id=input style=display:contents><button id=button style=display:contents>b</button>",
+    );
+    // The root is blockified (css-display-3 §2.7); a replaced element or form control computes
+    // to `none` (Appendix B); a button is an ordinary container and keeps `contents`.
+    assert_eq!(a.computed_style(by_id(&a, "root")).box_group.display, Display::Block);
+    assert!(a.is_display_none(by_id(&a, "img")));
+    assert!(a.is_display_none(by_id(&a, "input")));
+    assert_eq!(
+        a.computed_style(by_id(&a, "button")).box_group.display,
+        Display::Contents
+    );
+}
+
+#[test]
+fn contents_among_table_parts_keeps_its_box() {
+    // The anonymous table boxes are built over DOM parents and siblings, so a `contents` inside
+    // a table part, or holding table parts, is not spliced: it keeps the block box it had, and
+    // stays the box parent of its children.
+    let a = adapter(
+        "<body><table><tbody id=tb style=display:contents><tr id=tr><td>x</td></tr></tbody></table>\
+         <div><div id=cells style=display:contents><span id=cell style=display:table-cell>y</span></div></div>",
+    );
+    // Anonymous table boxes may sit in between, as they do around a `display: block` tbody.
+    let box_ancestors = |id| std::iter::successors(a.parent(id), |&p| a.parent(p)).collect::<Vec<_>>();
+    assert!(box_ancestors(by_id(&a, "tr")).contains(&by_id(&a, "tb")));
+    assert!(box_ancestors(by_id(&a, "cell")).contains(&by_id(&a, "cells")));
 }
