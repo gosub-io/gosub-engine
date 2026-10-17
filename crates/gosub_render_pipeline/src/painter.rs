@@ -327,14 +327,6 @@ impl Painter {
         }
     }
 
-    fn get_parent_brush(&self, node_id: NodeId, color_of: ColorOf, default: Brush) -> Brush {
-        let doc = &self.layer_list.layout_tree.render_tree.doc;
-        match doc.parent(node_id) {
-            Some(parent_id) => self.get_brush(parent_id, color_of, default),
-            None => default,
-        }
-    }
-
     fn generate_wireframe_commands(&self, layout_element: &LayoutElementNode) -> Vec<PaintCommand> {
         let mut commands = Vec::new();
 
@@ -462,8 +454,9 @@ impl Painter {
 
         match &layout_element.context {
             ElementContext::Text(ctx) => {
-                let brush =
-                    self.get_parent_brush(dom_node_id, |style| style.inherited.color, Brush::solid(Color::BLACK));
+                // A text node's own style inherits `color` from its style parent, which is not
+                // its box parent when that is a `display: contents` element or a slot.
+                let brush = self.get_brush(dom_node_id, |style| style.inherited.color, Brush::solid(Color::BLACK));
                 let brush = self.apply_opacity(dom_node_id, brush);
 
                 let r = layout_element.box_model.content_box;

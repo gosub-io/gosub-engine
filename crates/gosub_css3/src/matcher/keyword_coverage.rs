@@ -141,8 +141,6 @@ const KNOWN_GAPS: &[(&str, &str, Gap)] = &[
     ("clear", "bottom", Gap::Merged),
     ("clear", "top", Gap::Merged),
     // display: no Display variant, so each becomes a block (css-display-3 gives each its own box).
-    ("display", "contents", Gap::Merged),
-    ("display", "flow-root", Gap::Merged),
     ("display", "list-item", Gap::Merged),
     ("display", "math", Gap::Merged),
     ("display", "ruby", Gap::Merged),

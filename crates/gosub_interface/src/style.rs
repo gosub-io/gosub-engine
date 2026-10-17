@@ -106,6 +106,12 @@ impl LengthPercentageAuto {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Display {
     Block,
+    /// `block flow-root`: a block box that establishes a new block formatting context, so it
+    /// contains its floats (css-display-3 §2.2).
+    FlowRoot,
+    /// Generates no box; its children (and `::before`/`::after`) take its place in the box
+    /// tree, while it stays their parent for inheritance (css-display-3 §2.5).
+    Contents,
     Inline,
     InlineBlock,
     None,
@@ -127,6 +133,30 @@ pub enum Display {
     TableColumn,
     /// `<colgroup>` - groups `<col>` elements, generates no box of its own.
     TableColumnGroup,
+}
+
+impl Display {
+    /// What `display: contents` computes to on an element where it cannot mean "no box", or
+    /// `None` where it keeps its meaning.
+    ///
+    /// On the root element it computes to `block` (css-display-3 §2.8). An element whose box is
+    /// more than a container for its children - a replaced element, a form control, `<br>`, an
+    /// `<svg>` laid out by CSS, MathML - has nothing to splice, and there it computes to `none`
+    /// (css-display-3 Appendix B). `button`, `details`, `fieldset` and `legend` behave normally.
+    #[must_use]
+    pub fn contents_computes_to(tag: &str, is_root: bool) -> Option<Display> {
+        if is_root {
+            return Some(Display::Block);
+        }
+        const UNUSUAL: &[&str] = &[
+            "br", "wbr", "meter", "progress", "canvas", "embed", "object", "audio", "iframe", "img", "video", "frame",
+            "frameset", "input", "textarea", "select", "svg", "math",
+        ];
+        UNUSUAL
+            .iter()
+            .any(|unusual| unusual.eq_ignore_ascii_case(tag))
+            .then_some(Display::None)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

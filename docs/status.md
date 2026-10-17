@@ -129,8 +129,9 @@ in `crates/gosub_interface/src/style.rs` - grep that for the current set. It
 covers the box model, flex, grid (including `grid-template-areas`), `order` for both, floats
 with document-order band resolution, absolute and fixed positioning, `position: sticky`, overflow
 and scrolling, borders and radii, backgrounds and gradients, `box-shadow`, outlines, opacity and
-`mix-blend-mode`, `visibility` (paint and hit testing; `collapse` does not drop table tracks), and
-the text properties. Block layout, flex and grid come from Taffy; inline content is emulated with
+`mix-blend-mode`, `visibility` (paint and hit testing; `collapse` does not drop table tracks),
+`display: contents` (not among table parts, where it keeps a block box) and `flow-root`, and the
+text properties. Block layout, flex and grid come from Taffy; inline content is emulated with
 anonymous flex containers; CSS tables go to `gosub_lattice` through the `TableTree` adapter.
 After layout: paint, layer promotion, tiling, rasterization, and compositing.
 
