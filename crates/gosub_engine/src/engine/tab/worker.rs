@@ -1123,7 +1123,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
             .with_priority(Priority::Low)
             .with_kind(ResourceKind::Other.to_net())
             .with_initiator(Initiator::Other.to_net())
-            .with_streaming(false)
+            // Streamed to the file as it arrives, so a download is not held to the cap on a
+            // buffered body, nor to a deadline for the whole of it: a large one takes as long
+            // as it takes, and the idle timeout still ends one that stalls.
+            .with_streaming(true)
+            .without_total_body_timeout()
             .with_auto_decode(true)
             .build();
 
@@ -2013,6 +2017,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // on a buffered body. A parser that subscribes late still gets the whole body:
             // the shared body replays its start to every subscriber.
             .with_streaming(true)
+            // A navigation can turn out to be a download, which takes as long as it takes;
+            // the idle timeout still ends a body that stalls.
+            .without_total_body_timeout()
             .with_auto_decode(true);
         req = navigation(req, initiator, referrer_policy.unwrap_or(self.referrer_policy));
         if let Some(body) = body {

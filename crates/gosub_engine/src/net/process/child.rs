@@ -610,6 +610,9 @@ async fn perform_inner(
         .with_streaming(streaming)
         .with_auto_decode(true);
     let mut builder = fetch.context.apply(builder);
+    if fetch.no_total_body_timeout {
+        builder = builder.without_total_body_timeout();
+    }
     if let Some(body) = fetch.body {
         // Plain bytes: the Content-Type already travelled in the headers.
         builder = builder.with_body(RequestBody::bytes(body));

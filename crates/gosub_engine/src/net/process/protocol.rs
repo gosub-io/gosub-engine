@@ -125,6 +125,12 @@ pub struct NetFetch {
     /// would otherwise rebuild the request without.
     #[serde(default)]
     pub context: RequestContext,
+    /// The request lifted its deadline for the whole body
+    /// (`FetchRequest::total_body_timeout` of `Some(None)`): a navigation or a
+    /// download, which takes as long as it takes. The network process's fetcher
+    /// would otherwise apply its own.
+    #[serde(default)]
+    pub no_total_body_timeout: bool,
 }
 
 /// The parts of a `FetchRequest` that say who is asking, as they travel. Without
