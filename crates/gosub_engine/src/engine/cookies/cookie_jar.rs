@@ -410,12 +410,18 @@ impl DefaultCookieJar {
     /// does any whose name and value outgrow a cookie line; then each origin
     /// and the jar keep their newest. Not the insert path's eviction order,
     /// which costs a scan per cookie evicted: a planted file can hold millions.
+    /// An expiry past the 400-day cap is brought down to it: no `Set-Cookie`
+    /// this jar took can expire later than that.
     pub(crate) fn enforce_limits(&mut self) {
         let now = Utc::now().timestamp();
+        let latest_expiry = now + MAX_COOKIE_LIFETIME_SECS;
         let keep =
             |c: &Cookie| c.expires.is_none_or(|exp| exp > now) && c.name.len() + c.value.len() <= MAX_COOKIE_BYTES;
         for bucket in self.entries.values_mut() {
             bucket.retain(keep);
+            for cookie in bucket.iter_mut() {
+                cookie.expires = cookie.expires.map(|exp| exp.min(latest_expiry));
+            }
             if bucket.len() > MAX_COOKIES_PER_ORIGIN {
                 keep_newest(bucket, MAX_COOKIES_PER_ORIGIN);
             }
@@ -1661,6 +1667,31 @@ mod tests {
             !jar.entries.contains_key("https://odd.test"),
             "expired and oversized both go"
         );
+    }
+
+    /// A file from a build without the 400-day cap: a later expiry is brought down to it, an
+    /// earlier one and a session cookie are left alone.
+    #[test]
+    fn a_restored_cookie_lives_at_most_400_days() {
+        let mut jar = DefaultCookieJar::new();
+        let now = Utc::now().timestamp();
+        let mut far = stored("far", "v", 0);
+        far.expires = Some(4_102_444_800); // 2100-01-01
+        let mut near = stored("near", "v", 1);
+        near.expires = Some(now + 3600);
+        jar.entries
+            .insert("https://example.com".into(), vec![far, near, stored("session", "v", 2)]);
+
+        jar.enforce_limits();
+
+        let limit = Utc::now().timestamp() + MAX_COOKIE_LIFETIME_SECS;
+        let expires: HashMap<&str, Option<i64>> = jar.entries["https://example.com"]
+            .iter()
+            .map(|c| (c.name.as_str(), c.expires))
+            .collect();
+        assert!(expires["far"].is_some_and(|exp| (limit - 60..=limit).contains(&exp)));
+        assert_eq!(expires["near"], Some(now + 3600));
+        assert_eq!(expires["session"], None);
     }
 
     /// More origins than a jar holds, and more bytes than its snapshot frame
