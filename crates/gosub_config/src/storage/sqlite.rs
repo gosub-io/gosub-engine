@@ -1,9 +1,11 @@
 use crate::errors::Error;
 use crate::settings::Setting;
+use crate::storage::SqliteKey;
 use crate::{Result, StorageAdapter};
 use parking_lot::Mutex;
 use rusqlite::{named_params, Connection};
 use std::collections::HashMap;
+use std::path::Path;
 use std::str::FromStr;
 
 /// SQLite-backed storage adapter. Each `get` and `set` call hits the database directly,
@@ -16,7 +18,17 @@ impl TryFrom<&String> for SqliteStorageAdapter {
     type Error = Error;
 
     fn try_from(path: &String) -> Result<Self> {
+        Self::open(Path::new(path), None)
+    }
+}
+
+impl SqliteStorageAdapter {
+    /// Open or create the settings database, encrypted with `key` when given.
+    pub fn open(path: &Path, key: Option<&SqliteKey>) -> Result<Self> {
         let conn = Connection::open(path)?;
+        if let Some(key) = key {
+            key.apply(&conn)?;
+        }
 
         let query = "CREATE TABLE IF NOT EXISTS settings (
             id INTEGER PRIMARY KEY,
