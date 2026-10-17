@@ -555,13 +555,25 @@ fn match_selector_part<C: HasDocument>(
             match attr.matcher {
                 MatcherType::None => true,
                 MatcherType::Equals => wanted_attr_value == got_attr_value,
-                MatcherType::Includes => wanted_attr_value.split_whitespace().any(|s| s == got_attr_value),
+                // One of the attribute's words is exactly the value; a value with whitespace in
+                // it can never be one word, so it matches nothing (selectors-4 §6.1).
+                MatcherType::Includes => {
+                    !wanted_attr_value.contains(|c: char| c.is_ascii_whitespace())
+                        && got_attr_value.split_ascii_whitespace().any(|s| s == wanted_attr_value)
+                }
                 MatcherType::DashMatch => {
                     got_attr_value == wanted_attr_value || got_attr_value.starts_with(&format!("{wanted_attr_value}-"))
                 }
-                MatcherType::PrefixMatch => got_attr_value.starts_with(wanted_attr_value),
-                MatcherType::SuffixMatch => got_attr_value.ends_with(wanted_attr_value),
-                MatcherType::SubstringMatch => got_attr_value.contains(wanted_attr_value),
+                // An empty value matches nothing for the substring matchers (selectors-4 §6.2).
+                MatcherType::PrefixMatch => {
+                    !wanted_attr_value.is_empty() && got_attr_value.starts_with(wanted_attr_value)
+                }
+                MatcherType::SuffixMatch => {
+                    !wanted_attr_value.is_empty() && got_attr_value.ends_with(wanted_attr_value)
+                }
+                MatcherType::SubstringMatch => {
+                    !wanted_attr_value.is_empty() && got_attr_value.contains(wanted_attr_value)
+                }
             }
         }
         CssSelectorPart::PseudoClass(name) => match name.as_ref() {

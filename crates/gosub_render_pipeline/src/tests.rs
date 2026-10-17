@@ -803,6 +803,49 @@ mod rendertree_from_engine {
         );
     }
 
+    /// `[att~=val]` looks for `val` among the attribute's words, and a `val` with whitespace in
+    /// it matches nothing (selectors-4 §6.1). An empty `^=`, `$=` or `*=` matches nothing (§6.2).
+    #[test]
+    fn attribute_word_and_substring_selectors() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::LengthPercentageAuto;
+
+        let html = r#"<html><head><style>
+          p[data-rel~=nofollow] { width: 100px }
+          p[data-rel~="a b"] { height: 30px }
+          p[data-p^=""], p[data-s$=""], p[data-c*=""] { width: 200px }
+          p[data-p^=ab], p[data-s$=yz], p[data-c*=mn] { height: 40px }
+        </style></head><body>
+          <p id="list" data-rel="noopener nofollow">x</p>
+          <p id="single" data-rel="nofollow">x</p>
+          <p id="longer" data-rel="nofollowing">x</p>
+          <p id="word" data-rel="a">x</p>
+          <p id="phrase" data-rel="a b">x</p>
+          <p id="prefix" data-p="abc">x</p>
+          <p id="suffix" data-s="xyz">x</p>
+          <p id="substring" data-c="lmno">x</p>
+        </body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let size = |id: &str| {
+            let node = find_node_by_id_attr(&adapter.doc, root, id).expect(id);
+            adapter.computed_style(node).size.clone()
+        };
+        let px = LengthPercentageAuto::Px;
+
+        assert_eq!(size("list").width, px(100.0), "nofollow is one of the words");
+        assert_eq!(size("single").width, px(100.0), "and the only word");
+        assert_ne!(size("longer").width, px(100.0), "a word must match whole");
+        assert_ne!(size("word").height, px(30.0), "a value with a space is never one word");
+        assert_ne!(size("phrase").height, px(30.0), "not even against the same text");
+        for id in ["prefix", "suffix", "substring"] {
+            assert_ne!(size(id).width, px(200.0), "an empty value matches nothing: {id}");
+            assert_eq!(size(id).height, px(40.0), "a non-empty one still matches: {id}");
+        }
+    }
+
     /// CSS 2 §10.3.7 regression: an absolutely-positioned auto-width box must shrink to fit
     /// but never exceed its containing block - an abs div wrapping a wide table once sized
     /// to the table's raw max-content (812px in an 800px viewport).
