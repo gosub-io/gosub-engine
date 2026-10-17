@@ -28,6 +28,7 @@ use r2d2_sqlite::SqliteConnectionManager;
 use crate::engine::cookies::cookie_jar::{CookieJar, DefaultCookieJar};
 use crate::engine::cookies::store::CookieStore;
 use crate::engine::cookies::{Cookie, CookieJarHandle, CookieStoreHandle};
+use crate::engine::storage::sqlite_key::{self, SqliteKey};
 use crate::engine::zone::ZoneId;
 use crate::EngineError;
 
@@ -50,7 +51,12 @@ impl SqliteCookieStore {
     /// Returns [`EngineError::CookieStore`] if the pool cannot be created or the
     /// `cookies` table cannot be created/migrated.
     pub fn new(path: PathBuf) -> Result<Arc<Self>, EngineError> {
-        let manager = SqliteConnectionManager::file(path);
+        Self::open(path, None)
+    }
+
+    /// Like [`new`](Self::new), encrypted with `key` when given.
+    pub fn open(path: PathBuf, key: Option<SqliteKey>) -> Result<Arc<Self>, EngineError> {
+        let manager = sqlite_key::manager(&path, key).map_err(|e| EngineError::CookieStore(e.into()))?;
         let pool = Pool::new(manager).map_err(|e| EngineError::CookieStore(e.into()))?;
 
         {

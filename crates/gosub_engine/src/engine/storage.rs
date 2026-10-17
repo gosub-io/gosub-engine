@@ -52,6 +52,7 @@ use std::sync::Arc;
 pub mod area;
 pub mod event;
 pub mod service;
+pub mod sqlite_key;
 pub mod types;
 
 pub mod local {
@@ -83,6 +84,7 @@ pub use local::in_memory::InMemoryLocalStore;
 pub use local::sqlite_store::SqliteLocalStore;
 pub use service::{StorageService, Subscription};
 pub use session::in_memory::InMemorySessionStore;
+pub use sqlite_key::{is_plaintext_database, SqliteKey};
 pub use types::PartitionKey;
 pub use types::PartitionPolicy;
 
