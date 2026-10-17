@@ -1261,7 +1261,12 @@ pub enum CssValue {
     /// `<integer>` even though it is ten.
     Number(f64, NumberKind),
     Percentage(f64),
+    /// An identifier or a quoted string: css-syntax keeps them apart, this does not yet.
     String(String),
+    /// A delimiter that is structure in a value, not text: the `/` of `16 / 9`, the `[` and
+    /// `]` of a grid line-name list, the `+ - *` of a math expression. Kept apart from
+    /// [`CssValue::String`] so a quoted `"["` or `"/"` is never taken for one.
+    Delim(String),
     Unit(f64, String),
     Function(String, Vec<CssValue>),
     Initial,
@@ -1357,7 +1362,7 @@ impl gosub_shared::memory::HeapSize for CssRule {
 impl gosub_shared::memory::HeapSize for CssValue {
     fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
         match self {
-            CssValue::String(text) => text.heap_size(walk),
+            CssValue::String(text) | CssValue::Delim(text) => text.heap_size(walk),
             CssValue::Unit(_, unit) => unit.heap_size(walk),
             CssValue::Function(name, args) => {
                 name.heap_size(walk);
@@ -1443,7 +1448,7 @@ impl Display for CssValue {
             // `0.30000000000000004`.
             CssValue::Number(num, _) => write!(f, "{}", *num as f32),
             CssValue::Percentage(p) => write!(f, "{}%", *p as f32),
-            CssValue::String(s) => write!(f, "{s}"),
+            CssValue::String(s) | CssValue::Delim(s) => write!(f, "{s}"),
             CssValue::Unit(val, unit) => write!(f, "{}{unit}", *val as f32),
             // A `url()` always serializes with its argument quoted, whatever the author wrote.
             // The unquoted `url(x)` form is a token the CSS syntax defines, not a string, and
@@ -1465,7 +1470,7 @@ impl Display for CssValue {
                 // where one belongs - after a comma, or between two arguments written side by
                 // side as in `translate(1px 2px)` - and never before a comma.
                 for (i, arg) in args.iter().enumerate() {
-                    let bracket = |value: &CssValue, which: &str| matches!(value, CssValue::String(s) if s == which);
+                    let bracket = |value: &CssValue, which: &str| matches!(value, CssValue::Delim(s) if s == which);
                     let after_open = i > 0 && bracket(&args[i - 1], "[");
                     if i > 0 && !matches!(arg, CssValue::Comma) && !after_open && !bracket(arg, "]") {
                         write!(f, " ")?;
@@ -1482,7 +1487,7 @@ impl Display for CssValue {
             // debug rendering that reached anything reading a computed value as text; the CSS is
             // the values themselves, separated the way they were written.
             CssValue::List(v) => {
-                let bracket = |value: &CssValue, which: &str| matches!(value, CssValue::String(s) if s == which);
+                let bracket = |value: &CssValue, which: &str| matches!(value, CssValue::Delim(s) if s == which);
                 for (i, value) in v.iter().enumerate() {
                     // No space inside a line-name list: `[a b]`, `[]`.
                     let after_open = i > 0 && bracket(&v[i - 1], "[");
@@ -1613,7 +1618,7 @@ impl CssValue {
             // Keep the operator character (e.g. `/` in `16 / 9` or `font: 14px/1.5`)
             // as a string so it can match a `/` literal in a value grammar. Discarding
             // it (as `None`) makes `<ratio>` and other slash-delimited grammars unmatchable.
-            crate::node::NodeType::Operator { value, .. } => Ok(CssValue::String(value)),
+            crate::node::NodeType::Operator { value, .. } => Ok(CssValue::Delim(value)),
             // A `calc()` body is its arguments, and is simplified as far as it can be without
             // knowing the element: the arithmetic and the absolute lengths, which is why
             // `calc(1in + 1px)` is stored as `calc(97px)`. `em`, the viewport units and
@@ -1812,9 +1817,10 @@ fn color_alpha(value: &CssValue) -> Option<Option<f64>> {
 /// item, and the modern form, where it follows a solidus. Mixing them is not a colour, and
 /// neither is a comma form for a function that never had one.
 fn split_color_args<'a>(name: &str, args: &'a [CssValue]) -> Option<(Vec<&'a CssValue>, Option<&'a CssValue>)> {
-    let is = |value: &CssValue, text: &str| matches!(value, CssValue::String(word) if word == text);
     let commas = args.iter().any(|value| matches!(value, CssValue::Comma));
-    let solidus = args.iter().position(|value| is(value, "/"));
+    let solidus = args
+        .iter()
+        .position(|value| matches!(value, CssValue::Delim(word) if word == "/"));
 
     if commas {
         // `hwb()`, `lab()` and everything newer postdate the comma form and never had one.
@@ -2176,7 +2182,7 @@ mod test {
             "calc".to_string(),
             vec![
                 CssValue::Number(0.1, NumberKind::Integer),
-                CssValue::String("*".to_string()),
+                CssValue::Delim("*".to_string()),
                 CssValue::Function("sibling-index".to_string(), vec![]),
             ],
         );
@@ -2195,7 +2201,7 @@ mod test {
             "calc".to_string(),
             vec![
                 CssValue::Number(100.0, NumberKind::Integer),
-                CssValue::String("+".to_string()),
+                CssValue::Delim("+".to_string()),
                 CssValue::Number(55.0, NumberKind::Integer),
             ],
         );

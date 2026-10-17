@@ -112,7 +112,7 @@ mod tests {
             body("1px + 2px"),
             vec![
                 CssValue::Unit(1.0, "px".to_string()),
-                CssValue::String("+".to_string()),
+                CssValue::Delim("+".to_string()),
                 CssValue::Unit(2.0, "px".to_string()),
             ]
         );
@@ -145,7 +145,7 @@ mod tests {
                 String::new(),
                 vec![
                     CssValue::Unit(1.0, "px".to_string()),
-                    CssValue::String("+".to_string()),
+                    CssValue::Delim("+".to_string()),
                     CssValue::Function("var".to_string(), vec![CssValue::String("--x".to_string())]),
                 ]
             )]
@@ -176,6 +176,6 @@ mod tests {
         // them is recorded on the operator where the rule can see it.
         let values = body("1px/**/+/**/2px");
         assert_eq!(values.len(), 3);
-        assert_eq!(values[1], CssValue::String("+".to_string()));
+        assert_eq!(values[1], CssValue::Delim("+".to_string()));
     }
 }

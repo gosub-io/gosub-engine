@@ -113,7 +113,7 @@ fn display_short_form(values: Vec<CssValue>) -> Vec<CssValue> {
 /// size, line-height, family - which is the canonical order.
 fn font_short_form(values: Vec<CssValue>) -> Vec<CssValue> {
     let is_normal = |v: &CssValue| matches!(v, CssValue::String(s) if s.eq_ignore_ascii_case("normal"));
-    let is_slash = |v: &CssValue| matches!(v, CssValue::String(s) if s == "/");
+    let is_slash = |v: &CssValue| matches!(v, CssValue::Delim(s) if s == "/");
     let is_size = |v: &CssValue| match v {
         CssValue::Unit(..) | CssValue::Percentage(_) | CssValue::Zero | CssValue::Function(..) => true,
         CssValue::String(s) => matches!(
@@ -2011,7 +2011,7 @@ mod tests {
                 "calc".to_string(),
                 vec![
                     CssValue::Percentage(100.0),
-                    CssValue::String("-".to_string()),
+                    CssValue::Delim("-".to_string()),
                     CssValue::Unit(20.0, "px".to_string())
                 ]
             )]
@@ -2067,6 +2067,28 @@ mod tests {
         // function name is rejected. So a transform function's argument grammar is not reaching
         // the matcher, somewhere between `<transform-function>` and `<rotate()>`. It gates ~105
         // subtests: wpt's trig `-invalid` suites all assert through `transform: rotate(X)`.
+    }
+
+    /// A quoted string is a string whatever it holds. `[`, `]` and `/` used to be refused as
+    /// grammar punctuation, which dropped every `content: "["` - Wikipedia's citation brackets.
+    #[test]
+    fn a_string_holding_punctuation_is_still_a_string() {
+        let defs = get_css_definitions();
+        let ok = |prop: &str, v: &str| {
+            defs.find_property(prop)
+                .unwrap_or_else(|| panic!("no def for {prop}"))
+                .clone()
+                .matches(&parse_decl_values(prop, v))
+        };
+
+        for v in [r#""[""#, r#""]""#, r#""/""#, r#""[" attr(title) "]""#, r#""x" / "alt""#] {
+            assert!(ok("content", v), "content: {v} should match");
+        }
+        assert!(ok("font-family", r#""[", serif"#));
+        // The punctuation itself stays structure.
+        assert!(ok("font", "14px/1.5 serif"));
+        assert!(ok("grid-template-columns", "[a] 10px [b c] 1fr"));
+        assert!(!ok("content", r#""x" / / "alt""#));
     }
 
     #[test]

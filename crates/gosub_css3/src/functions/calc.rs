@@ -178,7 +178,7 @@ impl Sum {
             // the right-hand side of a subtraction.
             if i > 0 {
                 let subtract = value.is_finite() && *value < 0.0;
-                out.push(CssValue::String(if subtract { "-" } else { "+" }.to_string()));
+                out.push(CssValue::Delim(if subtract { "-" } else { "+" }.to_string()));
                 if subtract {
                     out.extend(term_values(-*value, unit));
                     continue;
@@ -226,7 +226,7 @@ fn term_values(value: f64, unit: &str) -> Vec<CssValue> {
             "" => vec![keyword],
             unit => vec![
                 keyword,
-                CssValue::String("*".to_string()),
+                CssValue::Delim("*".to_string()),
                 CssValue::Unit(1.0, unit.to_string()),
             ],
         };
@@ -716,19 +716,18 @@ fn lex_values(values: &[CssValue], out: &mut Vec<Lexed>) -> Option<()> {
             CssValue::Percentage(percentage) => Tok::Value(*percentage, "%".to_string()),
             CssValue::Unit(number, unit) => Tok::Value(*number, unit.cow_to_ascii_lowercase().into_owned()),
             CssValue::Comma => Tok::Comma,
-            // The parser lowers an operator to a plain string, so this is where `+` stops being
-            // an identifier and becomes arithmetic. Anything else is a keyword: a numeric
-            // constant if it names one, else an identifier the grammar may or may not allow
-            // (`no-clamp`, a `round()` strategy).
-            CssValue::String(text) => match text.as_str() {
+            CssValue::Delim(op) => match op.as_str() {
                 "+" => Tok::Plus,
                 "-" => Tok::Minus,
                 "*" => Tok::Star,
                 "/" => Tok::Slash,
-                _ => match constant(text) {
-                    Some(number) => Tok::Value(number, String::new()),
-                    None => Tok::Ident(text.clone()),
-                },
+                _ => return None,
+            },
+            // A keyword: a numeric constant if it names one, else an identifier the grammar may
+            // or may not allow (`no-clamp`, a `round()` strategy).
+            CssValue::String(text) => match constant(text) {
+                Some(number) => Tok::Value(number, String::new()),
+                None => Tok::Ident(text.clone()),
             },
             CssValue::Function(name, args) => {
                 // `calc()` is transparent - its parentheses are just parentheses, and so is a
@@ -1527,6 +1526,9 @@ mod tests {
     }
 
     fn token_value(token: &str) -> CssValue {
+        if matches!(token, "+" | "-" | "*" | "/") {
+            return CssValue::Delim(token.to_string());
+        }
         if let Some(number) = token.strip_suffix('%') {
             return number.parse().map_or_else(
                 |_| CssValue::String(token.to_string()),
@@ -2190,7 +2192,7 @@ mod tests {
                 "calc".to_string(),
                 vec![
                     CssValue::String("NaN".to_string()),
-                    CssValue::String("*".to_string()),
+                    CssValue::Delim("*".to_string()),
                     CssValue::Unit(1.0, "px".to_string()),
                 ]
             ))
@@ -2236,7 +2238,7 @@ mod tests {
                 "calc".to_string(),
                 vec![
                     CssValue::Percentage(20.0),
-                    CssValue::String("+".to_string()),
+                    CssValue::Delim("+".to_string()),
                     CssValue::Unit(10.0, "px".to_string()),
                 ]
             ))

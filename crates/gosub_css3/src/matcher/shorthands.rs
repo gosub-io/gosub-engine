@@ -1270,7 +1270,7 @@ fn grid_template(input: &[CssValue]) -> Option<Vec<(String, CssValue)>> {
 /// names written after one row and before the next name the same grid line, so they are emitted
 /// as a single bracketed group - which is why this cannot be a straight copy of the input.
 fn grid_template_areas(rows: &[CssValue], columns: Option<&[CssValue]>) -> Option<Vec<(String, CssValue)>> {
-    let is_bracket = |value: &CssValue, bracket: &str| matches!(value, CssValue::String(s) if s == bracket);
+    let is_bracket = |value: &CssValue, bracket: &str| matches!(value, CssValue::Delim(s) if s == bracket);
 
     let mut areas: Vec<CssValue> = Vec::new();
     let mut tracks: Vec<CssValue> = Vec::new();
@@ -1299,9 +1299,9 @@ fn grid_template_areas(rows: &[CssValue], columns: Option<&[CssValue]>) -> Optio
         // Everything collected since the previous row names this row's start line. An empty
         // group names nothing and is left out.
         if !names.is_empty() {
-            tracks.push(CssValue::String("[".to_string()));
+            tracks.push(CssValue::Delim("[".to_string()));
             tracks.append(&mut names);
-            tracks.push(CssValue::String("]".to_string()));
+            tracks.push(CssValue::Delim("]".to_string()));
         }
         // A track size may follow the row. Anything that is not a name group or the next row is
         // one; a row with none is `auto`.
@@ -1321,9 +1321,9 @@ fn grid_template_areas(rows: &[CssValue], columns: Option<&[CssValue]>) -> Optio
     }
     // Names after the last row name the grid's final line.
     if !names.is_empty() {
-        tracks.push(CssValue::String("[".to_string()));
+        tracks.push(CssValue::Delim("[".to_string()));
         tracks.append(&mut names);
-        tracks.push(CssValue::String("]".to_string()));
+        tracks.push(CssValue::Delim("]".to_string()));
     }
 
     let columns = match columns {
@@ -1346,7 +1346,7 @@ fn is_area_string(value: &CssValue) -> bool {
     let CssValue::String(text) = value else {
         return false;
     };
-    !["none", "auto", "subgrid", "min-content", "max-content", "masonry", "/"]
+    !["none", "auto", "subgrid", "min-content", "max-content", "masonry"]
         .iter()
         .any(|keyword| text.eq_ignore_ascii_case(keyword))
 }
@@ -1447,7 +1447,7 @@ fn split_on_solidus(input: &[CssValue]) -> Vec<&[CssValue]> {
     let mut rest = input;
     while let Some(at) = rest
         .iter()
-        .position(|value| matches!(value, CssValue::String(s) if s == "/"))
+        .position(|value| matches!(value, CssValue::Delim(s) if s == "/"))
     {
         parts.push(&rest[..at]);
         rest = &rest[at + 1..];
