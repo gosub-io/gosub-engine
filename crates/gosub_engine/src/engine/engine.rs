@@ -1991,7 +1991,10 @@ mod tests {
         })
         .await
         .expect("start download");
-        assert!(cancel_after_progress(&tab, &mut events, DownloadId(21)).await, "not cancelled");
+        assert!(
+            cancel_after_progress(&tab, &mut events, DownloadId(21)).await,
+            "not cancelled"
+        );
         assert!(!target.exists(), "a cancelled offer must not be placed");
 
         engine.close_zone(zone).await;
@@ -2039,7 +2042,10 @@ mod tests {
         })
         .await
         .expect("start download");
-        assert!(cancel_after_progress(&tab, &mut events, DownloadId(22)).await, "not cancelled");
+        assert!(
+            cancel_after_progress(&tab, &mut events, DownloadId(22)).await,
+            "not cancelled"
+        );
         assert!(!target.exists(), "the partial file must be removed");
 
         engine.close_zone(zone).await;
