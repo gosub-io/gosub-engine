@@ -60,17 +60,48 @@ fn place_spooled_download(spooled: tempfile::TempPath, target_path: &std::path::
     Ok(std::fs::metadata(target_path).map(|m| m.len()).unwrap_or(0))
 }
 
-/// A download offer whose body is on disk, awaiting the embedder's answer.
+/// Report a spool's progress through `report` until its body is all written (or writing
+/// stopped), at most once per [`REPORT_EVERY`] bytes, and once more for the last of them.
+async fn report_spool_progress(spool: &crate::net::Spool, report: impl Fn(u64)) {
+    const REPORT_EVERY: u64 = 256 * 1024;
+    let mut progress = spool.progress();
+    let mut reported = 0;
+    loop {
+        let state = progress.borrow_and_update().clone();
+        match state {
+            crate::net::SpoolProgress::Writing(n) => {
+                if n >= reported + REPORT_EVERY {
+                    report(n);
+                    reported = n;
+                }
+            }
+            crate::net::SpoolProgress::Done(n) => {
+                if n != reported {
+                    report(n);
+                }
+                return;
+            }
+            crate::net::SpoolProgress::Failed(_) => return,
+        }
+        if progress.changed().await.is_err() {
+            return;
+        }
+    }
+}
+
+/// A download offer awaiting the embedder's answer, its body being written to disk (or
+/// written already) behind it.
 struct PendingOffer {
     info: PendingDownload,
-    body: tempfile::TempPath,
+    body: crate::net::Spool,
 }
 
 /// Where a locally loaded document's HTML comes from.
 enum HtmlSource {
     Text(String),
-    /// A spooled download body, read (bounded) on the load task rather than the worker.
-    Spooled(tempfile::TempPath),
+    /// A download offer's body, waited for and read (bounded) on the load task rather than
+    /// the worker.
+    Spooled(crate::net::Spool),
 }
 
 /// Stream a response body to `path`, emitting `DownloadProgress` roughly every 256 KiB
@@ -170,12 +201,12 @@ pub enum NavigationResult<C: RenderConfiguration> {
         error: NavigationError,
     },
     /// The response is non-renderable content: the navigation ends (page stays) and the
-    /// metadata becomes a `DownloadRequested` offer to the embedder; `spooled` holds the
-    /// body already fetched.
+    /// metadata becomes a `DownloadRequested` offer to the embedder; `spool` is the body
+    /// being written to disk.
     Download {
         nav_id: NavigationId,
         meta: FetchResultMeta,
-        spooled: tempfile::TempPath,
+        spool: crate::net::Spool,
     },
 }
 
@@ -294,6 +325,12 @@ pub struct TabWorker<C: RenderConfiguration> {
     /// Download offers whose body is still held, oldest first; looked up by
     /// [`DownloadOfferId`]. Bounded by `remember_offer`.
     pending_offers: std::collections::VecDeque<PendingOffer>,
+    /// Downloads started with `StartDownload` that may still be running: how to stop each
+    /// one, and its task, by which finished ones are pruned.
+    downloads: std::collections::HashMap<
+        crate::engine::events::DownloadId,
+        (tokio_util::sync::CancellationToken, tokio::task::JoinHandle<()>),
+    >,
     /// Source of [`DownloadOfferId`]s; unique within the tab.
     next_offer: u64,
     /// The icon last fetched for the document a renderer process reported, so
@@ -414,6 +451,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             remote_focus: None,
             pending_scroll: None,
             pending_offers: std::collections::VecDeque::new(),
+            downloads: std::collections::HashMap::new(),
             next_offer: 0,
             remote_favicon: None,
             document_entry: None,
@@ -820,7 +858,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.remote_capture = false;
                 self.remote_focus = None;
             }
-            NavigationResult::Download { nav_id, meta, spooled } => {
+            NavigationResult::Download { nav_id, meta, spool } => {
                 // Not an error and not a page change: the tab stays on its current document
                 // and the shell gets a download offer. The Cancelled event stops spinners.
                 self.is_loading = false;
@@ -844,7 +882,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     total_bytes: info.content_length,
                     url: info.final_url,
                 };
-                self.remember_offer(pending.clone(), spooled);
+                self.remember_offer(pending.clone(), spool);
                 self.send_event(EngineEvent::DownloadRequested {
                     tab_id: self.tab_id,
                     offer: pending.offer,
@@ -987,8 +1025,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
     /// Hold an offer's body until the embedder answers or the tab goes away. Bounded, so an
     /// embedder that ignores offers cannot accumulate temp files without limit; the oldest
-    /// offer is evicted first. Dropping a `TempPath` deletes its file.
-    fn remember_offer(&mut self, info: PendingDownload, body: tempfile::TempPath) {
+    /// offer is evicted first. Dropping a `Spool` stops its writing and deletes its file.
+    fn remember_offer(&mut self, info: PendingDownload, body: crate::net::Spool) {
         const MAX_PENDING: usize = 8;
         self.pending_offers.push_back(PendingOffer { info, body });
         while self.pending_offers.len() > MAX_PENDING {
@@ -1011,6 +1049,25 @@ impl<C: RenderConfiguration> TabWorker<C> {
             .set_pending_downloads(self.pending_offers.iter().map(|p| p.info.clone()).collect());
     }
 
+    /// Remember how to stop download `id`, forgetting downloads that have ended meanwhile.
+    fn track_download(
+        &mut self,
+        id: crate::engine::events::DownloadId,
+        cancel: tokio_util::sync::CancellationToken,
+        task: tokio::task::JoinHandle<()>,
+    ) {
+        self.downloads.retain(|_, (_, task)| !task.is_finished());
+        self.downloads.insert(id, (cancel, task));
+    }
+
+    /// Stop download `id`; it ends with `DownloadCancelled`. One that has ended, or is being
+    /// placed, is left alone.
+    fn cancel_download(&mut self, id: crate::engine::events::DownloadId) {
+        if let Some((cancel, _)) = self.downloads.remove(&id) {
+            cancel.cancel();
+        }
+    }
+
     /// Load a spooled download offer as the page. The override for a misclassified
     /// response; see [`TabCommand::RenderDownload`].
     fn render_download(&mut self, offer: DownloadOfferId) {
@@ -1030,15 +1087,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
         self.begin_local_load(HtmlSource::Spooled(body), info.url);
     }
 
-    /// Save a download to `target_path`: an accepted offer's spooled body (moved into place),
-    /// or `url` fetched through the zone fetcher (save-link-as), with progress/finished/failed
-    /// events carrying `id`. The fetch runs on its own task; tab shutdown does not cancel it (a
-    /// deliberate v1 simplification - there is no cancel command yet).
-    ///
-    /// V1 fetches in **buffered** mode (whole body in memory before writing): sonar's
-    /// `SharedBody` replays nothing to late subscribers, so a streaming consumer that
-    /// attaches after the fetch result arrives misses early chunks. True streaming-to-disk
-    /// needs replay support in gosub-sonar (see the board).
+    /// Save a download to `target_path`: an accepted offer's spooled body (moved into place
+    /// once it is all written), or `url` fetched through the zone fetcher and streamed to the
+    /// file (save-link-as), with progress/finished/failed events carrying `id`. Either runs on
+    /// its own task, stopped by [`TabCommand::CancelDownload`] but not by tab shutdown (a
+    /// deliberate v1 simplification).
     fn start_download(
         &mut self,
         id: crate::engine::events::DownloadId,
@@ -1056,7 +1109,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         };
 
         if let Some(offer) = offer {
-            let Some(PendingOffer { body, .. }) = self.take_offer(offer) else {
+            let Some(PendingOffer { info, body }) = self.take_offer(offer) else {
                 // Never fall back to a fetch: the body the shell accepted is gone.
                 self.send_event(EngineEvent::DownloadFailed {
                     tab_id: self.tab_id,
@@ -1065,12 +1118,47 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 });
                 return;
             };
-            // Placement is a rename at best and a full copy across filesystems at worst
-            // (temp dir vs. download dir is the common case), so it must not run on the
+            // The body may still be arriving: report its progress until it is all on disk, then
+            // place it. Placement is a rename at best and a full copy across filesystems at
+            // worst (temp dir vs. download dir is the common case), so it must not run on the
             // worker: that would stall every command and frame tick for the tab.
             let tab_id = self.tab_id;
             let event_tx = self.zone_context.event_tx.clone();
-            spawn_named("tab-download-place", async move {
+            let total_bytes = info.total_bytes;
+            let cancel = tokio_util::sync::CancellationToken::new();
+            let cancelled = cancel.clone();
+            let task = spawn_named("tab-download-place", async move {
+                // Cancellable until the body is all written: dropping the spool stops the
+                // writing and removes its temp file. Placement, once begun, finishes.
+                let written = tokio::select! {
+                    written = async {
+                        report_spool_progress(&body, |received_bytes| {
+                            let _ = event_tx.send(EngineEvent::DownloadProgress {
+                                tab_id,
+                                id,
+                                received_bytes,
+                                total_bytes,
+                            });
+                        })
+                        .await;
+                        body.finish().await
+                    } => written,
+                    _ = cancelled.cancelled() => {
+                        let _ = event_tx.send(EngineEvent::DownloadCancelled { tab_id, id });
+                        return;
+                    }
+                };
+                let body = match written {
+                    Ok(body) => body,
+                    Err(e) => {
+                        let _ = event_tx.send(EngineEvent::DownloadFailed {
+                            tab_id,
+                            id,
+                            error: format!("{e:#}"),
+                        });
+                        return;
+                    }
+                };
                 let dest = target_path.clone();
                 let placed = tokio::task::spawn_blocking(move || place_spooled_download(body, &dest)).await;
                 let event = match placed {
@@ -1093,6 +1181,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 };
                 let _ = event_tx.send(event);
             });
+            self.track_download(id, cancel, task);
             return;
         }
 
@@ -1136,68 +1225,83 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let io_tx = self.zone_context.io_tx.clone();
         let event_tx = self.zone_context.event_tx.clone();
         let reference_map = self.zone_context.request_reference_map.clone();
-        spawn_named("tab-download", async move {
-            // Remove the routing entry however the download ends.
-            let _cleanup = scopeguard(move || {
-                reference_map.write().remove(&reference);
-            });
-
-            let fail = |error: String| {
-                let _ = event_tx.send(EngineEvent::DownloadFailed { tab_id, id, error });
-            };
-
-            let result = match submit_to_io(zone_id, Some(tab_id), req, io_tx, None).await {
-                Ok((_handle, rx)) => match rx.await {
-                    Ok(result) => result,
-                    Err(_) => return fail("fetch channel closed".into()),
-                },
-                Err(e) => return fail(format!("submit failed: {e}")),
-            };
-
-            match result {
-                FetchResult::Stream { meta, peek_buf, shared } => {
-                    if meta.status != 200 {
-                        return fail(format!("HTTP {} {}", meta.status, meta.status_text));
-                    }
-                    if let Err(e) = stream_to_file(
-                        id,
-                        tab_id,
-                        &event_tx,
-                        meta.content_length,
-                        peek_buf,
-                        shared,
-                        &target_path,
-                    )
-                    .await
-                    {
-                        fail(e.to_string());
-                    }
-                }
-                FetchResult::Buffered { meta, body } => {
-                    if meta.status != 200 {
-                        return fail(format!("HTTP {} {}", meta.status, meta.status_text));
-                    }
-                    // Buffered mode: the body is complete, so progress is a single report
-                    // (keeps the shell's event sequence uniform with a streaming future).
-                    let _ = event_tx.send(EngineEvent::DownloadProgress {
-                        tab_id,
-                        id,
-                        received_bytes: body.len() as u64,
-                        total_bytes: Some(body.len() as u64),
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let cancelled = cancel.clone();
+        let fetch_cancel = cancel.child_token();
+        let cancel_tx = self.zone_context.event_tx.clone();
+        let partial = target_path.clone();
+        let task = spawn_named("tab-download", async move {
+            tokio::select! {
+                _ = async move {
+                    // Remove the routing entry however the download ends.
+                    let _cleanup = scopeguard(move || {
+                        reference_map.write().remove(&reference);
                     });
-                    if let Err(e) = tokio::fs::write(&target_path, &body).await {
-                        return fail(format!("write {}: {e}", target_path.display()));
+
+                    let fail = |error: String| {
+                        let _ = event_tx.send(EngineEvent::DownloadFailed { tab_id, id, error });
+                    };
+
+                    let result = match submit_to_io(zone_id, Some(tab_id), req, io_tx, Some(fetch_cancel)).await {
+                        Ok((_handle, rx)) => match rx.await {
+                            Ok(result) => result,
+                            Err(_) => return fail("fetch channel closed".into()),
+                        },
+                        Err(e) => return fail(format!("submit failed: {e}")),
+                    };
+
+                    match result {
+                        FetchResult::Stream { meta, peek_buf, shared } => {
+                            if meta.status != 200 {
+                                return fail(format!("HTTP {} {}", meta.status, meta.status_text));
+                            }
+                            if let Err(e) = stream_to_file(
+                                id,
+                                tab_id,
+                                &event_tx,
+                                meta.content_length,
+                                peek_buf,
+                                shared,
+                                &target_path,
+                            )
+                            .await
+                            {
+                                fail(e.to_string());
+                            }
+                        }
+                        FetchResult::Buffered { meta, body } => {
+                            if meta.status != 200 {
+                                return fail(format!("HTTP {} {}", meta.status, meta.status_text));
+                            }
+                            // Buffered mode: the body is complete, so progress is a single report
+                            // (keeps the shell's event sequence uniform with a streaming future).
+                            let _ = event_tx.send(EngineEvent::DownloadProgress {
+                                tab_id,
+                                id,
+                                received_bytes: body.len() as u64,
+                                total_bytes: Some(body.len() as u64),
+                            });
+                            if let Err(e) = tokio::fs::write(&target_path, &body).await {
+                                return fail(format!("write {}: {e}", target_path.display()));
+                            }
+                            let _ = event_tx.send(EngineEvent::DownloadFinished {
+                                tab_id,
+                                id,
+                                path: target_path,
+                                received_bytes: body.len() as u64,
+                            });
+                        }
+                        FetchResult::Error(e) => fail(e.to_string()),
                     }
-                    let _ = event_tx.send(EngineEvent::DownloadFinished {
-                        tab_id,
-                        id,
-                        path: target_path,
-                        received_bytes: body.len() as u64,
-                    });
+                } => {}
+                // The fetch is cancelled with it; what was written so far goes.
+                _ = cancelled.cancelled() => {
+                    let _ = tokio::fs::remove_file(&partial).await;
+                    let _ = cancel_tx.send(EngineEvent::DownloadCancelled { tab_id, id });
                 }
-                FetchResult::Error(e) => fail(e.to_string()),
             }
         });
+        self.track_download(id, cancel, task);
     }
 
     /// Tell the shell where keyboard focus went (e.g. to drive IME/on-screen keyboards).
@@ -1552,6 +1656,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
             TabCommand::RenderDownload { offer } => {
                 self.render_download(offer);
+                ControlFlow::Continue
+            }
+            TabCommand::CancelDownload { id } => {
+                self.cancel_download(id);
                 ControlFlow::Continue
             }
             #[cfg(feature = "unstable-api")]
@@ -2152,11 +2260,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         referrer_policy,
                     });
                 }
-                Ok(RoutedOutcome::DownloadOffer { meta, spooled }) => {
+                Ok(RoutedOutcome::DownloadOffer { meta, spool }) => {
                     let _ = tx_done.send(NavigationResult::Download {
                         nav_id,
                         meta: *meta,
-                        spooled,
+                        spool,
                     });
                 }
                 Ok(RoutedOutcome::ViewerRendered(_doc)) => {
@@ -2394,8 +2502,18 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // A spooled body is read here, off the worker, and capped like a fetched document.
             let html = match source {
                 HtmlSource::Text(html) => html,
-                HtmlSource::Spooled(path) => {
+                HtmlSource::Spooled(spool) => {
                     use tokio::io::AsyncReadExt;
+                    let path = match spool.finish().await {
+                        Ok(path) => path,
+                        Err(e) => {
+                            let _ = tx_done.send(NavigationResult::Err {
+                                nav_id,
+                                error: NavigationError::NetworkError(format!("{e:#}")),
+                            });
+                            return;
+                        }
+                    };
                     let read = async {
                         let file = tokio::fs::File::open(&path).await?;
                         let mut bytes = Vec::new();
