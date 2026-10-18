@@ -861,6 +861,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
             NavigationResult::Download { nav_id, meta, spool } => {
                 // Not an error and not a page change: the tab stays on its current document
                 // and the shell gets a download offer. The Cancelled event stops spinners.
+                // The navigation ends here, without cancelling it: its token is the fetch's
+                // parent, so the next navigation or a CancelNavigation would stop the body
+                // under an accepted download. The spool owns the fetch from now on.
+                if self.active_nav.as_ref().is_some_and(|a| a.nav_id == nav_id) {
+                    self.active_nav = None;
+                    self.load = None;
+                }
                 self.is_loading = false;
                 self.is_error = false;
                 self.state = TabState::Idle;
