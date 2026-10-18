@@ -1051,12 +1051,14 @@ pub const DEFAULT_LINE_HEIGHT_PX: f32 = DEFAULT_FONT_SIZE_PX * calc::NORMAL_LINE
 /// `stroke-width` takes a list of them and `column-rule-width` puts them inside `repeat()`.
 ///
 /// css-backgrounds-3 §4.1 leaves the sizes to the UA; these are what every browser uses.
-/// `hairline` is one device pixel, which is 1px until the computed stage knows the device pixel
-/// ratio.
+/// `hairline` is one device pixel (css-borders-4), so on a 2x display it is 0.5px and no longer
+/// the same as `thin`. The ratio is the one media queries see, which style caches already key on.
 fn resolve_line_widths(value: CssValue) -> CssValue {
     match value {
         CssValue::String(keyword) => {
-            let px = [("hairline", 1.0), ("thin", 1.0), ("medium", 3.0), ("thick", 5.0)]
+            let dpr = f64::from(crate::media_query::media_environment().device_pixel_ratio);
+            let hairline = if dpr > 0.0 { 1.0 / dpr } else { 1.0 };
+            let px = [("hairline", hairline), ("thin", 1.0), ("medium", 3.0), ("thick", 5.0)]
                 .into_iter()
                 .find(|(name, _)| keyword.eq_ignore_ascii_case(name))
                 .map(|(_, px)| px);
@@ -2375,6 +2377,31 @@ mod tests {
         assert_eq!(computed_for("scrollbar-width", keyword("thin")), keyword("thin"));
         // `normal` on a gap is not a line width either.
         assert_eq!(computed_for("row-gap", keyword("normal")), keyword("normal"));
+    }
+
+    /// `hairline` is one device pixel: 1px on a 1x display, half of one on a 2x display, where
+    /// `thin` stays 1px.
+    #[test]
+    fn hairline_is_one_device_pixel() {
+        use crate::media_query::{media_environment, set_media_environment, MediaEnvironment};
+        let px = |n| CssValue::Unit(n, "px".into());
+        let keyword = |k: &str| CssValue::String(k.into());
+        let saved = media_environment();
+
+        set_media_environment(MediaEnvironment {
+            device_pixel_ratio: 1.0,
+            ..saved
+        });
+        assert_eq!(computed_for("border-top-width", keyword("hairline")), px(1.0));
+
+        set_media_environment(MediaEnvironment {
+            device_pixel_ratio: 2.0,
+            ..saved
+        });
+        assert_eq!(computed_for("border-top-width", keyword("hairline")), px(0.5));
+        assert_eq!(computed_for("border-top-width", keyword("thin")), px(1.0));
+
+        set_media_environment(saved);
     }
 
     #[test]
