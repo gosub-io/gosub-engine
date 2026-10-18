@@ -1348,12 +1348,20 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
     ));
 
     // `[ first | last ] || <'alignment-baseline'> || <'baseline-shift'>`: which baseline set to
-    // use is nothing this engine distinguishes, so the keyword beside it decides.
+    // use is nothing this engine distinguishes, so the keyword beside it decides. The style holds
+    // one keyword, and a shift (`baseline top`) moves the box further than the baseline it shifts
+    // from, so a shift wins over an alignment baseline in either order.
     read!(map, style, VerticalAlign, box_mut, vertical_align, |value| {
         let tokens = keyword_tokens(value)?;
+        let shift = |token: &&CssValue| ["sub", "super", "top", "bottom"].iter().any(|k| is_keyword(token, k));
         tokens
             .iter()
-            .find(|token| !is_keyword(token, "first") && !is_keyword(token, "last"))
+            .find(shift)
+            .or_else(|| {
+                tokens
+                    .iter()
+                    .find(|token| !is_keyword(token, "first") && !is_keyword(token, "last"))
+            })
             .or(tokens.first())
             .and_then(as_string)
     }
@@ -2212,6 +2220,18 @@ mod tests {
         assert_eq!(
             style_of("vertical-align: first middle").box_group.vertical_align,
             VerticalAlign::Middle
+        );
+        assert_eq!(
+            style_of("vertical-align: baseline top").box_group.vertical_align,
+            VerticalAlign::Top
+        );
+        assert_eq!(
+            style_of("vertical-align: top baseline").box_group.vertical_align,
+            VerticalAlign::Top
+        );
+        assert_eq!(
+            style_of("vertical-align: middle super").box_group.vertical_align,
+            VerticalAlign::Super
         );
     }
 
