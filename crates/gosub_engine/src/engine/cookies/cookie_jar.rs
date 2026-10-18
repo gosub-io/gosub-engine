@@ -73,6 +73,9 @@ const MAX_COOKIE_LIFETIME_SECS: i64 = 400 * 24 * 60 * 60;
 /// `Thursday, 01-Jan-70 00:00:01 GMT` all parse, and any zone name is ignored: the date is
 /// read as UTC. A two-digit year from 70 to 99 is 19xx, one from 0 to 69 is 20xx.
 ///
+/// A field must be a whole token: `01x`, `January` and `00:00:01Z` are not read. That is
+/// stricter than the §5.1.1 grammar, which lets a field run on after a non-digit.
+///
 /// Returns `None` when a field is missing or out of range, or the date does not exist. The
 /// cookie is then a session cookie (§5.6.1 ignores the attribute).
 fn parse_cookie_date(s: &str) -> Option<i64> {
@@ -87,7 +90,7 @@ fn parse_cookie_date(s: &str) -> Option<i64> {
             }
         }
         if day.is_none() {
-            if let Some((value, _)) = leading_number(token, 1, 2) {
+            if let Some((value, [])) = leading_number(token, 1, 2) {
                 day = Some(value);
                 continue;
             }
@@ -99,7 +102,7 @@ fn parse_cookie_date(s: &str) -> Option<i64> {
             }
         }
         if year.is_none() {
-            if let Some((value, _)) = leading_number(token, 2, 4) {
+            if let Some((value, [])) = leading_number(token, 2, 4) {
                 year = Some(value);
             }
         }
@@ -120,9 +123,7 @@ fn parse_cookie_date(s: &str) -> Option<i64> {
     Some(date.and_hms_opt(hour, minute, second)?.and_utc().timestamp())
 }
 
-/// A token starting with `min` to `max` digits, followed by nothing or by a non-digit: the
-/// shape of the day-of-month, year and time fields of a cookie date. Returns the number and
-/// what follows it.
+/// The `min` to `max` digits a token starts with, as a number, and what follows them.
 fn leading_number(token: &[u8], min: usize, max: usize) -> Option<(u32, &[u8])> {
     let len = token.iter().take_while(|b| b.is_ascii_digit()).count();
     if !(min..=max).contains(&len) {
@@ -132,21 +133,22 @@ fn leading_number(token: &[u8], min: usize, max: usize) -> Option<(u32, &[u8])> 
     Some((value, &token[len..]))
 }
 
-/// The `hh:mm:ss` a cookie-date token starts with, each field one or two digits.
+/// A cookie-date token that is `hh:mm:ss`, each field one or two digits.
 fn cookie_date_time(token: &[u8]) -> Option<(u32, u32, u32)> {
     let (hour, rest) = leading_number(token, 1, 2)?;
     let (minute, rest) = leading_number(rest.strip_prefix(b":")?, 1, 2)?;
-    let (second, _) = leading_number(rest.strip_prefix(b":")?, 1, 2)?;
+    let Some((second, [])) = leading_number(rest.strip_prefix(b":")?, 1, 2) else {
+        return None;
+    };
     Some((hour, minute, second))
 }
 
-/// The month (1-12) whose English abbreviation a cookie-date token starts with, in any case.
+/// The month (1-12) a cookie-date token abbreviates in English, in any case.
 fn cookie_date_month(token: &[u8]) -> Option<u32> {
     const MONTHS: [&[u8]; 12] = [
         b"jan", b"feb", b"mar", b"apr", b"may", b"jun", b"jul", b"aug", b"sep", b"oct", b"nov", b"dec",
     ];
-    let prefix = token.get(..3)?;
-    let index = MONTHS.iter().position(|month| prefix.eq_ignore_ascii_case(month))?;
+    let index = MONTHS.iter().position(|month| token.eq_ignore_ascii_case(month))?;
     Some(index as u32 + 1)
 }
 
@@ -1549,6 +1551,11 @@ mod tests {
             "Thu, 01 Jan 1600 00:00:00 GMT",
             "Thu, 01 Jan 123 00:00:00 GMT",
             "Thu, 01 Jan 1970 24:00:00 GMT",
+            // A field must be the whole token.
+            "Thu, 01x-Jan-1970 00:00:01 GMT",
+            "Thu, 01 January 1970 00:00:01 GMT",
+            "Thu, 01 Jan 1970x 00:00:01 GMT",
+            "Thu, 01 Jan 1970 00:00:01Z",
         ] {
             assert_eq!(parse_cookie_date(date), None, "{date}");
         }
