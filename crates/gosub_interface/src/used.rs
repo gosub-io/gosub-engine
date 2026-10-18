@@ -15,7 +15,7 @@
 //!
 //! The arithmetic is in `f64`, which is what layout works in.
 
-use crate::style::{BorderGroup, LengthPercentage, LengthPercentageAuto, LetterSpacing};
+use crate::style::{Anchor, BorderGroup, LengthPercentage, LengthPercentageAuto, LetterSpacing};
 
 /// A length or percentage in px, a percentage being of `basis`.
 #[must_use]
@@ -24,6 +24,20 @@ pub fn length(value: LengthPercentage, basis: f64) -> f64 {
         LengthPercentage::Px(px) => f64::from(px),
         LengthPercentage::Percent(pct) => basis * f64::from(pct) / 100.0,
         LengthPercentage::Calc { px, percent } => f64::from(px) + basis * f64::from(percent) / 100.0,
+    }
+}
+
+/// Where an [`Anchor`] puts the start edge of something `extent` long inside a box `box_extent`
+/// long. A percentage is of the free space between the two, so it can be negative where the
+/// thing placed is the larger.
+#[must_use]
+pub fn anchor(anchor: Anchor, box_extent: f64, extent: f64) -> f64 {
+    let free = box_extent - extent;
+    let offset = length(anchor.offset, free);
+    if anchor.from_end {
+        free - offset
+    } else {
+        offset
     }
 }
 
