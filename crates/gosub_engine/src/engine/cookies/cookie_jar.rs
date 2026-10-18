@@ -7,9 +7,10 @@
 //! ## Limitations
 //! - `Expires`, `Max-Age`, `Path`, `Domain`, `Secure`, `HttpOnly`, and `SameSite`
 //!   are parsed and enforced; expired cookies are filtered on read and removed via
-//!   [`CookieJar::purge_expired`]. A `Set-Cookie` line over 4096 bytes is
-//!   ignored, and an origin keeps at most 180 cookies: expired ones make room
-//!   first, then the oldest. Priorities are not implemented.
+//!   [`CookieJar::purge_expired`], and no cookie lives past 400 days. A
+//!   `Set-Cookie` line over 4096 bytes is ignored, and an origin keeps at most
+//!   180 cookies: expired ones make room first, then the oldest. Priorities are
+//!   not implemented.
 //! - Cookies are bucketed by origin (`url.origin().ascii_serialization()`).
 //! - This module is not internally synchronized. Use it via a
 //!   `CookieJarHandle = Arc<RwLock<dyn CookieJar + Send + Sync>>`.
@@ -59,42 +60,94 @@ fn is_valid_cookie_domain(request_host: &str, domain: &str) -> bool {
     true
 }
 
-/// Parse an HTTP date string into a Unix timestamp.
+/// The longest a cookie may live, in seconds: 400 days (RFC 6265bis §5.5). Both `Expires`
+/// (§5.6.1) and `Max-Age` (§5.6.2) are capped to it.
+const MAX_COOKIE_LIFETIME_SECS: i64 = 400 * 24 * 60 * 60;
+
+/// Parse an `Expires` value into a Unix timestamp with the cookie-date algorithm of
+/// RFC 6265bis §5.1.1.
 ///
-/// Handles three formats in order of preference:
-/// 1. RFC 2822 with numeric offset (`+0000`) - e.g. from well-behaved clients.
-/// 2. RFC 1123 / HTTP-date (`GMT` timezone) - the dominant real-world format
-///    per RFC 7231 §7.1.1.1: `"Fri, 07 Aug 2007 08:04:19 GMT"`.
-/// 3. RFC 850 / obsolete format (`"Friday, 07-Aug-07 08:04:19 GMT"`).
+/// The value is split into tokens on the delimiter characters, and the first token of each
+/// shape fills its field: a time, a day of month, a month and a year, in that order of
+/// preference. So `Thu, 01 Jan 1970 00:00:01 GMT`, `Thu, 01-Jan-1970 00:00:01 GMT` and
+/// `Thursday, 01-Jan-70 00:00:01 GMT` all parse, and any zone name is ignored: the date is
+/// read as UTC. A two-digit year from 70 to 99 is 19xx, one from 0 to 69 is 20xx.
 ///
-/// Returns `None` if none of the formats match, which causes the cookie to be
-/// treated as a session cookie rather than silently accepting a bad expiry.
-fn parse_http_date(s: &str) -> Option<i64> {
-    use chrono::NaiveDateTime;
+/// Returns `None` when a field is missing or out of range, or the date does not exist. The
+/// cookie is then a session cookie (§5.6.1 ignores the attribute).
+fn parse_cookie_date(s: &str) -> Option<i64> {
+    let is_delimiter = |b: u8| matches!(b, 0x09 | 0x20..=0x2F | 0x3B..=0x40 | 0x5B..=0x60 | 0x7B..=0x7E);
 
-    let s = s.trim();
-
-    // 1. Strict RFC 2822 (numeric timezone offset)
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc2822(s) {
-        return Some(dt.timestamp());
+    let (mut time, mut day, mut month, mut year) = (None, None, None, None);
+    for token in s.as_bytes().split(|&b| is_delimiter(b)).filter(|t| !t.is_empty()) {
+        if time.is_none() {
+            if let Some(hms) = cookie_date_time(token) {
+                time = Some(hms);
+                continue;
+            }
+        }
+        if day.is_none() {
+            if let Some((value, _)) = leading_number(token, 1, 2) {
+                day = Some(value);
+                continue;
+            }
+        }
+        if month.is_none() {
+            if let Some(value) = cookie_date_month(token) {
+                month = Some(value);
+                continue;
+            }
+        }
+        if year.is_none() {
+            if let Some((value, _)) = leading_number(token, 2, 4) {
+                year = Some(value);
+            }
+        }
     }
 
-    // 2. RFC 1123 "Fri, 07 Aug 2007 08:04:19 GMT"
-    //    Strip the timezone suffix, then strip the optional "Day, " prefix before
-    //    parsing - chrono's %a can be locale-sensitive; avoiding it is more robust.
-    let bare = s.strip_suffix(" GMT").or_else(|| s.strip_suffix("GMT")).unwrap_or(s);
-    // Strip "Weekday, " prefix if present.
-    let bare = bare.find(", ").map(|i| &bare[i + 2..]).unwrap_or(bare);
-    if let Ok(ndt) = NaiveDateTime::parse_from_str(bare, "%d %b %Y %H:%M:%S") {
-        return Some(ndt.and_utc().timestamp());
+    let (hour, minute, second) = time?;
+    let year = match year? {
+        y @ 70..=99 => y + 1900,
+        y @ 0..=69 => y + 2000,
+        y => y,
+    };
+    let day = day?;
+    if !(1..=31).contains(&day) || year < 1601 || hour > 23 || minute > 59 || second > 59 {
+        return None;
     }
+    // `None` for a day the month does not have, such as 31 April.
+    let date = chrono::NaiveDate::from_ymd_opt(year as i32, month?, day)?;
+    Some(date.and_hms_opt(hour, minute, second)?.and_utc().timestamp())
+}
 
-    // 3. RFC 850 "Friday, 07-Aug-07 08:04:19 GMT" (already stripped prefix above)
-    if let Ok(ndt) = NaiveDateTime::parse_from_str(bare, "%d-%b-%y %H:%M:%S") {
-        return Some(ndt.and_utc().timestamp());
+/// A token starting with `min` to `max` digits, followed by nothing or by a non-digit: the
+/// shape of the day-of-month, year and time fields of a cookie date. Returns the number and
+/// what follows it.
+fn leading_number(token: &[u8], min: usize, max: usize) -> Option<(u32, &[u8])> {
+    let len = token.iter().take_while(|b| b.is_ascii_digit()).count();
+    if !(min..=max).contains(&len) {
+        return None;
     }
+    let value = token[..len].iter().fold(0, |n, &b| n * 10 + u32::from(b - b'0'));
+    Some((value, &token[len..]))
+}
 
-    None
+/// The `hh:mm:ss` a cookie-date token starts with, each field one or two digits.
+fn cookie_date_time(token: &[u8]) -> Option<(u32, u32, u32)> {
+    let (hour, rest) = leading_number(token, 1, 2)?;
+    let (minute, rest) = leading_number(rest.strip_prefix(b":")?, 1, 2)?;
+    let (second, _) = leading_number(rest.strip_prefix(b":")?, 1, 2)?;
+    Some((hour, minute, second))
+}
+
+/// The month (1-12) whose English abbreviation a cookie-date token starts with, in any case.
+fn cookie_date_month(token: &[u8]) -> Option<u32> {
+    const MONTHS: [&[u8]; 12] = [
+        b"jan", b"feb", b"mar", b"apr", b"may", b"jun", b"jul", b"aug", b"sep", b"oct", b"nov", b"dec",
+    ];
+    let prefix = token.get(..3)?;
+    let index = MONTHS.iter().position(|month| prefix.eq_ignore_ascii_case(month))?;
+    Some(index as u32 + 1)
 }
 
 /// Returns `true` when two hostnames share the same registrable domain (eTLD+1).
@@ -357,12 +410,18 @@ impl DefaultCookieJar {
     /// does any whose name and value outgrow a cookie line; then each origin
     /// and the jar keep their newest. Not the insert path's eviction order,
     /// which costs a scan per cookie evicted: a planted file can hold millions.
+    /// An expiry past the 400-day cap is brought down to it: no `Set-Cookie`
+    /// this jar took can expire later than that.
     pub(crate) fn enforce_limits(&mut self) {
         let now = Utc::now().timestamp();
+        let latest_expiry = now + MAX_COOKIE_LIFETIME_SECS;
         let keep =
             |c: &Cookie| c.expires.is_none_or(|exp| exp > now) && c.name.len() + c.value.len() <= MAX_COOKIE_BYTES;
         for bucket in self.entries.values_mut() {
             bucket.retain(keep);
+            for cookie in bucket.iter_mut() {
+                cookie.expires = cookie.expires.map(|exp| exp.min(latest_expiry));
+            }
             if bucket.len() > MAX_COOKIES_PER_ORIGIN {
                 keep_newest(bucket, MAX_COOKIES_PER_ORIGIN);
             }
@@ -662,9 +721,12 @@ impl CookieJar for DefaultCookieJar {
                     bucket.retain(|c| !(c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path));
                     continue;
                 }
-                Some(now + ma)
+                Some(now + ma.min(MAX_COOKIE_LIFETIME_SECS))
             } else {
-                expires_str.as_deref().and_then(parse_http_date)
+                expires_str
+                    .as_deref()
+                    .and_then(parse_cookie_date)
+                    .map(|expires| expires.min(now + MAX_COOKIE_LIFETIME_SECS))
             };
 
             // In SameSiteNoneOnly mode, drop third-party cookies that don't
@@ -1456,6 +1518,84 @@ mod tests {
         );
     }
 
+    /// RFC 6265bis §5.1.1: the first token of each shape fills its field, whatever the
+    /// separators, and the zone is not read.
+    #[test]
+    fn expires_is_read_with_the_cookie_date_algorithm() {
+        for date in [
+            "Thu, 01 Jan 1970 00:00:01 GMT",
+            "Thu, 01-Jan-1970 00:00:01 GMT",
+            "Thursday, 01-Jan-70 00:00:01 GMT",
+            "Thu Jan  1 00:00:01 1970",
+            "1 jan 1970 0:0:1",
+            "Thu, 01 Jan 1970 00:00:01 +0200",
+        ] {
+            assert_eq!(parse_cookie_date(date), Some(1), "{date}");
+        }
+        assert_eq!(parse_cookie_date("Sun, 18-Apr-2027 21:06:29 GMT"), Some(1_808_082_389));
+        assert_eq!(
+            parse_cookie_date("01 Jan 69 00:00:00 GMT"),
+            Some(3_124_224_000),
+            "69 is 2069"
+        );
+        assert_eq!(parse_cookie_date("01 Jan 70 00:00:00 GMT"), Some(0), "70 is 1970");
+
+        for date in [
+            "not-a-date",
+            "Thu, 01 Jan 1970",
+            "Thu, 00 Jan 1970 00:00:00 GMT",
+            "Thu, 31 Apr 2025 00:00:00 GMT",
+            "Thu, 01 Foo 1970 00:00:00 GMT",
+            "Thu, 01 Jan 1600 00:00:00 GMT",
+            "Thu, 01 Jan 123 00:00:00 GMT",
+            "Thu, 01 Jan 1970 24:00:00 GMT",
+        ] {
+            assert_eq!(parse_cookie_date(date), None, "{date}");
+        }
+    }
+
+    /// The usual logout, an `Expires` in the past with dashes and a four-digit year, deletes
+    /// the cookie instead of leaving a session cookie behind.
+    #[test]
+    fn a_past_expires_with_dashes_deletes_the_cookie() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        jar.store_response_cookies(&req, &headers(&["a=1"]), None);
+        jar.store_response_cookies(&req, &headers(&["a=; expires=Thu, 01-Jan-1970 00:00:01 GMT"]), None);
+
+        assert!(
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).is_none(),
+            "a past Expires must delete the cookie"
+        );
+    }
+
+    /// Neither `Expires` nor `Max-Age` keeps a cookie for more than 400 days (RFC 6265bis §5.5).
+    #[test]
+    fn a_cookie_lives_at_most_400_days() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        jar.store_response_cookies(
+            &req,
+            &headers(&[
+                "far=1; Expires=Fri, 31 Dec 9999 23:59:59 GMT",
+                "long=1; Max-Age=9223372036854775807",
+            ]),
+            None,
+        );
+
+        let limit = Utc::now().timestamp() + MAX_COOKIE_LIFETIME_SECS;
+        let cookies = &jar.entries["https://example.com"];
+        assert_eq!(cookies.len(), 2);
+        for cookie in cookies {
+            let expires = cookie.expires.expect("a persistent cookie");
+            assert!(
+                (limit - 60..=limit).contains(&expires),
+                "{} expires at {expires}, the limit is {limit}",
+                cookie.name
+            );
+        }
+    }
+
     /// A count is not a size: big cookies hit the byte budget first, and the
     /// jar stays well inside the frame its snapshot travels in.
     #[test]
@@ -1527,6 +1667,31 @@ mod tests {
             !jar.entries.contains_key("https://odd.test"),
             "expired and oversized both go"
         );
+    }
+
+    /// A file from a build without the 400-day cap: a later expiry is brought down to it, an
+    /// earlier one and a session cookie are left alone.
+    #[test]
+    fn a_restored_cookie_lives_at_most_400_days() {
+        let mut jar = DefaultCookieJar::new();
+        let now = Utc::now().timestamp();
+        let mut far = stored("far", "v", 0);
+        far.expires = Some(4_102_444_800); // 2100-01-01
+        let mut near = stored("near", "v", 1);
+        near.expires = Some(now + 3600);
+        jar.entries
+            .insert("https://example.com".into(), vec![far, near, stored("session", "v", 2)]);
+
+        jar.enforce_limits();
+
+        let limit = Utc::now().timestamp() + MAX_COOKIE_LIFETIME_SECS;
+        let expires: HashMap<&str, Option<i64>> = jar.entries["https://example.com"]
+            .iter()
+            .map(|c| (c.name.as_str(), c.expires))
+            .collect();
+        assert!(expires["far"].is_some_and(|exp| (limit - 60..=limit).contains(&exp)));
+        assert_eq!(expires["near"], Some(now + 3600));
+        assert_eq!(expires["session"], None);
     }
 
     /// More origins than a jar holds, and more bytes than its snapshot frame
