@@ -30,7 +30,7 @@ use crate::colors::{CssColor, RgbColor};
 use crate::matcher::keywords::{
     BorderCollapseKeyword, BorderTopStyleKeyword, BoxSizingKeyword, CaptionSideKeyword, ClearKeyword,
     FlexDirectionKeyword, Keyword, ObjectFitKeyword, OutlineStyleKeyword, OverflowXKeyword, TableLayoutKeyword,
-    TextAlignKeyword, VisibilityKeyword, WhiteSpaceKeyword,
+    TextAlignKeyword, TextWrapModeKeyword, TextWrapStyleKeyword, VisibilityKeyword, WhiteSpaceKeyword,
 };
 use crate::matcher::property_ids::{LonghandId, PropertyId, LONGHAND_COUNT, PROPERTY_COUNT};
 use crate::matcher::styling::CssProperties;
@@ -91,6 +91,20 @@ fn as_string(value: &CssValue) -> Option<&str> {
         CssValue::String(string) => Some(string),
         _ => None,
     }
+}
+
+/// The keywords a value is made of: one for a single keyword, each of them for a value of
+/// several (`block flex`, `safe center`), and `None` when any part is not a keyword.
+///
+/// A property whose grammar combines keywords arrives as a list when more than one is written,
+/// and [`as_string`] alone reads none of it: `grid-auto-flow: column dense` used to leave the
+/// flow at `row`, and `display: inline flex` left the element inline.
+fn keyword_tokens(value: &CssValue) -> Option<&[CssValue]> {
+    let tokens = match value {
+        CssValue::List(items) => items.as_slice(),
+        single => std::slice::from_ref(single),
+    };
+    tokens.iter().all(|token| as_string(token).is_some()).then_some(tokens)
 }
 
 #[expect(clippy::cast_possible_truncation, reason = "style values are carried at f32")]
@@ -503,6 +517,45 @@ fn display_of(keyword: &str) -> Display {
     }
 }
 
+/// A `display` value, in its one-keyword or its multi-keyword form.
+///
+/// css-display-3 §2: `<display-outside> || <display-inside>`, with `block` for an outer type left
+/// out and `flow` for an inner one. Each multi-keyword value lands on the box its one-keyword
+/// spelling names: `inline flow-root` is `inline-block`, `block flex` is `flex`. A `list-item`
+/// adds a marker to whatever box the rest names, and has no box type of its own here.
+fn display(value: &CssValue) -> Option<Display> {
+    let tokens = keyword_tokens(value)?;
+    if let [single] = tokens {
+        return as_string(single).map(display_of);
+    }
+    let mut inline = false;
+    let mut inside = None;
+    for token in tokens {
+        if is_keyword(token, "inline") {
+            inline = true;
+        } else if !["block", "run-in", "list-item"]
+            .iter()
+            .any(|outer| is_keyword(token, outer))
+        {
+            inside = as_string(token).map(CowUtils::cow_to_ascii_lowercase);
+        }
+    }
+    Some(match (inline, inside.as_deref()) {
+        (false, None | Some("flow")) => Display::Block,
+        (true, None | Some("flow")) => Display::Inline,
+        (false, Some("flow-root")) => Display::FlowRoot,
+        (true, Some("flow-root")) => Display::InlineBlock,
+        (false, Some("flex")) => Display::Flex,
+        (true, Some("flex")) => Display::InlineFlex,
+        (false, Some("grid")) => Display::Grid,
+        (true, Some("grid")) => Display::InlineGrid,
+        (false, Some("table")) => Display::Table,
+        (true, Some("table")) => Display::InlineTable,
+        // `ruby` and `math`, as in [`display_of`]: a block box is the closest this engine has.
+        (_, Some(_)) => Display::Block,
+    })
+}
+
 /// A `<line-style>`. The four `border-*-style` longhands share that grammar, so the top side's
 /// generated enum reads all four; a test holds the four keyword lists equal.
 fn border_style_of(keyword: BorderTopStyleKeyword) -> BorderStyle {
@@ -523,6 +576,27 @@ fn border_style_of(keyword: BorderTopStyleKeyword) -> BorderStyle {
 /// The keyword a value spells, for a property whose grammar is a plain choice of keywords.
 fn keyword<K: Keyword>(value: &CssValue) -> Option<K> {
     as_string(value).and_then(K::from_ident)
+}
+
+/// An alignment value, in any of the shapes css-align-3 gives one.
+///
+/// `safe` and `unsafe` say what happens when the item overflows its container (§4.4), `first`
+/// and `last` pick the baseline set to align by (§4.2), and `legacy` beside a position says how
+/// the value inherits (§6.3). None of them changes which alignment this element gets, which is
+/// all layout reads, so the keyword left over decides. `legacy` on its own is its own value.
+fn align(value: &CssValue) -> Option<AlignValue> {
+    let tokens = keyword_tokens(value)?;
+    let modifier = |token: &&CssValue| {
+        ["safe", "unsafe", "first", "last", "legacy"]
+            .iter()
+            .any(|word| is_keyword(token, word))
+    };
+    tokens
+        .iter()
+        .find(|token| !modifier(token))
+        .or(tokens.first())
+        .and_then(as_string)
+        .map(align_of)
 }
 
 fn align_of(keyword: &str) -> AlignValue {
@@ -974,9 +1048,11 @@ fn family_is_monospace(family: &str) -> bool {
 fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
     read!(map, style, Color, inherited_mut, color, color);
 
-    read!(map, style, FontStyle, inherited_mut, font_style, |value| as_string(
-        value
-    )
+    // `oblique` can carry its angle (`oblique 10deg`), which the typed style has no room for.
+    read!(map, style, FontStyle, inherited_mut, font_style, |value| match value {
+        CssValue::List(items) => items.first().and_then(as_string),
+        single => as_string(single),
+    }
     .map(|keyword| match keyword {
         "italic" => FontStyle::Italic,
         "oblique" => FontStyle::Oblique,
@@ -1039,13 +1115,21 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
         TextAlignKeyword::WebkitCenter => TextAlign::WebkitCenter,
     }));
 
+    // `none | [ capitalize | uppercase | lowercase ] || full-width || full-size-kana`: the case
+    // keyword decides, wherever it is written. The other two do nothing here.
     read!(map, style, TextTransform, inherited_mut, text_transform, |value| {
-        as_string(value).map(|keyword| match keyword {
-            "uppercase" => TextTransform::Uppercase,
-            "lowercase" => TextTransform::Lowercase,
-            "capitalize" => TextTransform::Capitalize,
-            _ => TextTransform::None,
-        })
+        let tokens = keyword_tokens(value)?;
+        Some(
+            tokens
+                .iter()
+                .find_map(|token| match as_string(token)?.cow_to_ascii_lowercase().as_ref() {
+                    "uppercase" => Some(TextTransform::Uppercase),
+                    "lowercase" => Some(TextTransform::Lowercase),
+                    "capitalize" => Some(TextTransform::Capitalize),
+                    _ => None,
+                })
+                .unwrap_or(TextTransform::None),
+        )
     });
 
     resolve_text_decoration(map, style);
@@ -1155,8 +1239,7 @@ fn resolve_border_spacing(map: &CssProperties, style: &mut ComputedStyle, font_s
 }
 
 fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
-    read!(map, style, Display, box_mut, display, |value| as_string(value)
-        .map(display_of));
+    read!(map, style, Display, box_mut, display, display);
 
     read!(map, style, Position, box_mut, position, |value| as_string(value).map(
         |keyword| match keyword {
@@ -1235,15 +1318,15 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
 
     // `text-wrap` is a shorthand for these two (css-text-4 §5.1); one field holds both, since a
     // line that does not wrap has no style of wrapping.
-    let mode = value(map, longhand(LonghandId::TextWrapMode)).and_then(as_string);
-    let wrap_style = value(map, longhand(LonghandId::TextWrapStyle)).and_then(as_string);
+    let mode = value(map, longhand(LonghandId::TextWrapMode)).and_then(keyword::<TextWrapModeKeyword>);
+    let wrap_style = value(map, longhand(LonghandId::TextWrapStyle)).and_then(keyword::<TextWrapStyleKeyword>);
     if mode.is_some() || wrap_style.is_some() {
         style.box_mut().text_wrap = match (mode, wrap_style) {
-            (Some("nowrap"), _) => TextWrap::NoWrap,
-            (_, Some("balance")) => TextWrap::Balance,
-            (_, Some("pretty")) => TextWrap::Pretty,
-            (_, Some("stable")) => TextWrap::Stable,
-            _ => TextWrap::Wrap,
+            (Some(TextWrapModeKeyword::Nowrap), _) => TextWrap::NoWrap,
+            (_, Some(TextWrapStyleKeyword::Balance)) => TextWrap::Balance,
+            (_, Some(TextWrapStyleKeyword::Pretty)) => TextWrap::Pretty,
+            (_, Some(TextWrapStyleKeyword::Stable)) => TextWrap::Stable,
+            (Some(TextWrapModeKeyword::Wrap) | None, Some(TextWrapStyleKeyword::Auto) | None) => TextWrap::Wrap,
         };
         style.declared.set(Prop::TextWrap);
     }
@@ -1264,9 +1347,24 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
         }
     ));
 
-    read!(map, style, VerticalAlign, box_mut, vertical_align, |value| as_string(
-        value
-    )
+    // `[ first | last ] || <'alignment-baseline'> || <'baseline-shift'>`: which baseline set to
+    // use is nothing this engine distinguishes, so the keyword beside it decides. The style holds
+    // one keyword, and a shift (`baseline top`) moves the box further than the baseline it shifts
+    // from, so a shift wins over an alignment baseline in either order.
+    read!(map, style, VerticalAlign, box_mut, vertical_align, |value| {
+        let tokens = keyword_tokens(value)?;
+        let shift = |token: &&CssValue| ["sub", "super", "top", "bottom"].iter().any(|k| is_keyword(token, k));
+        tokens
+            .iter()
+            .find(shift)
+            .or_else(|| {
+                tokens
+                    .iter()
+                    .find(|token| !is_keyword(token, "first") && !is_keyword(token, "last"))
+            })
+            .or(tokens.first())
+            .and_then(as_string)
+    }
     .map(|keyword| match keyword {
         "baseline" => VerticalAlign::Baseline,
         "sub" => VerticalAlign::Sub,
@@ -1634,13 +1732,22 @@ fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) 
     read!(map, style, FlexShrink, flex_mut, shrink, as_number);
     read!(map, style, Order, flex_mut, order, as_integer);
 
-    read!(map, style, FlexWrap, flex_mut, wrap, |value| as_string(value).map(
-        |keyword| match keyword {
-            "wrap" => FlexWrap::Wrap,
-            "wrap-reverse" => FlexWrap::WrapReverse,
-            _ => FlexWrap::NoWrap,
+    // `nowrap | [ wrap | wrap-reverse ] || balance`. `balance` (css-flexbox-2) evens out the lines
+    // of a container that wraps, which layout does not do, but it only means anything on one that
+    // wraps: on its own it is `wrap`.
+    read!(map, style, FlexWrap, flex_mut, wrap, |value| {
+        let tokens = keyword_tokens(value)?;
+        if tokens.iter().any(|token| is_keyword(token, "wrap-reverse")) {
+            Some(FlexWrap::WrapReverse)
+        } else if tokens
+            .iter()
+            .any(|token| is_keyword(token, "wrap") || is_keyword(token, "balance"))
+        {
+            Some(FlexWrap::Wrap)
+        } else {
+            Some(FlexWrap::NoWrap)
         }
-    ));
+    });
 
     // `normal` is 0 in flex and grid layout, which is all that reads these, so it is left to the
     // initial value rather than mapped.
@@ -1651,7 +1758,6 @@ fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) 
         value, font_size
     ));
 
-    let align = |value: &CssValue| as_string(value).map(align_of);
     read!(map, style, AlignItems, flex_mut, align_items, align);
     read!(map, style, AlignSelf, flex_mut, align_self, align);
     read!(map, style, AlignContent, flex_mut, align_content, align);
@@ -1674,13 +1780,18 @@ fn resolve_grid(map: &CssProperties, style: &mut ComputedStyle) {
 
     read!(map, style, GridTemplateAreas, grid_mut, template_areas, grid_areas);
 
-    read!(map, style, GridAutoFlow, grid_mut, auto_flow, |value| as_string(value)
-        .map(|keyword| match keyword {
-            "column" => GridAutoFlow::Column,
-            "row dense" => GridAutoFlow::RowDense,
-            "column dense" => GridAutoFlow::ColumnDense,
-            _ => GridAutoFlow::Row,
-        }));
+    // `[ row | column ] || dense`, with `row` where the direction is left out.
+    read!(map, style, GridAutoFlow, grid_mut, auto_flow, |value| {
+        let tokens = keyword_tokens(value)?;
+        let column = tokens.iter().any(|token| is_keyword(token, "column"));
+        let dense = tokens.iter().any(|token| is_keyword(token, "dense"));
+        Some(match (column, dense) {
+            (false, false) => GridAutoFlow::Row,
+            (true, false) => GridAutoFlow::Column,
+            (false, true) => GridAutoFlow::RowDense,
+            (true, true) => GridAutoFlow::ColumnDense,
+        })
+    });
 }
 
 #[cfg(test)]
@@ -2052,6 +2163,75 @@ mod tests {
         assert_eq!(
             (own.flex.align_self, own.flex.justify_self),
             (AlignValue::End, AlignValue::End)
+        );
+    }
+
+    /// A value of several keywords arrives as a list, and is read like its one-keyword spelling.
+    #[test]
+    fn multi_keyword_values_are_read() {
+        let display = |css| style_of(css).box_group.display;
+        assert_eq!(display("display: block flow"), Display::Block);
+        assert_eq!(display("display: inline flow"), Display::Inline);
+        assert_eq!(display("display: inline flow-root"), Display::InlineBlock);
+        assert_eq!(display("display: block flex"), Display::Flex);
+        assert_eq!(display("display: inline grid"), Display::InlineGrid);
+        assert_eq!(display("display: inline table"), Display::InlineTable);
+        assert_eq!(display("display: inline list-item"), Display::Inline);
+        assert_eq!(display("display: list-item flow-root"), Display::FlowRoot);
+
+        let flow = |css| style_of(css).grid.auto_flow;
+        assert_eq!(flow("grid-auto-flow: column dense"), GridAutoFlow::ColumnDense);
+        assert_eq!(flow("grid-auto-flow: dense row"), GridAutoFlow::RowDense);
+        assert_eq!(flow("grid-auto-flow: dense"), GridAutoFlow::RowDense);
+
+        assert_eq!(
+            style_of("align-items: safe center").flex.align_items,
+            AlignValue::Center
+        );
+        assert_eq!(
+            style_of("align-items: last baseline").flex.align_items,
+            AlignValue::Baseline
+        );
+        assert_eq!(
+            style_of("justify-content: unsafe end").flex.justify_content,
+            AlignValue::End
+        );
+        assert_eq!(
+            style_of("justify-items: legacy center").flex.justify_items,
+            AlignValue::Center
+        );
+        assert_eq!(style_of("justify-items: legacy").flex.justify_items, AlignValue::Legacy);
+
+        assert_eq!(
+            style_of("flex-wrap: wrap-reverse balance").flex.wrap,
+            FlexWrap::WrapReverse
+        );
+        assert_eq!(style_of("flex-wrap: balance").flex.wrap, FlexWrap::Wrap);
+        assert_eq!(
+            style_of("text-transform: full-width uppercase")
+                .inherited
+                .text_transform,
+            TextTransform::Uppercase
+        );
+        assert_eq!(
+            style_of("font-style: oblique 10deg").inherited.font_style,
+            FontStyle::Oblique
+        );
+        assert_eq!(
+            style_of("vertical-align: first middle").box_group.vertical_align,
+            VerticalAlign::Middle
+        );
+        assert_eq!(
+            style_of("vertical-align: baseline top").box_group.vertical_align,
+            VerticalAlign::Top
+        );
+        assert_eq!(
+            style_of("vertical-align: top baseline").box_group.vertical_align,
+            VerticalAlign::Top
+        );
+        assert_eq!(
+            style_of("vertical-align: middle super").box_group.vertical_align,
+            VerticalAlign::Super
         );
     }
 
