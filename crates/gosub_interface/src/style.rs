@@ -58,6 +58,27 @@ pub enum LengthPercentage {
     },
 }
 
+impl std::ops::Add for LengthPercentage {
+    type Output = LengthPercentage;
+
+    /// The sum, as one value: two lengths or two percentages stay what they are, and a length
+    /// and a percentage become the `calc()` that adds them.
+    fn add(self, other: LengthPercentage) -> LengthPercentage {
+        let parts = |value| match value {
+            LengthPercentage::Px(px) => (px, 0.0),
+            LengthPercentage::Percent(percent) => (0.0, percent),
+            LengthPercentage::Calc { px, percent } => (px, percent),
+        };
+        let (px, percent) = parts(self);
+        let (other_px, other_percent) = parts(other);
+        match (px + other_px, percent + other_percent) {
+            (px, 0.0) => LengthPercentage::Px(px),
+            (0.0, percent) => LengthPercentage::Percent(percent),
+            (px, percent) => LengthPercentage::Calc { px, percent },
+        }
+    }
+}
+
 impl LengthPercentage {
     pub const ZERO: LengthPercentage = LengthPercentage::Px(0.0);
 
@@ -545,7 +566,9 @@ declare_props! {
     TextWrap,
     TableLayout,
     ObjectFit,
+    ObjectPosition,
     VerticalAlign,
+    Transform,
 
     Width,
     Height,
@@ -730,7 +753,13 @@ pub struct BoxGroup {
     pub text_wrap: TextWrap,
     pub table_layout: TableLayout,
     pub object_fit: ObjectFit,
+    /// Where the replaced content sits in its content box, once `object-fit` has sized it.
+    pub object_position: (Anchor, Anchor),
     pub vertical_align: VerticalAlign,
+    /// The translation part of `transform`: every `translate()`, `translateX()` and
+    /// `translateY()` in the list, summed. `None` for `none` and for a list with no translation.
+    /// The other transform functions are not applied, and not carried.
+    pub translate: Option<(LengthPercentage, LengthPercentage)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -792,11 +821,130 @@ pub struct OutlineGroup {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BackgroundGroup {
     pub color: Color,
-    /// The `url()` target of the first image layer, unresolved against the document's base URL.
-    pub image: Option<Arc<str>>,
+    /// One per `background-image` layer, in the order written: the first paints on top. Empty
+    /// when no image is declared.
+    pub layers: Arc<[BackgroundLayer]>,
     /// `box-shadow`, in the order written: the first one paints on top. Empty for `none`, and
     /// a shadow whose colour is fully transparent is left out, since it paints nothing.
     pub shadows: Arc<[BoxShadow]>,
+}
+
+impl BackgroundGroup {
+    /// The first layer whose image is a `url()`, and its target. This engine paints one raster
+    /// background image per box.
+    #[must_use]
+    pub fn first_url(&self) -> Option<(&str, &BackgroundLayer)> {
+        self.layers.iter().find_map(|layer| match &layer.image {
+            BackgroundImage::Url(url) => Some((url.as_ref(), layer)),
+            _ => None,
+        })
+    }
+}
+
+/// One axis of a `<position>`: an offset from the start edge or from the end edge
+/// (css-values-4 §9.5).
+///
+/// `left 10px` is 10px from the start, `right 10%` is 10% from the end and `center` is 50% from
+/// the start. A percentage is of the free space, the box's extent less the extent of what is
+/// placed in it, so `100%` puts the far edge of an image on the far edge of its box. Where it
+/// lands is a used value: [`crate::used::anchor`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Anchor {
+    pub from_end: bool,
+    pub offset: LengthPercentage,
+}
+
+impl Anchor {
+    /// The start edge: `left`, `top`, `0%`.
+    pub const START: Anchor = Anchor {
+        from_end: false,
+        offset: LengthPercentage::ZERO,
+    };
+    /// `center`, which is `50%`.
+    pub const CENTER: Anchor = Anchor {
+        from_end: false,
+        offset: LengthPercentage::Percent(50.0),
+    };
+}
+
+/// One `background-image` layer's image.
+#[derive(Clone, Debug, PartialEq)]
+pub enum BackgroundImage {
+    /// `none`: the layer is there, and sizes and positions are counted against it, but nothing
+    /// paints.
+    None,
+    /// A `url()` target, unresolved against the document's base URL.
+    Url(Arc<str>),
+    Linear(LinearGradient),
+    /// An image this engine does not paint yet: the radial and conic gradients, `image-set()`,
+    /// the repeating gradients.
+    Other,
+}
+
+/// A `linear-gradient()`, its colours resolved.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LinearGradient {
+    /// The direction of the gradient line in CSS degrees: `0` points up, `90` right. `to bottom`,
+    /// the default, is `180`.
+    pub angle_deg: f32,
+    /// At least two. Interpolating the positions left out is a used-value question.
+    pub stops: Arc<[GradientStop]>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GradientStop {
+    pub color: Color,
+    /// Where the stop sits along the gradient line, as a fraction, when it was given as a
+    /// percentage. `None` when it was left out, or given as a length, which this does not
+    /// resolve.
+    pub position: Option<f32>,
+}
+
+/// One layer of `background-size`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BackgroundSize {
+    /// Scale the image, keeping its ratio, until it covers the whole positioning area.
+    Cover,
+    /// Scale the image, keeping its ratio, until it fits inside the positioning area.
+    Contain,
+    /// A width and a height, either of which may be `auto` (css-backgrounds-3 §3.9).
+    Explicit(LengthPercentageAuto, LengthPercentageAuto),
+}
+
+/// One axis of one layer of `background-repeat`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BackgroundRepeat {
+    Repeat,
+    /// Repeat as many whole tiles as fit, spacing them out to fill the area.
+    Space,
+    /// Repeat, scaling the tile so a whole number of them fits.
+    Round,
+    NoRepeat,
+}
+
+/// How a background layer's image is sized, placed and tiled: the per-layer
+/// `background-size`, `background-position` and `background-repeat`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BackgroundTile {
+    pub size: BackgroundSize,
+    pub position: (Anchor, Anchor),
+    pub repeat: (BackgroundRepeat, BackgroundRepeat),
+}
+
+impl BackgroundTile {
+    /// The initial values: `auto`, `0% 0%`, `repeat`.
+    pub const INITIAL: BackgroundTile = BackgroundTile {
+        size: BackgroundSize::Explicit(LengthPercentageAuto::Auto, LengthPercentageAuto::Auto),
+        position: (Anchor::START, Anchor::START),
+        repeat: (BackgroundRepeat::Repeat, BackgroundRepeat::Repeat),
+    };
+}
+
+/// One background layer: an image and how it tiles.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BackgroundLayer {
+    pub image: BackgroundImage,
+    pub tile: BackgroundTile,
 }
 
 /// One `box-shadow`. The lengths are px.
@@ -1123,7 +1271,9 @@ impl ComputedStyle {
                 text_wrap: TextWrap::Wrap,
                 table_layout: TableLayout::Auto,
                 object_fit: ObjectFit::Fill,
+                object_position: (Anchor::CENTER, Anchor::CENTER),
                 vertical_align: VerticalAlign::Baseline,
+                translate: None,
             }),
             size: Arc::new(SizeGroup {
                 width: LengthPercentageAuto::Auto,
@@ -1175,7 +1325,7 @@ impl ComputedStyle {
             }),
             background: Arc::new(BackgroundGroup {
                 color: Color::TRANSPARENT,
-                image: None,
+                layers: Arc::new([]),
                 shadows: Arc::new([]),
             }),
             inset: Arc::new(InsetGroup {
@@ -1258,11 +1408,22 @@ impl HeapSize for BoxGroup {
     }
 }
 
+flat_group!(GradientStop, BoxShadow);
+
+impl HeapSize for BackgroundLayer {
+    fn heap_size(&self, walk: &mut Walk) {
+        match &self.image {
+            BackgroundImage::Url(url) => url.heap_size(walk),
+            BackgroundImage::Linear(gradient) => gradient.stops.heap_size(walk),
+            BackgroundImage::None | BackgroundImage::Other => {}
+        }
+    }
+}
+
 impl HeapSize for BackgroundGroup {
     fn heap_size(&self, walk: &mut Walk) {
-        if let Some(image) = &self.image {
-            image.heap_size(walk);
-        }
+        self.layers.heap_size(walk);
+        self.shadows.heap_size(walk);
     }
 }
 

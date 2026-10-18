@@ -18,11 +18,12 @@ use std::sync::{Arc, LazyLock};
 
 use cow_utils::CowUtils;
 use gosub_interface::style::{
-    AlignValue, BorderCollapse, BorderStyle, BoxShadow, BoxSizing, CaptionSide, Clear, Color, ComputedStyle, Display,
-    FlexDirection, FlexWrap, Float, FontStyle, FontWeight, GridAreas, GridAutoFlow, GridLine, LengthPercentage,
-    LengthPercentageAuto, LetterSpacing, LineHeight, ObjectFit, Overflow, Position, Prop, RepeatCount, TableLayout,
-    TextAlign, TextDecorationLine, TextTransform, TextWrap, TrackBreadth, TrackList, TrackListItem, TrackSize,
-    VerticalAlign, Visibility, WhiteSpace, ZIndex,
+    AlignValue, Anchor, BackgroundImage, BackgroundLayer, BackgroundRepeat, BackgroundSize, BackgroundTile,
+    BorderCollapse, BorderStyle, BoxShadow, BoxSizing, CaptionSide, Clear, Color, ComputedStyle, Display,
+    FlexDirection, FlexWrap, Float, FontStyle, FontWeight, GradientStop, GridAreas, GridAutoFlow, GridLine,
+    LengthPercentage, LengthPercentageAuto, LetterSpacing, LineHeight, LinearGradient, ObjectFit, Overflow, Position,
+    Prop, RepeatCount, TableLayout, TextAlign, TextDecorationLine, TextTransform, TextWrap, TrackBreadth, TrackList,
+    TrackListItem, TrackSize, VerticalAlign, Visibility, WhiteSpace, ZIndex,
 };
 
 use crate::colors::resolve::{resolve_color, ColorContext};
@@ -33,6 +34,7 @@ use crate::matcher::keywords::{
     TextAlignKeyword, TextWrapModeKeyword, TextWrapStyleKeyword, VisibilityKeyword, WhiteSpaceKeyword,
 };
 use crate::matcher::property_ids::{LonghandId, PropertyId, LONGHAND_COUNT, PROPERTY_COUNT};
+use crate::matcher::shorthands::bg_position_axes;
 use crate::matcher::styling::CssProperties;
 use crate::stylesheet::CssValue;
 
@@ -277,6 +279,250 @@ fn first_url(value: &CssValue) -> Option<&str> {
         }
     }
     as_list(value)?.iter().find_map(first_url)
+}
+
+// ── Positions, backgrounds, transforms ───────────────────────────────────────
+
+/// A value's comma-separated groups: one per layer of a `background-*` list, one per argument
+/// of a function. A value with no comma is one group.
+fn comma_groups(value: &CssValue) -> impl Iterator<Item = &[CssValue]> {
+    grid_tokens(value).split(|token| matches!(token, CssValue::Comma))
+}
+
+/// One axis of a `<position>`, from the tokens `background-position-x`, `-y` or one half of
+/// `object-position` hold: `center`, or an edge keyword, a length-percentage, or both.
+///
+/// `horizontal` says which edge keywords belong to this axis. The logical ones (`x-start`) are
+/// the physical ones in the horizontal-tb, ltr writing mode this engine assumes.
+fn anchor(tokens: &[CssValue], horizontal: bool, font_size: f32) -> Option<Anchor> {
+    let (start, end) = if horizontal {
+        (["left", "x-start"], ["right", "x-end"])
+    } else {
+        (["top", "y-start"], ["bottom", "y-end"])
+    };
+    let edge = |token: &CssValue| {
+        if start.iter().any(|word| is_keyword(token, word)) {
+            Some(false)
+        } else if end.iter().any(|word| is_keyword(token, word)) {
+            Some(true)
+        } else {
+            None
+        }
+    };
+    match tokens {
+        [only] if is_keyword(only, "center") => Some(Anchor::CENTER),
+        [only] => match edge(only) {
+            Some(from_end) => Some(Anchor {
+                from_end,
+                offset: LengthPercentage::ZERO,
+            }),
+            None => length_percentage(only, font_size).map(|offset| Anchor {
+                from_end: false,
+                offset,
+            }),
+        },
+        [keyword, offset] => Some(Anchor {
+            from_end: edge(keyword)?,
+            offset: length_percentage(offset, font_size)?,
+        }),
+        _ => None,
+    }
+}
+
+/// A whole `<position>` in one value, as `object-position` holds it: split into its two axes the
+/// way the `background-position` shorthand is, then read per axis.
+fn position(value: &CssValue, font_size: f32) -> Option<(Anchor, Anchor)> {
+    let (x, y) = bg_position_axes(grid_tokens(value))?;
+    Some((anchor(&x, true, font_size)?, anchor(&y, false, font_size)?))
+}
+
+/// One layer of `background-image`.
+fn background_image(group: &[CssValue], current: Color) -> BackgroundImage {
+    match group {
+        [image] => {
+            if is_keyword(image, "none") {
+                return BackgroundImage::None;
+            }
+            if let Some(url) = first_url(image) {
+                return BackgroundImage::Url(Arc::from(url));
+            }
+            match as_function(image) {
+                Some((name, args)) if name.eq_ignore_ascii_case("linear-gradient") => {
+                    linear_gradient(args, current).map_or(BackgroundImage::Other, BackgroundImage::Linear)
+                }
+                _ => BackgroundImage::Other,
+            }
+        }
+        _ => BackgroundImage::Other,
+    }
+}
+
+/// A `linear-gradient()`'s arguments: an optional direction, then the colour stops, with
+/// `currentcolor` standing for `current`. `None` with fewer than two stops that name a colour.
+fn linear_gradient(args: &[CssValue], current: Color) -> Option<LinearGradient> {
+    let mut groups = args.split(|token| matches!(token, CssValue::Comma)).peekable();
+    // `to bottom` when the direction is left out (css-images-3 §3.1.1).
+    let mut angle_deg = 180.0;
+    if let Some(angle) = groups.peek().and_then(|group| gradient_direction(group)) {
+        angle_deg = angle;
+        groups.next();
+    }
+    let stops: Vec<GradientStop> = groups
+        .filter_map(|group| {
+            let color = group.iter().find_map(|token| used_color(token, current))?;
+            let position = group.iter().find_map(as_percentage).map(|pct| pct / 100.0);
+            Some(GradientStop { color, position })
+        })
+        .collect();
+    (stops.len() >= 2).then(|| LinearGradient {
+        angle_deg,
+        stops: Arc::from(stops),
+    })
+}
+
+/// A gradient's direction in CSS degrees, or `None` when the group is a colour stop instead.
+fn gradient_direction(group: &[CssValue]) -> Option<f32> {
+    // The computed stage has already made every angle `deg`; the others are for a value that
+    // reached here another way.
+    if let [angle] = group {
+        if let Some((value, unit)) = as_unit(angle) {
+            return match unit.cow_to_ascii_lowercase().as_ref() {
+                "deg" => Some(value),
+                "grad" => Some(value * 0.9),
+                "rad" => Some(value.to_degrees()),
+                "turn" => Some(value * 360.0),
+                _ => None,
+            };
+        }
+    }
+    // `to <side-or-corner>`.
+    let (first, sides) = group.split_first()?;
+    if !is_keyword(first, "to") {
+        return None;
+    }
+    let has = |side: &str| sides.iter().any(|token| is_keyword(token, side));
+    Some(match (has("top"), has("right"), has("bottom"), has("left")) {
+        (true, false, false, false) => 0.0,
+        (false, true, false, false) => 90.0,
+        (false, false, true, false) => 180.0,
+        (false, false, false, true) => 270.0,
+        (true, true, false, false) => 45.0,
+        (false, true, true, false) => 135.0,
+        (false, false, true, true) => 225.0,
+        (true, false, false, true) => 315.0,
+        // The grammar admits nothing else.
+        _ => 180.0,
+    })
+}
+
+/// One layer of `background-size`.
+fn background_size(group: &[CssValue], font_size: f32) -> Option<BackgroundSize> {
+    let lpa = |token| length_percentage_auto(token, font_size);
+    match group {
+        [only] if is_keyword(only, "cover") => Some(BackgroundSize::Cover),
+        [only] if is_keyword(only, "contain") => Some(BackgroundSize::Contain),
+        // One value is the width; the height is `auto`.
+        [width] => Some(BackgroundSize::Explicit(lpa(width), LengthPercentageAuto::Auto)),
+        [width, height] => Some(BackgroundSize::Explicit(lpa(width), lpa(height))),
+        _ => None,
+    }
+}
+
+/// One layer of `background-repeat`, per axis.
+fn background_repeat(group: &[CssValue]) -> Option<(BackgroundRepeat, BackgroundRepeat)> {
+    let axis = |token: &CssValue| {
+        Some(match as_string(token)?.cow_to_ascii_lowercase().as_ref() {
+            "repeat" => BackgroundRepeat::Repeat,
+            "space" => BackgroundRepeat::Space,
+            "round" => BackgroundRepeat::Round,
+            "no-repeat" => BackgroundRepeat::NoRepeat,
+            _ => return None,
+        })
+    };
+    match group {
+        [only] if is_keyword(only, "repeat-x") => Some((BackgroundRepeat::Repeat, BackgroundRepeat::NoRepeat)),
+        [only] if is_keyword(only, "repeat-y") => Some((BackgroundRepeat::NoRepeat, BackgroundRepeat::Repeat)),
+        [both] => axis(both).map(|repeat| (repeat, repeat)),
+        [x, y] => Some((axis(x)?, axis(y)?)),
+        _ => None,
+    }
+}
+
+/// The background layers: one per `background-image` layer, each taking the size, position and
+/// repeat at its index, the lists repeated as often as they need to be (css-backgrounds-3
+/// §2.1). A list longer than the images has its extra entries ignored.
+fn background_layers(map: &CssProperties, current: Color, font_size: f32) -> Option<Arc<[BackgroundLayer]>> {
+    let images = value(map, longhand(LonghandId::BackgroundImage))?;
+    let list = |id| -> Vec<&[CssValue]> {
+        value(map, longhand(id))
+            .map(|value| comma_groups(value).collect())
+            .unwrap_or_default()
+    };
+    let sizes = list(LonghandId::BackgroundSize);
+    let xs = list(LonghandId::BackgroundPositionX);
+    let ys = list(LonghandId::BackgroundPositionY);
+    let repeats = list(LonghandId::BackgroundRepeat);
+    fn cycled<'a>(groups: &[&'a [CssValue]], index: usize) -> Option<&'a [CssValue]> {
+        groups.get(index % groups.len().max(1)).copied()
+    }
+
+    let initial = BackgroundTile::INITIAL;
+    let layers: Vec<BackgroundLayer> = comma_groups(images)
+        .enumerate()
+        .map(|(index, image)| BackgroundLayer {
+            image: background_image(image, current),
+            tile: BackgroundTile {
+                size: cycled(&sizes, index)
+                    .and_then(|group| background_size(group, font_size))
+                    .unwrap_or(initial.size),
+                position: (
+                    cycled(&xs, index)
+                        .and_then(|group| anchor(group, true, font_size))
+                        .unwrap_or(initial.position.0),
+                    cycled(&ys, index)
+                        .and_then(|group| anchor(group, false, font_size))
+                        .unwrap_or(initial.position.1),
+                ),
+                repeat: cycled(&repeats, index)
+                    .and_then(background_repeat)
+                    .unwrap_or(initial.repeat),
+            },
+        })
+        .collect();
+    Some(Arc::from(layers))
+}
+
+/// The translation part of a `transform` list: every `translate()`, `translateX()` and
+/// `translateY()` summed. `None` for `none`, and for a list with no translation in it. The other
+/// transform functions are not applied, and are not carried.
+fn translation(value: &CssValue, font_size: f32) -> Option<(LengthPercentage, LengthPercentage)> {
+    let mut total: Option<(LengthPercentage, LengthPercentage)> = None;
+    for function in grid_tokens(value) {
+        let Some((name, args)) = as_function(function) else {
+            continue;
+        };
+        let mut lengths = args
+            .split(|token| matches!(token, CssValue::Comma))
+            .map(|arg| match arg {
+                [length] => length_percentage(length, font_size),
+                _ => None,
+            });
+        let mut next = || lengths.next().flatten().unwrap_or(LengthPercentage::ZERO);
+        let (x, y) = match name.cow_to_ascii_lowercase().as_ref() {
+            "translate" => {
+                let x = next();
+                (x, next())
+            }
+            "translatex" => (next(), LengthPercentage::ZERO),
+            "translatey" => (LengthPercentage::ZERO, next()),
+            _ => continue,
+        };
+        total = Some(match total {
+            None => (x, y),
+            Some((tx, ty)) => (tx + x, ty + y),
+        });
+    }
+    total
 }
 
 // ── Grid ─────────────────────────────────────────────────────────────────────
@@ -745,6 +991,8 @@ static ENGINE_LONGHANDS: &[(LonghandId, Prop, u16)] = &[
     (LonghandId::TextWrapStyle, Prop::TextWrap, G_BOX),
     (LonghandId::TableLayout, Prop::TableLayout, G_BOX),
     (LonghandId::ObjectFit, Prop::ObjectFit, G_BOX),
+    (LonghandId::ObjectPosition, Prop::ObjectPosition, G_BOX),
+    (LonghandId::Transform, Prop::Transform, G_BOX),
     (LonghandId::VerticalAlign, Prop::VerticalAlign, G_BOX),
     // size
     (LonghandId::Width, Prop::Width, G_SIZE),
@@ -820,6 +1068,10 @@ static ENGINE_LONGHANDS: &[(LonghandId, Prop, u16)] = &[
     // background
     (LonghandId::BackgroundColor, Prop::BackgroundColor, G_BACKGROUND),
     (LonghandId::BackgroundImage, Prop::BackgroundImage, G_BACKGROUND),
+    (LonghandId::BackgroundSize, Prop::BackgroundImage, G_BACKGROUND),
+    (LonghandId::BackgroundPositionX, Prop::BackgroundImage, G_BACKGROUND),
+    (LonghandId::BackgroundPositionY, Prop::BackgroundImage, G_BACKGROUND),
+    (LonghandId::BackgroundRepeat, Prop::BackgroundImage, G_BACKGROUND),
     (LonghandId::BoxShadow, Prop::BoxShadow, G_BACKGROUND),
     // inset
     (LonghandId::InsetBlockStart, Prop::InsetBlockStart, G_INSET),
@@ -938,7 +1190,7 @@ pub fn computed_style(map: &CssProperties, parent: Option<&ComputedStyle>) -> Co
     let font_size = style.inherited.font_size;
 
     if touched & G_BOX != 0 {
-        resolve_box(map, &mut style);
+        resolve_box(map, &mut style, font_size);
     }
     if touched & G_SIZE != 0 {
         resolve_sizes(map, &mut style, font_size);
@@ -1238,7 +1490,7 @@ fn resolve_border_spacing(map: &CssProperties, style: &mut ComputedStyle, font_s
     }
 }
 
-fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
+fn resolve_box(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
     read!(map, style, Display, box_mut, display, display);
 
     read!(map, style, Position, box_mut, position, |value| as_string(value).map(
@@ -1346,6 +1598,14 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
             ObjectFitKeyword::ScaleDown => ObjectFit::ScaleDown,
         }
     ));
+
+    read!(map, style, ObjectPosition, box_mut, object_position, |value| position(
+        value, font_size
+    ));
+
+    read!(map, style, Transform, box_mut, translate, |value| Some(translation(
+        value, font_size
+    )));
 
     // `[ first | last ] || <'alignment-baseline'> || <'baseline-shift'>`: which baseline set to
     // use is nothing this engine distinguishes, so the keyword beside it decides. The style holds
@@ -1621,8 +1881,19 @@ fn resolve_background(map: &CssProperties, style: &mut ComputedStyle, font_size:
         color,
         move |value: &CssValue| used_color(value, current)
     );
-    if let Some(url) = value(map, longhand(LonghandId::BackgroundImage)).and_then(first_url) {
-        style.background_mut().image = Some(Arc::from(url));
+    // Five longhands make one list of layers, so they are read together. A size or a position
+    // with no image to apply to sets nothing, but it is still something the element declared.
+    let layer_longhands = [
+        LonghandId::BackgroundImage,
+        LonghandId::BackgroundSize,
+        LonghandId::BackgroundPositionX,
+        LonghandId::BackgroundPositionY,
+        LonghandId::BackgroundRepeat,
+    ];
+    if layer_longhands.iter().any(|id| value(map, longhand(*id)).is_some()) {
+        if let Some(layers) = background_layers(map, current, font_size) {
+            style.background_mut().layers = layers;
+        }
         style.declared.set(Prop::BackgroundImage);
     }
     read!(
@@ -1928,7 +2199,7 @@ mod tests {
         );
         let layers = style_of("background: url(a.png), linear-gradient(red, blue) green");
         assert_eq!(layers.background.color, Color::rgba(0, 128, 0, 255));
-        assert_eq!(layers.background.image.as_deref(), Some("a.png"));
+        assert_eq!(layers.background.first_url().map(|(url, _)| url), Some("a.png"));
     }
 
     /// A CSS-wide keyword on a shorthand reaches every longhand (css-cascade-5 §7.3), so the
@@ -2644,7 +2915,178 @@ mod tests {
     fn the_background_shorthand_gives_up_its_colour_and_image() {
         let style = style_of("background: #ffffff url(\"grayarrow.gif\") no-repeat");
         assert_eq!(style.background.color, Color::rgba(255, 255, 255, 255));
-        assert_eq!(style.background.image.as_deref(), Some("grayarrow.gif"));
+        assert_eq!(style.background.first_url().map(|(url, _)| url), Some("grayarrow.gif"));
+        assert_eq!(
+            style.background.layers[0].tile.repeat,
+            (BackgroundRepeat::NoRepeat, BackgroundRepeat::NoRepeat)
+        );
+    }
+
+    fn px_anchor(from_end: bool, px: f32) -> Anchor {
+        Anchor {
+            from_end,
+            offset: LengthPercentage::Px(px),
+        }
+    }
+
+    fn pct_anchor(pct: f32) -> Anchor {
+        Anchor {
+            from_end: false,
+            offset: LengthPercentage::Percent(pct),
+        }
+    }
+
+    /// The position of the first background layer, for `background-position: <css>`.
+    fn bg_position(css: &str) -> (Anchor, Anchor) {
+        let style = style_of(&format!("background-image: url(a.png); background-position: {css}"));
+        style.background.layers[0].tile.position
+    }
+
+    /// The two-keyword form may be written in either order, so `center right` has to mean the same
+    /// as `right center`. Taking the first value as the horizontal one put Wikipedia's
+    /// external-link icon in the middle of every link.
+    #[test]
+    fn position_keyword_pairs_are_read_in_either_order() {
+        let right_middle = (px_anchor(true, 0.0), Anchor::CENTER);
+        assert_eq!(bg_position("right center"), right_middle);
+        assert_eq!(bg_position("center right"), right_middle);
+        let middle_top = (Anchor::CENTER, Anchor::START);
+        assert_eq!(bg_position("center top"), middle_top);
+        assert_eq!(bg_position("top center"), middle_top);
+    }
+
+    #[test]
+    fn one_position_value_centres_the_other_axis() {
+        assert_eq!(bg_position("right"), (px_anchor(true, 0.0), Anchor::CENTER));
+        assert_eq!(bg_position("center"), (Anchor::CENTER, Anchor::CENTER));
+        assert_eq!(bg_position("20px"), (px_anchor(false, 20.0), Anchor::CENTER));
+    }
+
+    /// `center 4px` is the two-value form: the `center` is the horizontal value and the length the
+    /// vertical one. An edge keyword takes the offset after it: `right 10px` is 10px from the
+    /// right edge, and `right 10%` 10% from it.
+    #[test]
+    fn position_offsets_belong_to_their_axis() {
+        assert_eq!(bg_position("center 4px"), (Anchor::CENTER, px_anchor(false, 4.0)));
+        assert_eq!(bg_position("4px center"), (px_anchor(false, 4.0), Anchor::CENTER));
+        assert_eq!(bg_position("50% 100%"), (pct_anchor(50.0), pct_anchor(100.0)));
+        assert_eq!(
+            bg_position("right 10px bottom 4px"),
+            (px_anchor(true, 10.0), px_anchor(true, 4.0))
+        );
+        let right_ten_percent = Anchor {
+            from_end: true,
+            offset: LengthPercentage::Percent(10.0),
+        };
+        assert_eq!(bg_position("right 10% top").0, right_ten_percent);
+    }
+
+    /// An anchor only becomes a pixel offset once the box and what is placed in it are known.
+    #[test]
+    fn anchors_resolve_against_the_free_space() {
+        use gosub_interface::used::anchor;
+        assert_eq!(anchor(px_anchor(false, 12.0), 300.0, 20.0), 12.0);
+        assert_eq!(anchor(px_anchor(true, 0.0), 300.0, 20.0), 280.0);
+        assert_eq!(anchor(px_anchor(true, 10.0), 300.0, 20.0), 270.0);
+        assert_eq!(anchor(Anchor::CENTER, 300.0, 20.0), 140.0);
+        assert_eq!(anchor(pct_anchor(100.0), 300.0, 20.0), 280.0);
+    }
+
+    /// The longhands are what the cascade settles, so one written after the shorthand wins. The
+    /// pipeline used to read the `background-position` shorthand's own entry, and ignored it.
+    #[test]
+    fn a_position_longhand_after_the_shorthand_wins() {
+        let style =
+            style_of("background-image: url(a.png); background-position: right bottom; background-position-x: left");
+        assert_eq!(
+            style.background.layers[0].tile.position,
+            (Anchor::START, px_anchor(true, 0.0))
+        );
+    }
+
+    /// Every image is a layer, `url()` or gradient or `none`, and each takes the size, position and
+    /// repeat at its own index, the shorter lists repeated (css-backgrounds-3 §2.1). The pipeline
+    /// used to count gradients only, so a gradient after a `url()` took the `url()`'s size.
+    #[test]
+    fn background_lists_cycle_over_every_image_layer() {
+        let style = style_of(
+            "background-image: url(a.png), linear-gradient(red, blue), none; \
+             background-size: 10px 20px, cover; background-repeat: no-repeat",
+        );
+        let layers = &style.background.layers;
+        assert_eq!(layers.len(), 3);
+        assert!(matches!(layers[1].image, BackgroundImage::Linear(_)));
+        assert_eq!(layers[2].image, BackgroundImage::None);
+        assert_eq!(
+            layers[0].tile.size,
+            BackgroundSize::Explicit(LengthPercentageAuto::Px(10.0), LengthPercentageAuto::Px(20.0))
+        );
+        assert_eq!(layers[1].tile.size, BackgroundSize::Cover);
+        assert_eq!(layers[2].tile.size, layers[0].tile.size);
+        let no_repeat = (BackgroundRepeat::NoRepeat, BackgroundRepeat::NoRepeat);
+        assert!(layers.iter().all(|layer| layer.tile.repeat == no_repeat));
+    }
+
+    /// Background layers do not inherit: a child that declares only a size has no image to size,
+    /// and does not take its parent's.
+    #[test]
+    fn a_size_without_an_image_paints_nothing() {
+        let parent = style_of("background-image: url(a.png)");
+        let child = computed_style(&map_of("background-size: cover"), Some(&parent));
+        assert!(child.background.layers.is_empty());
+        assert!(child.has(Prop::BackgroundImage));
+    }
+
+    /// One `background-size` value is the width; the height is `auto` (css-backgrounds-3 §3.9).
+    #[test]
+    fn one_background_size_leaves_the_height_auto() {
+        let style = style_of("background-image: url(a.png); background-size: 30%");
+        assert_eq!(
+            style.background.layers[0].tile.size,
+            BackgroundSize::Explicit(LengthPercentageAuto::Percent(30.0), LengthPercentageAuto::Auto)
+        );
+    }
+
+    #[test]
+    fn gradient_direction_and_stops() {
+        let style = style_of("background-image: linear-gradient(to right, red 10%, blue)");
+        let BackgroundImage::Linear(gradient) = &style.background.layers[0].image else {
+            panic!("a linear gradient");
+        };
+        assert_eq!(gradient.angle_deg, 90.0);
+        assert_eq!(gradient.stops.len(), 2);
+        assert_eq!(gradient.stops[0].color, Color::rgba(255, 0, 0, 255));
+        assert_eq!(gradient.stops[0].position, Some(0.1));
+        assert_eq!(gradient.stops[1].position, None);
+    }
+
+    #[test]
+    fn object_position_is_typed() {
+        assert_eq!(style_of("").box_group.object_position, (Anchor::CENTER, Anchor::CENTER));
+        assert_eq!(
+            style_of("object-position: right 5px top 0px").box_group.object_position,
+            (px_anchor(true, 5.0), Anchor::START)
+        );
+    }
+
+    /// The translations in a `transform` list add up, a length and a percentage into one `calc()`
+    /// rather than the later one winning.
+    #[test]
+    fn transform_translations_sum() {
+        assert_eq!(style_of("transform: none").box_group.translate, None);
+        assert_eq!(style_of("transform: rotate(10deg)").box_group.translate, None);
+        assert_eq!(
+            style_of("transform: translate(10px, 5%) rotate(10deg) translateX(50%)")
+                .box_group
+                .translate,
+            Some((
+                LengthPercentage::Calc {
+                    px: 10.0,
+                    percent: 50.0
+                },
+                LengthPercentage::Percent(5.0)
+            ))
+        );
     }
 
     /// Pages write the physical `top`/`left`; the pipeline models the insets logically.

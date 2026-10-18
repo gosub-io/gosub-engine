@@ -1,7 +1,7 @@
 use cow_utils::CowUtils;
 
 use crate::common::document::node::{Node, NodeId as DomNodeId, NodeType};
-use crate::common::document::pipeline_doc::{BgSize, PipelineDocument};
+use crate::common::document::pipeline_doc::PipelineDocument;
 use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::geo;
 use crate::common::geo::Coordinate;
@@ -26,7 +26,7 @@ use crate::rendertree_builder::{RenderNodeId, RenderTree};
 use gosub_fontmanager::ParleyFontSystem;
 use gosub_interface::font_system::FontSystem;
 use gosub_interface::style::{
-    BorderStyle, ComputedStyle, Display as CssDisplay, Float as CssFloat, LengthPercentage as CssLp,
+    BackgroundSize, BorderStyle, ComputedStyle, Display as CssDisplay, Float as CssFloat, LengthPercentage as CssLp,
     LengthPercentageAuto as CssLpa, LineHeight, Overflow as CssOverflow, Position as CssPosition, TextAlign,
     TextTransform as CssTextTransform, VerticalAlign as CssVerticalAlign, WhiteSpace,
 };
@@ -2113,7 +2113,7 @@ impl TaffyLayouter {
             && b.opacity >= 1.0
             && (b.mix_blend_mode.is_empty() || b.mix_blend_mode.as_ref() == "normal")
             && style.background.color.a == 0
-            && style.background.image.is_none()
+            && style.background.first_url().is_none()
             && style.border.top_width == 0.0
             && style.border.right_width == 0.0
             && style.border.bottom_width == 0.0
@@ -2127,7 +2127,7 @@ impl TaffyLayouter {
             && zero_or_auto(style.margin.right)
             && zero_or_auto(style.margin.bottom)
             && zero_or_auto(style.margin.left)
-            && doc.transform_translate(node.node_id).is_none();
+            && style.box_group.translate.is_none();
         if !plain {
             return false;
         }
@@ -2680,7 +2680,7 @@ impl TaffyLayouter {
     fn resolve_background_media(&self, layout_tree: &LayoutTree, dom_node_id: DomNodeId) -> Option<BackgroundMedia> {
         let doc = &layout_tree.render_tree.doc;
         let style = doc.computed_style(dom_node_id);
-        let url = style.background.image.as_deref()?;
+        let (url, layer) = style.background.first_url()?;
         if url.is_empty() || url.eq_ignore_ascii_case("none") {
             return None;
         }
@@ -2693,7 +2693,7 @@ impl TaffyLayouter {
             MediaRequest::Pending => return None,
         };
 
-        let layout = doc.background_image_layout(dom_node_id);
+        let layout = layer.tile;
 
         // Store the intrinsic size + layout; the painter finalizes the tile geometry once the box
         // is known. A raster image is used directly. An SVG background is rasterized to a raster
@@ -2718,7 +2718,7 @@ impl TaffyLayouter {
             Media::Svg(ms) => {
                 let size = ms.svg.tree.size();
                 let (rw, rh) = match layout.size {
-                    BgSize::Length(w, h) => (w, h),
+                    BackgroundSize::Explicit(CssLpa::Px(w), CssLpa::Px(h)) => (w, h),
                     _ => (size.width(), size.height()),
                 };
                 let rw = (rw.round() as u32).max(1);
@@ -4217,7 +4217,7 @@ fn apply_translations(layout_tree: &mut LayoutTree) {
         let Some(el) = layout_tree.arena.get(&id) else {
             continue;
         };
-        let Some((tx, ty)) = doc.transform_translate(el.dom_node_id) else {
+        let Some((tx, ty)) = doc.computed_style(el.dom_node_id).box_group.translate else {
             continue;
         };
         let bb = el.box_model.border_box;
