@@ -1052,12 +1052,14 @@ pub const DEFAULT_LINE_HEIGHT_PX: f32 = DEFAULT_FONT_SIZE_PX * calc::NORMAL_LINE
 ///
 /// css-backgrounds-3 §4.1 leaves the sizes to the UA; these are what every browser uses.
 /// `hairline` is one device pixel (css-borders-4), so on a 2x display it is 0.5px and no longer
-/// the same as `thin`. The ratio is the one media queries see, which style caches already key on.
+/// the same as `thin`; but never more than 1px, which the spec puts first, so below 1x it stays
+/// 1px rather than outgrowing `thin`. The ratio is the one media queries see, which style caches
+/// already key on.
 fn resolve_line_widths(value: CssValue) -> CssValue {
     match value {
         CssValue::String(keyword) => {
             let dpr = f64::from(crate::media_query::media_environment().device_pixel_ratio);
-            let hairline = if dpr > 0.0 { 1.0 / dpr } else { 1.0 };
+            let hairline = if dpr > 0.0 { (1.0 / dpr).min(1.0) } else { 1.0 };
             let px = [("hairline", hairline), ("thin", 1.0), ("medium", 3.0), ("thick", 5.0)]
                 .into_iter()
                 .find(|(name, _)| keyword.eq_ignore_ascii_case(name))
@@ -2380,7 +2382,7 @@ mod tests {
     }
 
     /// `hairline` is one device pixel: 1px on a 1x display, half of one on a 2x display, where
-    /// `thin` stays 1px.
+    /// `thin` stays 1px. Below 1x a device pixel is more than 1px, and hairline stops at 1px.
     #[test]
     fn hairline_is_one_device_pixel() {
         use crate::media_query::{media_environment, set_media_environment, MediaEnvironment};
@@ -2400,6 +2402,12 @@ mod tests {
         });
         assert_eq!(computed_for("border-top-width", keyword("hairline")), px(0.5));
         assert_eq!(computed_for("border-top-width", keyword("thin")), px(1.0));
+
+        set_media_environment(MediaEnvironment {
+            device_pixel_ratio: 0.5,
+            ..saved
+        });
+        assert_eq!(computed_for("border-top-width", keyword("hairline")), px(1.0));
 
         set_media_environment(saved);
     }
