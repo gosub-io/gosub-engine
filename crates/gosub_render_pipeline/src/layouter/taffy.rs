@@ -26,9 +26,10 @@ use crate::rendertree_builder::{RenderNodeId, RenderTree};
 use gosub_fontmanager::ParleyFontSystem;
 use gosub_interface::font_system::FontSystem;
 use gosub_interface::style::{
-    BackgroundSize, BorderStyle, ComputedStyle, Display as CssDisplay, Float as CssFloat, LengthPercentage as CssLp,
-    LengthPercentageAuto as CssLpa, LineHeight, Overflow as CssOverflow, Position as CssPosition, TextAlign,
-    TextTransform as CssTextTransform, VerticalAlign as CssVerticalAlign, WhiteSpace,
+    BackgroundImage, BackgroundSize, BorderStyle, ComputedStyle, Display as CssDisplay, Float as CssFloat,
+    LengthPercentage as CssLp, LengthPercentageAuto as CssLpa, LineHeight, Overflow as CssOverflow,
+    Position as CssPosition, TextAlign, TextTransform as CssTextTransform, VerticalAlign as CssVerticalAlign,
+    WhiteSpace,
 };
 use gosub_interface::used;
 use gosub_shared::microsyntax::parse_floating_point_number;
@@ -2113,7 +2114,11 @@ impl TaffyLayouter {
             && b.opacity >= 1.0
             && (b.mix_blend_mode.is_empty() || b.mix_blend_mode.as_ref() == "normal")
             && style.background.color.a == 0
-            && style.background.first_url().is_none()
+            && style
+                .background
+                .layers
+                .iter()
+                .all(|layer| matches!(layer.image, BackgroundImage::None))
             && style.border.top_width == 0.0
             && style.border.right_width == 0.0
             && style.border.bottom_width == 0.0
