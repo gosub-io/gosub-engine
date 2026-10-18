@@ -1139,7 +1139,7 @@ fn position_keyword(value: &CssValue) -> Option<Axis> {
 /// they are not simply the first and second value: the keywords may be written in either order
 /// (`top left`), a single value leaves the other axis at `center`, and the three- and four-value
 /// forms pair each keyword with the offset that follows it (`left 10px top`).
-fn bg_position_axes(layer: &[CssValue]) -> Option<(Vec<CssValue>, Vec<CssValue>)> {
+pub(crate) fn bg_position_axes(layer: &[CssValue]) -> Option<(Vec<CssValue>, Vec<CssValue>)> {
     let center = || vec![CssValue::String("center".to_string())];
     match layer {
         [] => None,

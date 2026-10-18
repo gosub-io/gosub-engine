@@ -441,7 +441,7 @@ pub enum BackgroundMedia {
         media_id: MediaId,
         /// Intrinsic image size in px (for a rasterized SVG tile, the tile's pixel size).
         natural: (f32, f32),
-        layout: crate::common::document::pipeline_doc::BgImageLayout,
+        layout: gosub_interface::style::BackgroundTile,
     },
     Svg(MediaId),
 }

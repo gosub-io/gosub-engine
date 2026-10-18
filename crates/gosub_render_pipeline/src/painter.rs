@@ -4,9 +4,10 @@ pub mod text_field;
 
 use crate::common::browser_state::{BrowserState, WireframeState};
 use crate::common::document::node::NodeId;
-use crate::common::document::pipeline_doc::{BgAnchor, BgImageLayout, BgSize};
 use gosub_interface::style::{
-    BorderCollapse, BorderStyle as CssBorderStyle, Color as CssColor, ComputedStyle, Display, ObjectFit,
+    Anchor, BackgroundImage, BackgroundRepeat, BackgroundSize, BackgroundTile, BorderCollapse,
+    BorderStyle as CssBorderStyle, Color as CssColor, ComputedStyle, Display, LinearGradient as CssLinearGradient,
+    ObjectFit,
 };
 
 /// Which colour of a [`ComputedStyle`] a brush is made from. A function pointer rather than a
@@ -26,7 +27,7 @@ use crate::layouter::{
 use crate::painter::commands::border::{Border, BorderStyle};
 use crate::painter::commands::brush::Brush;
 use crate::painter::commands::color::Color;
-use crate::painter::commands::gradient::{Gradient, Tiling};
+use crate::painter::commands::gradient::{ColorStop, Gradient, LinearGradient, Tiling};
 use crate::painter::commands::rectangle::{BlendMode, Radius, Rectangle};
 use crate::painter::commands::shadow::{RoundedRect, Shadow};
 use crate::painter::commands::text::Text;
@@ -266,7 +267,16 @@ impl Painter {
     /// same rect. Multiple or tiled layers instead stack as separate rects over `background-color`.
     fn background_fill(&self, node_id: NodeId, box_size: (f32, f32)) -> (Brush, Vec<Gradient>) {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
-        let layers = doc.background_layers(node_id, box_size);
+        let style = doc.computed_style(node_id);
+        let layers: Vec<Gradient> = style
+            .background
+            .layers
+            .iter()
+            .filter_map(|layer| match &layer.image {
+                BackgroundImage::Linear(gradient) => gradient_layer(gradient, &layer.tile, box_size),
+                BackgroundImage::None | BackgroundImage::Url(_) | BackgroundImage::Other => None,
+            })
+            .collect();
         let color = self.get_brush(
             node_id,
             |style| style.background.color,
@@ -510,7 +520,7 @@ impl Painter {
                 let fit = style.box_group.object_fit;
                 if !image_ctx.placeholder && fit != ObjectFit::Fill {
                     let natural = (image_ctx.dimension.width as f32, image_ctx.dimension.height as f32);
-                    let position = self.layer_list.layout_tree.render_tree.doc.object_position(dom_node_id);
+                    let position = style.box_group.object_position;
                     let content_box = layout_element.box_model.content_box;
                     if let Some(tiling) = object_fit_placement(natural, content_box, fit, position) {
                         // The rectangle is the whole content box, rounded by its inner radii; the
@@ -1478,7 +1488,7 @@ fn object_fit_placement(
     natural: (f32, f32),
     content: Rect,
     fit: ObjectFit,
-    position: (BgAnchor, BgAnchor),
+    position: (Anchor, Anchor),
 ) -> Option<Tiling> {
     let (nw, nh) = natural;
     let (cw, ch) = (content.width as f32, content.height as f32);
@@ -1501,7 +1511,7 @@ fn object_fit_placement(
     };
     Some(Tiling {
         tile_size: (w, h),
-        position: (position.0.resolve(cw, w), position.1.resolve(ch, h)),
+        position: (anchor_px(position.0, cw, w), anchor_px(position.1, ch, h)),
         repeat: (false, false),
     })
 }
@@ -1526,38 +1536,170 @@ fn inner_radii(border: &gosub_interface::style::BorderGroup, border_box: Rect, c
     ]
 }
 
-/// Resolves `background-size`/`-position` into a [`Tiling`], now that the border box is known.
-/// `cover`/`contain` yield a single aspect-preserved tile (no repeat), so the backend paints it
-/// once and lets the box clip (cover) or the background-color show (contain).
-fn compute_bg_tiling(natural: (f32, f32), layout: &BgImageLayout, box_w: f32, box_h: f32) -> Option<Tiling> {
+/// Where an [`Anchor`] puts the start edge of something `extent` long in a box `box_extent` long.
+#[expect(clippy::cast_possible_truncation, reason = "paint geometry is f32")]
+fn anchor_px(anchor: Anchor, box_extent: f32, extent: f32) -> f32 {
+    used::anchor(anchor, f64::from(box_extent), f64::from(extent)) as f32
+}
+
+/// The size `background-size` gives one tile in a positioning area of `area`, for an image of
+/// `natural` size, or `None` for a gradient, which has neither a size nor a ratio of its own
+/// (css-backgrounds-3 §3.9). An `auto` beside a length keeps the image's ratio; with no ratio to
+/// keep it is the area's extent.
+#[expect(clippy::cast_possible_truncation, reason = "paint geometry is f32")]
+fn used_bg_size(size: BackgroundSize, natural: Option<(f32, f32)>, area: (f32, f32)) -> (f32, f32) {
+    let natural = natural.filter(|&(w, h)| w > 0.0 && h > 0.0);
+    let scaled = |pick: fn(f32, f32) -> f32| match natural {
+        Some((nw, nh)) => {
+            let scale = pick(area.0 / nw, area.1 / nh);
+            (nw * scale, nh * scale)
+        }
+        None => area,
+    };
+    match size {
+        BackgroundSize::Contain => scaled(f32::min),
+        BackgroundSize::Cover => scaled(f32::max),
+        BackgroundSize::Explicit(width, height) => {
+            let width = used::length_auto(width, f64::from(area.0)).map(|w| w as f32);
+            let height = used::length_auto(height, f64::from(area.1)).map(|h| h as f32);
+            match (width, height, natural) {
+                (Some(w), Some(h), _) => (w, h),
+                (Some(w), None, Some((nw, nh))) => (w, w * nh / nw),
+                (None, Some(h), Some((nw, nh))) => (h * nw / nh, h),
+                (None, None, Some(natural)) => natural,
+                (Some(w), None, None) => (w, area.1),
+                (None, Some(h), None) => (area.0, h),
+                (None, None, None) => area,
+            }
+        }
+    }
+}
+
+/// Places one tile of `tile_size` by a layer's position and repeat, in a box of `area`.
+fn tiling(tile: &BackgroundTile, tile_size: (f32, f32), area: (f32, f32)) -> Tiling {
+    let repeats = |repeat: BackgroundRepeat| repeat != BackgroundRepeat::NoRepeat;
+    Tiling {
+        tile_size,
+        position: (
+            anchor_px(tile.position.0, area.0, tile_size.0),
+            anchor_px(tile.position.1, area.1, tile_size.1),
+        ),
+        repeat: (repeats(tile.repeat.0), repeats(tile.repeat.1)),
+    }
+}
+
+/// Resolves a raster background layer into a [`Tiling`], now that the border box is known.
+/// `space` and `round` tile like `repeat`.
+fn compute_bg_tiling(natural: (f32, f32), tile: &BackgroundTile, box_w: f32, box_h: f32) -> Option<Tiling> {
     let (nw, nh) = natural;
     if nw <= 0.0 || nh <= 0.0 || box_w <= 0.0 || box_h <= 0.0 {
         return None;
     }
-
-    let (tw, th) = match layout.size {
-        BgSize::Auto => (nw, nh),
-        BgSize::Length(w, h) => (w, h),
-        // Preserve aspect: contain fits inside the box, cover fills it.
-        BgSize::Contain => {
-            let s = (box_w / nw).min(box_h / nh);
-            (nw * s, nh * s)
-        }
-        BgSize::Cover => {
-            let s = (box_w / nw).max(box_h / nh);
-            (nw * s, nh * s)
-        }
-    };
+    let (tw, th) = used_bg_size(tile.size, Some(natural), (box_w, box_h));
     if tw <= 0.0 || th <= 0.0 {
         return None;
     }
+    Some(tiling(tile, (tw, th), (box_w, box_h)))
+}
 
-    let px = layout.position.0.resolve(box_w, tw);
-    let py = layout.position.1.resolve(box_h, th);
+/// A gradient layer as the painter draws it: its stops placed along the line, and a tiling unless
+/// one tile would be the whole box anyway.
+fn gradient_layer(gradient: &CssLinearGradient, tile: &BackgroundTile, area: (f32, f32)) -> Option<Gradient> {
+    let stops = gradient_stops(gradient);
+    if stops.len() < 2 {
+        return None;
+    }
+    let (tw, th) = used_bg_size(tile.size, None, area);
+    let placed = (tw > 0.0 && th > 0.0).then(|| tiling(tile, (tw, th), area));
+    let fills_the_box = |t: &Tiling| t.tile_size == area && t.position == (0.0, 0.0);
+    Some(Gradient::Linear(LinearGradient {
+        angle_deg: gradient.angle_deg,
+        stops,
+        tiling: placed.filter(|t| !fills_the_box(t)),
+    }))
+}
 
-    Some(Tiling {
-        tile_size: (tw, th),
-        position: (px, py),
-        repeat: layout.repeat,
-    })
+/// A gradient's stops with every position settled (css-images-3 §3.5.3): the first at 0 and the
+/// last at 1 when left out, the ones between spread evenly across each gap, and none before the
+/// one ahead of it.
+#[expect(clippy::cast_precision_loss, reason = "a handful of stops")]
+fn gradient_stops(gradient: &CssLinearGradient) -> Vec<ColorStop> {
+    let mut offsets: Vec<Option<f32>> = gradient.stops.iter().map(|stop| stop.position).collect();
+    let n = offsets.len();
+    if n < 2 {
+        return Vec::new();
+    }
+    if let Some(first) = offsets.first_mut() {
+        first.get_or_insert(0.0);
+    }
+    if let Some(last) = offsets.last_mut() {
+        last.get_or_insert(1.0);
+    }
+    let mut i = 1;
+    while i < n {
+        if offsets[i].is_some() {
+            i += 1;
+            continue;
+        }
+        let start = i - 1;
+        let mut end = i;
+        while end < n && offsets[end].is_none() {
+            end += 1;
+        }
+        let a = offsets[start].unwrap_or(0.0);
+        let b = offsets.get(end).copied().flatten().unwrap_or(1.0);
+        let steps = (end - start) as f32;
+        for (k, slot) in offsets.iter_mut().enumerate().take(end).skip(start + 1) {
+            *slot = Some(a + (b - a) * ((k - start) as f32) / steps);
+        }
+        i = end;
+    }
+    let mut running = 0.0_f32;
+    gradient
+        .stops
+        .iter()
+        .zip(offsets)
+        .map(|(stop, offset)| {
+            let offset = offset.unwrap_or(0.0).clamp(0.0, 1.0).max(running);
+            running = offset;
+            ColorStop {
+                offset,
+                color: Color::from_rgba8(stop.color.r, stop.color.g, stop.color.b, stop.color.a),
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod background_size_tests {
+    use super::used_bg_size;
+    use gosub_interface::style::{BackgroundSize, LengthPercentageAuto as Lpa};
+
+    /// One length is the width, and the height keeps the image's ratio; with no ratio, as for a
+    /// gradient, it is the area's height.
+    #[test]
+    fn an_auto_height_keeps_the_ratio() {
+        let size = BackgroundSize::Explicit(Lpa::Px(20.0), Lpa::Auto);
+        assert_eq!(used_bg_size(size, Some((100.0, 50.0)), (300.0, 300.0)), (20.0, 10.0));
+        assert_eq!(used_bg_size(size, None, (300.0, 120.0)), (20.0, 120.0));
+    }
+
+    /// A percentage size is of the positioning area. It used to fall back to filling the box.
+    #[test]
+    fn a_percentage_size_is_of_the_area() {
+        let size = BackgroundSize::Explicit(Lpa::Percent(50.0), Lpa::Percent(50.0));
+        assert_eq!(used_bg_size(size, Some((10.0, 10.0)), (200.0, 100.0)), (100.0, 50.0));
+    }
+
+    #[test]
+    fn cover_and_contain_keep_the_ratio() {
+        assert_eq!(
+            used_bg_size(BackgroundSize::Contain, Some((100.0, 50.0)), (200.0, 200.0)),
+            (200.0, 100.0)
+        );
+        assert_eq!(
+            used_bg_size(BackgroundSize::Cover, Some((100.0, 50.0)), (200.0, 200.0)),
+            (400.0, 200.0)
+        );
+    }
 }

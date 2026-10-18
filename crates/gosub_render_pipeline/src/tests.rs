@@ -267,7 +267,7 @@ mod rendertree_from_engine {
             r.background.color.a, 0,
             "a background without a colour resets background-color to transparent"
         );
-        assert!(r.background.image.is_some(), "background image via the longhand");
+        assert!(r.background.first_url().is_some(), "background image via the longhand");
     }
 
     /// A sibling combinator walks elements only: `* ~ .target` is not satisfied by the
@@ -1699,8 +1699,8 @@ mod rendertree_from_engine {
         let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
         let root = adapter.doc.root();
 
-        let url_of = |id| match adapter.computed_style(id).background.image.as_deref() {
-            Some(url) => url.to_string(),
+        let url_of = |id| match adapter.computed_style(id).background.first_url() {
+            Some((url, _)) => url.to_string(),
             None => panic!("expected a background image url"),
         };
 
@@ -1717,7 +1717,7 @@ mod rendertree_from_engine {
         // value `none` means.
         let plain = find_node_by_id_attr(&adapter.doc, root, "plain").expect("find #plain");
         assert!(
-            adapter.computed_style(plain).background.image.is_none(),
+            adapter.computed_style(plain).background.layers.is_empty(),
             "plain element should have no background image"
         );
     }
@@ -4171,13 +4171,17 @@ mod rendertree_from_engine {
                     crate::common::document::pipeline_doc::ROLE_BEFORE_ELEM,
                 );
             }
-            let layers = adapter.background_layers(id, (100.0, 100.0));
-            let [crate::painter::commands::gradient::Gradient::Linear(gradient)] = layers.as_slice() else {
-                panic!("one gradient layer on .{class}, got {layers:?}");
+            let style = adapter.computed_style(id);
+            let [gosub_interface::style::BackgroundLayer {
+                image: gosub_interface::style::BackgroundImage::Linear(gradient),
+                ..
+            }] = &*style.background.layers
+            else {
+                panic!("one gradient layer on .{class}, got {:?}", style.background.layers);
             };
             assert_eq!(gradient.stops.len(), 2, "both stops on .{class}");
-            let color = &gradient.stops[0].color;
-            (color.r8(), color.g8(), color.b8(), color.a8())
+            let color = gradient.stops[0].color;
+            (color.r, color.g, color.b, color.a)
         };
         assert_eq!(first_stop("plain"), (255, 0, 0, 255));
         // The exact mix is 127.5; the typed colour truncates its channels (`to_color` in
