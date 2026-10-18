@@ -258,7 +258,11 @@ fn math_spacing_is_valid(node: &CssNode, in_math: bool) -> bool {
         NodeType::Function { name, arguments } => {
             // A math function nested anywhere still has to obey the rule, so the flag only ever
             // turns on as we descend.
-            let inside = in_math || crate::functions::registry::is_math(name);
+            // A vendor-prefixed one too: `-webkit-calc()` is parsed and evaluated as `calc()`.
+            let inside = in_math
+                || crate::functions::registry::is_math(name)
+                || crate::matcher::syntax_matcher::strip_vendor_prefix(name)
+                    .is_some_and(crate::functions::registry::is_math);
             arguments.iter().all(|arg| math_spacing_is_valid(arg, inside))
         }
         // `calc()` is parsed by a path of its own and keeps its body as a flat token list, so it
@@ -2212,6 +2216,29 @@ mod tests {
         assert_eq!(
             declarations_of("a{width:min((1px+ 2px) * 2, 9px)}"),
             Vec::<String>::new()
+        );
+        // And into a vendor-prefixed math function, which is parsed as the unprefixed one.
+        assert_eq!(
+            declarations_of("a{width:-webkit-calc((1px+ 2px) * 2)}"),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            declarations_of("a{width:-webkit-min((1px+ 2px) * 2, 9px)}"),
+            Vec::<String>::new()
+        );
+        // A substitution function inside the expression is no expression itself: its fallback
+        // may hold any token, and the declaration waits for substitution as it would elsewhere.
+        assert_eq!(
+            declarations_of("a{width:min(var(--a, \"x\"), 10px)}"),
+            ["width: min(var(--a, x), 10px)"]
+        );
+        assert_eq!(
+            declarations_of("a{width:min(var(--a, #fff), 10px)}"),
+            ["width: min(var(--a, rgb(255, 255, 255)), 10px)"]
+        );
+        assert_eq!(
+            declarations_of("a{width:calc(var(--a, \"x\") + 1px)}"),
+            ["width: calc(var(--a, x) + 1px)"]
         );
     }
 

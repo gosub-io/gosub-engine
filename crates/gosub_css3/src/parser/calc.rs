@@ -54,6 +54,17 @@ impl Css3<'_> {
                 }
             }
 
+            // `var()`, `env()` and `attr()` stand in for tokens not yet known, and their fallback
+            // may be any of them - a string, a hash, anything a declaration may hold - so their
+            // arguments are no expression and are read by the generic function parser.
+            if matches!(&t.token_type, TokenType::Function(name) if crate::functions::registry::is_arbitrary_substitution(name))
+            {
+                self.tokenizer.reconsume(t);
+                tokens.push(self.parse_function()?);
+                space = false;
+                continue;
+            }
+
             let node_type = match t.token_type {
                 // A nested function keeps its own argument list. The recursive call consumes
                 // through the matching `)`.
