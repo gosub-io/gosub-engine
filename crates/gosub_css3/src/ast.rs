@@ -2172,6 +2172,50 @@ mod tests {
     }
 
     #[test]
+    fn math_functions_other_than_calc_accept_a_parenthesized_group() {
+        // css-values-4 §10.1: a `(` group may appear anywhere a `calc()` may, including as (or
+        // inside) an argument of `round()`, `min()` and the rest. Only `calc()` used to be read
+        // by the token parser that knows about groups; the others went through the generic value
+        // parser, which has no arm for a bare `(` and so dropped the whole declaration - while
+        // the very same call nested inside `calc()` was fine.
+        assert_eq!(
+            declarations_of("a{scale:round(down, (7 - 1) / 3, 1)}"),
+            ["scale: calc(2)"]
+        );
+        assert_eq!(
+            declarations_of("a{width:min((1px + 2px) * 2, 9px)}"),
+            ["width: calc(6px)"]
+        );
+        assert_eq!(declarations_of("a{width:max(1px, (1px + 2px))}"), ["width: calc(3px)"]);
+        assert_eq!(
+            declarations_of("a{width:-webkit-calc((1px + 2px) * 2)}"),
+            ["width: calc(6px)"]
+        );
+        // A token no expression may hold is a parse error of the declaration, as it has always
+        // been inside `calc()`. Error recovery drops that declaration and nothing else.
+        let sheet = Css3::parse_str(
+            "a{width:min(1px, \"x\"); color: red} b{color: blue}",
+            ParserConfig {
+                ignore_errors: true,
+                ..Default::default()
+            },
+            CssOrigin::Author,
+            "test.css",
+        )
+        .expect("stylesheet should parse");
+        assert_eq!(sheet.rules.len(), 2);
+        assert_eq!(
+            declarations_of("a{width:min(1px, \"x\"); color: red} b{color: blue}"),
+            ["color: red"]
+        );
+        // The spacing rule reaches into the group here just as it does inside `calc()`.
+        assert_eq!(
+            declarations_of("a{width:min((1px+ 2px) * 2, 9px)}"),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
     fn one_bad_math_expression_drops_the_whole_declaration() {
         // Not just the offending value: `margin: 1px <invalid>` is invalid as a declaration, and
         // leaving `margin: 1px` behind would apply a value the author never wrote.
