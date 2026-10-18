@@ -4718,7 +4718,7 @@ mod rendertree_from_engine {
         use crate::layouter::CanLayout as _;
 
         let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
-          <div>one <a id="plain" href="/a">two</a> <a id="drawn" href="/b" style="background: red">three</a> <a id="spaced" href="/c" style="padding: 0 4px">four</a> five</div>
+          <div>one <a id="plain" href="/a">two</a> <a id="drawn" href="/b" style="background: red">three</a> <a id="spaced" href="/c" style="padding: 0 4px">four</a> <a id="graded" href="/d" style="background: linear-gradient(red, blue)">five</a> six</div>
         </body></html>"#;
         let rt = parse_to_rendertree(html);
         let doc = rt.doc.clone();
@@ -4754,6 +4754,7 @@ mod rendertree_from_engine {
         assert!(!has_own_box("plain"), "a plain link's words join the line");
         assert!(has_own_box("drawn"), "a link with a background keeps its box");
         assert!(has_own_box("spaced"), "a link with padding keeps its box");
+        assert!(has_own_box("graded"), "a link with a gradient background keeps its box");
     }
 
     /// A flattened link still has a box where its words are: focus, hover and `#fragment` look
