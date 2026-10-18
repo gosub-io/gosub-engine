@@ -2159,6 +2159,63 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A save-link download cancelled before its file exists leaves alone whatever is at the
+    /// target already: the shell may have agreed to overwrite it, but nothing was written.
+    #[tokio::test]
+    async fn a_download_cancelled_before_its_file_exists_leaves_the_target() {
+        use crate::events::{DownloadId, TabCommand};
+        use tokio::io::AsyncReadExt;
+
+        // Takes the request and never answers it.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let _ = stream.read(&mut buf).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("kept.bin");
+        std::fs::write(&target, b"already here").unwrap();
+        tab.send(TabCommand::StartDownload {
+            id: DownloadId(24),
+            url: format!("http://127.0.0.1:{port}/never.bin"),
+            target_path: target.clone(),
+            offer: None,
+        })
+        .await
+        .expect("start download");
+        tab.send(TabCommand::CancelDownload { id: DownloadId(24) })
+            .await
+            .expect("cancel");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadCancelled { id: DownloadId(24), .. }) => return,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("the download did not end cancelled");
+        assert_eq!(std::fs::read(&target).unwrap(), b"already here");
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// A navigation has no deadline for its whole body: a download that takes longer than
     /// `net.timeout.body_secs` is still offered, as long as it keeps arriving.
     #[tokio::test]

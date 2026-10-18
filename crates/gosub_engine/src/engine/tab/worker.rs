@@ -105,7 +105,9 @@ enum HtmlSource {
 }
 
 /// Stream a response body to `path`, emitting `DownloadProgress` roughly every 256 KiB
-/// and `DownloadFinished` once the file is fully written.
+/// and `DownloadFinished` once the file is fully written. `created` is set as `path` becomes
+/// this download's file, so a cancel removes only what it wrote.
+#[allow(clippy::too_many_arguments)]
 async fn stream_to_file(
     id: crate::engine::events::DownloadId,
     tab_id: TabId,
@@ -114,12 +116,16 @@ async fn stream_to_file(
     peek_buf: crate::engine::types::PeekBuf,
     shared: Arc<crate::net::SharedBody>,
     path: &std::path::Path,
+    created: &std::sync::atomic::AtomicBool,
 ) -> anyhow::Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     const REPORT_EVERY: u64 = 256 * 1024;
     // Lossless: the body waits for the disk rather than dropping this reader.
     let mut reader = crate::net::SharedBody::combined_reader_lossless(peek_buf, shared);
+    // Before the create, not after: it runs on a blocking thread, so a cancel can drop this
+    // future with the file already made (and an old one truncated).
+    created.store(true, std::sync::atomic::Ordering::Relaxed);
     let mut file = tokio::fs::File::create(path)
         .await
         .with_context(|| format!("create {}", path.display()))?;
@@ -1237,6 +1243,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let fetch_cancel = cancel.child_token();
         let cancel_tx = self.zone_context.event_tx.clone();
         let partial = target_path.clone();
+        // Set once the target is this download's file. A cancel before then (while the
+        // request is submitted, or waiting for headers) leaves whatever was at the path.
+        let created = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let wrote = created.clone();
         let task = spawn_named("tab-download", async move {
             tokio::select! {
                 _ = async move {
@@ -1270,6 +1280,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                                 peek_buf,
                                 shared,
                                 &target_path,
+                                &wrote,
                             )
                             .await
                             {
@@ -1288,6 +1299,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                                 received_bytes: body.len() as u64,
                                 total_bytes: Some(body.len() as u64),
                             });
+                            wrote.store(true, std::sync::atomic::Ordering::Relaxed);
                             if let Err(e) = tokio::fs::write(&target_path, &body).await {
                                 return fail(format!("write {}: {e}", target_path.display()));
                             }
@@ -1303,7 +1315,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 } => {}
                 // The fetch is cancelled with it; what was written so far goes.
                 _ = cancelled.cancelled() => {
-                    let _ = tokio::fs::remove_file(&partial).await;
+                    if created.load(std::sync::atomic::Ordering::Relaxed) {
+                        let _ = tokio::fs::remove_file(&partial).await;
+                    }
                     let _ = cancel_tx.send(EngineEvent::DownloadCancelled { tab_id, id });
                 }
             }
