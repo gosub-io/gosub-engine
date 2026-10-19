@@ -120,4 +120,4 @@ pub(crate) use utils::stream_to_bytes;
 pub(crate) use router::route_response_for;
 
 /// The routed outcome (MIME, sniffed type, charset, next steps).
-pub(crate) use router::RoutedOutcome;
+pub(crate) use router::{RoutedOutcome, Spool, SpoolProgress};
