@@ -85,7 +85,12 @@ fn value_of(map: Option<&CssProperties>, name: &str) -> Option<String> {
     }
 
     // Nothing declared anywhere: the property's initial value, which is what a browser reports
-    // for an element no rule has touched.
+    // for an element no rule has touched. `font-size` is the one whose initial value is a
+    // keyword that computes to a length (css-fonts-4 §3.5): the cascade turns a declared
+    // `medium` into `16px`, and an element nobody declared it on has to read the same.
+    if name == "font-size" {
+        return Some("16px".to_string());
+    }
     let definition = get_css_definitions().find_property(name)?;
     definition
         .has_initial_value()

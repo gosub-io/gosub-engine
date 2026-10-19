@@ -1,18 +1,15 @@
 //! Turn a cascaded property map into the typed [`ComputedStyle`] the render pipeline reads.
 //!
 //! This is the one place a CSS value becomes a typed field. Everything a consumer used to do
-//! for itself - reading a colour keyword, deciding what `currentColor` means, working out what
-//! a `font-size` keyword is worth in pixels, zeroing a border whose style is `none` - happens
-//! here, once per element, against the parent's already-computed struct.
+//! for itself - reading a colour keyword, deciding what `currentColor` means, zeroing a border
+//! whose style is `none` - happens here, once per element, against the parent's
+//! already-computed struct.
 //!
 //! What is deliberately *not* here: percentages. A percentage needs a containing block, so it
 //! travels on in [`LengthPercentage`] and layout settles it.
 //!
-//! Some of what this does belongs further up, in the crate's own computed stage, and will move
-//! there: the system colours, the `font-size` keyword scale, and the `ch`/`ex`/`lh`/`ic`
-//! approximations are all computed-value questions the cascade could answer for every consumer
-//! rather than for this one. They are here for now because moving them would change the value
-//! the map reports, and this step changes nothing a map says.
+//! The system colours and the `font-size` keywords are not here: they are computed-value
+//! questions, and the cascade answers them for every consumer (`CssProperty::compute_value`).
 
 use std::sync::{Arc, LazyLock};
 
@@ -57,11 +54,6 @@ fn value(map: &CssProperties, id: PropertyId) -> Option<&CssValue> {
 /// always seen them: an element used to be given an entry for every inherited property any
 /// ancestor had settled, so "what the cascade settled here" and "what this element inherits"
 /// were one question. They are two now, and this keeps the answer the one it was.
-///
-/// What that answer is, for the relative `font-size` keywords, is wrong: `small { font-size:
-/// smaller }` travels down as the keyword rather than as the length it computes to, and every
-/// element below re-applies it. Fixing that is not this change - it moves pixels on real pages
-/// - so it stays, and is reported.
 fn value_or_inherited(map: &CssProperties, id: PropertyId) -> Option<&CssValue> {
     value(map, id).or_else(|| map.inherited_value(id))
 }
@@ -864,21 +856,6 @@ fn align_of(keyword: &str) -> AlignValue {
     }
 }
 
-/// The absolute `font-size` keywords, in px. The CSS scale with `medium` at 16px.
-fn absolute_font_size(keyword: &str) -> Option<f32> {
-    match keyword {
-        "xx-small" => Some(9.0),
-        "x-small" => Some(10.0),
-        "small" => Some(13.0),
-        "medium" => Some(16.0),
-        "large" => Some(18.0),
-        "x-large" => Some(24.0),
-        "xx-large" => Some(32.0),
-        "xxx-large" => Some(48.0),
-        _ => None,
-    }
-}
-
 // ── The conversion ───────────────────────────────────────────────────────────
 
 /// The initial `border-*-width` and `outline-width`: `medium`, which every browser draws as
@@ -1240,26 +1217,15 @@ fn resolve_font(map: &CssProperties, style: &mut ComputedStyle, parent: Option<&
     style.inherited_mut().font_size_declared_in_chain = true;
     style.declared.set(Prop::FontSize);
 
-    // An `em` (or `ex`, `ch`) on `font-size` is a multiple of the *parent's* size, which is the
-    // basis the cascade already resolved it against. What is left is the keywords, and a
-    // percentage on the off chance the computed stage did not settle it.
+    // The cascade has already made the keywords, the percentages and every `em` px, against
+    // the parent's size. A percentage is read again on the off chance the computed stage did not
+    // settle it.
     style.inherited_mut().font_size = if as_unit(declared).is_some() {
         declared.unit_to_px()
     } else if let Some(pct) = as_percentage(declared) {
         parent_font_size * pct / 100.0
-    } else if let Some(number) = as_number(declared) {
-        number
-    } else if let Some(keyword) = as_string(declared) {
-        match absolute_font_size(keyword) {
-            Some(px) => px,
-            // The relative keywords step by the spec's suggested 1.2 factor.
-            None if keyword.eq_ignore_ascii_case("smaller") => parent_font_size / 1.2,
-            None if keyword.eq_ignore_ascii_case("larger") => parent_font_size * 1.2,
-            // A keyword nothing here knows: the readers all fall back to the initial size.
-            None => 16.0,
-        }
     } else {
-        16.0
+        as_number(declared).unwrap_or(16.0)
     };
 }
 
@@ -3219,17 +3185,18 @@ mod tests {
     }
 
     /// The absolute `font-size` keywords are the CSS scale with `medium` at 16px; the relative
-    /// ones step by the spec's suggested 1.2 factor, against the parent's size.
+    /// ones step by the spec's suggested 1.2 factor, against the parent's size, which is the
+    /// basis the cascade gives `font-size`.
     #[test]
     fn font_size_keywords() {
         let style = computed_style(&map(&[("font-size", keyword("x-large"))]), None);
         assert_eq!(style.inherited.font_size, 24.0);
 
         let parent = computed_style(&map(&[("font-size", px(20.0))]), None);
-        let child = computed_style(&map(&[("font-size", keyword("larger"))]), Some(&parent));
+        let child = computed_style(&map_with(&[("font-size", keyword("larger"))], 20.0), Some(&parent));
         assert_eq!(child.inherited.font_size, 24.0);
 
-        let child = computed_style(&map(&[("font-size", keyword("smaller"))]), Some(&parent));
+        let child = computed_style(&map_with(&[("font-size", keyword("smaller"))], 20.0), Some(&parent));
         assert!((child.inherited.font_size - 20.0 / 1.2).abs() < 0.001);
     }
 
