@@ -1327,16 +1327,27 @@ impl CssProperty {
         // computes to: `font: xx-small serif` reads back as `9px serif`, as every browser has it.
         // A relative keyword is the size this element ended up with, which is the basis every
         // property but `font-size` itself is given.
+        //
+        // The scan stops at the size however it is written: what follows is the line-height and
+        // the family, and `math` is a generic family as well as a size keyword, so `font: 12px
+        // math` has to keep it. A length, a percentage or a math function is a size; an angle
+        // (`oblique 10deg`) and a number (a weight) come before it.
         let specified = match specified {
             CssValue::List(mut items) if self.id == Some(FONT) => {
                 let own = f64::from(self.font_size_basis);
                 for item in &mut items {
-                    if let CssValue::String(keyword) = item {
-                        let size = absolute_font_size(keyword).or_else(|| font_size_keyword(keyword, own).map(|_| own));
-                        if let Some(px) = size {
-                            *item = CssValue::Unit(px, "px".to_string());
-                            break;
+                    match item {
+                        CssValue::String(keyword) => {
+                            let size =
+                                absolute_font_size(keyword).or_else(|| font_size_keyword(keyword, own).map(|_| own));
+                            if let Some(px) = size {
+                                *item = CssValue::Unit(px, "px".to_string());
+                                break;
+                            }
                         }
+                        CssValue::Unit(_, unit) if calc::unit_datatype(unit) == Some("length") => break,
+                        CssValue::Percentage(_) | CssValue::Function(..) => break,
+                        _ => {}
                     }
                 }
                 CssValue::List(items)
@@ -2517,14 +2528,15 @@ mod tests {
     }
 
     /// The `font` shorthand's own value says the same size as the longhand. A relative keyword is
-    /// the element's own size, which is the basis the shorthand is given.
+    /// the element's own size, which is the basis the shorthand is given. The family is never
+    /// read as a size, though `math` is both.
     #[test]
     fn the_font_shorthand_says_its_size_in_px() {
-        let font = |size: &str| {
+        let shorthand = |items: Vec<CssValue>| {
             let mut prop = CssProperty::new(FONT);
             prop.font_size_basis = 24.0;
             prop.declared.push(DeclarationProperty {
-                value: CssValue::List(vec![CssValue::String(size.into()), CssValue::String("serif".into())]).into(),
+                value: CssValue::List(items).into(),
                 origin: CssOrigin::Author,
                 important: false,
                 location: no_location(),
@@ -2536,10 +2548,36 @@ mod tests {
             });
             prop.compute_value().clone()
         };
-        let sized = |px: f64| CssValue::List(vec![CssValue::Unit(px, "px".into()), CssValue::String("serif".into())]);
+        let keyword = |s: &str| CssValue::String(s.into());
+        let px = |n: f64| CssValue::Unit(n, "px".into());
+        let font = |size: &str| shorthand(vec![keyword(size), keyword("serif")]);
+        let sized = |n: f64| CssValue::List(vec![px(n), keyword("serif")]);
         assert_eq!(font("xx-small"), sized(9.0));
         assert_eq!(font("larger"), sized(24.0));
         assert_eq!(font("smaller"), sized(24.0));
+
+        // The size is a length, so `math` after it is the family.
+        assert_eq!(
+            shorthand(vec![px(12.0), keyword("math")]),
+            CssValue::List(vec![px(12.0), keyword("math")])
+        );
+        // An angle and a weight come before the size and do not end the scan.
+        assert_eq!(
+            shorthand(vec![
+                keyword("oblique"),
+                CssValue::Unit(10.0, "deg".into()),
+                CssValue::Number(700.0, NumberKind::Integer),
+                keyword("small"),
+                keyword("math"),
+            ]),
+            CssValue::List(vec![
+                keyword("oblique"),
+                CssValue::Unit(10.0, "deg".into()),
+                CssValue::Number(700.0, NumberKind::Integer),
+                px(13.0),
+                keyword("math"),
+            ])
+        );
     }
 
     #[test]
