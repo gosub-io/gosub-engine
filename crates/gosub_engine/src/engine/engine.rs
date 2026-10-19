@@ -2216,6 +2216,79 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// Rendering an offer whose body still arrives, then cancelling that navigation, stops
+    /// the transfer: a rendered offer has no download id, so nothing else could.
+    #[tokio::test]
+    async fn cancelling_a_rendered_offer_stops_its_transfer() {
+        use crate::events::TabCommand;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // Sends the first part of a large page served as an attachment, then holds the rest
+        // back, and says when the client lets go of the connection.
+        let (closed_tx, mut closed_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let closed_tx = closed_tx.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let head = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\
+                                Content-Disposition: attachment; filename=\"page.html\"\r\n\
+                                Content-Length: 1048576\r\nConnection: close\r\n\r\n";
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(&vec![b'a'; 300 * 1024]).await;
+                    let _ = stream.read(&mut buf).await;
+                    let _ = closed_tx.send(());
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.navigate(format!("http://127.0.0.1:{port}/page.html"))
+            .await
+            .expect("navigate");
+        let offer = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadRequested { offer, .. }) => return offer,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("no offer");
+
+        tab.send(TabCommand::RenderDownload { offer }).await.expect("render");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::Navigation {
+                        event: crate::events::NavigationEvent::Started { .. },
+                        ..
+                    }) => return,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("the render did not start");
+        tab.send(TabCommand::CancelNavigation).await.expect("cancel navigation");
+        tokio::time::timeout(Duration::from_secs(10), closed_rx.recv())
+            .await
+            .expect("the transfer went on after its navigation was cancelled");
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// A navigation has no deadline for its whole body: a download that takes longer than
     /// `net.timeout.body_secs` is still offered, as long as it keeps arriving.
     #[tokio::test]

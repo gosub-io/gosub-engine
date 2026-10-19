@@ -2525,7 +2525,20 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 HtmlSource::Text(html) => html,
                 HtmlSource::Spooled(spool) => {
                     use tokio::io::AsyncReadExt;
-                    let path = match spool.finish().await {
+                    // The body may still be arriving. A navigation cancelled meanwhile drops
+                    // the spool, which stops the transfer: nothing else could, as a rendered
+                    // offer has no download id to cancel it by.
+                    let finished = tokio::select! {
+                        finished = spool.finish() => finished,
+                        _ = handle.cancel.cancelled() => {
+                            let _ = tx_done.send(NavigationResult::Err {
+                                nav_id,
+                                error: NavigationError::Cancelled("navigation cancelled".into()),
+                            });
+                            return;
+                        }
+                    };
+                    let path = match finished {
                         Ok(path) => path,
                         Err(e) => {
                             let _ = tx_done.send(NavigationResult::Err {
