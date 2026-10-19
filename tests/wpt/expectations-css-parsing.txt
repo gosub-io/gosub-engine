@@ -1758,6 +1758,7 @@ FILE css/css-backgrounds/parsing/box-shadow-invalid.html
 PASS css/css-backgrounds/parsing/box-shadow-invalid.html :: e.style['box-shadow'] = "auto" should not set the property value
 PASS css/css-backgrounds/parsing/box-shadow-invalid.html :: e.style['box-shadow'] = "1 2" should not set the property value
 PASS css/css-backgrounds/parsing/box-shadow-invalid.html :: e.style['box-shadow'] = "1% 2%" should not set the property value
+PASS css/css-backgrounds/parsing/box-shadow-invalid.html :: e.style['box-shadow'] = "1px calc(2px + 2%)" should not set the property value
 PASS css/css-backgrounds/parsing/box-shadow-invalid.html :: e.style['box-shadow'] = "1px" should not set the property value
 PASS css/css-backgrounds/parsing/box-shadow-invalid.html :: e.style['box-shadow'] = "1px 2px 3px 4px 5px" should not set the property value
 PASS css/css-backgrounds/parsing/box-shadow-invalid.html :: e.style['box-shadow'] = "red 1px 2px blue" should not set the property value
@@ -9829,6 +9830,7 @@ PASS css/css-color/parsing/color-invalid.html :: e.style['color'] = "rgb" should
 PASS css/css-color/parsing/color-invalid.html :: e.style['color'] = "rgb(1)" should not set the property value
 PASS css/css-color/parsing/color-invalid.html :: e.style['color'] = "rgb(1,2,3,4,5)" should not set the property value
 PASS css/css-color/parsing/color-invalid.html :: e.style['color'] = "hsla(1,2,3,4,5)" should not set the property value
+PASS css/css-color/parsing/color-invalid.html :: e.style['color'] = "rgb(sign(0% - 0px), 0, 0)" should not set the property value
 PASS css/css-color/parsing/color-invalid.html :: e.style['color'] = "hsl(calc(0.56turn * -0.43turn), 47%, 4884.6%)" should not set the property value
 FILE css/css-color/parsing/color-mix-out-of-gamut.html
 PASS css/css-color/parsing/color-mix-out-of-gamut.html :: Property color value 'color-mix(in hsl, color(display-p3 0 1 0) 100%, rgb(0, 0, 0) 0%)'
@@ -15154,6 +15156,7 @@ PASS css/css-grid/parsing/grid-template-shorthand.html :: e.style['grid-template
 FILE css/css-images/parsing/conic-gradient-calc-angle-percentage-invalid.html
 PASS css/css-images/parsing/conic-gradient-calc-angle-percentage-invalid.html :: e.style['background-image'] = "linear-gradient(red calc(50% + 30deg), blue)" should not set the property value
 PASS css/css-images/parsing/conic-gradient-calc-angle-percentage-invalid.html :: e.style['background-image'] = "radial-gradient(red calc(50% + 30deg), blue)" should not set the property value
+PASS css/css-images/parsing/conic-gradient-calc-angle-percentage-invalid.html :: e.style['background-image'] = "conic-gradient(from calc(50% + 30deg), red, blue)" should not set the property value
 PASS css/css-images/parsing/conic-gradient-calc-angle-percentage-invalid.html :: e.style['background-image'] = "conic-gradient(red calc(50% + 0), blue)" should not set the property value
 FILE css/css-images/parsing/conic-gradient-calc-angle-percentage-valid.html
 PASS css/css-images/parsing/conic-gradient-calc-angle-percentage-valid.html :: e.style['background-image'] = "conic-gradient(red, calc(0deg + 100%), blue)" should set the property value
@@ -18445,7 +18448,10 @@ PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-cli
 PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-clip-margin'] = "calc(100px - 50px)" should set the property value
 PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-clip-margin'] = "calc(100px - 100px)" should set the property value
 PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-clip-margin'] = "calc(0.5em - 100px)" should set the property value
+PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-clip-margin'] = "calc(100% - 0.5em)" should not set the property value
+PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-clip-margin'] = "calc(100% - 50px)" should not set the property value
 PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-clip-margin'] = "border-box calc(0.5em - 100px)" should set the property value
+PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-clip-margin'] = "border-box calc(0.5em - 100%)" should not set the property value
 PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-clip-margin'] = "margin-box" should not set the property value
 PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-clip-margin'] = "inset(10px)" should not set the property value
 PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-clip-margin'] = "50px 50px" should not set the property value
@@ -19081,7 +19087,12 @@ PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['tex
 PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['text-decoration-inset'] = "1ch -1ch" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['text-decoration-inset'] = "calc(1em / 4) calc(-1ch)" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['text-decoration-inset'] = "auto" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['text-decoration-inset'] = "10%" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['text-decoration-inset'] = "0 20%" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['text-decoration-inset'] = "10% 20%" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['text-decoration-inset'] = "10px -20%" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['text-decoration-inset'] = "calc(10% - 1em) 0" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['text-decoration-inset'] = "calc(10% + 1ch) calc(-20%)" should set the property value
 FILE css/css-text-decor/parsing/text-decoration-invalid.html
 PASS css/css-text-decor/parsing/text-decoration-invalid.html :: e.style['text-decoration'] = "double overline underline dotted" should not set the property value
 PASS css/css-text-decor/parsing/text-decoration-invalid.html :: e.style['text-decoration'] = "red line-through green" should not set the property value
@@ -19440,6 +19451,7 @@ FILE css/css-text/parsing/tab-size-invalid.html
 PASS css/css-text/parsing/tab-size-invalid.html :: e.style['tab-size'] = "-10px" should not set the property value
 PASS css/css-text/parsing/tab-size-invalid.html :: e.style['tab-size'] = "-20" should not set the property value
 PASS css/css-text/parsing/tab-size-invalid.html :: e.style['tab-size'] = "30%" should not set the property value
+PASS css/css-text/parsing/tab-size-invalid.html :: e.style['tab-size'] = "calc(40% + 50px)" should not set the property value
 FILE css/css-text/parsing/tab-size-valid.html
 PASS css/css-text/parsing/tab-size-valid.html :: e.style['tab-size'] = "0" should set the property value
 PASS css/css-text/parsing/tab-size-valid.html :: e.style['tab-size'] = "2.5" should set the property value
@@ -19872,6 +19884,9 @@ PASS css/css-text/parsing/word-spacing-computed.html :: Property word-spacing va
 PASS css/css-text/parsing/word-spacing-computed.html :: Property word-spacing value '10px'
 PASS css/css-text/parsing/word-spacing-computed.html :: Property word-spacing value '-20px'
 PASS css/css-text/parsing/word-spacing-computed.html :: Property word-spacing value 'calc(10px - 0.5em)'
+PASS css/css-text/parsing/word-spacing-computed.html :: Property word-spacing value '110%'
+PASS css/css-text/parsing/word-spacing-computed.html :: Property word-spacing value '-5%'
+PASS css/css-text/parsing/word-spacing-computed.html :: Property word-spacing value 'calc(10% - 20%)'
 FILE css/css-text/parsing/word-spacing-invalid.html
 PASS css/css-text/parsing/word-spacing-invalid.html :: e.style['word-spacing'] = "auto" should not set the property value
 PASS css/css-text/parsing/word-spacing-invalid.html :: e.style['word-spacing'] = "normal 10px" should not set the property value
@@ -19882,6 +19897,8 @@ PASS css/css-text/parsing/word-spacing-valid.html :: e.style['word-spacing'] = "
 PASS css/css-text/parsing/word-spacing-valid.html :: e.style['word-spacing'] = "10px" should set the property value
 PASS css/css-text/parsing/word-spacing-valid.html :: e.style['word-spacing'] = "-20px" should set the property value
 PASS css/css-text/parsing/word-spacing-valid.html :: e.style['word-spacing'] = "calc(2em + 3ex)" should set the property value
+PASS css/css-text/parsing/word-spacing-valid.html :: e.style['word-spacing'] = "120%" should set the property value
+PASS css/css-text/parsing/word-spacing-valid.html :: e.style['word-spacing'] = "-10%" should set the property value
 PASS css/css-text/parsing/word-spacing-valid.html :: e.style['word-spacing'] = "calc(2ch - 30%)" should set the property value
 PASS css/css-text/parsing/word-spacing-valid.html :: e.style['word-spacing'] = "calc(40% + 50px)" should set the property value
 FILE css/css-text/parsing/word-wrap-computed.html
@@ -20109,6 +20126,7 @@ PASS css/css-transforms/parsing/translate-parsing-computed.html :: Property tran
 FILE css/css-transforms/parsing/translate-parsing-invalid.html
 PASS css/css-transforms/parsing/translate-parsing-invalid.html :: e.style['translate'] = "100deg" should not set the property value
 PASS css/css-transforms/parsing/translate-parsing-invalid.html :: e.style['translate'] = "100px 200px 300%" should not set the property value
+PASS css/css-transforms/parsing/translate-parsing-invalid.html :: e.style['translate'] = "100px 200px calc(30px + 30%)" should not set the property value
 PASS css/css-transforms/parsing/translate-parsing-invalid.html :: e.style['translate'] = "100px junk" should not set the property value
 PASS css/css-transforms/parsing/translate-parsing-invalid.html :: e.style['translate'] = "100px 200px junk" should not set the property value
 PASS css/css-transforms/parsing/translate-parsing-invalid.html :: e.style['translate'] = "100px 200px 300px junk" should not set the property value

@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 use crate::matcher::property_ids::{PropertyId, PROPERTY_COUNT};
 use crate::matcher::shorthands::{FixList, Shorthands};
 use crate::matcher::syntax::GroupCombinators::Juxtaposition;
-use crate::matcher::syntax::{CssSyntax, RangeType, SyntaxComponent};
+use crate::matcher::syntax::{CssSyntax, GroupCombinators, RangeType, SyntaxComponent};
 use crate::matcher::syntax_matcher::{CssSyntaxTree, NUMERIC_DATATYPES};
 use crate::stylesheet::CssValue;
 
@@ -440,6 +440,32 @@ impl PropertyDefinition {
     }
 }
 
+/// Whether the only number a property's value can be is an `<integer>`.
+///
+/// css-values-4 §10.9 has a math function in an `<integer>` slot *rounded* to the nearest
+/// integer at computed-value time rather than rejected for not being one - `z-index: calc(1 / 2)`
+/// is `1`. Descends through groups the way [`top_level_numeric_ranges`] does, and answers no when
+/// a `<number>` or a dimension is among the alternatives: `line-height: <number> | <length> |
+/// ...` must keep its `1.5`.
+fn takes_integer(components: &[SyntaxComponent]) -> bool {
+    fn kinds(components: &[SyntaxComponent], found: &mut Vec<String>) {
+        for component in components {
+            match component {
+                SyntaxComponent::Group { components, .. } => kinds(components, found),
+                SyntaxComponent::Builtin { datatype, .. } | SyntaxComponent::Definition { datatype, .. }
+                    if NUMERIC_DATATYPES.contains(&datatype.as_str()) && !found.contains(datatype) =>
+                {
+                    found.push(datatype.clone());
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut found = Vec::new();
+    kinds(components, &mut found);
+    found.iter().any(|kind| kind == "integer") && found.iter().all(|kind| kind == "integer" || kind == "percentage")
+}
+
 /// The ranges written on the numeric alternatives a property's value can be.
 ///
 /// Descends through groups, because `auto | <length-percentage [0,∞]> | min-content` is one
@@ -498,6 +524,8 @@ struct ResolvedProperty {
     initial: CssValue,
     takes_color: bool,
     takes_line_width: bool,
+    /// Whether an `<integer>` is the only number the grammar allows; see [`takes_integer`].
+    takes_integer: bool,
     computed_range: Option<(Option<f64>, Option<f64>)>,
 }
 
@@ -630,6 +658,13 @@ impl CssDefinitions {
         self.entry(id).is_some_and(|entry| entry.takes_line_width)
     }
 
+    /// Whether an `<integer>` is the only number the property `id` names can be, so a math
+    /// function's result is rounded to one at computed-value time; see [`takes_integer`].
+    #[must_use]
+    pub fn takes_integer(&self, id: PropertyId) -> bool {
+        self.entry(id).is_some_and(|entry| entry.takes_integer)
+    }
+
     /// The range a computed value for the property `id` names has to lie in; see
     /// [`PropertyDefinition::computed_range`].
     #[must_use]
@@ -704,6 +739,7 @@ impl CssDefinitions {
                 initial: definition.initial_value(),
                 takes_color: definition.takes_color(),
                 takes_line_width: definition.takes_line_width(),
+                takes_integer: takes_integer(&definition.syntax.components),
                 computed_range: definition.computed_range(),
                 definition,
             };
@@ -868,6 +904,7 @@ impl CssDefinitions {
                         datatype: datatype.clone(),
                         range: *range,
                         multipliers: multipliers.clone(),
+                        percent_sibling: false,
                     };
                 }
 
@@ -906,6 +943,31 @@ impl CssDefinitions {
                 let mut resolved_components = Vec::with_capacity(components.len());
                 for component in components.iter() {
                     resolved_components.push(self.resolve_component(component, prop_name));
+                }
+
+                // `<length-percentage>` resolves to `[ <length> | <percentage> ]`, and that
+                // group is the only place a `<length>` leaf can tell that a percentage may be
+                // mixed into it: `width: min(1px, 10%)` is valid, `border-width: min(1px, 10%)`
+                // is not, and the leaf being matched is `<length>` both times. Mark the numeric
+                // leaves that have a `<percentage>` among their alternatives, here, where the
+                // group is still in view.
+                if *combinator == GroupCombinators::ExactlyOne
+                    && resolved_components
+                        .iter()
+                        .any(|c| matches!(c, SyntaxComponent::Builtin { datatype, .. } if datatype == "percentage"))
+                {
+                    for component in &mut resolved_components {
+                        if let SyntaxComponent::Builtin {
+                            datatype,
+                            percent_sibling,
+                            ..
+                        } = component
+                        {
+                            if NUMERIC_DATATYPES.contains(&datatype.as_str()) {
+                                *percent_sibling = true;
+                            }
+                        }
+                    }
                 }
 
                 SyntaxComponent::Group {
@@ -1745,6 +1807,46 @@ mod tests {
         assert!(m("a{1,3}", &[a()]));
         assert!(m("a{1,3}", &[a(), a(), a()]));
         assert!(!m("a{1,3}", &[a(), a(), a(), a()]));
+    }
+
+    /// A percentage mixed into a math function is only valid where the grammar has a
+    /// `<percentage>` alternative next to the numeric leaf - which is what `<length-percentage>`
+    /// and its kin resolve to - and `sign()` of a percentage carries that requirement with it.
+    #[test]
+    fn a_percentage_in_a_math_function_needs_a_percentage_alternative() {
+        let defs = get_css_definitions();
+        let ok = |prop: &str, v: &str| {
+            defs.find_property(prop)
+                .unwrap_or_else(|| panic!("no def for {prop}"))
+                .clone()
+                .matches(&parse_decl_values(prop, v))
+        };
+
+        // `<length-percentage>` takes the mix; `<angle>`, `<time>` and `<line-width>` do not.
+        assert!(ok("width", "min(1px, 10%)"));
+        assert!(ok("margin-left", "calc(100% - 20px)"));
+        assert!(!ok("transform", "rotate(min(1deg, 0%))"));
+        assert!(!ok("transition-delay", "max(1s, 0%)"));
+        assert!(!ok("border-left-width", "min(1px, 0%)"));
+
+        // `sign()` of a percentage is a number that is only valid where a percentage was
+        // (css-values-4 §10.10); `abs()` keeps the percentage itself.
+        assert!(!ok("font-weight", "sign(10%)"));
+        assert!(!ok("tab-size", "calc(1px * sign(10%))"));
+        assert!(ok("margin-left", "calc(sign(10%) * 100px)"));
+        assert!(!ok("font-weight", "abs(1%)"));
+        assert!(ok("margin-left", "abs(10%)"));
+        // Two datatypes in one argument never resolve.
+        assert!(!ok("font-weight", "sign(10px + 5rad)"));
+
+        // A unary sign is not part of the calc grammar.
+        assert!(!ok("transform", "rotate(atan2(30deg, + 0.26rad))"));
+        assert!(!ok("width", "calc(-(1px + 2px))"));
+        assert!(ok("width", "calc(-1 * (1px + 2px))"));
+
+        // Grammars that webref still types as a plain `<length>`, patched to the current spec.
+        assert!(ok("word-spacing", "calc(40% + 50px)"));
+        assert!(ok("text-decoration-inset", "calc(10% - 1em) 0"));
     }
 
     /// Numeric range constraints (`<length [0,∞]>`, `<integer [1,∞]>`, ...) are enforced:

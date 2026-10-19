@@ -1503,6 +1503,18 @@ impl CssProperty {
             CssValue::Percentage(pct) if id.percentage_is_number() => CssValue::Number(pct / 100.0, NumberKind::Number),
             other => other,
         };
+        // An `<integer>` slot rounds a math function's result to the nearest integer, half-values
+        // toward +∞ (css-values-4 §10.9): `z-index: calc(1 / 2)` is `1` and `calc(1 / 3)` is `0`.
+        // A literal that is not an integer never got past the grammar, so only a `calc()` result
+        // can be fractional here.
+        let computed = match computed {
+            CssValue::Number(n, _)
+                if n.fract() != 0.0 && n.is_finite() && !id.is_shorthand() && defs.takes_integer(id) =>
+            {
+                CssValue::Number((n + 0.5).floor(), NumberKind::Integer)
+            }
+            other => other,
+        };
         // Only a single number has a magnitude to clamp. A list is several values, and the range
         // belongs to whichever grammar arm each one matched - which is not recorded.
         let magnitude = match &computed {
@@ -2577,6 +2589,33 @@ mod tests {
                 px(13.0),
                 keyword("math"),
             ])
+        );
+    }
+
+    #[test]
+    fn an_integer_property_rounds_a_math_result() {
+        // css-values-4 §10.9: nearest integer, half-values toward +∞. `z-index: auto | <integer>`.
+        let calc = |n: f64| CssValue::Function("calc".to_string(), vec![CssValue::Number(n, NumberKind::Number)]);
+        assert_eq!(
+            computed_for("z-index", calc(0.5)),
+            CssValue::Number(1.0, NumberKind::Integer)
+        );
+        assert_eq!(
+            computed_for("z-index", calc(1.0 / 3.0)),
+            CssValue::Number(0.0, NumberKind::Integer)
+        );
+        assert_eq!(
+            computed_for("z-index", calc(-0.5)),
+            CssValue::Number(0.0, NumberKind::Integer)
+        );
+        assert_eq!(
+            computed_for("z-index", calc(2.0)),
+            CssValue::Number(2.0, NumberKind::Integer)
+        );
+        // `tab-size` takes a `<number>` too, so its fraction stays.
+        assert_eq!(
+            computed_for("tab-size", calc(0.5)),
+            CssValue::Number(0.5, NumberKind::Integer)
         );
     }
 

@@ -103,13 +103,31 @@ impl Units {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Sum {
     terms: BTreeMap<String, f64>,
+    /// Whether a percentage went into this and is no longer among the terms - `sign(10%)` is a
+    /// plain number whose value still depends on what the percentage is a percentage *of*.
+    /// css-values-4 §10.10 calls this the percent hint: the result is only valid where a
+    /// percentage would have been, so `font-weight: sign(10%)` and `tab-size: 1px * sign(10%)`
+    /// are rejected while `margin-left: calc(sign(10%) * 100px)` is kept. Only the type check
+    /// reads it; the terms themselves never change because of it.
+    percent_hint: bool,
 }
 
 impl Sum {
     fn term(unit: &str, value: f64) -> Self {
         let mut terms = BTreeMap::new();
         terms.insert(unit.to_string(), value);
-        Self { terms }
+        Self {
+            terms,
+            percent_hint: false,
+        }
+    }
+
+    /// An empty sum, for a type check to collect units into.
+    fn empty() -> Self {
+        Self {
+            terms: BTreeMap::new(),
+            percent_hint: false,
+        }
     }
 
     /// The coefficient when this is a plain number and nothing else, which is what
@@ -125,6 +143,7 @@ impl Sum {
         for (unit, value) in &other.terms {
             *self.terms.entry(unit.clone()).or_insert(0.0) += value * sign;
         }
+        self.percent_hint |= other.percent_hint;
         self
     }
 
@@ -317,6 +336,13 @@ pub fn evaluate_call(name: &str, args: &[CssValue], units: &Units, unwrap: bool)
     } else {
         simplify(&[CssValue::Function(name.to_string(), args.to_vec())], units)?
     };
+    // `sign(10%)` folds to a number, but which number depends on what the percentage is of, and
+    // the type check still has to see that a percentage went in - `font-weight: sign(10%)` is
+    // invalid. The specified stage (the one caller that does not unwrap) therefore leaves such a
+    // call as written; the computed stage folds it as before.
+    if !unwrap && sum.percent_hint {
+        return None;
+    }
     if unwrap {
         if let Some(value) = sum.single_value() {
             return Some(make_finite(value));
@@ -488,6 +514,11 @@ pub fn math_function_type(name: &str, args: &[CssValue], units: &Units) -> MathT
     }
     if kinds.is_empty() {
         return MathType::Invalid;
+    }
+    // A percentage that was consumed on the way (`sign(10%)`) still has to be allowed where
+    // the result lands, so it counts as one of the kinds the property has to accept.
+    if sum.percent_hint && !kinds.contains(&"percentage") {
+        kinds.push("percentage");
     }
     kinds.sort_unstable();
     MathType::Resolved(kinds)
@@ -824,6 +855,9 @@ impl Parser<'_> {
             };
             self.pos += 1;
             let rhs = self.value()?;
+            // The percent hint survives whichever side the number came from: `1px * sign(10%)`
+            // is still only valid where a percentage would have been.
+            let percent_hint = acc.percent_hint || rhs.percent_hint;
             acc = match op {
                 // Only one side of a product may carry a unit; `px * px` has no meaning in CSS.
                 Tok::Star => match (acc.as_number(), rhs.as_number()) {
@@ -837,21 +871,20 @@ impl Parser<'_> {
                 // it here would have thrown away a declaration the spec says to keep.
                 _ => acc.scale(1.0 / rhs.as_number()?),
             };
+            acc.percent_hint = percent_hint;
         }
         Some(acc)
     }
 
     fn value(&mut self) -> Option<Sum> {
         match self.peek()? {
-            // A leading sign on a parenthesised group: `calc(-(1px + 2px))`.
-            Tok::Plus => {
-                self.pos += 1;
-                self.value()
-            }
-            Tok::Minus => {
-                self.pos += 1;
-                Some(self.value()?.scale(-1.0))
-            }
+            // There is no unary sign in a math expression: `<calc-value>` is a number, a
+            // dimension, a percentage, a keyword or a parenthesised group (css-values-4 §10.1),
+            // and `+` and `-` are only ever the operators of a sum. `calc(-(1px + 2px))` and
+            // `atan2(30deg, + 0.26rad)` are invalid in every browser - a sign on a number is the
+            // tokenizer's, and a negated group is written `-1 * (...)`. This used to read a
+            // leading sign as a negation, which accepted what nothing else does.
+            Tok::Plus | Tok::Minus => None,
             Tok::Open => {
                 self.pos += 1;
                 let inner = self.sum()?;
@@ -1093,11 +1126,28 @@ fn fold_sign_abs(name: &str, args: &[Sum], mode: Mode) -> Option<Sum> {
     };
 
     if mode == Mode::TypeOnly {
-        // Every term still has to name a datatype, so `abs(banana)` stays invalid.
+        // Every term still has to name a datatype, so `abs(banana)` stays invalid - and they
+        // all have to name the *same* one, a percentage aside: `sign(10px + 5rad)` is a sum no
+        // property could ever resolve, where `sign(10px + 10%)` is a `<length-percentage>`.
+        let mut datatype = None;
         for unit in arg.terms.keys() {
-            unit_datatype(unit)?;
+            let kind = unit_datatype(unit)?;
+            if kind == "percentage" {
+                continue;
+            }
+            if *datatype.get_or_insert(kind) != kind {
+                return None;
+            }
         }
-        return Some(if is_sign { Sum::term("", 0.0) } else { arg.clone() });
+        if !is_sign {
+            return Some(arg.clone());
+        }
+        // `sign()` of a percentage is a number that cannot be known until the percentage can:
+        // the basis may be negative. The result keeps the percent hint, so it is only accepted
+        // where a percentage would have been (css-values-4 §10.10).
+        let mut result = Sum::term("", 0.0);
+        result.percent_hint = arg.percent_hint || arg.terms.contains_key("%");
+        return Some(result);
     }
 
     let (unit, value) = arg.single_term()?;
@@ -1115,7 +1165,10 @@ fn fold_sign_abs(name: &str, args: &[Sum], mode: Mode) -> Option<Sum> {
         } else {
             value
         };
-        return Some(Sum::term("", result));
+        let mut folded = Sum::term("", result);
+        // The sign of a percentage is the sign of its basis as much as its own; see `percent_hint`.
+        folded.percent_hint = arg.percent_hint || unit == "%";
+        return Some(folded);
     }
 
     Some(Sum::term(&unit, value.abs()))
@@ -1146,7 +1199,7 @@ fn fold_exponential(name: &str, args: &[Sum], mode: Mode) -> Option<Sum> {
         if is_hypot {
             // Same shape as a comparison: carry every unit seen and let the caller decide
             // whether the datatypes it names are the ones the property wanted.
-            let mut carried = Sum { terms: BTreeMap::new() };
+            let mut carried = Sum::empty();
             for arg in args {
                 for unit in arg.terms.keys() {
                     unit_datatype(unit)?;
@@ -1290,7 +1343,7 @@ fn fold_stepped(name: &str, args: &[Sum], strategy: Strategy, mode: Mode) -> Opt
 
     if mode == Mode::TypeOnly {
         let mut kind: Option<&'static str> = None;
-        let mut carried = Sum { terms: BTreeMap::new() };
+        let mut carried = Sum::empty();
         for arg in &args {
             for unit in arg.terms.keys() {
                 let found = unit_datatype(unit)?;
@@ -1439,7 +1492,7 @@ fn fold_progress(args: &[Sum], clamped: bool, mode: Mode) -> Option<Sum> {
 /// see the datatypes involved.
 fn fold_comparison(name: &str, args: &[Sum], mode: Mode) -> Option<Sum> {
     if mode == Mode::TypeOnly {
-        let mut carried = Sum { terms: BTreeMap::new() };
+        let mut carried = Sum::empty();
         for arg in args {
             for unit in arg.terms.keys() {
                 // An identifier that is not a unit at all - `min(1py)`, `min(red, 50px)` - has no
@@ -1447,6 +1500,7 @@ fn fold_comparison(name: &str, args: &[Sum], mode: Mode) -> Option<Sum> {
                 unit_datatype(unit)?;
                 carried.terms.insert(unit.clone(), 0.0);
             }
+            carried.percent_hint |= arg.percent_hint;
         }
         return (!carried.terms.is_empty()).then_some(carried);
     }
@@ -1505,6 +1559,17 @@ mod tests {
 
     fn parsed(input: &str) -> Option<String> {
         body(input, &Units::none())
+    }
+
+    /// css-values-4 §10.1 has no unary operator: a sign is either the tokenizer's, as part of a
+    /// number, or the operator of a sum with whitespace on both sides.
+    #[test]
+    fn a_unary_sign_is_not_an_expression() {
+        assert_eq!(parsed("-(1px + 2px)"), None);
+        assert_eq!(parsed("+(1px + 2px)"), None);
+        assert_eq!(parsed("1px + + 2px"), None);
+        assert_eq!(parsed("1px - -2px"), Some("3px".to_string()));
+        assert_eq!(parsed("-1 * (1px + 2px)"), Some("-3px".to_string()));
     }
 
     /// `min(a, b, ...)` as the parser hands it over: values with the commas kept among them.
