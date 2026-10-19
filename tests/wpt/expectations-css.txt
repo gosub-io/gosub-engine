@@ -2291,6 +2291,7 @@ FILE css/css-values/rem-unit-root-element.html
 PASS css/css-values/rem-unit-root-element.html :: rem based margin.
 PASS css/css-values/rem-unit-root-element.html :: rem based padding.
 PASS css/css-values/rem-unit-root-element.html :: rem based line-height.
+PASS css/css-values/rem-unit-root-element.html :: Check that rem font-size is based on the initial font-size.
 FILE css/css-values/rex-invalidation.html
 PASS css/css-values/rex-invalidation.html :: Untitled
 FILE css/css-values/rgba-011.html

@@ -17,7 +17,7 @@ use crate::colors::{CssColor, RgbColor};
 use crate::functions::calc;
 use crate::matcher::bloom::AncestorFilter;
 use crate::matcher::property_definitions::get_css_definitions;
-use crate::matcher::property_ids::{LonghandId, PropertyId, PROPERTY_COUNT};
+use crate::matcher::property_ids::{LonghandId, PropertyId, ShorthandId, PROPERTY_COUNT};
 use crate::property_registry::PropertyRegistry;
 use crate::stylesheet::{Combinator, CssSelector, CssSelectorPart, CssValue, MatcherType, NthSelector, Specificity};
 use crate::system::Css3System;
@@ -1075,6 +1075,43 @@ fn resolve_line_widths(value: CssValue) -> CssValue {
     }
 }
 
+/// The px an absolute `font-size` keyword computes to.
+///
+/// The scale is the one every browser ships, `medium` at 16px. css-fonts-4 §2.5 offers its own
+/// ratios only as guidelines, so this is not a deviation to correct.
+fn absolute_font_size(keyword: &str) -> Option<f64> {
+    let px = match keyword.cow_to_ascii_lowercase().as_ref() {
+        "xx-small" => 9.0,
+        "x-small" => 10.0,
+        "small" => 13.0,
+        "medium" => 16.0,
+        "large" => 18.0,
+        "x-large" => 24.0,
+        "xx-large" => 32.0,
+        "xxx-large" => 48.0,
+        _ => return None,
+    };
+    Some(px)
+}
+
+/// The px a `font-size` keyword computes to, given the parent's size.
+///
+/// The absolute keywords are [`absolute_font_size`]. The relative ones step by the 1.2 the spec
+/// suggests. `math` scales by `math-depth`, which this engine does not have, so it is the
+/// parent's size.
+fn font_size_keyword(keyword: &str, parent: f64) -> Option<f64> {
+    if let Some(px) = absolute_font_size(keyword) {
+        return Some(px);
+    }
+    let px = match keyword.cow_to_ascii_lowercase().as_ref() {
+        "smaller" => parent / 1.2,
+        "larger" => parent * 1.2,
+        "math" => parent,
+        _ => return None,
+    };
+    Some(px)
+}
+
 /// Turn a specified value into a computed one: resolve the relative lengths, do the arithmetic.
 ///
 /// This is what makes a *computed* value computed. css-values says `em` and `rem` resolve at
@@ -1130,6 +1167,9 @@ fn resolve_computed(value: CssValue, units: &calc::Units) -> CssValue {
 /// `font-size` is the one property whose `em` resolves against its parent rather than itself,
 /// and the one whose percentage resolves before layout.
 const FONT_SIZE: PropertyId = PropertyId::Longhand(LonghandId::FontSize);
+/// `font` keeps a value of its own for `getComputedStyle`, whose size has to agree with the
+/// `font-size` longhand.
+const FONT: PropertyId = PropertyId::Shorthand(ShorthandId::Font);
 /// `color` is the one property on which `currentcolor` means the inherited colour.
 const COLOR: PropertyId = PropertyId::Longhand(LonghandId::Color);
 
@@ -1283,6 +1323,38 @@ impl CssProperty {
             specified => specified.clone(),
         };
 
+        // The `font` shorthand's own value has to say the same size the `font-size` longhand
+        // computes to: `font: xx-small serif` reads back as `9px serif`, as every browser has it.
+        // A relative keyword is the size this element ended up with, which is the basis every
+        // property but `font-size` itself is given.
+        //
+        // The scan stops at the size however it is written: what follows is the line-height and
+        // the family, and `math` is a generic family as well as a size keyword, so `font: 12px
+        // math` has to keep it. A length, a percentage or a math function is a size; an angle
+        // (`oblique 10deg`) and a number (a weight) come before it.
+        let specified = match specified {
+            CssValue::List(mut items) if self.id == Some(FONT) => {
+                let own = f64::from(self.font_size_basis);
+                for item in &mut items {
+                    match item {
+                        CssValue::String(keyword) => {
+                            let size =
+                                absolute_font_size(keyword).or_else(|| font_size_keyword(keyword, own).map(|_| own));
+                            if let Some(px) = size {
+                                *item = CssValue::Unit(px, "px".to_string());
+                                break;
+                            }
+                        }
+                        CssValue::Unit(_, unit) if calc::unit_datatype(unit) == Some("length") => break,
+                        CssValue::Percentage(_) | CssValue::Function(..) => break,
+                        _ => {}
+                    }
+                }
+                CssValue::List(items)
+            }
+            other => other,
+        };
+
         // A colour keyword computes to the colour it names (css-color-4 §15). It travels this
         // far as a plain keyword because that is what the *specified* value is - reading
         // `element.style.color` back after setting it to `red` has to answer `red` - and only
@@ -1299,9 +1371,20 @@ impl CssProperty {
         // it is a fraction of the *parent's* font-size, which is exactly what `font_size_basis`
         // holds for this property, where every other percentage needs a containing block and has
         // to wait for layout.
+        //
+        // The keywords resolve here for the same reason. Left as keywords, a child inherited
+        // `smaller` and applied it again, and an `em` on the element itself was measured against
+        // its parent's size.
         if self.id == Some(FONT_SIZE) {
-            if let CssValue::Percentage(pct) = specified {
-                return CssValue::Unit(f64::from(self.font_size_basis) * pct / 100.0, "px".to_string());
+            let parent = f64::from(self.font_size_basis);
+            match &specified {
+                CssValue::Percentage(pct) => return CssValue::Unit(parent * pct / 100.0, "px".to_string()),
+                CssValue::String(keyword) => {
+                    if let Some(px) = font_size_keyword(keyword, parent) {
+                        return CssValue::Unit(px, "px".to_string());
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -2410,6 +2493,91 @@ mod tests {
         assert_eq!(computed_for("border-top-width", keyword("hairline")), px(1.0));
 
         set_media_environment(saved);
+    }
+
+    /// The `font-size` keywords compute to px against the parent's size, which is the basis the
+    /// cascade gives `font-size`.
+    #[test]
+    fn font_size_keywords_compute_to_lengths() {
+        let font_size = |value: &str, parent: f32| {
+            let mut prop = CssProperty::new(FONT_SIZE);
+            prop.font_size_basis = parent;
+            prop.declared.push(DeclarationProperty {
+                value: CssValue::String(value.into()).into(),
+                origin: CssOrigin::Author,
+                important: false,
+                location: no_location(),
+                specificity: Specificity::new(1, 0, 0),
+                shadow_depth: 0,
+                order: 0,
+                layer: None,
+                attached: false,
+            });
+            match prop.compute_value() {
+                CssValue::Unit(px, unit) if unit == "px" => *px,
+                other => panic!("{value} computed to {other:?}"),
+            }
+        };
+        assert_eq!(font_size("large", 20.0), 18.0);
+        assert_eq!(font_size("XX-Small", 20.0), 9.0);
+        assert_eq!(font_size("medium", 20.0), 16.0);
+        assert_eq!(font_size("initial", 20.0), 16.0, "the initial value is `medium`");
+        assert_eq!(font_size("larger", 20.0), 24.0);
+        assert!((font_size("smaller", 20.0) - 20.0 / 1.2).abs() < 1e-9);
+        assert_eq!(font_size("math", 20.0), 20.0, "no math-depth, so the parent's size");
+    }
+
+    /// The `font` shorthand's own value says the same size as the longhand. A relative keyword is
+    /// the element's own size, which is the basis the shorthand is given. The family is never
+    /// read as a size, though `math` is both.
+    #[test]
+    fn the_font_shorthand_says_its_size_in_px() {
+        let shorthand = |items: Vec<CssValue>| {
+            let mut prop = CssProperty::new(FONT);
+            prop.font_size_basis = 24.0;
+            prop.declared.push(DeclarationProperty {
+                value: CssValue::List(items).into(),
+                origin: CssOrigin::Author,
+                important: false,
+                location: no_location(),
+                specificity: Specificity::new(1, 0, 0),
+                shadow_depth: 0,
+                order: 0,
+                layer: None,
+                attached: false,
+            });
+            prop.compute_value().clone()
+        };
+        let keyword = |s: &str| CssValue::String(s.into());
+        let px = |n: f64| CssValue::Unit(n, "px".into());
+        let font = |size: &str| shorthand(vec![keyword(size), keyword("serif")]);
+        let sized = |n: f64| CssValue::List(vec![px(n), keyword("serif")]);
+        assert_eq!(font("xx-small"), sized(9.0));
+        assert_eq!(font("larger"), sized(24.0));
+        assert_eq!(font("smaller"), sized(24.0));
+
+        // The size is a length, so `math` after it is the family.
+        assert_eq!(
+            shorthand(vec![px(12.0), keyword("math")]),
+            CssValue::List(vec![px(12.0), keyword("math")])
+        );
+        // An angle and a weight come before the size and do not end the scan.
+        assert_eq!(
+            shorthand(vec![
+                keyword("oblique"),
+                CssValue::Unit(10.0, "deg".into()),
+                CssValue::Number(700.0, NumberKind::Integer),
+                keyword("small"),
+                keyword("math"),
+            ]),
+            CssValue::List(vec![
+                keyword("oblique"),
+                CssValue::Unit(10.0, "deg".into()),
+                CssValue::Number(700.0, NumberKind::Integer),
+                px(13.0),
+                keyword("math"),
+            ])
+        );
     }
 
     #[test]

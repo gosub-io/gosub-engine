@@ -13343,6 +13343,15 @@ PASS css/css-fonts/parsing/font-size-adjust-valid.html :: e.style['font-size-adj
 PASS css/css-fonts/parsing/font-size-adjust-valid.html :: e.style['font-size-adjust'] = "0.5" should set the property value
 PASS css/css-fonts/parsing/font-size-adjust-valid.html :: e.style['font-size-adjust'] = "calc(0.5)" should set the property value
 FILE css/css-fonts/parsing/font-size-computed.html
+PASS css/css-fonts/parsing/font-size-computed.html :: xx-small <= x-small
+PASS css/css-fonts/parsing/font-size-computed.html :: x-small <= small
+PASS css/css-fonts/parsing/font-size-computed.html :: small <= medium
+PASS css/css-fonts/parsing/font-size-computed.html :: medium <= large
+PASS css/css-fonts/parsing/font-size-computed.html :: large <= x-large
+PASS css/css-fonts/parsing/font-size-computed.html :: x-large <= xx-large
+PASS css/css-fonts/parsing/font-size-computed.html :: xx-large <= xxx-large
+PASS css/css-fonts/parsing/font-size-computed.html :: inherit <= larger
+PASS css/css-fonts/parsing/font-size-computed.html :: smaller <= inherit
 PASS css/css-fonts/parsing/font-size-computed.html :: Property font-size value '10px'
 PASS css/css-fonts/parsing/font-size-computed.html :: Property font-size value '20%'
 PASS css/css-fonts/parsing/font-size-computed.html :: Property font-size value 'calc(10px - 0.5em)'

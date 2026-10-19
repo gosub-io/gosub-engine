@@ -1630,13 +1630,15 @@ mod rendertree_from_engine {
                 #abs { font-size: small; }
                 #outer { font-size: 50%; }
                 #nested { font-size: 50%; }
+                #padded { font-size: large; padding-left: 1em; }
             </style></head>
             <body>
                 <p id="pct">a</p>
-                <p id="smaller">b</p>
+                <p id="smaller">b <b id="in-smaller">b</b></p>
                 <p id="larger">c</p>
                 <p id="abs">d</p>
                 <p id="outer"><span id="nested">e</span></p>
+                <p id="padded">f</p>
             </body></html>
         "#;
 
@@ -1660,6 +1662,12 @@ mod rendertree_from_engine {
             "one step down from 20px"
         );
         assert!((size_of("larger") - 20.0 * 1.2).abs() < 0.01, "one step up from 20px");
+        // A child inherits the size `smaller` computed to, not the keyword to apply again.
+        assert!(
+            (size_of("in-smaller") - 20.0 / 1.2).abs() < 0.01,
+            "inherits one step down, got {}",
+            size_of("in-smaller")
+        );
         // An absolute keyword ignores the parent and takes its place on the CSS scale.
         assert!((size_of("abs") - 13.0).abs() < 0.01, "`small` is 13px");
         // Percentages compound down the tree: 50% of 50% of 20px.
@@ -1668,6 +1676,13 @@ mod rendertree_from_engine {
             "nested percentages compound: got {} for #nested, {} for #outer",
             size_of("nested"),
             size_of("outer")
+        );
+        // An `em` on a keyword-sized element is the element's own size, not its parent's.
+        let padded = find_node_by_id_attr(&adapter.doc, root, "padded").expect("find #padded");
+        assert_eq!(
+            adapter.computed_style(padded).padding.left,
+            LengthPercentage::Px(18.0),
+            "1em of `large`"
         );
     }
 
