@@ -357,6 +357,32 @@ impl PropertyDefinition {
         self.syntax.components.iter().any(walks)
     }
 
+    /// Whether this property can take a `<line-width>`, whose keywords compute to lengths.
+    ///
+    /// The type is inlined like `<color>` is, so this looks for what it expands to: a group
+    /// offering `thin`, `medium` and `thick` together. Each of those alone means something else
+    /// somewhere - `thin` on `scrollbar-width`, `medium` in `font-size`'s `<absolute-size>`.
+    #[must_use]
+    pub fn takes_line_width(&self) -> bool {
+        fn is_keyword(component: &SyntaxComponent, word: &str) -> bool {
+            matches!(component, SyntaxComponent::GenericKeyword { keyword, .. } if keyword == word)
+        }
+        fn walks(component: &SyntaxComponent) -> bool {
+            match component {
+                SyntaxComponent::Group { components, .. } => {
+                    ["thin", "medium", "thick"]
+                        .iter()
+                        .all(|word| components.iter().any(|c| is_keyword(c, word)))
+                        || components.iter().any(walks)
+                }
+                // `column-rule-width` has its widths inside `repeat()`.
+                SyntaxComponent::Function { arguments, .. } => arguments.as_deref().is_some_and(walks),
+                _ => false,
+            }
+        }
+        self.syntax.components.iter().any(walks)
+    }
+
     /// The range a computed value for this property has to lie in, if it has one.
     ///
     /// css-values-4 §10.12: a math function is *not* range-checked when it is parsed, because
@@ -460,10 +486,10 @@ pub enum SyntaxType {
 /// A resolved property, together with the answers about it that the cascade would otherwise
 /// work out again for every element it applies to.
 ///
-/// [`PropertyDefinition::takes_color`] and [`PropertyDefinition::computed_range`] both read the
-/// resolved value grammar, which is a tree a few hundred nodes deep for a property like
-/// `background-image`. Neither answer can change once the definitions are loaded, so both are
-/// settled here instead - as is the initial value, which used to be cloned out of an `Option` on
+/// [`PropertyDefinition::takes_color`], [`PropertyDefinition::takes_line_width`] and
+/// [`PropertyDefinition::computed_range`] all read the resolved value grammar, which is a tree a
+/// few hundred nodes deep for a property like `background-image`. None of the answers can change
+/// once the definitions are loaded, so they are settled here instead - as is the initial value, which used to be cloned out of an `Option` on
 /// every lookup.
 #[derive(Debug, Clone)]
 struct ResolvedProperty {
@@ -471,6 +497,7 @@ struct ResolvedProperty {
     /// Exactly what [`PropertyDefinition::initial_value`] answers.
     initial: CssValue,
     takes_color: bool,
+    takes_line_width: bool,
     computed_range: Option<(Option<f64>, Option<f64>)>,
 }
 
@@ -596,6 +623,13 @@ impl CssDefinitions {
         self.entry(id).is_some_and(|entry| entry.takes_color)
     }
 
+    /// Whether the property `id` names can take a `<line-width>`; see
+    /// [`PropertyDefinition::takes_line_width`].
+    #[must_use]
+    pub fn takes_line_width(&self, id: PropertyId) -> bool {
+        self.entry(id).is_some_and(|entry| entry.takes_line_width)
+    }
+
     /// The range a computed value for the property `id` names has to lie in; see
     /// [`PropertyDefinition::computed_range`].
     #[must_use]
@@ -669,6 +703,7 @@ impl CssDefinitions {
             let entry = ResolvedProperty {
                 initial: definition.initial_value(),
                 takes_color: definition.takes_color(),
+                takes_line_width: definition.takes_line_width(),
                 computed_range: definition.computed_range(),
                 definition,
             };

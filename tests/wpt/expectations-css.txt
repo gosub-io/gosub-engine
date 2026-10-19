@@ -288,6 +288,7 @@ FILE css/css-values/attr-all-types.html
 FILE css/css-values/attr-argument-grammar.html
 FILE css/css-values/attr-container-style-query.html
 FILE css/css-values/attr-css-wide-keywords.html
+PASS css/css-values/attr-css-wide-keywords.html :: font-style: attr(data-foo type(*)) with data-foo="inherit"
 FILE css/css-values/attr-cycle.html
 PASS css/css-values/attr-cycle.html :: Untitled
 FILE css/css-values/attr-invalidation.html
@@ -967,6 +968,7 @@ FILE css/css-values/cap-invalidation.html
 PASS css/css-values/cap-invalidation.html :: Untitled
 FILE css/css-values/ch-empty-pseudo-recalc-on-font-load.html
 FILE css/css-values/ch-pseudo-recalc-on-font-load.html
+HARNESS css/css-values/ch-pseudo-recalc-on-font-load.html
 FILE css/css-values/ch-recalc-on-font-load.html
 HARNESS css/css-values/ch-recalc-on-font-load.html
 FILE css/css-values/clamp-color-computed.html
@@ -1226,6 +1228,7 @@ FILE css/css-values/getComputedStyle-border-radius-003.html
 FILE css/css-values/getComputedStyle-calc-mixed-units-001.html
 PASS css/css-values/getComputedStyle-calc-mixed-units-001.html :: testing background-size: calc(67% - 54% + 4em) 50%
 FILE css/css-values/getComputedStyle-calc-mixed-units-002.html
+PASS css/css-values/getComputedStyle-calc-mixed-units-002.html :: testing width: calc(8lh + 7px)
 PASS css/css-values/getComputedStyle-calc-mixed-units-002.html :: testing width: calc(4em + 2.6458333cm)
 PASS css/css-values/getComputedStyle-calc-mixed-units-002.html :: testing height: calc(5em + 26.458333mm)
 PASS css/css-values/getComputedStyle-calc-mixed-units-002.html :: testing width: calc(2in + 101.6Q)
@@ -2048,9 +2051,16 @@ PASS css/css-values/progress-computed.html :: progress(1000em, 10em, 110em) shou
 PASS css/css-values/progress-computed.html :: scale(progress(50em, 10rem, 110em)) should be used-value-equivalent to scale(1)
 PASS css/css-values/progress-computed.html :: scale(progress(1000em, 10rem, 110em)) should be used-value-equivalent to scale(1)
 PASS css/css-values/progress-computed.html :: scale(progress(0em, 0rem, 0em)) should be used-value-equivalent to scale(0)
+PASS css/css-values/progress-computed.html :: scale(progress(sign(1em - 1rem) * 1ex, 0rem, 0em)) should be used-value-equivalent to scale(0)
 PASS css/css-values/progress-computed.html :: calc(progress(1, 0, 1) * 10px) should be used-value-equivalent to 10px
 PASS css/css-values/progress-computed.html :: calc(progress(1, 0, 1) * 1s) should be used-value-equivalent to 1s
 PASS css/css-values/progress-computed.html :: calc(progress(1, 0, 1) * 1deg) should be used-value-equivalent to 1deg
+PASS css/css-values/progress-computed.html :: calc(progress(sign(1001em - 10lh * progress(100px, 2rex, 10ex)) * 10em, 2rem, 12em) / 2) should be used-value-equivalent to 0.4
+PASS css/css-values/progress-computed.html :: calc(progress(sign(1001em - 10lh * progress(100px, 2rex, 10ex)) * 20em, 2rem, 12em) * 10) should be used-value-equivalent to 10
+PASS css/css-values/progress-computed.html :: calc(progress(sign(1001em - 10lh * progress(100px, 2rex, 10ex)) * 20em, 2rem, 12em) * 30) should be used-value-equivalent to 30
+PASS css/css-values/progress-computed.html :: calc(progress(sign(1001em - 10lh * progress(100px, 2rex, 10ex)) * 20em, 2rem, 12em) / 4) should be used-value-equivalent to 0.25
+PASS css/css-values/progress-computed.html :: calc(progress(sign(1001em - 10lh * progress(100px, 2rex, 10ex)) * 20em, 2rem, 12em) * 4) should be used-value-equivalent to 4
+PASS css/css-values/progress-computed.html :: calc(progress(sign(1001em - 10lh * progress(100px, 2rex, 10ex)) * 20em, 2rem, 12em) * 2) should be used-value-equivalent to 2
 PASS css/css-values/progress-computed.html :: calc(progress(no-clamp 100px, 0px, 50px) * 10px + 100px) should be used-value-equivalent to 120px
 PASS css/css-values/progress-computed.html :: calc(progress(no-clamp 100, 0, sign(1rem - 5px))) should be used-value-equivalent to 100
 PASS css/css-values/progress-computed.html :: progress(no-clamp 50em, 10em, 110em) should be used-value-equivalent to 0.4
@@ -2279,6 +2289,7 @@ PASS css/css-values/ric-invalidation.html :: Untitled
 FILE css/css-values/rlh-invalidation.html
 PASS css/css-values/rlh-invalidation.html :: Untitled
 FILE css/css-values/rlh-on-root-lengths.html
+PASS css/css-values/rlh-on-root-lengths.html :: Non font or line-height properties on :root should resolve rlh against :root line-height
 FILE css/css-values/round-function.html
 PASS css/css-values/round-function.html :: round(23px, 10px) should be used-value-equivalent to 20px
 PASS css/css-values/round-function.html :: round(18px, 10px) should be used-value-equivalent to 20px

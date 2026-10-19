@@ -1715,6 +1715,7 @@ PASS css/css-backgrounds/parsing/border-width-computed.html :: Property border-w
 PASS css/css-backgrounds/parsing/border-width-computed.html :: Property border-width value '1px 2px 3px'
 PASS css/css-backgrounds/parsing/border-width-computed.html :: Property border-width value '1px 2px 3px 4px'
 PASS css/css-backgrounds/parsing/border-width-computed.html :: Property border-width value '0.5em'
+PASS css/css-backgrounds/parsing/border-width-computed.html :: Property border-width value '2px thin medium thick'
 PASS css/css-backgrounds/parsing/border-width-computed.html :: Property border-top-width value '0px'
 PASS css/css-backgrounds/parsing/border-width-computed.html :: Property border-right-width value '10px'
 PASS css/css-backgrounds/parsing/border-width-computed.html :: Property border-bottom-width value 'calc(-0.5em + 10px)'

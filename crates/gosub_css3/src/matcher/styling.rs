@@ -1047,6 +1047,34 @@ pub enum InheritedLineHeight {
 #[expect(clippy::cast_possible_truncation, reason = "a line-height fits an f32")]
 pub const DEFAULT_LINE_HEIGHT_PX: f32 = DEFAULT_FONT_SIZE_PX * calc::NORMAL_LINE_HEIGHT as f32;
 
+/// Turn every `<line-width>` keyword in a value into the length it computes to. Recurses, because
+/// `stroke-width` takes a list of them and `column-rule-width` puts them inside `repeat()`.
+///
+/// css-backgrounds-3 §4.1 leaves the sizes to the UA; these are what every browser uses.
+/// `hairline` is one device pixel (css-borders-4), so on a 2x display it is 0.5px and no longer
+/// the same as `thin`; but never more than 1px, which the spec puts first, so below 1x it stays
+/// 1px rather than outgrowing `thin`. The ratio is the one media queries see, which style caches
+/// already key on.
+fn resolve_line_widths(value: CssValue) -> CssValue {
+    match value {
+        CssValue::String(keyword) => {
+            let dpr = f64::from(crate::media_query::media_environment().device_pixel_ratio);
+            let hairline = if dpr > 0.0 { (1.0 / dpr).min(1.0) } else { 1.0 };
+            let px = [("hairline", hairline), ("thin", 1.0), ("medium", 3.0), ("thick", 5.0)]
+                .into_iter()
+                .find(|(name, _)| keyword.eq_ignore_ascii_case(name))
+                .map(|(_, px)| px);
+            match px {
+                Some(px) => CssValue::Unit(px, "px".to_string()),
+                None => CssValue::String(keyword),
+            }
+        }
+        CssValue::List(items) => CssValue::List(items.into_iter().map(resolve_line_widths).collect()),
+        CssValue::Function(name, args) => CssValue::Function(name, args.into_iter().map(resolve_line_widths).collect()),
+        other => other,
+    }
+}
+
 /// Turn a specified value into a computed one: resolve the relative lengths, do the arithmetic.
 ///
 /// This is what makes a *computed* value computed. css-values says `em` and `rem` resolve at
@@ -1277,21 +1305,15 @@ impl CssProperty {
             }
         }
 
-        // A `<line-width>` keyword computes to an absolute length (css-backgrounds-3 §4.1 leaves
-        // the sizes to the UA; these are what every browser uses). Only the `*-width` properties
-        // take these keywords, and for them a keyword that reached the consumer as a string
-        // measured as zero, so `border: solid red` drew no border at all.
-        if self.name().ends_with("-width") {
-            if let CssValue::String(keyword) = &specified {
-                let px = [("thin", 1.0), ("medium", 3.0), ("thick", 5.0)]
-                    .into_iter()
-                    .find(|(name, _)| keyword.eq_ignore_ascii_case(name))
-                    .map(|(_, px)| px);
-                if let Some(px) = px {
-                    return CssValue::Unit(px, "px".to_string());
-                }
-            }
-        }
+        // A `<line-width>` keyword computes to an absolute length. A keyword that reached the
+        // consumer as a string measured as zero, so `border: solid red` drew no border at all.
+        // Which properties take one is the grammar's to say: `thin` is a line width on
+        // `column-gap` and a keyword of its own on `scrollbar-width`.
+        let specified = if self.id.is_some_and(|id| get_css_definitions().takes_line_width(id)) {
+            resolve_line_widths(specified)
+        } else {
+            specified
+        };
 
         // Font-relative lengths become px here, which is what the computed stage is for. What
         // survives is what genuinely cannot be decided yet: a percentage, which needs a
@@ -2300,6 +2322,94 @@ mod tests {
             attached: false,
         });
         prop.compute_value().clone()
+    }
+
+    /// Which longhands take a `<line-width>` comes from their grammar, not their name.
+    #[test]
+    fn line_width_properties_come_from_the_grammar() {
+        let defs = get_css_definitions();
+        let mut found: Vec<&str> = crate::matcher::property_ids::ALL_LONGHAND_IDS
+            .iter()
+            .map(|&longhand| PropertyId::Longhand(longhand))
+            .filter(|&id| defs.takes_line_width(id))
+            .map(PropertyId::name)
+            .collect();
+        found.sort_unstable();
+        let mut expected = vec![
+            "-webkit-border-after-width",
+            "-webkit-border-before-width",
+            "-webkit-border-end-width",
+            "-webkit-border-start-width",
+            "-webkit-text-stroke-width",
+            "border-block-end-width",
+            "border-block-start-width",
+            "border-bottom-width",
+            "border-inline-end-width",
+            "border-inline-start-width",
+            "border-left-width",
+            "border-right-width",
+            "border-top-width",
+            "column-gap",
+            "column-rule-width",
+            "grid-column-gap",
+            "grid-row-gap",
+            "outline-width",
+            "row-gap",
+            "stroke-width",
+        ];
+        expected.sort_unstable();
+        assert_eq!(found, expected);
+    }
+
+    #[test]
+    fn line_width_keywords_compute_to_lengths() {
+        let px = |n| CssValue::Unit(n, "px".into());
+        let keyword = |k: &str| CssValue::String(k.into());
+        assert_eq!(computed_for("border-top-width", keyword("thick")), px(5.0));
+        assert_eq!(computed_for("outline-width", keyword("thin")), px(1.0));
+        assert_eq!(computed_for("column-gap", keyword("medium")), px(3.0));
+        assert_eq!(
+            computed_for(
+                "stroke-width",
+                CssValue::List(vec![keyword("thin"), CssValue::Comma, keyword("thick")])
+            ),
+            CssValue::List(vec![px(1.0), CssValue::Comma, px(5.0)])
+        );
+        // `thin` is a keyword of its own here, not a width.
+        assert_eq!(computed_for("scrollbar-width", keyword("thin")), keyword("thin"));
+        // `normal` on a gap is not a line width either.
+        assert_eq!(computed_for("row-gap", keyword("normal")), keyword("normal"));
+    }
+
+    /// `hairline` is one device pixel: 1px on a 1x display, half of one on a 2x display, where
+    /// `thin` stays 1px. Below 1x a device pixel is more than 1px, and hairline stops at 1px.
+    #[test]
+    fn hairline_is_one_device_pixel() {
+        use crate::media_query::{media_environment, set_media_environment, MediaEnvironment};
+        let px = |n| CssValue::Unit(n, "px".into());
+        let keyword = |k: &str| CssValue::String(k.into());
+        let saved = media_environment();
+
+        set_media_environment(MediaEnvironment {
+            device_pixel_ratio: 1.0,
+            ..saved
+        });
+        assert_eq!(computed_for("border-top-width", keyword("hairline")), px(1.0));
+
+        set_media_environment(MediaEnvironment {
+            device_pixel_ratio: 2.0,
+            ..saved
+        });
+        assert_eq!(computed_for("border-top-width", keyword("hairline")), px(0.5));
+        assert_eq!(computed_for("border-top-width", keyword("thin")), px(1.0));
+
+        set_media_environment(MediaEnvironment {
+            device_pixel_ratio: 0.5,
+            ..saved
+        });
+        assert_eq!(computed_for("border-top-width", keyword("hairline")), px(1.0));
+
+        set_media_environment(saved);
     }
 
     #[test]
