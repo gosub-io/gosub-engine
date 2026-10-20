@@ -73,7 +73,7 @@ Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, 
 | `CloseTab` | |
 | **Rendering control** | |
 | `ResumeDrawing { fps }` / `SuspendDrawing` | Nothing paints before the first `ResumeDrawing`. |
-| `SetViewport { x, y, width, height }` | CSS px. |
+| `SetViewport { x, y, width, height }` | CSS px: the screen area the tab draws into. With [mobile viewport](#mobile-viewport) handling on, the page may be laid out at another size. |
 | `SetScroll { x, y }` | Absolute; cancels any scroll animation. See [Scrolling](#scrolling). |
 | `SetTitle { title }` | A UA-set title, e.g. for a `LoadHtml` page with no `<title>`. |
 | **Input** | |
@@ -114,6 +114,7 @@ Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, 
 | `PickerRequested { kind, x, y, width, height, value, min, max, step }` | A colour, date, time, `datetime-local`, month or week input was activated. The engine draws no picker: open the platform's over the control's box (viewport CSS px) and answer with `PickerChanged` / `PickerClosed`. |
 | `HitTestResult { token, hit }` | Answers `QueryHitTest` with the same token. |
 | `FavIconChanged { favicon }` | Raw bytes as served (ICO/PNG/SVG); decode them yourself. Emitted once per committed navigation, and not at all when there is no reachable icon, so keep your placeholder. |
+| `PageScaleChanged { layout_width, layout_height, scale, min_scale, max_scale, user_scalable }` | The page is laid out at another size than the screen you set, and shown at `scale`. Only with [mobile viewport](#mobile-viewport) handling on. |
 | **Downloads** | |
 | `DownloadRequested { offer, url, suggested_filename, ... }` | The navigation was cancelled and the page stayed. Answer with `StartDownload` or `RenderDownload` carrying `offer`, or ignore it. The body is already spooled to a temp file (up to `net.download.max_spool_bytes`). Ignoring the event does not release it: the tab keeps an offer until it is accepted or rendered, until newer offers evict it (8 per tab, oldest first), or until the tab closes. Missed it to `Lagged`? `tab.pending_downloads()` lists what is still there. |
 | `DownloadProgress` / `DownloadFinished` / `DownloadFailed { id, ... }` | Correlated by the `DownloadId` you minted. `DownloadProgress` only appears for downloads the engine had to fetch (save-link-as) - an accepted offer is already on disk and finishes at once. `DownloadFailed` may leave a partial file. |
@@ -240,6 +241,24 @@ Which command you send says who is deciding:
 | Use for | Raw wheel and trackpad input | Scrollbar drag, UA-side kinetic scrolling, restored session |
 
 Do not mix the two within one gesture. An absolute set landing mid-animation will fight the animator.
+
+------------------------------------------------------------------------
+
+## Mobile viewport
+
+On a phone, a page written for a desktop window would be squeezed into the screen's width. Mobile browsers lay it out at a desktop-like width instead and show it scaled down, unless the page's `<meta name="viewport">` says it was written for the device. Set `useragent.viewport.mobile` with `set_transient` before creating tabs to get the same, for that run only:
+
+-   No viewport `<meta>`: the page is laid out 980px wide.
+-   `width=device-width` (or `initial-scale=1`): it is laid out at the screen's width, unscaled.
+-   Otherwise the width the tag asks for, by css-device-adapt's translation of the tag.
+
+`SetViewport` stays the screen size. When the page's layout size differs from it, the tab emits `PageScaleChanged`, and again whenever it changes (a navigation, a rotation). From then on:
+
+-   The frame covers the layout viewport. Draw it scaled into your screen rect.
+-   Divide pointer and touch positions and scroll deltas by `scale` before sending them. The tab works in the page's CSS px.
+-   Set `DEVICE_PIXEL_RATIO` to `ceil(display scale × scale)`, or the tab rasterizes far more pixels than the screen shows, then send `ResumeDrawing` so it redraws at the new ratio.
+
+A page is always shown at the scale that fits its width to the screen. Where the tag asks for another initial scale, a browser shows part of the page and lets the user pan; that needs a visual viewport separate from the layout viewport, which the engine does not have yet, and so does pinch zoom. `min_scale`, `max_scale` and `user_scalable` are reported for when it does. Pages a renderer process lays out (process isolation) keep the screen's size.
 
 ------------------------------------------------------------------------
 

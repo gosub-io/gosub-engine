@@ -1276,6 +1276,9 @@ mod tests {
         assert_eq!(env.color_scheme, ColorScheme::Light);
         assert_eq!(env.reduced_motion, ReducedMotion::Reduce);
         assert_eq!((env.width, env.height), (800.0, 600.0));
+        // The renderer's viewport is the whole screen it is told about, so `device-width`
+        // agrees with `width`, as it does in the broker.
+        assert_eq!((env.device_width, env.device_height), (800.0, 600.0));
         apply_media_prefs(1, MediaPrefs::default());
     }
     /// A renderer reports the page's parse errors and dropped CSS with its first pass, the

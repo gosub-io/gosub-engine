@@ -133,6 +133,30 @@ pub fn document_title<C: RenderConfiguration>(doc: &EngineDocument<C>) -> Option
     find_title(doc, doc.root())
 }
 
+/// The `content` of the document's viewport `<meta>`: the last `<meta name="viewport">` with a
+/// `content`, wherever it sits, as Blink and WebKit take it (css-viewport-1 does not say which
+/// one counts when there are several).
+pub fn viewport_meta_content<C: RenderConfiguration>(doc: &EngineDocument<C>) -> Option<String> {
+    fn walk<C: RenderConfiguration>(doc: &EngineDocument<C>, node: NodeId, found: &mut Option<String>) {
+        for &child in doc.children(node) {
+            if doc.tag_name(child).is_some_and(|t| t.eq_ignore_ascii_case("meta"))
+                && doc
+                    .attribute(child, "name")
+                    .is_some_and(|n| n.eq_ignore_ascii_case("viewport"))
+            {
+                if let Some(content) = doc.attribute(child, "content") {
+                    *found = Some(content.to_string());
+                }
+            }
+            walk::<C>(doc, child, found);
+        }
+    }
+
+    let mut found = None;
+    walk::<C>(doc, doc.root(), &mut found);
+    found
+}
+
 /// Whether `node_id` is a text-editable control: `<textarea>`, a text-like
 /// `<input>`, or `contenteditable`.
 pub fn is_text_input<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: NodeId) -> bool {

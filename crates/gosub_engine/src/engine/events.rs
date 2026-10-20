@@ -955,6 +955,26 @@ pub enum EngineEvent {
         tab_id: TabId,
         favicon: Vec<u8>,
     },
+    /// The tab's layout viewport stopped matching the screen the embedder set, or changed again
+    /// after that: mobile viewport handling (`useragent.viewport.mobile`) lays a page out at the
+    /// width its viewport `<meta>` asks for, or 980px, and the embedder shows it at `scale`.
+    ///
+    /// From here on the tab's coordinates are layout CSS px: the embedder divides pointer and
+    /// touch positions and scroll deltas by `scale`, and draws the frame, which covers the layout
+    /// viewport, scaled into its screen rect. Its device pixel ratio should follow the scale too,
+    /// or the tab rasterizes far more pixels than the screen shows.
+    PageScaleChanged {
+        tab_id: TabId,
+        /// The layout viewport, in CSS px.
+        layout_width: u32,
+        layout_height: u32,
+        /// Screen CSS px per layout CSS px.
+        scale: f64,
+        /// The zoom range the page allows, and whether it allows the user to zoom at all.
+        min_scale: f64,
+        max_scale: f64,
+        user_scalable: bool,
+    },
     #[cfg(feature = "unstable-api")]
     /// Declared but never emitted; emission arrives with the pending mac-app patches.
     /// Behind `unstable-api`.
