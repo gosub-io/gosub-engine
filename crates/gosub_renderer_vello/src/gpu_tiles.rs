@@ -8,7 +8,7 @@
 //! only `RENDER_ATTACHMENT` (not `COPY_DST`) - and a render pass gives premultiplied-alpha blending
 //! for free.
 
-use gosub_render_pipeline::render::backend::{anchored_tile_pos, tile_device_px, TileAnchor};
+use gosub_render_pipeline::render::backend::{anchored_tile_pos, CompositeView, TileAnchor};
 use vello::wgpu;
 
 /// A placed, GPU-resident tile to composite: a texture view plus its page-space rectangle.
@@ -190,8 +190,12 @@ impl BlitPipeline {
             cache: None,
         });
 
+        // Linear, for a pinch zoom draws tiles larger or smaller than they were rasterized. At 1:1
+        // every target pixel samples a texel centre, so linear filtering changes nothing there.
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("gpu-tiles-blit-sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
 
@@ -212,11 +216,11 @@ pub struct GpuTileCompositor {
 }
 
 impl GpuTileCompositor {
-    /// Clear `target_view` to white and composite every tile in `tiles` at `page_pos - scroll`.
+    /// Clear `target_view` to white and composite every tile in `tiles` where `view` puts it.
     ///
-    /// Positions and scroll are CSS pixels, the target and the tiles physical ones (`dpr` apart).
-    /// Each tile lands on a whole physical pixel, rounded the way the CPU compositor rounds, so
-    /// both backends put a tile in the same place for the same scroll.
+    /// Positions are CSS pixels; the tiles' textures are physical ones, rasterized at `dpr`. Each
+    /// tile's edges land on whole target pixels, rounded the way the CPU compositor rounds, so
+    /// unzoomed both backends put a tile in the same place for the same scroll.
     #[allow(clippy::too_many_arguments)]
     pub fn composite(
         &mut self,
@@ -226,8 +230,7 @@ impl GpuTileCompositor {
         target_format: wgpu::TextureFormat,
         target_w: u32,
         target_h: u32,
-        scroll_x: f32,
-        scroll_y: f32,
+        view: &CompositeView,
         dpr: u32,
         tiles: &[PlacedTileTex<'_>],
     ) {
@@ -267,14 +270,13 @@ impl GpuTileCompositor {
                 let (ex, ey) = anchored_tile_pos(
                     tile.page_x as f64,
                     tile.page_y as f64,
-                    scroll_x as f64,
-                    scroll_y as f64,
+                    view.scroll.0,
+                    view.scroll.1,
                     tile.anchor,
                 );
                 let dpr = dpr as f64;
-                let (ex, ey) = (tile_device_px(ex, dpr) as f32, tile_device_px(ey, dpr) as f32);
                 let uniform = BlitUniform {
-                    dst: [ex, ey, tile.width as f32, tile.height as f32],
+                    dst: view.target_rect(ex, ey, tile.width as f64 / dpr, tile.height as f64 / dpr),
                     viewport: [target_w as f32, target_h as f32],
                     opacity: tile.opacity,
                 };
@@ -451,8 +453,7 @@ mod tests {
             wgpu::TextureFormat::Rgba8Unorm,
             tw,
             th,
-            0.0,
-            0.0,
+            &CompositeView::unzoomed((tw, th), (0.0, 0.0), 1.0),
             1,
             &tiles,
         );
@@ -492,8 +493,7 @@ mod tests {
             wgpu::TextureFormat::Rgba8Unorm,
             tw,
             th,
-            0.0,
-            0.0,
+            &CompositeView::unzoomed((tw / 2, th / 2), (0.0, 0.0), 2.0),
             2,
             &hidpi,
         );
@@ -506,6 +506,34 @@ mod tests {
         let (r1, _, b1) = at(256, 128);
         assert!(r0 > 180 && b0 < 80, "pixel 255 should be red, got r={r0} b={b0}");
         assert!(b1 > 180 && r1 < 80, "pixel 256 should be blue, got r={r1} b={b1}");
+
+        // Zoomed in by a fraction, and the visual viewport a fraction of a pixel into the page: the
+        // two tiles still meet, with no white column between them, and fill the frame.
+        let zoomed = CompositeView {
+            scroll: (0.0, 0.0),
+            origin: (128.3, 0.0),
+            size: (tw as f64 / 1.37, th as f64 / 1.37),
+            scale: 1.37,
+        };
+        compositor.composite(
+            &device,
+            &queue,
+            &target_view,
+            wgpu::TextureFormat::Rgba8Unorm,
+            tw,
+            th,
+            &zoomed,
+            1,
+            &tiles,
+        );
+        let pixels = read_back(&device, &queue, &target, tw, th);
+        let white_columns = (0..tw)
+            .filter(|&x| {
+                let o = ((128 * tw + x) * 4) as usize;
+                pixels[o] > 200 && pixels[o + 1] > 200 && pixels[o + 2] > 200
+            })
+            .count();
+        assert_eq!(white_columns, 0, "a zoomed composite left white columns");
 
         // A see-through tile: 50% grey at half alpha over the white surface is 75% grey. Blended
         // as if it were premultiplied, Vello's straight-alpha output comes out white instead.
@@ -522,8 +550,7 @@ mod tests {
             wgpu::TextureFormat::Rgba8Unorm,
             tw,
             th,
-            0.0,
-            0.0,
+            &CompositeView::unzoomed((tw, th), (0.0, 0.0), 1.0),
             1,
             &veiled,
         );

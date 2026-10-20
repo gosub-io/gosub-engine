@@ -6,6 +6,8 @@ use crate::engine::events::{DownloadOfferId, PendingDownload};
 use crate::engine::internal_pages::{InternalPages, TabView};
 use crate::engine::resource_pipeline::ResourcePipelines;
 use crate::engine::types::{NavigationId, RequestId};
+use crate::engine::viewport_meta::PageScale;
+use crate::engine::visual_viewport::VisualViewport;
 use crate::engine::{BrowsingContext, UaPolicy};
 use crate::events::TabCommand;
 use crate::fork_server::protocol::InputEvent;
@@ -28,7 +30,7 @@ use crate::zone::{ZoneContext, ZoneId};
 use anyhow::{anyhow, Context};
 use gosub_render_pipeline::rasterizer::RasterStrategy;
 use gosub_render_pipeline::render::backend::{
-    CompositorSink, ErasedSurface, ExternalHandle, PresentMode, RenderBackend, SurfaceSize,
+    CompositeView, CompositorSink, ErasedSurface, ExternalHandle, PresentMode, RenderBackend, SurfaceSize,
 };
 use gosub_render_pipeline::render::Viewport;
 use http::{HeaderMap, Method};
@@ -293,6 +295,16 @@ pub struct TabWorker<C: RenderConfiguration> {
     /// The layout viewport and scale last reported with [`EngineEvent::PageScaleChanged`];
     /// `None` while it has always matched the screen.
     reported_page_scale: Option<crate::engine::viewport_meta::PageScale>,
+    /// The part of the layout viewport on screen, and how large: what a pinch zoom changes.
+    visual: VisualViewport,
+    /// Scale and offset last reported with [`EngineEvent::VisualViewportChanged`]; `None` while
+    /// nothing has been reported since the layout viewport was last set up.
+    reported_visual: Option<(f64, f64, f64)>,
+    /// The embedder's display scale ([`TabCommand::SetDisplayScale`]).
+    display_scale: Option<f32>,
+    /// The view the GPU tile frame on screen was composited for: a pinch changes it without
+    /// changing the page, and still needs a new frame.
+    committed_view: Option<CompositeView>,
     /// Current scroll offset in CSS pixels (updated by MouseScroll). Mirrors the integer-rounded
     /// position held by `scroll`; the rest of the worker reads these.
     scroll_x: i32,
@@ -444,6 +456,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
             present_mode: PresentMode::Fifo,
             desired_viewport: Default::default(),
             reported_page_scale: None,
+            visual: VisualViewport::new(0, 0, PageScale::identity(0, 0)),
+            reported_visual: None,
+            display_scale: None,
+            committed_view: None,
             scroll_x: 0,
             scroll_y: 0,
             // The engine owns wheel-scroll smoothing; embedders send one delta per notch.
@@ -1489,6 +1505,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             #[cfg(test)]
             TabCommand::CrashForTest => panic!("deliberate test crash"),
             TabCommand::QueryHitTest { x, y, token } => {
+                let (x, y) = self.layout_point(x, y);
                 let hit = self.context.hit_test(x as f64, y as f64, self.current_url.as_ref());
                 self.send_event(EngineEvent::HitTestResult {
                     tab_id: self.tab_id,
@@ -1507,11 +1524,27 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.runtime.dirty = true;
                 ControlFlow::Continue
             }
+            TabCommand::SetDisplayScale { scale } => {
+                self.display_scale = (scale.is_finite() && scale > 0.0).then_some(scale);
+                self.runtime.dirty = true;
+                ControlFlow::Continue
+            }
+            TabCommand::PinchZoom {
+                focus_x,
+                focus_y,
+                factor,
+            } => {
+                self.pinch_zoom(focus_x, focus_y, factor);
+                ControlFlow::Continue
+            }
             TabCommand::MouseScroll {
                 delta_x,
                 delta_y,
                 precise,
             } => {
+                // Screen px to page px: a zoomed-in page moves less under the same swipe.
+                let scale = self.visual.scale() as f32;
+                let (delta_x, delta_y) = (delta_x / scale, delta_y / scale);
                 // A resident renderer holding the pointer (an open dropdown) takes the wheel.
                 if self.remote_capture {
                     if let Some((px, py)) = self.context.pointer() {
@@ -1535,9 +1568,19 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         return ControlFlow::Continue;
                     }
                 }
-                self.scroll_page_by(delta_x, delta_y, precise)
+                // Zoomed in, the visual viewport moves first; the layout viewport scrolls only
+                // with what is left once it reaches its edge.
+                let offset = self.visual.offset();
+                let (delta_x, delta_y) = self.visual.pan(delta_x as f64, delta_y as f64);
+                if self.visual.offset() != offset {
+                    self.report_visual_viewport();
+                    self.runtime.dirty = true;
+                    self.runtime.render_now = true;
+                }
+                self.scroll_page_by(delta_x as f32, delta_y as f32, precise)
             }
             TabCommand::MouseMove { x, y } => {
+                let (x, y) = self.layout_point(x, y);
                 // Process the hit-test immediately so hover doesn't wait for the next tick.
                 let (visual_dirty, url_changed, link_url) = self.context.update_hover(x as f64, y as f64);
                 if url_changed {
@@ -1571,6 +1614,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 ControlFlow::Continue
             }
             TabCommand::MouseDown { x, y, button } => {
+                let (x, y) = self.layout_point(x, y);
                 if matches!(button, crate::events::MouseButton::Left) {
                     // A page a resident renderer retains takes the press there, every
                     // press: focus and blur, a link under the pointer, activation, and
@@ -1642,6 +1686,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 ControlFlow::Continue
             }
             TabCommand::MouseUp { x, y, button } => {
+                let (x, y) = self.layout_point(x, y);
                 // Ends a gesture on either side; a resident renderer answers with the
                 // capture released.
                 self.forward_input(InputEvent::PointerUp {
@@ -2371,6 +2416,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
         self.scroll.reset(0.0, 0.0);
         self.scroll_anim_last = None;
         self.context.reset_scroll();
+        // A new page starts unzoomed.
+        self.visual.reset();
+        self.report_visual_viewport();
     }
 
     /// Parse `html` as the document for `url` without touching the network, with `history`
@@ -2850,11 +2898,24 @@ impl<C: RenderConfiguration> TabWorker<C> {
             //
             // Sized from the layout viewport, which is set first: with mobile viewport handling
             // it is wider than the screen, and the embedder shows the texture scaled to fit.
+            // Composited GPU tiles are the exception: their frame is the screen at the display
+            // scale, showing the visual viewport, so a zoomed-in page is drawn sharp and the
+            // embedder shows it pixel for pixel.
             self.apply_viewport();
             let dpr = render_backend.device_pixel_ratio().max(1);
-            let mut surface_size = self.context.viewport().as_size();
-            surface_size.width *= dpr;
-            surface_size.height *= dpr;
+            let surface_size = if render_backend.gpu_tile_compositing() {
+                let scale = self.display_scale.map_or(f64::from(dpr), f64::from);
+                let px = |v: u32| ((f64::from(v) * scale).round() as u32).max(1);
+                SurfaceSize {
+                    width: px(self.desired_viewport.width),
+                    height: px(self.desired_viewport.height),
+                }
+            } else {
+                let mut size = self.context.viewport().as_size();
+                size.width *= dpr;
+                size.height *= dpr;
+                size
+            };
 
             let surface_recreated = self.ensure_surface_tracked(render_backend.clone(), surface_size)?;
 
@@ -2874,7 +2935,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     self.context.rebuild_pipeline_cache_if_needed();
                 }
                 let scene_epoch = self.context.scene_epoch();
-                if !surface_recreated && scene_epoch == self.runtime.committed_scene_epoch {
+                let view = self.composite_view(dpr);
+                if !surface_recreated
+                    && scene_epoch == self.runtime.committed_scene_epoch
+                    && self.committed_view == Some(view)
+                {
                     // This page is on screen already; a renderer process's report can land on
                     // a later tick that presents nothing.
                     self.send_due_diagnostics();
@@ -2883,14 +2948,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 if let Some(ref mut surf) = self.surface {
                     let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::GpuTileComposite);
                     let tiles = self.context.placed_gpu_tiles();
-                    let vp = (self.context.viewport().width, self.context.viewport().height);
-                    let (sx, sy) = self.context.scroll_xy();
                     let page_height = self.context.page_height() as f32;
-                    match render_backend.composite_tiles(surf.as_mut(), &tiles, vp, (sx as f32, sy as f32), page_height)
-                    {
+                    match render_backend.composite_tiles(surf.as_mut(), &tiles, &view, page_height) {
                         Ok(()) => match render_backend.external_handle(surf.as_mut()) {
                             Ok(handle) => {
                                 self.runtime.committed_scene_epoch = scene_epoch;
+                                self.committed_view = Some(view);
                                 self.submit_frame(handle);
                                 // After the frame, so the report follows the page it is about.
                                 self.send_due_diagnostics();
@@ -3047,10 +3110,24 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// Lay the page out for the screen the embedder asked for, and tell the embedder when that
     /// gives a layout viewport of another size or scale than it was last told about.
     fn apply_viewport(&mut self) {
-        use crate::engine::viewport_meta::PageScale;
-
         self.context.set_viewport(self.desired_viewport);
         let page = self.context.page_scale();
+        let (width, height) = (self.desired_viewport.width, self.desired_viewport.height);
+        if !self.visual.shows(width, height, &page) {
+            // Another screen or another layout viewport: start over unzoomed. The embedder
+            // learns that from `PageScaleChanged` when the layout viewport changed; when only
+            // the screen did, from a visual viewport report if it had been told of a zoom.
+            self.visual = VisualViewport::new(width, height, page);
+            if page
+                != self
+                    .reported_page_scale
+                    .unwrap_or_else(|| PageScale::identity(width, height))
+            {
+                self.reported_visual = None;
+            } else {
+                self.report_visual_viewport();
+            }
+        }
         let last = self
             .reported_page_scale
             .unwrap_or_else(|| PageScale::identity(self.desired_viewport.width, self.desired_viewport.height));
@@ -3067,6 +3144,77 @@ impl<C: RenderConfiguration> TabWorker<C> {
             max_scale: page.max_scale,
             user_scalable: page.user_scalable,
         });
+    }
+
+    /// A screen point from the embedder as a layout-viewport point, the coordinates the page's
+    /// hit testing, hover and focus take.
+    fn layout_point(&self, x: f32, y: f32) -> (f32, f32) {
+        let (x, y) = self.visual.layout_point(x as f64, y as f64);
+        (x as f32, y as f32)
+    }
+
+    /// One step of a pinch: zoom about a screen point, scrolling the layout viewport only as far
+    /// as the visual one cannot reach.
+    fn pinch_zoom(&mut self, focus_x: f32, focus_y: f32, factor: f32) {
+        // Elsewhere the frame is the layout viewport as a whole, which the embedder scales; a
+        // desktop page is shown at the size it is laid out at, and so is one a renderer
+        // process lays out.
+        if !self.zone_context.render_backend.gpu_tile_compositing() || !self.context.mobile_layout() {
+            return;
+        }
+        let vp = self.context.viewport();
+        let max_scroll = (
+            (self.context.page_width() - vp.width as f64).max(0.0),
+            (self.context.page_height() - vp.height as f64).max(0.0),
+        );
+        let scroll = self.context.scroll_xy();
+        let Some(new_scroll) = self
+            .visual
+            .pinch((focus_x as f64, focus_y as f64), factor as f64, scroll, max_scroll)
+        else {
+            return;
+        };
+        if new_scroll != scroll {
+            self.context.set_scroll(new_scroll.0, new_scroll.1);
+            let (x, y) = self.context.scroll_xy();
+            self.scroll_x = x.round() as i32;
+            self.scroll_y = y.round() as i32;
+            self.scroll.reset(x, y);
+            self.scroll_anim_last = None;
+        }
+        self.report_visual_viewport();
+        self.runtime.dirty = true;
+        self.runtime.render_now = true;
+    }
+
+    /// Tell the embedder where the visual viewport is, when that changed since it was last told.
+    fn report_visual_viewport(&mut self) {
+        let (offset_x, offset_y) = self.visual.offset();
+        let now = (self.visual.scale(), offset_x, offset_y);
+        if self.reported_visual == Some(now) || (self.reported_visual.is_none() && self.visual.unzoomed()) {
+            return;
+        }
+        self.reported_visual = Some(now);
+        let (width, height) = self.visual.size();
+        self.send_event(EngineEvent::VisualViewportChanged {
+            tab_id: self.tab_id,
+            scale: now.0,
+            offset_x,
+            offset_y,
+            width,
+            height,
+        });
+    }
+
+    /// The view a GPU tile composite shows: the visual viewport, drawn at the display scale.
+    fn composite_view(&self, dpr: u32) -> CompositeView {
+        let display_scale = self.display_scale.map_or(f64::from(dpr), f64::from);
+        CompositeView {
+            scroll: self.context.scroll_xy(),
+            origin: self.visual.offset(),
+            size: self.visual.size(),
+            scale: self.visual.scale() * display_scale,
+        }
     }
 
     /// Bind local+session storage handles into the underlying browsing context.

@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use gosub_render_pipeline::render::backend::{
-    ErasedSurface, ExternalHandle, PlacedGpuTile, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
+    CompositeView, ErasedSurface, ExternalHandle, PlacedGpuTile, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
 };
 use gosub_render_pipeline::render::backends::null::NullBackend;
 use gosub_render_pipeline::render::render_context::RenderContext;
@@ -144,12 +144,10 @@ impl RenderBackend for DynamicRenderBackend {
         &self,
         surface: &mut dyn ErasedSurface,
         tiles: &[PlacedGpuTile],
-        viewport: (u32, u32),
-        scroll: (f32, f32),
+        view: &CompositeView,
         page_height: f32,
     ) -> anyhow::Result<()> {
-        self.active_backend()
-            .composite_tiles(surface, tiles, viewport, scroll, page_height)
+        self.active_backend().composite_tiles(surface, tiles, view, page_height)
     }
 }
 
@@ -285,8 +283,7 @@ mod tests {
             &self,
             _surface: &mut dyn ErasedSurface,
             _tiles: &[PlacedGpuTile],
-            _viewport: (u32, u32),
-            _scroll: (f32, f32),
+            _view: &CompositeView,
             _page_height: f32,
         ) -> anyhow::Result<()> {
             Ok(())
@@ -316,7 +313,12 @@ mod tests {
             .expect("null surface");
         assert!(
             dynamic
-                .composite_tiles(surface.as_mut(), &[], (1, 1), (0.0, 0.0), 1.0)
+                .composite_tiles(
+                    surface.as_mut(),
+                    &[],
+                    &CompositeView::unzoomed((1, 1), (0.0, 0.0), 1.0),
+                    1.0
+                )
                 .is_ok(),
             "composite_tiles hit the trait default (bail) instead of the active backend"
         );

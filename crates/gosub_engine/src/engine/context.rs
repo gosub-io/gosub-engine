@@ -798,6 +798,12 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.config_store.get_bool("useragent.viewport.mobile")
     }
 
+    /// Whether the layout viewport came from the page's viewport `<meta>`, and so may be zoomed
+    /// into: mobile viewport handling, on a document parsed here.
+    pub(crate) fn mobile_layout(&self) -> bool {
+        self.document.is_some() && self.mobile_viewport()
+    }
+
     /// How the layout viewport was made from the screen, and the scale the embedder shows it at.
     pub fn page_scale(&self) -> PageScale {
         self.page_scale

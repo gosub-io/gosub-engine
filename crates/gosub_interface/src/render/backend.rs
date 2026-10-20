@@ -262,6 +262,61 @@ pub fn tile_device_px(v: f64, dpr: f64) -> f64 {
     (v * dpr + 0.5).floor()
 }
 
+/// What a tile composite shows: the visual viewport, the part of the layout viewport that is on
+/// screen, and how large it is drawn.
+///
+/// Tiles are placed in layout-viewport coordinates first ([`anchored_tile_pos`], which is where
+/// layout scroll and `position: fixed` come in), then the visual viewport's `origin` is taken off
+/// and the result scaled by `scale`. Unzoomed, the visual viewport is the layout viewport at its
+/// origin and `scale` is the ratio the tiles were rasterized at, which places every tile exactly
+/// where a plain composite would.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CompositeView {
+    /// Layout scroll, CSS px.
+    pub scroll: (f64, f64),
+    /// The visual viewport's top-left inside the layout viewport, CSS px.
+    pub origin: (f64, f64),
+    /// The visual viewport's size, CSS px.
+    pub size: (f64, f64),
+    /// Target pixels per CSS px.
+    pub scale: f64,
+}
+
+impl CompositeView {
+    /// The whole layout viewport, drawn at `dpr`: a composite with no visual viewport of its own.
+    pub fn unzoomed(viewport: (u32, u32), scroll: (f64, f64), dpr: f64) -> Self {
+        Self {
+            scroll,
+            origin: (0.0, 0.0),
+            size: (f64::from(viewport.0), f64::from(viewport.1)),
+            scale: dpr,
+        }
+    }
+
+    /// Whether a box at layout-viewport position `(x, y)`, `w` x `h` CSS px, shows at all.
+    pub fn shows(&self, x: f64, y: f64, w: f64, h: f64) -> bool {
+        x + w > self.origin.0
+            && x < self.origin.0 + self.size.0
+            && y + h > self.origin.1
+            && y < self.origin.1 + self.size.1
+    }
+
+    /// Where a box at layout-viewport position `(x, y)`, `w` x `h` CSS px, lands in the target:
+    /// `[x, y, w, h]` in whole target pixels.
+    ///
+    /// Each edge is rounded on its own, so two tiles that meet on the page meet in the target too.
+    /// Rounding a tile's origin and then adding its scaled size would open a pixel-wide seam
+    /// between neighbours whenever the scale is fractional.
+    pub fn target_rect(&self, x: f64, y: f64, w: f64, h: f64) -> [f32; 4] {
+        let (ox, oy) = self.origin;
+        let left = tile_device_px(x - ox, self.scale);
+        let top = tile_device_px(y - oy, self.scale);
+        let right = tile_device_px(x + w - ox, self.scale);
+        let bottom = tile_device_px(y + h - oy, self.scale);
+        [left as f32, top as f32, (right - left) as f32, (bottom - top) as f32]
+    }
+}
+
 /// A single pre-rasterized tile for direct compositing in the host draw callback.
 /// Pixel data is reference-counted (`Bytes`) so handing out a handle is zero-copy.
 #[derive(Clone, Debug)]
@@ -502,22 +557,20 @@ pub trait RenderBackend: Send {
     }
 
     /// Composite GPU-resident tiles (produced by this backend's rasterizer, see
-    /// [`Self::create_rasterizer`]) into `surface`, for the given viewport and scroll offset.
+    /// [`Self::create_rasterizer`]) into `surface`, showing what `view` shows.
     ///
     /// GPU analogue of the host's CPU tile compositing: blit the visible GPU tiles into the
     /// surface, after which [`Self::external_handle`] yields the presentable `WgpuTextureId`.
-    /// `tiles` carry backend-owned `texture_id`s in page coordinates.
-    ///
-    /// `viewport` and `scroll` are CSS pixels; `surface` is physical, sized at the backend's
-    /// [`Self::device_pixel_ratio`], which is also the ratio the tiles were rasterized at.
+    /// `tiles` carry backend-owned `texture_id`s in page coordinates, with textures at the
+    /// backend's [`Self::device_pixel_ratio`]; `view.scale` may differ from it (a pinch zoom), and
+    /// the tiles are then drawn scaled.
     ///
     /// Default is unsupported; only GPU backends override it.
     fn composite_tiles(
         &self,
         _surface: &mut dyn ErasedSurface,
         _tiles: &[PlacedGpuTile],
-        _viewport: (u32, u32),
-        _scroll: (f32, f32),
+        _view: &CompositeView,
         _page_height: f32,
     ) -> anyhow::Result<()> {
         anyhow::bail!("composite_tiles not supported by backend '{}'", self.name())
@@ -551,6 +604,44 @@ mod tests {
         let (_, top) = anchored_tile_pos(0.0, 0.0, 0.0, 0.25, TileAnchor::Scroll);
         let (_, below) = anchored_tile_pos(0.0, 256.0, 0.0, 0.25, TileAnchor::Scroll);
         assert_eq!(tile_device_px(below, 2.0) - tile_device_px(top, 2.0), 512.0);
+    }
+
+    #[test]
+    fn an_unzoomed_view_places_tiles_as_a_plain_composite_does() {
+        let view = CompositeView::unzoomed((400, 800), (0.0, 0.25), 2.0);
+        let (x, y) = anchored_tile_pos(128.0, 256.0, 0.0, 0.25, TileAnchor::Scroll);
+        let [left, top, w, h] = view.target_rect(x, y, 128.0, 128.0);
+        assert_eq!(left as f64, tile_device_px(x, 2.0));
+        assert_eq!(top as f64, tile_device_px(y, 2.0));
+        assert_eq!((w, h), (256.0, 256.0));
+    }
+
+    #[test]
+    fn tiles_meet_at_a_fractional_scale() {
+        // 2.37 target pixels per CSS px, the visual viewport a third of a pixel into the page.
+        let view = CompositeView {
+            scroll: (0.0, 0.0),
+            origin: (10.33, 0.0),
+            size: (200.0, 400.0),
+            scale: 2.37,
+        };
+        let first = view.target_rect(0.0, 0.0, 256.0, 256.0);
+        let second = view.target_rect(256.0, 0.0, 256.0, 256.0);
+        assert_eq!(first[0] + first[2], second[0]);
+    }
+
+    #[test]
+    fn a_zoomed_view_shows_only_its_part_of_the_layout_viewport() {
+        let view = CompositeView {
+            scroll: (0.0, 0.0),
+            origin: (300.0, 100.0),
+            size: (200.0, 400.0),
+            scale: 4.0,
+        };
+        assert!(!view.shows(0.0, 0.0, 256.0, 256.0));
+        assert!(view.shows(256.0, 0.0, 256.0, 256.0));
+        // The visual viewport's origin is the target's.
+        assert_eq!(view.target_rect(300.0, 100.0, 10.0, 10.0), [0.0, 0.0, 40.0, 40.0]);
     }
 
     #[test]
