@@ -311,9 +311,10 @@ pub struct TabWorker<C: RenderConfiguration> {
     active_nav: Option<ActiveNav>,
     /// Timing scope for the navigation currently being loaded or displayed.
     timing_scope: Option<gosub_shared::timing::ScopeId>,
-    /// Whether `page.first_paint` has been marked for `timing_scope` yet. First paint is
-    /// once per navigation, and `tick_draw` runs on every frame.
-    first_paint_marked: bool,
+    /// Whether the next frame submitted is the first of the committed document, and so
+    /// marks `page.first_paint`. Set when a navigation commits, cleared by that frame: frames
+    /// of the old page drawn while the new one loads do not count.
+    first_paint_due: bool,
     /// The committed navigation whose [`NavigationEvent::Diagnostics`] is still to be sent: with
     /// its first frame, once styles are computed (or, out of process, once the renderer has
     /// reported them).
@@ -453,7 +454,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             load: None,
             active_nav: None,
             timing_scope: None,
-            first_paint_marked: false,
+            first_paint_due: false,
             diagnostics_due: None,
             history: History::default(),
             reported_cursor: CursorShape::Default,
@@ -760,6 +761,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 let scope = gosub_shared::timing::ScopeId(nav_id.0);
                 self.context.set_timing_scope(Some(scope));
                 self.timing_scope = Some(scope);
+                self.first_paint_due = true;
                 // Explicit scope rather than the thread-local one: this is the worker's
                 // async loop, where a thread-local scope is not reliable.
                 gosub_shared::timing::mark_in(
@@ -1699,9 +1701,17 @@ impl<C: RenderConfiguration> TabWorker<C> {
     ///
     /// The sink is the data channel (it holds the pixels); [`EngineEvent::Redraw`] is only
     /// the wakeup. Shells present by asking the sink for the tab's current frame.
-    fn submit_frame(&self, handle: ExternalHandle) {
+    ///
+    /// Every render path ends here, so this is where `page.first_paint` is marked.
+    fn submit_frame(&mut self, handle: ExternalHandle) {
         self.zone_context.compositor.submit_frame(self.tab_id, handle);
         self.send_event(EngineEvent::Redraw { tab_id: self.tab_id });
+        if self.first_paint_due {
+            self.first_paint_due = false;
+            if let Some(scope) = self.timing_scope {
+                gosub_shared::timing::mark_in(scope, gosub_shared::timing::Timing::PageFirstPaint, None);
+            }
+        }
     }
 
     /// Republish the tab's externally-readable state (URL, title, back/forward availability)
@@ -2092,7 +2102,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let scope = gosub_shared::timing::ScopeId(nav_id.0);
         gosub_shared::timing::begin_scope(scope);
         self.timing_scope = Some(scope);
-        self.first_paint_marked = false;
+        self.first_paint_due = false;
         self.diagnostics_due = None;
 
         let parent_cancel = CancellationToken::new();
@@ -2444,7 +2454,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let scope = gosub_shared::timing::ScopeId(nav_id.0);
         gosub_shared::timing::begin_scope(scope);
         self.timing_scope = Some(scope);
-        self.first_paint_marked = false;
+        self.first_paint_due = false;
         self.diagnostics_due = None;
 
         let parent_cancel = CancellationToken::new();
@@ -2998,16 +3008,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let render_ms = render_start.elapsed().as_millis();
 
         self.sink.inc_frame();
-
-        // First frame this navigation has actually produced. `tick_draw` runs every frame,
-        // so the flag is what makes this a mark ("when did the page first appear") rather
-        // than a per-frame sample; it is cleared when a navigation starts.
-        if !self.first_paint_marked {
-            if let Some(scope) = self.timing_scope {
-                gosub_shared::timing::mark_in(scope, gosub_shared::timing::Timing::PageFirstPaint, None);
-                self.first_paint_marked = true;
-            }
-        }
         self.send_due_diagnostics();
 
         let now = std::time::Instant::now();
