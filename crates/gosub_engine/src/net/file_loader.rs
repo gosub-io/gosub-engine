@@ -340,7 +340,7 @@ async fn directory_listing(path: &Path) -> std::io::Result<String> {
     }
 
     Ok(format!(
-        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Index of {shown}</title><style>\
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Index of {shown}</title><style>\
          body{{margin:0;padding:32px 40px;font-family:sans-serif;font-size:14px;color:#1c2333;background:#ffffff}}\
          h1{{font-size:20px;margin:0 0 16px 0}}\
          .gr span{{display:inline-block;padding:3px 14px 3px 0;vertical-align:top}}\

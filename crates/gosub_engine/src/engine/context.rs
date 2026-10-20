@@ -16,6 +16,7 @@ use crate::engine::input::{self, InputHost, PageInput};
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
 const REMOTE_MEDIA_SETTLE: std::time::Duration = std::time::Duration::from_millis(150);
 use crate::engine::storage::{StorageArea, StorageHandles};
+use crate::engine::viewport_meta::{PageScale, ViewportMeta};
 use crate::html::{is_text_input, EngineDocument};
 use gosub_config::{Config, HasConfig};
 use gosub_render_pipeline::rasterizer::{
@@ -155,8 +156,17 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// What changed since the last frame and how much of the pipeline that invalidates.
     /// Replaces the former cluster of whole-document dirty booleans; see [`Damage`].
     damage: Damage,
-    /// Viewport size (width/height only - scroll offset lives in scroll_x/y)
+    /// Viewport size (width/height only - scroll offset lives in scroll_x/y). This is the
+    /// layout viewport: what the page is laid out in, scrolled by and hit-tested against, in
+    /// CSS px. It is `device_viewport` unless mobile viewport handling makes it something else.
     viewport: Viewport,
+    /// The screen the embedder renders this tab into, in its CSS px (see
+    /// [`set_viewport`](Self::set_viewport)).
+    device_viewport: Viewport,
+    /// The current document's viewport `<meta>`, read when the document was installed.
+    viewport_meta: Option<ViewportMeta>,
+    /// How `viewport` was made from `device_viewport`, and at what scale it is shown.
+    page_scale: PageScale,
     /// Epoch of the scene, used to determine if the scene has changed
     scene_epoch: u64,
     /// Navigation the pipeline's timings are attributed to, so one tab's numbers do not
@@ -396,6 +406,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             render_list: RenderList::new(),
             damage: Damage::none(),
             viewport: Viewport::default(),
+            device_viewport: Viewport::default(),
+            viewport_meta: None,
+            page_scale: PageScale::identity(Viewport::default().width, Viewport::default().height),
             scene_epoch: 0,
             timing_scope: None,
             scroll_x: 0.0,
@@ -643,6 +656,19 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.note_invalidate("document");
         self.document = doc;
         self.damage.rebuild();
+        // The new document may ask for another layout width. Its first layout is still ahead, and
+        // everything that depends on the size is rebuilt for it anyway, so the size is set here
+        // rather than through `set_viewport`. Without mobile viewport handling the tag is never
+        // read, and the document is not walked for it.
+        self.viewport_meta = self
+            .document
+            .as_deref()
+            .filter(|_| self.mobile_viewport())
+            .and_then(crate::html::viewport_meta_content::<C>)
+            .map(|content| ViewportMeta::parse(&content));
+        self.page_scale = self.resolve_page_scale();
+        self.viewport.width = self.page_scale.layout_width;
+        self.viewport.height = self.page_scale.layout_height;
         self.document_url = url;
         self.document_referrer_policy = gosub_sonar::ReferrerPolicy::default();
         self.document_source = source;
@@ -699,9 +725,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.raster_dirty = false;
     }
 
-    /// Update the viewport SIZE. Only triggers a full re-layout when width or height changes.
-    /// Scroll offset is managed separately via `set_scroll`.
-    pub fn set_viewport(&mut self, vp: Viewport) {
+    /// Update the layout viewport's SIZE. Only triggers a full re-layout when width or height
+    /// changes. Scroll offset is managed separately via `set_scroll`.
+    fn set_layout_viewport(&mut self, vp: Viewport) {
         if self.viewport.width == vp.width && self.viewport.height == vp.height {
             return;
         }
@@ -721,6 +747,60 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.scene_cache = None;
         self.tile_budget.reset();
         self.raster_dirty = false;
+    }
+
+    /// Set the screen the embedder renders into, in CSS px, and lay the page out in the viewport
+    /// made from it: the same size, or with mobile viewport handling
+    /// (`useragent.viewport.mobile`) the width the document's viewport `<meta>` asks for, scaled
+    /// to fit. [`page_scale`](Self::page_scale) says which, and [`viewport`](Self::viewport)
+    /// is the result.
+    pub fn set_viewport(&mut self, screen: Viewport) {
+        let screen_moved = (self.device_viewport.width, self.device_viewport.height) != (screen.width, screen.height);
+        self.device_viewport.width = screen.width;
+        self.device_viewport.height = screen.height;
+        self.page_scale = self.resolve_page_scale();
+        let mut layout = screen;
+        layout.width = self.page_scale.layout_width;
+        layout.height = self.page_scale.layout_height;
+        let layout_kept = (self.viewport.width, self.viewport.height) == (layout.width, layout.height);
+        self.set_layout_viewport(layout);
+
+        // `device-width` follows the screen even where the layout viewport stays the same size: a
+        // screen of the same shape at another size gives the same 980px layout, and can still
+        // flip a `(device-width: ...)` query. Boxes do not move, so only a restyle is owed, and
+        // only when the cascade would come out differently.
+        if screen_moved && layout_kept && self.document.is_some() && self.viewport_change_level() == DamageLevel::Style
+        {
+            self.damage.escalate(DamageLevel::Style);
+            self.note_invalidate("viewport");
+            self.pipeline_cache = None;
+            self.scene_cache = None;
+            self.tile_budget.reset();
+            self.raster_dirty = false;
+        }
+    }
+
+    /// The layout viewport for the current screen and document.
+    ///
+    /// Only a document parsed here has its `<meta>` read; a page a renderer process lays out
+    /// keeps the screen's size until that process reports the tag. No mobile embedder runs
+    /// renderer processes today (Android has none).
+    fn resolve_page_scale(&self) -> PageScale {
+        let (width, height) = (self.device_viewport.width, self.device_viewport.height);
+        if self.document.is_none() || !self.mobile_viewport() {
+            return PageScale::identity(width, height);
+        }
+        PageScale::resolve(width, height, self.viewport_meta.as_ref())
+    }
+
+    /// Whether the embedder asked for mobile viewport handling (`useragent.viewport.mobile`).
+    fn mobile_viewport(&self) -> bool {
+        self.config_store.get_bool("useragent.viewport.mobile")
+    }
+
+    /// How the layout viewport was made from the screen, and the scale the embedder shows it at.
+    pub fn page_scale(&self) -> PageScale {
+        self.page_scale
     }
 
     /// Update the scroll offset without triggering a full re-layout.
@@ -770,10 +850,12 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// against for this tab. Rebuilt per style pass rather than cached, so a settings change
     /// takes effect on the next render without any invalidation plumbing.
     ///
-    /// `device-width`/`device-height` report the viewport: the engine renders into an embedder-
-    /// owned surface and is never told the screen size. That makes the legacy `device-*`
-    /// features behave like their modern counterparts, which is the right answer for a
-    /// maximised window and a harmless one otherwise.
+    /// `width`/`height` are the layout viewport. `device-width`/`device-height` are the surface
+    /// the embedder renders into: the engine is never told the size of the screen itself, which
+    /// makes the legacy `device-*` features behave like their modern counterparts on a desktop,
+    /// the right answer for a maximised window and a harmless one otherwise. With mobile viewport
+    /// handling the two differ, as on a phone: a page laid out at 980px still sees the screen's
+    /// 360 as its `device-width`.
     fn media_environment(&self) -> MediaEnvironment {
         let color_scheme = match self.config_store.get_string("renderer.prefers_color_scheme").as_str() {
             "dark" => ColorScheme::Dark,
@@ -798,8 +880,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         MediaEnvironment {
             width: self.viewport.width as f32,
             height: self.viewport.height as f32,
-            device_width: self.viewport.width as f32,
-            device_height: self.viewport.height as f32,
+            device_width: self.device_viewport.width as f32,
+            device_height: self.device_viewport.height as f32,
             device_pixel_ratio: dpr.max(1) as f32,
             media_type: MediaType::Screen,
             color_scheme,
@@ -4068,6 +4150,137 @@ mod tests {
             assert!(
                 (ctx.page_height() - 100.0).abs() < 1.0,
                 "after narrowing: expected ~100, got {}",
+                ctx.page_height()
+            );
+        }
+    }
+
+    /// Mobile viewport handling: the layout viewport a document's viewport `<meta>` asks for,
+    /// on a 360x780 phone screen.
+    mod mobile_viewport {
+        use super::super::*;
+        use crate::engine::settings_store;
+        use crate::html::DefaultRenderConfig;
+        use gosub_css3::system::Css3System;
+
+        const PHONE: Viewport = Viewport {
+            x: 0,
+            y: 0,
+            width: 360,
+            height: 780,
+        };
+
+        /// A context on `screen` showing a page with `head` in its `<head>`. The page is one
+        /// full-width block, 10px tall, or 20px tall when `(device-width: 360px)` holds, so the
+        /// laid-out width says what the layout viewport is and the height what `device-width`
+        /// reported.
+        fn context(mobile: bool, screen: Viewport, head: &str) -> BrowsingContext<DefaultRenderConfig> {
+            let config = settings_store::default_config();
+            config
+                .set_transient(
+                    "useragent.viewport.mobile",
+                    gosub_config::settings::Setting::Bool(mobile),
+                )
+                .expect("the setting is known");
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(config);
+            ctx.set_viewport(screen);
+            let html = format!(
+                r#"<html><head>{head}<style>
+                    #box {{ display: block; height: 10px; }}
+                    @media (device-width: 360px) {{ #box {{ height: 20px; }} }}
+                </style></head>
+                <body style="margin:0"><div id="box"></div></body></html>"#
+            );
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(&html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc), None);
+            ctx.rebuild_pipeline_cache_if_needed();
+            ctx
+        }
+
+        #[test]
+        fn a_page_without_the_tag_is_laid_out_at_980px() {
+            let ctx = context(true, PHONE, "");
+            assert_eq!((ctx.viewport().width, ctx.viewport().height), (980, 2123));
+            assert!(
+                (ctx.page_width() - 980.0).abs() < 1.0,
+                "page width {}",
+                ctx.page_width()
+            );
+            assert!((ctx.page_scale().scale - 360.0 / 980.0).abs() < 1e-9);
+            // `device-width` is still the screen's.
+            assert!(
+                (ctx.page_height() - 20.0).abs() < 1.0,
+                "page height {}",
+                ctx.page_height()
+            );
+        }
+
+        #[test]
+        fn device_width_lays_the_page_out_at_the_screen() {
+            let ctx = context(
+                true,
+                PHONE,
+                r#"<meta name="viewport" content="width=device-width, initial-scale=1">"#,
+            );
+            assert_eq!((ctx.viewport().width, ctx.viewport().height), (360, 780));
+            assert!(
+                (ctx.page_width() - 360.0).abs() < 1.0,
+                "page width {}",
+                ctx.page_width()
+            );
+            assert_eq!(ctx.page_scale().scale, 1.0);
+        }
+
+        #[test]
+        fn a_desktop_ignores_the_tag() {
+            let ctx = context(false, PHONE, r#"<meta name="viewport" content="width=500">"#);
+            assert_eq!((ctx.viewport().width, ctx.viewport().height), (360, 780));
+            assert_eq!(ctx.page_scale(), PageScale::identity(360, 780));
+        }
+
+        /// A rotated phone keeps the page's layout width and shows it at a new scale.
+        #[test]
+        fn a_rotation_keeps_the_layout_width() {
+            let mut ctx = context(true, PHONE, "");
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 780,
+                height: 360,
+            });
+            ctx.rebuild_pipeline_cache_if_needed();
+            assert_eq!((ctx.viewport().width, ctx.viewport().height), (980, 452));
+            assert!((ctx.page_scale().scale - 780.0 / 980.0).abs() < 1e-9);
+            // The screen is 780 wide now, so the `device-width` rule no longer holds.
+            assert!(
+                (ctx.page_height() - 10.0).abs() < 1.0,
+                "page height {}",
+                ctx.page_height()
+            );
+        }
+
+        /// A screen of the same shape at twice the size keeps the 980px layout, but its
+        /// `device-width` is another, and the page is styled for it.
+        #[test]
+        fn a_new_screen_size_restyles_even_when_the_layout_stays() {
+            let mut ctx = context(true, PHONE, "");
+            assert!(
+                (ctx.page_height() - 20.0).abs() < 1.0,
+                "page height {}",
+                ctx.page_height()
+            );
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 720,
+                height: 1560,
+            });
+            ctx.rebuild_pipeline_cache_if_needed();
+            assert_eq!((ctx.viewport().width, ctx.viewport().height), (980, 2123));
+            assert!(
+                (ctx.page_height() - 10.0).abs() < 1.0,
+                "page height {}",
                 ctx.page_height()
             );
         }

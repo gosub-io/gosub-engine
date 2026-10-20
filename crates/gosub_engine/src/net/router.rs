@@ -211,7 +211,7 @@ fn html_escape(text: &str) -> String {
 fn text_document_html(body: &[u8]) -> String {
     let escaped = html_escape(&String::from_utf8_lossy(body));
     format!(
-        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head>\
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head>\
          <body><pre style=\"white-space: pre-wrap; word-wrap: break-word;\">{escaped}</pre></body></html>"
     )
 }
@@ -296,7 +296,7 @@ fn json_document_html(value: &serde_json::Value) -> String {
         }
     }
     format!(
-        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head>\
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head>\
          <body style=\"font-family:monospace;font-size:13px;color:#24292e;background:#ffffff\">{body}</body></html>"
     )
 }

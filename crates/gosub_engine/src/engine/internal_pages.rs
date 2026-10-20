@@ -228,7 +228,7 @@ pub mod builtins {
     /// Shared chrome for the built-in pages.
     fn page(title: &str, body: &str) -> PageResponse {
         PageResponse::html(format!(
-            "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>{}</title><style>\
+            "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{}</title><style>\
              body{{margin:0;padding:32px 40px;font-family:sans-serif;font-size:14px;color:#1c2333;background:#ffffff}}\
              h1{{font-size:24px;margin:0 0 4px 0}} h2{{font-size:16px;margin:24px 0 8px 0}}\
              .sub{{color:#5c6675;margin:0 0 20px 0}}\
@@ -277,7 +277,7 @@ pub mod builtins {
     }
 
     const BLANK: &str =
-        "<!DOCTYPE html><html><head><title></title></head><body style=\"margin:0;background:#ffffff\"></body></html>";
+        "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title></title></head><body style=\"margin:0;background:#ffffff\"></body></html>";
 
     /// The submarine from the Gosub logo, in black.
     const SUBMARINE: &str = include_str!("internal_pages/submarine.svg");

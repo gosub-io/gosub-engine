@@ -3765,6 +3765,67 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// With mobile viewport handling on, a page without a viewport `<meta>` on a phone-sized tab
+    /// is laid out at 980px, and the embedder is told the scale to show it at.
+    #[tokio::test]
+    async fn a_mobile_tab_reports_the_page_scale() {
+        use crate::events::TabCommand;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let body = "<html><body><p>written for a desktop</p></body></html>";
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(body.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        engine
+            .settings()
+            .set_transient("useragent.viewport.mobile", gosub_config::settings::Setting::Bool(true))
+            .expect("the setting is known");
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.send(TabCommand::SetViewport {
+            x: 0,
+            y: 0,
+            width: 360,
+            height: 780,
+        })
+        .await
+        .expect("viewport");
+        tab.send(TabCommand::ResumeDrawing { fps: 60 }).await.expect("drawing");
+        tab.navigate(format!("http://127.0.0.1:{port}/"))
+            .await
+            .expect("navigate");
+
+        let reported = wait_for(&mut event_rx, |ev| {
+            matches!(
+                ev,
+                EngineEvent::PageScaleChanged {
+                    layout_width: 980,
+                    layout_height: 2123,
+                    scale,
+                    ..
+                } if (scale - 360.0 / 980.0).abs() < 1e-9
+            )
+        })
+        .await;
+        assert!(reported, "no PageScaleChanged for a 980px layout");
+    }
+
     /// Wait (with timeout) for an event matching `pred`; true when it arrived.
     async fn wait_for(rx: &mut broadcast::Receiver<EngineEvent>, pred: impl Fn(&EngineEvent) -> bool) -> bool {
         tokio::time::timeout(Duration::from_secs(10), async {
