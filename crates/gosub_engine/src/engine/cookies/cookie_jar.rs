@@ -743,17 +743,26 @@ impl CookieJar for DefaultCookieJar {
                 continue;
             }
 
+            // In SameSiteNoneOnly mode, drop third-party cookies that don't
+            // carry SameSite=None; Secure. Before the expiry check, so a dropped
+            // cookie cannot delete one either.
+            if is_third_party
+                && self.third_party_policy == ThirdPartyCookiePolicy::SameSiteNoneOnly
+                && !(matches!(cookie.same_site.as_deref(), Some("None")) && cookie.secure)
+            {
+                continue;
+            }
+
             // Resolve expiry: Max-Age takes precedence over Expires (RFC 6265 §5.2).
             let now = Utc::now().timestamp();
             cookie.expires = if let Some(ma) = max_age {
-                if ma <= 0 {
-                    // Max-Age=0 (or negative) means delete the cookie immediately.
-                    // Cookies are unique by (name, domain, path) - RFC 6265bis §5.6 - so
-                    // only evict the exact match, not every same-named cookie in this origin.
-                    bucket.retain(|c| !(c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path));
-                    continue;
-                }
-                Some(now + ma.min(MAX_COOKIE_LIFETIME_SECS))
+                // Max-Age=0 (or negative) expires at the earliest representable time
+                // (RFC 6265bis §5.6.2).
+                Some(if ma <= 0 {
+                    i64::MIN
+                } else {
+                    now + ma.min(MAX_COOKIE_LIFETIME_SECS)
+                })
             } else {
                 expires_str
                     .as_deref()
@@ -761,12 +770,13 @@ impl CookieJar for DefaultCookieJar {
                     .map(|expires| expires.min(now + MAX_COOKIE_LIFETIME_SECS))
             };
 
-            // In SameSiteNoneOnly mode, drop third-party cookies that don't
-            // carry SameSite=None; Secure.
-            if is_third_party
-                && self.third_party_policy == ThirdPartyCookiePolicy::SameSiteNoneOnly
-                && !(matches!(cookie.same_site.as_deref(), Some("None")) && cookie.secure)
-            {
+            // An expired cookie would be evicted as soon as it is stored (RFC 6265bis §5.7), so
+            // it is not stored: it only deletes the cookie it matches. This covers Max-Age=0 and
+            // a past Expires alike, and keeps a dead cookie from making a full origin evict a
+            // live one. Cookies are unique by (name, domain, path) - RFC 6265bis §5.6 - so only
+            // the exact match goes, not every same-named cookie in this origin.
+            if cookie.expires.is_some_and(|exp| exp <= now) {
+                bucket.retain(|c| !(c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path));
                 continue;
             }
 
@@ -802,6 +812,10 @@ impl CookieJar for DefaultCookieJar {
                 cookie.created_at = Utc::now().timestamp_millis();
                 bucket.push(cookie);
             }
+        }
+        // A response that only deleted or was refused leaves no empty bucket behind.
+        if self.entries.get(&origin).is_some_and(Vec::is_empty) {
+            self.entries.remove(&origin);
         }
         self.enforce_total_cap(Utc::now().timestamp(), &origin);
     }
@@ -1599,6 +1613,93 @@ mod tests {
             jar.get_request_cookies(&req, None, SameSiteContext::SameSite).is_none(),
             "a past Expires must delete the cookie"
         );
+    }
+
+    /// A past Expires removes the cookie it matches, as Max-Age=0 does, instead of storing an
+    /// expired copy, and stores nothing when no cookie matches.
+    #[test]
+    fn a_past_expires_stores_no_expired_cookie() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        jar.store_response_cookies(&req, &headers(&["a=1; Path=/", "b=1; Path=/"]), None);
+        jar.store_response_cookies(
+            &req,
+            &headers(&[
+                "a=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT",
+                "never=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT",
+            ]),
+            None,
+        );
+
+        let names: Vec<&str> = jar.entries["https://example.com"]
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect();
+        assert_eq!(names, ["b"], "only the untouched live cookie is left");
+
+        // An origin the response stored nothing for keeps no empty bucket.
+        let other = url("https://other.example/");
+        jar.store_response_cookies(
+            &other,
+            &headers(&["gone=; Expires=Thu, 01 Jan 1970 00:00:01 GMT"]),
+            None,
+        );
+        assert!(!jar.entries.contains_key("https://other.example"));
+    }
+
+    /// In SameSiteNoneOnly mode a third-party cookie the policy drops cannot delete the
+    /// cookie it matches either; one the policy lets through still can.
+    #[test]
+    fn a_dropped_third_party_cookie_deletes_nothing() {
+        let mut jar = DefaultCookieJar::new().with_policy(ThirdPartyCookiePolicy::SameSiteNoneOnly);
+        let resource = url("https://tracker.com/pixel");
+        let top = url("https://example.com/");
+        jar.store_response_cookies(
+            &resource,
+            &headers(&["uid=x; Path=/; SameSite=None; Secure"]),
+            Some(&top),
+        );
+
+        let past = "Expires=Thu, 01 Jan 1970 00:00:01 GMT";
+        jar.store_response_cookies(&resource, &headers(&[&format!("uid=; Path=/; {past}")]), Some(&top));
+        assert_eq!(
+            jar.get_request_cookies(&resource, Some(&top), SameSiteContext::CrossSite)
+                .as_deref(),
+            Some("uid=x"),
+            "a cookie the policy drops must not delete uid"
+        );
+
+        jar.store_response_cookies(
+            &resource,
+            &headers(&[&format!("uid=; Path=/; SameSite=None; Secure; {past}")]),
+            Some(&top),
+        );
+        assert!(
+            jar.get_request_cookies(&resource, Some(&top), SameSiteContext::CrossSite)
+                .is_none(),
+            "a cookie the policy allows still deletes uid"
+        );
+    }
+
+    /// The issue's repro: at the per-origin cap, a logout for a cookie the origin does not
+    /// have must not evict the oldest live cookie to make room for a dead one.
+    #[test]
+    fn a_past_expires_at_the_cap_evicts_no_live_cookie() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        for i in 0..MAX_COOKIES_PER_ORIGIN {
+            jar.store_response_cookies(&req, &headers(&[&format!("c{i}=1; Path=/")]), None);
+        }
+        jar.store_response_cookies(
+            &req,
+            &headers(&["gone=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT"]),
+            None,
+        );
+
+        let cookies = &jar.entries["https://example.com"];
+        assert_eq!(cookies.len(), MAX_COOKIES_PER_ORIGIN);
+        assert!(cookies.iter().any(|c| c.name == "c0"), "c0 was evicted");
+        assert!(!cookies.iter().any(|c| c.name == "gone"), "the dead cookie was stored");
     }
 
     /// Neither `Expires` nor `Max-Age` keeps a cookie for more than 400 days (RFC 6265bis §5.5).
