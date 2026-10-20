@@ -1139,6 +1139,13 @@ fn fold_sign_abs(name: &str, args: &[Sum], mode: Mode) -> Option<Sum> {
                 return None;
             }
         }
+        // A percentage combines with a dimension, never with a plain number - `round(1, 1%)`
+        // is refused for the same reason (`kinds_combine`). `abs()` would have handed the sum
+        // on for the top-level check to refuse, but `sign()` folds it into a bare number first,
+        // so without this `calc(sign(1 + 10%) * 1px)` slips through.
+        if datatype == Some("number") && arg.terms.contains_key("%") {
+            return None;
+        }
         if !is_sign {
             return Some(arg.clone());
         }

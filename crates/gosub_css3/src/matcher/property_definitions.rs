@@ -1812,6 +1812,27 @@ mod tests {
     /// A percentage mixed into a math function is only valid where the grammar has a
     /// `<percentage>` alternative next to the numeric leaf - which is what `<length-percentage>`
     /// and its kin resolve to - and `sign()` of a percentage carries that requirement with it.
+    /// A percentage never adds to a plain number - there is no such type - and `sign()` must
+    /// not launder that sum into a number: `calc(sign(1 + 10%) * 1px)` is invalid everywhere.
+    #[test]
+    fn a_percentage_never_combines_with_a_plain_number_inside_sign_or_abs() {
+        let defs = get_css_definitions();
+        let ok = |prop: &str, v: &str| {
+            defs.find_property(prop)
+                .unwrap_or_else(|| panic!("no def for {prop}"))
+                .clone()
+                .matches(&parse_decl_values(prop, v))
+        };
+
+        assert!(!ok("margin-left", "calc(sign(1 + 10%) * 1px)"));
+        assert!(!ok("opacity", "sign(1 + 10%)"));
+        assert!(!ok("opacity", "abs(1 + 10%)"));
+        assert!(!ok("margin-left", "abs(1 + 10%)"));
+        // A percentage next to a dimension is a `<length-percentage>`, which stays fine.
+        assert!(ok("margin-left", "calc(sign(10px + 10%) * 1px)"));
+        assert!(ok("margin-left", "abs(10px + 10%)"));
+    }
+
     #[test]
     fn a_percentage_in_a_math_function_needs_a_percentage_alternative() {
         let defs = get_css_definitions();

@@ -1112,6 +1112,19 @@ fn font_size_keyword(keyword: &str, parent: f64) -> Option<f64> {
     Some(px)
 }
 
+/// Round every number in `value` to the nearest integer, half-values toward +∞ (css-values-4
+/// §10.9), reaching into a list for the numbers it holds. Only for a property whose grammar has
+/// no numeric kind but `<integer>`, where every number is therefore an integer slot.
+fn round_integer_slots(value: CssValue) -> CssValue {
+    match value {
+        CssValue::Number(n, _) if n.fract() != 0.0 && n.is_finite() => {
+            CssValue::Number((n + 0.5).floor(), NumberKind::Integer)
+        }
+        CssValue::List(values) => CssValue::List(values.into_iter().map(round_integer_slots).collect()),
+        other => other,
+    }
+}
+
 /// Turn a specified value into a computed one: resolve the relative lengths, do the arithmetic.
 ///
 /// This is what makes a *computed* value computed. css-values says `em` and `rem` resolve at
@@ -1506,14 +1519,13 @@ impl CssProperty {
         // An `<integer>` slot rounds a math function's result to the nearest integer, half-values
         // toward +∞ (css-values-4 §10.9): `z-index: calc(1 / 2)` is `1` and `calc(1 / 3)` is `0`.
         // A literal that is not an integer never got past the grammar, so only a `calc()` result
-        // can be fractional here.
-        let computed = match computed {
-            CssValue::Number(n, _)
-                if n.fract() != 0.0 && n.is_finite() && !id.is_shorthand() && defs.takes_integer(id) =>
-            {
-                CssValue::Number((n + 0.5).floor(), NumberKind::Integer)
-            }
-            other => other,
+        // can be fractional here. The slot may sit inside a list - `counter-increment: item
+        // calc(1 / 2)` - and since `takes_integer` means the grammar has no other numeric kind,
+        // every number in that list is an integer slot.
+        let computed = if !id.is_shorthand() && defs.takes_integer(id) {
+            round_integer_slots(computed)
+        } else {
+            computed
         };
         // Only a single number has a magnitude to clamp. A list is several values, and the range
         // belongs to whichever grammar arm each one matched - which is not recorded.
@@ -2588,6 +2600,28 @@ mod tests {
                 CssValue::Number(700.0, NumberKind::Integer),
                 px(13.0),
                 keyword("math"),
+            ])
+        );
+    }
+
+    #[test]
+    fn an_integer_slot_inside_a_list_rounds_too() {
+        // `counter-increment: [ <counter-name> <integer>? ]+ | none` - the integer is one item of
+        // a list, and the rounding has to reach it there.
+        let calc = |n: f64| CssValue::Function("calc".to_string(), vec![CssValue::Number(n, NumberKind::Number)]);
+        let list = |n: f64| CssValue::List(vec![CssValue::String("item".to_string()), calc(n)]);
+        assert_eq!(
+            computed_for("counter-increment", list(0.5)),
+            CssValue::List(vec![
+                CssValue::String("item".to_string()),
+                CssValue::Number(1.0, NumberKind::Integer)
+            ])
+        );
+        assert_eq!(
+            computed_for("counter-reset", list(1.0 / 3.0)),
+            CssValue::List(vec![
+                CssValue::String("item".to_string()),
+                CssValue::Number(0.0, NumberKind::Integer)
             ])
         );
     }
