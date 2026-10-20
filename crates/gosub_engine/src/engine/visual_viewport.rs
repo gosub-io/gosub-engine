@@ -76,6 +76,10 @@ impl VisualViewport {
     /// Move by a delta in page px. Returns what is left for the layout viewport to scroll, once
     /// the visual viewport has reached its edge.
     pub fn pan(&mut self, dx: f64, dy: f64) -> (f64, f64) {
+        // A NaN offset would stick: no clamp takes it out again.
+        if !dx.is_finite() || !dy.is_finite() {
+            return (0.0, 0.0);
+        }
         let (max_x, max_y) = self.max_offset();
         let x = self.offset.0 + dx;
         let y = self.offset.1 + dy;
@@ -95,7 +99,12 @@ impl VisualViewport {
         scroll: (f64, f64),
         max_scroll: (f64, f64),
     ) -> Option<(f64, f64)> {
-        if !self.page.user_scalable || !factor.is_finite() || factor <= 0.0 {
+        if !self.page.user_scalable
+            || !factor.is_finite()
+            || factor <= 0.0
+            || !focus.0.is_finite()
+            || !focus.1.is_finite()
+        {
             return None;
         }
         // Never out past the layout viewport: there is nothing to show beside it.
@@ -224,5 +233,17 @@ mod tests {
         assert!(scroll.1 <= max_scroll.1);
         assert!((vv.scale() - 360.0 / 980.0).abs() < 1e-9);
         assert_eq!(vv.offset().0, 0.0);
+    }
+
+    #[test]
+    fn input_that_is_not_a_number_leaves_the_viewport_alone() {
+        let mut vv = phone();
+        vv.pinch((180.0, 390.0), 2.0, (0.0, 0.0), (0.0, 5000.0)).unwrap();
+        let (scale, offset) = (vv.scale(), vv.offset());
+        assert_eq!(vv.pinch((f64::NAN, 0.0), 2.0, (0.0, 0.0), (0.0, 5000.0)), None);
+        assert_eq!(vv.pinch((0.0, f64::INFINITY), 2.0, (0.0, 0.0), (0.0, 5000.0)), None);
+        assert_eq!(vv.pan(f64::NAN, 10.0), (0.0, 0.0));
+        assert_eq!(vv.pan(0.0, f64::NEG_INFINITY), (0.0, 0.0));
+        assert_eq!((vv.scale(), vv.offset()), (scale, offset));
     }
 }
