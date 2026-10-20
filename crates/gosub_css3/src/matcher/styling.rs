@@ -1113,14 +1113,20 @@ fn font_size_keyword(keyword: &str, parent: f64) -> Option<f64> {
 }
 
 /// Round every number in `value` to the nearest integer, half-values toward +∞ (css-values-4
-/// §10.9), reaching into a list for the numbers it holds. Only for a property whose grammar has
-/// no numeric kind but `<integer>`, where every number is therefore an integer slot.
+/// §10.9), reaching into a list, or into a function such as `math-depth`'s `add()`, for the
+/// numbers it holds. Only for a property whose grammar has no numeric kind but `<integer>`,
+/// function arguments included, where every number is therefore an integer slot. A math
+/// function is left alone: what it still holds is an expression nothing could evaluate yet,
+/// not a slot.
 fn round_integer_slots(value: CssValue) -> CssValue {
     match value {
         CssValue::Number(n, _) if n.fract() != 0.0 && n.is_finite() => {
             CssValue::Number((n + 0.5).floor(), NumberKind::Integer)
         }
         CssValue::List(values) => CssValue::List(values.into_iter().map(round_integer_slots).collect()),
+        CssValue::Function(name, args) if !crate::functions::registry::is_math(&name) => {
+            CssValue::Function(name, args.into_iter().map(round_integer_slots).collect())
+        }
         other => other,
     }
 }
@@ -2601,6 +2607,20 @@ mod tests {
                 px(13.0),
                 keyword("math"),
             ])
+        );
+    }
+
+    #[test]
+    fn an_integer_slot_inside_a_function_rounds_too() {
+        // `math-depth: auto-add | add(<integer>) | <integer>` - the slot sits inside `add()`.
+        let calc = |n: f64| CssValue::Function("calc".to_string(), vec![CssValue::Number(n, NumberKind::Number)]);
+        assert_eq!(
+            computed_for("math-depth", CssValue::Function("add".to_string(), vec![calc(0.5)])),
+            CssValue::Function("add".to_string(), vec![CssValue::Number(1.0, NumberKind::Integer)])
+        );
+        assert_eq!(
+            computed_for("math-depth", calc(0.5)),
+            CssValue::Number(1.0, NumberKind::Integer)
         );
     }
 

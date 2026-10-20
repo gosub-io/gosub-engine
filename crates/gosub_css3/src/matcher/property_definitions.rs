@@ -452,6 +452,12 @@ fn takes_integer(components: &[SyntaxComponent]) -> bool {
         for component in components {
             match component {
                 SyntaxComponent::Group { components, .. } => kinds(components, found),
+                // A function's arguments count too: `add(<integer>)` is an integer slot, and a
+                // `<number>` inside a function would make the property's numbers ambiguous.
+                SyntaxComponent::Function {
+                    arguments: Some(arguments),
+                    ..
+                } => kinds(std::slice::from_ref(&**arguments), found),
                 SyntaxComponent::Builtin { datatype, .. } | SyntaxComponent::Definition { datatype, .. }
                     if NUMERIC_DATATYPES.contains(&datatype.as_str()) && !found.contains(datatype) =>
                 {
