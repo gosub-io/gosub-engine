@@ -111,7 +111,7 @@ Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, 
 | `FocusChanged { focused, editable }` | `editable` is the cue for an on-screen keyboard or IME. |
 | `TitleChanged { title }` | `<title>` parsed, or a renderer process reported one. `tab.title()` mirrors it. |
 | `ClipboardWrite { text }` / `PasteRequested` | A text control copied or cut `text`: put it on the clipboard. A paste wants the clipboard back as `TextInput`. |
-| `PickerRequested { kind, x, y, width, height, value, min, max, step }` | A colour, date, time, `datetime-local`, month or week input was activated. The engine draws no picker: open the platform's over the control's box (viewport CSS px) and answer with `PickerChanged` / `PickerClosed`. |
+| `PickerRequested { kind, x, y, width, height, value, min, max, step }` | A colour, date, time, `datetime-local`, month or week input was activated. The engine draws no picker: open the platform's over the control's box (the page's CSS px, like pointer input; see [mobile viewport](#mobile-viewport) for scaling it to the screen) and answer with `PickerChanged` / `PickerClosed`. |
 | `HitTestResult { token, hit }` | Answers `QueryHitTest` with the same token. |
 | `FavIconChanged { favicon }` | Raw bytes as served (ICO/PNG/SVG); decode them yourself. Emitted once per committed navigation, and not at all when there is no reachable icon, so keep your placeholder. |
 | `PageScaleChanged { layout_width, layout_height, scale, min_scale, max_scale, user_scalable }` | The page is laid out at another size than the screen you set, and shown at `scale`. Only with [mobile viewport](#mobile-viewport) handling on. |
@@ -256,6 +256,7 @@ On a phone, a page written for a desktop window would be squeezed into the scree
 
 -   The frame covers the layout viewport. Draw it scaled into your screen rect.
 -   Divide pointer and touch positions and scroll deltas by `scale` before sending them. The tab works in the page's CSS px.
+-   Multiply positions the tab reports, such as `PickerRequested`'s box, by `scale` to place them on screen.
 -   Set `DEVICE_PIXEL_RATIO` to `ceil(display scale × scale)`, or the tab rasterizes far more pixels than the screen shows, then send `ResumeDrawing` so it redraws at the new ratio.
 
 A page is always shown at the scale that fits its width to the screen. Where the tag asks for another initial scale, a browser shows part of the page and lets the user pan; that needs a visual viewport separate from the layout viewport, which the engine does not have yet, and so does pinch zoom. `min_scale`, `max_scale` and `user_scalable` are reported for when it does. Pages a renderer process lays out (process isolation) keep the screen's size.
