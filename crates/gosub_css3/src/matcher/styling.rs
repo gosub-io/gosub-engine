@@ -1112,6 +1112,25 @@ fn font_size_keyword(keyword: &str, parent: f64) -> Option<f64> {
     Some(px)
 }
 
+/// Round every number in `value` to the nearest integer, half-values toward +∞ (css-values-4
+/// §10.9), reaching into a list, or into a function such as `math-depth`'s `add()`, for the
+/// numbers it holds. Only for a property whose grammar has no numeric kind but `<integer>`,
+/// function arguments included, where every number is therefore an integer slot. A math
+/// function is left alone: what it still holds is an expression nothing could evaluate yet,
+/// not a slot.
+fn round_integer_slots(value: CssValue) -> CssValue {
+    match value {
+        CssValue::Number(n, _) if n.fract() != 0.0 && n.is_finite() => {
+            CssValue::Number((n + 0.5).floor(), NumberKind::Integer)
+        }
+        CssValue::List(values) => CssValue::List(values.into_iter().map(round_integer_slots).collect()),
+        CssValue::Function(name, args) if !crate::functions::registry::is_math(&name) => {
+            CssValue::Function(name, args.into_iter().map(round_integer_slots).collect())
+        }
+        other => other,
+    }
+}
+
 /// Turn a specified value into a computed one: resolve the relative lengths, do the arithmetic.
 ///
 /// This is what makes a *computed* value computed. css-values says `em` and `rem` resolve at
@@ -1502,6 +1521,17 @@ impl CssProperty {
         let computed = match computed {
             CssValue::Percentage(pct) if id.percentage_is_number() => CssValue::Number(pct / 100.0, NumberKind::Number),
             other => other,
+        };
+        // An `<integer>` slot rounds a math function's result to the nearest integer, half-values
+        // toward +∞ (css-values-4 §10.9): `z-index: calc(1 / 2)` is `1` and `calc(1 / 3)` is `0`.
+        // A literal that is not an integer never got past the grammar, so only a `calc()` result
+        // can be fractional here. The slot may sit inside a list - `counter-increment: item
+        // calc(1 / 2)` - and since `takes_integer` means the grammar has no other numeric kind,
+        // every number in that list is an integer slot.
+        let computed = if !id.is_shorthand() && defs.takes_integer(id) {
+            round_integer_slots(computed)
+        } else {
+            computed
         };
         // Only a single number has a magnitude to clamp. A list is several values, and the range
         // belongs to whichever grammar arm each one matched - which is not recorded.
@@ -2577,6 +2607,69 @@ mod tests {
                 px(13.0),
                 keyword("math"),
             ])
+        );
+    }
+
+    #[test]
+    fn an_integer_slot_inside_a_function_rounds_too() {
+        // `math-depth: auto-add | add(<integer>) | <integer>` - the slot sits inside `add()`.
+        let calc = |n: f64| CssValue::Function("calc".to_string(), vec![CssValue::Number(n, NumberKind::Number)]);
+        assert_eq!(
+            computed_for("math-depth", CssValue::Function("add".to_string(), vec![calc(0.5)])),
+            CssValue::Function("add".to_string(), vec![CssValue::Number(1.0, NumberKind::Integer)])
+        );
+        assert_eq!(
+            computed_for("math-depth", calc(0.5)),
+            CssValue::Number(1.0, NumberKind::Integer)
+        );
+    }
+
+    #[test]
+    fn an_integer_slot_inside_a_list_rounds_too() {
+        // `counter-increment: [ <counter-name> <integer>? ]+ | none` - the integer is one item of
+        // a list, and the rounding has to reach it there.
+        let calc = |n: f64| CssValue::Function("calc".to_string(), vec![CssValue::Number(n, NumberKind::Number)]);
+        let list = |n: f64| CssValue::List(vec![CssValue::String("item".to_string()), calc(n)]);
+        assert_eq!(
+            computed_for("counter-increment", list(0.5)),
+            CssValue::List(vec![
+                CssValue::String("item".to_string()),
+                CssValue::Number(1.0, NumberKind::Integer)
+            ])
+        );
+        assert_eq!(
+            computed_for("counter-reset", list(1.0 / 3.0)),
+            CssValue::List(vec![
+                CssValue::String("item".to_string()),
+                CssValue::Number(0.0, NumberKind::Integer)
+            ])
+        );
+    }
+
+    #[test]
+    fn an_integer_property_rounds_a_math_result() {
+        // css-values-4 §10.9: nearest integer, half-values toward +∞. `z-index: auto | <integer>`.
+        let calc = |n: f64| CssValue::Function("calc".to_string(), vec![CssValue::Number(n, NumberKind::Number)]);
+        assert_eq!(
+            computed_for("z-index", calc(0.5)),
+            CssValue::Number(1.0, NumberKind::Integer)
+        );
+        assert_eq!(
+            computed_for("z-index", calc(1.0 / 3.0)),
+            CssValue::Number(0.0, NumberKind::Integer)
+        );
+        assert_eq!(
+            computed_for("z-index", calc(-0.5)),
+            CssValue::Number(0.0, NumberKind::Integer)
+        );
+        assert_eq!(
+            computed_for("z-index", calc(2.0)),
+            CssValue::Number(2.0, NumberKind::Integer)
+        );
+        // `tab-size` takes a `<number>` too, so its fraction stays.
+        assert_eq!(
+            computed_for("tab-size", calc(0.5)),
+            CssValue::Number(0.5, NumberKind::Integer)
         );
     }
 

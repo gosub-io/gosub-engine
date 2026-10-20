@@ -381,7 +381,12 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
         SyntaxComponent::Definition { .. } => {
             return no_match(input);
         }
-        SyntaxComponent::Builtin { datatype, range, .. } => {
+        SyntaxComponent::Builtin {
+            datatype,
+            range,
+            percent_sibling,
+            ..
+        } => {
             // A math function may be used wherever a numeric datatype is allowed (CSS
             // Values & Units §10), e.g. `width: calc(100% - 20px)`.
             //
@@ -395,15 +400,16 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                     return match calc::math_function_type(name, args, &calc::Units::none()) {
                         // A length mixed with a percentage is a legal `<length-percentage>`, and
                         // that expands to `[ <length> | <percentage> ]` before it reaches here -
-                        // so by the time one arm is being matched there is no way to tell a
-                        // length-only property from one that takes both. Accepting the mix
-                        // over-accepts `border-width: min(1px, 1%)`; rejecting it would throw out
-                        // `width: min(1px, 1%)`, which is valid and which real pages write.
+                        // so by the time one arm is being matched the group is out of sight. The
+                        // leaf carries the answer instead: `percent_sibling` says a `<percentage>`
+                        // is one of its alternatives, so `width: min(1px, 1%)` passes and
+                        // `border-width: min(1px, 1%)` does not. The mix used to be accepted
+                        // everywhere, which let `rotate(min(1deg, 0%))` through.
                         calc::MathType::Resolved(kinds)
                             if kinds.iter().any(|kind| datatype_accepts(datatype, kind))
-                                && kinds
-                                    .iter()
-                                    .all(|kind| datatype_accepts(datatype, kind) || *kind == "percentage") =>
+                                && kinds.iter().all(|kind| {
+                                    datatype_accepts(datatype, kind) || (*kind == "percentage" && *percent_sibling)
+                                }) =>
                         {
                             first_match(input)
                         }

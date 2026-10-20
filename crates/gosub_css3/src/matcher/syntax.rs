@@ -220,6 +220,12 @@ pub enum SyntaxComponent {
         datatype: String,
         range: RangeType,
         multipliers: Vec<SyntaxComponentMultiplier>,
+        /// Whether a `<percentage>` is one of the alternatives this leaf sits among - which is
+        /// what `<length-percentage>` and its kin resolve to. A math function that mixes a
+        /// percentage into the leaf's own type (`min(1px, 10%)`) is only valid where that is so;
+        /// set when the grammar is resolved, because by the time a leaf is matched the group
+        /// around it is out of sight.
+        percent_sibling: bool,
     },
 }
 

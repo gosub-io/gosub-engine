@@ -215,6 +215,7 @@ PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = 
 PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2( 0 ,))" should not set the property value
 PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2( () 30deg - 0.523599rad ))" should not set the property value
 PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2(45deg ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2(30deg, + 0.261799rad))" should not set the property value
 PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2(2, 1px))" should not set the property value
 PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2(2, 1%))" should not set the property value
 FILE css/css-values/acos-asin-atan-atan2-serialize.html
@@ -614,7 +615,10 @@ PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * clamp(-i
 FILE css/css-values/calc-integer.html
 PASS css/css-values/calc-integer.html :: Sanity
 PASS css/css-values/calc-integer.html :: Basic division works
+PASS css/css-values/calc-integer.html :: Rounds up if fractional part is >= 0.5
+PASS css/css-values/calc-integer.html :: Accepts numbers, and rounds
 PASS css/css-values/calc-integer.html :: Operation between <integer> and <number> works
+PASS css/css-values/calc-integer.html :: Rounds down if fractional part is < 0.5
 PASS css/css-values/calc-integer.html :: Only rounds at the end of the conversion
 FILE css/css-values/calc-invalid-parsing.html
 PASS css/css-values/calc-invalid-parsing.html :: e.style['transform'] = "rotate(calc((0.25turn error)))" should not set the property value
@@ -964,6 +968,12 @@ PASS css/css-values/calc-unit-analysis.html :: multiplication_of_number_and_leng
 PASS css/css-values/calc-unit-analysis.html :: multiplication_of_length_and_length
 PASS css/css-values/calc-unit-analysis.html :: division_by_non_number
 FILE css/css-values/calc-z-index-fractions-001.html
+PASS css/css-values/calc-z-index-fractions-001.html :: testing z-index: calc(2.5 / 2)
+PASS css/css-values/calc-z-index-fractions-001.html :: testing z-index: calc(3 / 2)
+PASS css/css-values/calc-z-index-fractions-001.html :: testing z-index: calc(3.5 / 2)
+PASS css/css-values/calc-z-index-fractions-001.html :: testing z-index: calc(-2.5 / 2)
+PASS css/css-values/calc-z-index-fractions-001.html :: testing z-index: calc(-3 / 2)
+PASS css/css-values/calc-z-index-fractions-001.html :: testing z-index: calc(-3.5 / 2)
 FILE css/css-values/cap-invalidation.html
 PASS css/css-values/cap-invalidation.html :: Untitled
 FILE css/css-values/ch-empty-pseudo-recalc-on-font-load.html
@@ -1487,6 +1497,7 @@ PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(
 PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(0dpi))" should not set the property value
 PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(0fr))" should not set the property value
 PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(1deg, 0))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(1deg, 0%))" should not set the property value
 PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(1deg, 0px))" should not set the property value
 PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(1deg, 0s))" should not set the property value
 PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(1deg, 0Hz))" should not set the property value
@@ -1500,6 +1511,7 @@ PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(
 PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(0dpi))" should not set the property value
 PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(0fr))" should not set the property value
 PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(1deg, 0))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(1deg, 0%))" should not set the property value
 PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(1deg, 0px))" should not set the property value
 PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(1deg, 0s))" should not set the property value
 PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(1deg, 0Hz))" should not set the property value
@@ -1547,6 +1559,14 @@ PASS css/css-values/minmax-angle-serialize.html :: 'rotate(calc(max(45deg) + 50g
 FILE css/css-values/minmax-integer-computed.html
 PASS css/css-values/minmax-integer-computed.html :: min(1) should be used-value-equivalent to 1
 PASS css/css-values/minmax-integer-computed.html :: max(1) should be used-value-equivalent to 1
+PASS css/css-values/minmax-integer-computed.html :: min(0.4) should be used-value-equivalent to 0
+PASS css/css-values/minmax-integer-computed.html :: min(0.6) should be used-value-equivalent to 1
+PASS css/css-values/minmax-integer-computed.html :: max(0.4) should be used-value-equivalent to 0
+PASS css/css-values/minmax-integer-computed.html :: max(0.6) should be used-value-equivalent to 1
+PASS css/css-values/minmax-integer-computed.html :: min(1.1, max(0.4, 0.6)) should be used-value-equivalent to 1
+PASS css/css-values/minmax-integer-computed.html :: max(0.3, min(1.1, 0.4)) should be used-value-equivalent to 0
+PASS css/css-values/minmax-integer-computed.html :: calc(min(0.3, 0.6) * 2) should be used-value-equivalent to 1
+PASS css/css-values/minmax-integer-computed.html :: calc(max(0.3, 0.6) / 2) should be used-value-equivalent to 0
 FILE css/css-values/minmax-length-computed.html
 PASS css/css-values/minmax-length-computed.html :: min(1px) should be used-value-equivalent to 1px
 PASS css/css-values/minmax-length-computed.html :: min(1cm) should be used-value-equivalent to 1cm
@@ -1656,6 +1676,7 @@ PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] =
 PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(0dpi)" should not set the property value
 PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(0fr)" should not set the property value
 PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(1px, 0)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(1px, 0%)" should not set the property value
 PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(1px, 0s)" should not set the property value
 PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(1px, 0Hz)" should not set the property value
 PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(1px, 0dpi)" should not set the property value
@@ -1667,6 +1688,7 @@ PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] =
 PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(0dpi)" should not set the property value
 PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(0fr)" should not set the property value
 PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(1px, 0)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(1px, 0%)" should not set the property value
 PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(1px, 0s)" should not set the property value
 PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(1px, 0Hz)" should not set the property value
 PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(1px, 0dpi)" should not set the property value
@@ -1960,6 +1982,7 @@ PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "m
 PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(0dpi)" should not set the property value
 PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(0fr)" should not set the property value
 PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(1s, 0)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(1s, 0%)" should not set the property value
 PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(1s, 0px)" should not set the property value
 PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(1s, 0deg)" should not set the property value
 PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(1s, 0Hz)" should not set the property value
@@ -1973,6 +1996,7 @@ PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "m
 PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(0dpi)" should not set the property value
 PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(0fr)" should not set the property value
 PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(1s, 0)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(1s, 0%)" should not set the property value
 PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(1s, 0px)" should not set the property value
 PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(1s, 0deg)" should not set the property value
 PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(1s, 0Hz)" should not set the property value
@@ -2002,6 +2026,17 @@ PASS css/css-values/minmax-time-serialize.html :: 'max(1100ms, 1s)' as a compute
 PASS css/css-values/minmax-time-serialize.html :: 'calc(min(1s, 2s) + max(3s, 4s) + 10s)' as a specified value should serialize as 'calc(15s)'.
 PASS css/css-values/minmax-time-serialize.html :: 'calc(min(1s, 2s) + max(3s, 4s) + 10s)' as a computed value should serialize as '15s'.
 FILE css/css-values/percentage-without-context.html
+PASS css/css-values/percentage-without-context.html :: e.style['font-style'] = "oblique calc(sign(50%) * 1deg)" should not set the property value
+PASS css/css-values/percentage-without-context.html :: e.style['background'] = "linear-gradient(calc(sign(50%) * 1turn), #3f87a6, #ebf8e1, #f69d3c)" should not set the property value
+PASS css/css-values/percentage-without-context.html :: e.style['background'] = "conic-gradient(from calc(sign(50%) * 1rad) at 10% 50%, #e66465, #9198e5)" should not set the property value
+PASS css/css-values/percentage-without-context.html :: e.style['filter'] = "hue-rotate(calc(sign(50%) * 1deg))" should not set the property value
+PASS css/css-values/percentage-without-context.html :: e.style['offset-rotate'] = "calc(sign(50%) * 1deg)" should not set the property value
+PASS css/css-values/percentage-without-context.html :: e.style['offset-path'] = "ray(calc(sign(50%) * 1deg))" should not set the property value
+PASS css/css-values/percentage-without-context.html :: e.style['transform'] = "rotate(calc(sign(50%) * 1deg))" should not set the property value
+PASS css/css-values/percentage-without-context.html :: e.style['animation-duration'] = "calc(sign(50%) * 1s)" should not set the property value
+PASS css/css-values/percentage-without-context.html :: e.style['animation-delay'] = "calc(sign(50%) * 1s)" should not set the property value
+PASS css/css-values/percentage-without-context.html :: e.style['transition-duration'] = "calc(sign(50%) * 1s)" should not set the property value
+PASS css/css-values/percentage-without-context.html :: e.style['transition-delay'] = "calc(sign(50%) * 1s)" should not set the property value
 FILE css/css-values/position/position-computed.tentative.html
 PASS css/css-values/position/position-computed.tentative.html :: Property object-position value '-20% -30px'
 FILE css/css-values/position/position-invalid.tentative.html
@@ -3261,6 +3296,8 @@ PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(0Hz)
 PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(0dpi)" should not set the property value
 PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(0fr)" should not set the property value
 PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(1%)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign(10px + 5rad)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign(10%)" should not set the property value
 PASS css/css-values/signs-abs-invalid.html :: e.style['tab-size'] = "abs(10%)" should not set the property value
 PASS css/css-values/signs-abs-invalid.html :: e.style['tab-size'] = "1px * sign(10%)" should not set the property value
 PASS css/css-values/signs-abs-invalid.html :: e.style['tab-size'] = "1px * sign(1em + 10%)" should not set the property value
