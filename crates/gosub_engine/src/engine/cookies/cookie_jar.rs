@@ -343,6 +343,8 @@ pub trait CookieJar: Send + Sync {
 /// RFC 6265bis limits: a cookie line over this is ignored, an origin keeps
 /// at most this many.
 const MAX_COOKIE_BYTES: usize = 4096;
+/// An attribute whose value is longer than this is ignored (RFC 6265bis §5.6).
+const MAX_ATTRIBUTE_VALUE_BYTES: usize = 1024;
 const MAX_COOKIES_PER_ORIGIN: usize = 180;
 /// A jar keeps at most this many cookies over all origins (the order
 /// browsers use). Origins are unbounded - a page can name one per `<img>` -
@@ -654,6 +656,11 @@ impl CookieJar for DefaultCookieJar {
                 }
 
                 if let Some((k, v)) = part.split_once('=') {
+                    // Ignored, like an invalid value: an earlier attribute of the same name
+                    // still applies.
+                    if v.trim().len() > MAX_ATTRIBUTE_VALUE_BYTES {
+                        continue;
+                    }
                     // Trim the attribute name: "Secure =" is equivalent to "Secure".
                     match k.trim().cow_to_ascii_lowercase().as_ref() {
                         "path" => {
@@ -1718,17 +1725,65 @@ mod tests {
         );
     }
 
+    /// RFC 6265bis §5.6: an attribute value over 1024 bytes is ignored, whatever the
+    /// attribute, and an earlier one of the same name still applies.
+    #[test]
+    fn an_attribute_value_over_1024_bytes_is_ignored() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/dir/page");
+        let digits = "9".repeat(MAX_ATTRIBUTE_VALUE_BYTES + 1);
+        let long_path = format!("/{}", "p".repeat(MAX_ATTRIBUTE_VALUE_BYTES));
+        jar.store_response_cookies(
+            &req,
+            &headers(&[
+                &format!("a=1; Max-Age=3600; Max-Age={digits}"),
+                &format!("b=1; Path=/; Path={long_path}"),
+            ]),
+            None,
+        );
+        let cookie = |jar: &DefaultCookieJar, name: &str| {
+            jar.entries["https://example.com"]
+                .iter()
+                .find(|c| c.name == name)
+                .cloned()
+        };
+
+        let now = Utc::now().timestamp();
+        let expires = cookie(&jar, "a").and_then(|c| c.expires).expect("a keeps Max-Age=3600");
+        assert!(
+            (now + 3540..=now + 3600).contains(&expires),
+            "expires at {expires}, now is {now}"
+        );
+        let path = cookie(&jar, "b").and_then(|c| c.path);
+        assert_eq!(path.as_deref(), Some("/"), "the long Path must not replace Path=/");
+
+        jar.store_response_cookies(&req, &headers(&[&format!("a=1; Max-Age=-{digits}")]), None);
+        assert!(
+            cookie(&jar, "a").is_some(),
+            "a long negative Max-Age must not delete the cookie"
+        );
+
+        // At exactly 1024 bytes the value is still read.
+        let value = format!("-{}", "9".repeat(MAX_ATTRIBUTE_VALUE_BYTES - 1));
+        jar.store_response_cookies(&req, &headers(&[&format!("a=1; Max-Age={value}")]), None);
+        assert!(
+            cookie(&jar, "a").is_none(),
+            "a 1024-byte Max-Age must still delete the cookie"
+        );
+    }
+
     /// A count is not a size: big cookies hit the byte budget first, and the
     /// jar stays well inside the frame its snapshot travels in.
     #[test]
     fn the_jar_is_bounded_in_bytes_too() {
         let mut jar = DefaultCookieJar::new();
-        // The bulk sits in an unrecognised SameSite value, which is kept
-        // verbatim, so every string the snapshot carries has to count.
+        // Part of the bulk sits in an unrecognised SameSite value, which is
+        // kept verbatim, so every string the snapshot carries has to count.
         let value = "v".repeat(2000);
+        let same_site = "s".repeat(MAX_ATTRIBUTE_VALUE_BYTES);
         for i in 0..MAX_COOKIES_TOTAL {
             let req = url(&format!("https://o{i}.test/"));
-            let header = format!("c={value}; Path=/; SameSite={value}");
+            let header = format!("c={value}; Path=/; SameSite={same_site}");
             jar.store_response_cookies(&req, &headers(&[&header]), None);
         }
         let strings: usize = jar
