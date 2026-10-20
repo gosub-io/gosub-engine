@@ -331,6 +331,12 @@ and the clause that makes the new value right.
     both lay the property out as though it were not declared. taffy's own tree resolves every
     calc to 0, so this waits for layout to have its own tree.
 -   A percentage inset on a sticky element is not resolved, so it sticks to nothing.
+-   `display: contents` is not spliced inside a table, a row group or a row, nor on an element
+    whose children are table parts: the anonymous table boxes are built over DOM parents and
+    siblings, which splicing would no longer match. There it keeps the block box it had before.
+-   Of the block formatting context roots, only `display: flow-root` and a non-`visible`
+    `overflow` contain their floats; table cells, inline-blocks, flex and grid items and
+    absolutely positioned boxes do not yet.
 -   `background-size`, `-position` and `-repeat`, and the gradients in `background-image`, are
     still read by the pipeline from the untyped property map rather than the typed style.
 -   Cairo and Vello draw a corner with its horizontal radius only, so an elliptical corner (a

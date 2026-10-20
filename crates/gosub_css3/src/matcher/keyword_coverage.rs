@@ -54,6 +54,9 @@ const PROPERTIES: &[(&str, Prop, Field)] = &[
     ("table-layout", Prop::TableLayout, |s| {
         format!("{:?}", s.box_group.table_layout)
     }),
+    ("object-fit", Prop::ObjectFit, |s| {
+        format!("{:?}", s.box_group.object_fit)
+    }),
     ("vertical-align", Prop::VerticalAlign, |s| {
         format!("{:?}", s.box_group.vertical_align)
     }),
@@ -138,8 +141,6 @@ const KNOWN_GAPS: &[(&str, &str, Gap)] = &[
     ("clear", "bottom", Gap::Merged),
     ("clear", "top", Gap::Merged),
     // display: no Display variant, so each becomes a block (css-display-3 gives each its own box).
-    ("display", "contents", Gap::Merged),
-    ("display", "flow-root", Gap::Merged),
     ("display", "list-item", Gap::Merged),
     ("display", "math", Gap::Merged),
     ("display", "ruby", Gap::Merged),
@@ -148,8 +149,6 @@ const KNOWN_GAPS: &[(&str, &str, Gap)] = &[
     ("display", "ruby-text", Gap::Merged),
     ("display", "ruby-text-container", Gap::Merged),
     ("display", "run-in", Gap::Merged),
-    // flex-wrap: `balance` (css-flexbox-2) wraps like `wrap`, not `nowrap`.
-    ("flex-wrap", "balance", Gap::Merged),
     // float: logical and page floats: no Float variant, so they do not float.
     ("float", "block-end", Gap::Merged),
     ("float", "block-start", Gap::Merged),
@@ -163,8 +162,6 @@ const KNOWN_GAPS: &[(&str, &str, Gap)] = &[
     // font-style: `left`/`right` (the oblique direction, css-fonts-5) become normal.
     ("font-style", "left", Gap::Merged),
     ("font-style", "right", Gap::Merged),
-    // grid-auto-flow: `dense` alone is `row dense`; the packing mode is lost.
-    ("grid-auto-flow", "dense", Gap::Merged),
     // justify-content: `left`/`right` have no AlignValue.
     ("justify-content", "left", Gap::Merged),
     ("justify-content", "right", Gap::Merged),
@@ -221,6 +218,8 @@ const ALIASES: &[(&str, &str, Gap)] = &[
     ("clear", "both-inline", Gap::Merged),
     // `justify-all` justifies the last line as well; the line boxes know one justification.
     ("text-align", "justify-all", Gap::Merged),
+    // `flex-wrap: balance` (css-flexbox-2) wraps, and evens out its lines, which layout does not.
+    ("flex-wrap", "balance", Gap::Merged),
 ];
 
 /// The single keywords `name`'s grammar accepts, whether written in the property's own grammar
@@ -364,5 +363,31 @@ fn every_grammar_keyword_means_something() {
         "keyword coverage changed.\nNew gaps - map the keyword, or list it in KNOWN_GAPS:\n{}\nGone - take them off KNOWN_GAPS:\n{}",
         report(&new),
         report(&fixed),
+    );
+}
+
+/// Every valid two-keyword value of an engine property is read.
+///
+/// The walk above sees one keyword at a time, and a value of several arrives in another shape:
+/// `display: inline flex`, `align-items: safe center` and `grid-auto-flow: column dense` were all
+/// valid and all dropped, leaving the element at its initial value.
+#[test]
+fn every_valid_keyword_pair_is_read() {
+    let mut dropped = Vec::new();
+    for (name, prop, _) in PROPERTIES {
+        let keywords = grammar_keywords(name);
+        for first in &keywords {
+            for second in keywords.iter().filter(|second| *second != first) {
+                let value = format!("{first} {second}");
+                if style_of(name, &value).is_some_and(|style| !style.has(*prop)) {
+                    dropped.push(format!("{name}: {value}"));
+                }
+            }
+        }
+    }
+    assert!(
+        dropped.is_empty(),
+        "valid and never read:\n    {}",
+        dropped.join("\n    ")
     );
 }

@@ -87,14 +87,26 @@ pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect, media_store: &MediaSto
                     // translation is expressed in pattern units (pre-scaled by sx/sy).
                     let (sx, sy, ox, oy) = match tiling {
                         // Tiled `background-image`: repeat one `tile_size` (CSS px) cell across the
-                        // box, anchored at `background-position`. Nearest keeps tile edges crisp.
+                        // box, anchored at `background-position`. Nearest keeps tile edges crisp. A
+                        // single tile scaled to its box (`object-fit`, `background-size: cover`) has
+                        // no seam, and Nearest renders the photo jagged; one drawn at its own size
+                        // (an icon sprite) keeps Nearest and stays pixel-exact.
                         Some(t) => {
-                            pattern.set_filter(cairo::Filter::Nearest);
-                            // Cairo's surface extend is 2D; honour full-repeat (default) and no-repeat.
+                            let rescaled = (t.tile_size.0 - img.width() as f32).abs() > 1e-3
+                                || (t.tile_size.1 - img.height() as f32).abs() > 1e-3;
+                            pattern.set_filter(if !t.repeat.0 && !t.repeat.1 && rescaled {
+                                cairo::Filter::Bilinear
+                            } else {
+                                cairo::Filter::Nearest
+                            });
+                            // Cairo's surface extend is 2D: repeat when either axis repeats, else pad
+                            // to the image's own edge pixels, so bilinear sampling at the border does
+                            // not fade into transparency. The caller clips to the tile's footprint
+                            // (`Tiling::footprint`), which keeps the padding from showing.
                             let extend = if t.repeat.0 || t.repeat.1 {
                                 cairo::Extend::Repeat
                             } else {
-                                cairo::Extend::None
+                                cairo::Extend::Pad
                             };
                             pattern.set_extend(extend);
                             (

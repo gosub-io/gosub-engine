@@ -8282,9 +8282,10 @@ fn net_events() -> i32 {
         }
 
         // 4. A streamed body nobody reads: the consumer is dropped at once
-        // (the page was left while it loaded). Bigger than the ring, so the
-        // pump in the network process finds nobody draining and abandons the
-        // body. The request must still end, exactly once.
+        // (the page was left while it loaded), as the broker's own consumer is
+        // when its body is abandoned. Bigger than the ring, so the pump in the
+        // network process is waiting for room when the consumer lets go, and
+        // abandons the body. The request must still end, exactly once.
         let expected: Vec<u8> = (0..4_000_000u32).map(|i| (i % 253) as u8).collect();
         let Ok((port, server)) = serve_once_bytes(expected, "application/octet-stream") else {
             eprintln!("could not start the second streaming server");
@@ -8298,12 +8299,19 @@ fn net_events() -> i32 {
             ..Outbound::get(format!("http://127.0.0.1:{port}/"))
         };
         let reply = runtime.block_on(net.fetch(out, &cancel4, Some(recorder4.clone())));
-        if !matches!(reply.outcome, FetchOutcome::Streaming { .. }) {
-            eprintln!("expected a streamed reply: {:?}", reply.outcome);
+        let (FetchOutcome::Streaming { .. }, Some(ring)) = (&reply.outcome, reply.ring) else {
+            eprintln!("expected a streamed reply with its ring: {:?}", reply.outcome);
             net.shutdown();
             return 1;
+        };
+        match gosub_ipc::ring::RingConsumer::open(ring) {
+            Ok(consumer) => drop(consumer),
+            Err(e) => {
+                eprintln!("could not open the ring: {e}");
+                net.shutdown();
+                return 1;
+            }
         }
-        drop(reply);
         drop(server);
         if !recorder4.wait_for_terminal() {
             eprintln!(

@@ -1,38 +1,37 @@
 //! Turn a cascaded property map into the typed [`ComputedStyle`] the render pipeline reads.
 //!
 //! This is the one place a CSS value becomes a typed field. Everything a consumer used to do
-//! for itself - reading a colour keyword, deciding what `currentColor` means, working out what
-//! a `font-size` keyword is worth in pixels, zeroing a border whose style is `none` - happens
-//! here, once per element, against the parent's already-computed struct.
+//! for itself - reading a colour keyword, deciding what `currentColor` means, zeroing a border
+//! whose style is `none` - happens here, once per element, against the parent's
+//! already-computed struct.
 //!
 //! What is deliberately *not* here: percentages. A percentage needs a containing block, so it
 //! travels on in [`LengthPercentage`] and layout settles it.
 //!
-//! Some of what this does belongs further up, in the crate's own computed stage, and will move
-//! there: the system colours, the `font-size` keyword scale, and the `ch`/`ex`/`lh`/`ic`
-//! approximations are all computed-value questions the cascade could answer for every consumer
-//! rather than for this one. They are here for now because moving them would change the value
-//! the map reports, and this step changes nothing a map says.
+//! The system colours and the `font-size` keywords are not here: they are computed-value
+//! questions, and the cascade answers them for every consumer (`CssProperty::compute_value`).
 
 use std::sync::{Arc, LazyLock};
 
 use cow_utils::CowUtils;
 use gosub_interface::style::{
-    AlignValue, BorderCollapse, BorderStyle, BoxShadow, BoxSizing, CaptionSide, Clear, Color, ComputedStyle, Display,
-    FlexDirection, FlexWrap, Float, FontStyle, FontWeight, GridAreas, GridAutoFlow, GridLine, LengthPercentage,
-    LengthPercentageAuto, LetterSpacing, LineHeight, Overflow, Position, Prop, RepeatCount, TableLayout, TextAlign,
-    TextDecorationLine, TextTransform, TextWrap, TrackBreadth, TrackList, TrackListItem, TrackSize, VerticalAlign,
-    Visibility, WhiteSpace, ZIndex,
+    AlignValue, Anchor, BackgroundImage, BackgroundLayer, BackgroundRepeat, BackgroundSize, BackgroundTile,
+    BorderCollapse, BorderStyle, BoxShadow, BoxSizing, CaptionSide, Clear, Color, ComputedStyle, Display,
+    FlexDirection, FlexWrap, Float, FontStyle, FontWeight, GradientStop, GridAreas, GridAutoFlow, GridLine,
+    LengthPercentage, LengthPercentageAuto, LetterSpacing, LineHeight, LinearGradient, ObjectFit, Overflow, Position,
+    Prop, RepeatCount, TableLayout, TextAlign, TextDecorationLine, TextTransform, TextWrap, TrackBreadth, TrackList,
+    TrackListItem, TrackSize, VerticalAlign, Visibility, WhiteSpace, ZIndex,
 };
 
 use crate::colors::resolve::{resolve_color, ColorContext};
 use crate::colors::{CssColor, RgbColor};
 use crate::matcher::keywords::{
     BorderCollapseKeyword, BorderTopStyleKeyword, BoxSizingKeyword, CaptionSideKeyword, ClearKeyword,
-    FlexDirectionKeyword, Keyword, OutlineStyleKeyword, OverflowXKeyword, TableLayoutKeyword, TextAlignKeyword,
-    VisibilityKeyword, WhiteSpaceKeyword,
+    FlexDirectionKeyword, Keyword, ObjectFitKeyword, OutlineStyleKeyword, OverflowXKeyword, TableLayoutKeyword,
+    TextAlignKeyword, TextWrapModeKeyword, TextWrapStyleKeyword, VisibilityKeyword, WhiteSpaceKeyword,
 };
 use crate::matcher::property_ids::{LonghandId, PropertyId, LONGHAND_COUNT, PROPERTY_COUNT};
+use crate::matcher::shorthands::bg_position_axes;
 use crate::matcher::styling::CssProperties;
 use crate::stylesheet::CssValue;
 
@@ -55,11 +54,6 @@ fn value(map: &CssProperties, id: PropertyId) -> Option<&CssValue> {
 /// always seen them: an element used to be given an entry for every inherited property any
 /// ancestor had settled, so "what the cascade settled here" and "what this element inherits"
 /// were one question. They are two now, and this keeps the answer the one it was.
-///
-/// What that answer is, for the relative `font-size` keywords, is wrong: `small { font-size:
-/// smaller }` travels down as the keyword rather than as the length it computes to, and every
-/// element below re-applies it. Fixing that is not this change - it moves pixels on real pages
-/// - so it stays, and is reported.
 fn value_or_inherited(map: &CssProperties, id: PropertyId) -> Option<&CssValue> {
     value(map, id).or_else(|| map.inherited_value(id))
 }
@@ -91,6 +85,20 @@ fn as_string(value: &CssValue) -> Option<&str> {
         CssValue::String(string) => Some(string),
         _ => None,
     }
+}
+
+/// The keywords a value is made of: one for a single keyword, each of them for a value of
+/// several (`block flex`, `safe center`), and `None` when any part is not a keyword.
+///
+/// A property whose grammar combines keywords arrives as a list when more than one is written,
+/// and [`as_string`] alone reads none of it: `grid-auto-flow: column dense` used to leave the
+/// flow at `row`, and `display: inline flex` left the element inline.
+fn keyword_tokens(value: &CssValue) -> Option<&[CssValue]> {
+    let tokens = match value {
+        CssValue::List(items) => items.as_slice(),
+        single => std::slice::from_ref(single),
+    };
+    tokens.iter().all(|token| as_string(token).is_some()).then_some(tokens)
 }
 
 #[expect(clippy::cast_possible_truncation, reason = "style values are carried at f32")]
@@ -176,8 +184,8 @@ fn linear_calc(terms: &[CssValue]) -> Option<LengthPercentage> {
     let mut sign = 1.0_f32;
     for term in terms {
         match term {
-            CssValue::String(op) if op == "+" => sign = 1.0,
-            CssValue::String(op) if op == "-" => sign = -1.0,
+            CssValue::Delim(op) if op == "+" => sign = 1.0,
+            CssValue::Delim(op) if op == "-" => sign = -1.0,
             CssValue::Percentage(value) => percent += sign * *value as f32,
             CssValue::Unit(_, unit) if unit == "px" => px += sign * term.unit_to_px(),
             CssValue::Zero => {}
@@ -265,6 +273,250 @@ fn first_url(value: &CssValue) -> Option<&str> {
     as_list(value)?.iter().find_map(first_url)
 }
 
+// ── Positions, backgrounds, transforms ───────────────────────────────────────
+
+/// A value's comma-separated groups: one per layer of a `background-*` list, one per argument
+/// of a function. A value with no comma is one group.
+fn comma_groups(value: &CssValue) -> impl Iterator<Item = &[CssValue]> {
+    grid_tokens(value).split(|token| matches!(token, CssValue::Comma))
+}
+
+/// One axis of a `<position>`, from the tokens `background-position-x`, `-y` or one half of
+/// `object-position` hold: `center`, or an edge keyword, a length-percentage, or both.
+///
+/// `horizontal` says which edge keywords belong to this axis. The logical ones (`x-start`) are
+/// the physical ones in the horizontal-tb, ltr writing mode this engine assumes.
+fn anchor(tokens: &[CssValue], horizontal: bool, font_size: f32) -> Option<Anchor> {
+    let (start, end) = if horizontal {
+        (["left", "x-start"], ["right", "x-end"])
+    } else {
+        (["top", "y-start"], ["bottom", "y-end"])
+    };
+    let edge = |token: &CssValue| {
+        if start.iter().any(|word| is_keyword(token, word)) {
+            Some(false)
+        } else if end.iter().any(|word| is_keyword(token, word)) {
+            Some(true)
+        } else {
+            None
+        }
+    };
+    match tokens {
+        [only] if is_keyword(only, "center") => Some(Anchor::CENTER),
+        [only] => match edge(only) {
+            Some(from_end) => Some(Anchor {
+                from_end,
+                offset: LengthPercentage::ZERO,
+            }),
+            None => length_percentage(only, font_size).map(|offset| Anchor {
+                from_end: false,
+                offset,
+            }),
+        },
+        [keyword, offset] => Some(Anchor {
+            from_end: edge(keyword)?,
+            offset: length_percentage(offset, font_size)?,
+        }),
+        _ => None,
+    }
+}
+
+/// A whole `<position>` in one value, as `object-position` holds it: split into its two axes the
+/// way the `background-position` shorthand is, then read per axis.
+fn position(value: &CssValue, font_size: f32) -> Option<(Anchor, Anchor)> {
+    let (x, y) = bg_position_axes(grid_tokens(value))?;
+    Some((anchor(&x, true, font_size)?, anchor(&y, false, font_size)?))
+}
+
+/// One layer of `background-image`.
+fn background_image(group: &[CssValue], current: Color) -> BackgroundImage {
+    match group {
+        [image] => {
+            if is_keyword(image, "none") {
+                return BackgroundImage::None;
+            }
+            if let Some(url) = first_url(image) {
+                return BackgroundImage::Url(Arc::from(url));
+            }
+            match as_function(image) {
+                Some((name, args)) if name.eq_ignore_ascii_case("linear-gradient") => {
+                    linear_gradient(args, current).map_or(BackgroundImage::Other, BackgroundImage::Linear)
+                }
+                _ => BackgroundImage::Other,
+            }
+        }
+        _ => BackgroundImage::Other,
+    }
+}
+
+/// A `linear-gradient()`'s arguments: an optional direction, then the colour stops, with
+/// `currentcolor` standing for `current`. `None` with fewer than two stops that name a colour.
+fn linear_gradient(args: &[CssValue], current: Color) -> Option<LinearGradient> {
+    let mut groups = args.split(|token| matches!(token, CssValue::Comma)).peekable();
+    // `to bottom` when the direction is left out (css-images-3 §3.1.1).
+    let mut angle_deg = 180.0;
+    if let Some(angle) = groups.peek().and_then(|group| gradient_direction(group)) {
+        angle_deg = angle;
+        groups.next();
+    }
+    let stops: Vec<GradientStop> = groups
+        .filter_map(|group| {
+            let color = group.iter().find_map(|token| used_color(token, current))?;
+            let position = group.iter().find_map(as_percentage).map(|pct| pct / 100.0);
+            Some(GradientStop { color, position })
+        })
+        .collect();
+    (stops.len() >= 2).then(|| LinearGradient {
+        angle_deg,
+        stops: Arc::from(stops),
+    })
+}
+
+/// A gradient's direction in CSS degrees, or `None` when the group is a colour stop instead.
+fn gradient_direction(group: &[CssValue]) -> Option<f32> {
+    // The computed stage has already made every angle `deg`; the others are for a value that
+    // reached here another way.
+    if let [angle] = group {
+        if let Some((value, unit)) = as_unit(angle) {
+            return match unit.cow_to_ascii_lowercase().as_ref() {
+                "deg" => Some(value),
+                "grad" => Some(value * 0.9),
+                "rad" => Some(value.to_degrees()),
+                "turn" => Some(value * 360.0),
+                _ => None,
+            };
+        }
+    }
+    // `to <side-or-corner>`.
+    let (first, sides) = group.split_first()?;
+    if !is_keyword(first, "to") {
+        return None;
+    }
+    let has = |side: &str| sides.iter().any(|token| is_keyword(token, side));
+    Some(match (has("top"), has("right"), has("bottom"), has("left")) {
+        (true, false, false, false) => 0.0,
+        (false, true, false, false) => 90.0,
+        (false, false, true, false) => 180.0,
+        (false, false, false, true) => 270.0,
+        (true, true, false, false) => 45.0,
+        (false, true, true, false) => 135.0,
+        (false, false, true, true) => 225.0,
+        (true, false, false, true) => 315.0,
+        // The grammar admits nothing else.
+        _ => 180.0,
+    })
+}
+
+/// One layer of `background-size`.
+fn background_size(group: &[CssValue], font_size: f32) -> Option<BackgroundSize> {
+    let lpa = |token| length_percentage_auto(token, font_size);
+    match group {
+        [only] if is_keyword(only, "cover") => Some(BackgroundSize::Cover),
+        [only] if is_keyword(only, "contain") => Some(BackgroundSize::Contain),
+        // One value is the width; the height is `auto`.
+        [width] => Some(BackgroundSize::Explicit(lpa(width), LengthPercentageAuto::Auto)),
+        [width, height] => Some(BackgroundSize::Explicit(lpa(width), lpa(height))),
+        _ => None,
+    }
+}
+
+/// One layer of `background-repeat`, per axis.
+fn background_repeat(group: &[CssValue]) -> Option<(BackgroundRepeat, BackgroundRepeat)> {
+    let axis = |token: &CssValue| {
+        Some(match as_string(token)?.cow_to_ascii_lowercase().as_ref() {
+            "repeat" => BackgroundRepeat::Repeat,
+            "space" => BackgroundRepeat::Space,
+            "round" => BackgroundRepeat::Round,
+            "no-repeat" => BackgroundRepeat::NoRepeat,
+            _ => return None,
+        })
+    };
+    match group {
+        [only] if is_keyword(only, "repeat-x") => Some((BackgroundRepeat::Repeat, BackgroundRepeat::NoRepeat)),
+        [only] if is_keyword(only, "repeat-y") => Some((BackgroundRepeat::NoRepeat, BackgroundRepeat::Repeat)),
+        [both] => axis(both).map(|repeat| (repeat, repeat)),
+        [x, y] => Some((axis(x)?, axis(y)?)),
+        _ => None,
+    }
+}
+
+/// The background layers: one per `background-image` layer, each taking the size, position and
+/// repeat at its index, the lists repeated as often as they need to be (css-backgrounds-3
+/// §2.1). A list longer than the images has its extra entries ignored.
+fn background_layers(map: &CssProperties, current: Color, font_size: f32) -> Option<Arc<[BackgroundLayer]>> {
+    let images = value(map, longhand(LonghandId::BackgroundImage))?;
+    let list = |id| -> Vec<&[CssValue]> {
+        value(map, longhand(id))
+            .map(|value| comma_groups(value).collect())
+            .unwrap_or_default()
+    };
+    let sizes = list(LonghandId::BackgroundSize);
+    let xs = list(LonghandId::BackgroundPositionX);
+    let ys = list(LonghandId::BackgroundPositionY);
+    let repeats = list(LonghandId::BackgroundRepeat);
+    fn cycled<'a>(groups: &[&'a [CssValue]], index: usize) -> Option<&'a [CssValue]> {
+        groups.get(index % groups.len().max(1)).copied()
+    }
+
+    let initial = BackgroundTile::INITIAL;
+    let layers: Vec<BackgroundLayer> = comma_groups(images)
+        .enumerate()
+        .map(|(index, image)| BackgroundLayer {
+            image: background_image(image, current),
+            tile: BackgroundTile {
+                size: cycled(&sizes, index)
+                    .and_then(|group| background_size(group, font_size))
+                    .unwrap_or(initial.size),
+                position: (
+                    cycled(&xs, index)
+                        .and_then(|group| anchor(group, true, font_size))
+                        .unwrap_or(initial.position.0),
+                    cycled(&ys, index)
+                        .and_then(|group| anchor(group, false, font_size))
+                        .unwrap_or(initial.position.1),
+                ),
+                repeat: cycled(&repeats, index)
+                    .and_then(background_repeat)
+                    .unwrap_or(initial.repeat),
+            },
+        })
+        .collect();
+    Some(Arc::from(layers))
+}
+
+/// The translation part of a `transform` list: every `translate()`, `translateX()` and
+/// `translateY()` summed. `None` for `none`, and for a list with no translation in it. The other
+/// transform functions are not applied, and are not carried.
+fn translation(value: &CssValue, font_size: f32) -> Option<(LengthPercentage, LengthPercentage)> {
+    let mut total: Option<(LengthPercentage, LengthPercentage)> = None;
+    for function in grid_tokens(value) {
+        let Some((name, args)) = as_function(function) else {
+            continue;
+        };
+        let mut lengths = args
+            .split(|token| matches!(token, CssValue::Comma))
+            .map(|arg| match arg {
+                [length] => length_percentage(length, font_size),
+                _ => None,
+            });
+        let mut next = || lengths.next().flatten().unwrap_or(LengthPercentage::ZERO);
+        let (x, y) = match name.cow_to_ascii_lowercase().as_ref() {
+            "translate" => {
+                let x = next();
+                (x, next())
+            }
+            "translatex" => (next(), LengthPercentage::ZERO),
+            "translatey" => (LengthPercentage::ZERO, next()),
+            _ => continue,
+        };
+        total = Some(match total {
+            None => (x, y),
+            Some((tx, ty)) => (tx + x, ty + y),
+        });
+    }
+    total
+}
+
 // ── Grid ─────────────────────────────────────────────────────────────────────
 
 /// A value as the token sequence the grid grammars are written over.
@@ -277,6 +529,10 @@ fn grid_tokens(value: &CssValue) -> &[CssValue] {
 
 fn is_keyword(value: &CssValue, keyword: &str) -> bool {
     as_string(value).is_some_and(|word| word.eq_ignore_ascii_case(keyword))
+}
+
+fn is_delim(value: &CssValue, delim: &str) -> bool {
+    matches!(value, CssValue::Delim(d) if d == delim)
 }
 
 /// One side of a track size. A bare number is only a length when it is `0`, the one length CSS
@@ -331,10 +587,10 @@ fn track_items(tokens: &[CssValue], in_repeat: bool) -> Option<Vec<TrackListItem
     let mut index = 0;
     while index < tokens.len() {
         let token = &tokens[index];
-        if is_keyword(token, "[") {
+        if is_delim(token, "[") {
             let mut names = Vec::new();
             index += 1;
-            while index < tokens.len() && !is_keyword(&tokens[index], "]") {
+            while index < tokens.len() && !is_delim(&tokens[index], "]") {
                 names.push(Arc::from(as_string(&tokens[index])?));
                 index += 1;
             }
@@ -474,6 +730,8 @@ fn grid_areas(value: &CssValue) -> Option<GridAreas> {
 fn display_of(keyword: &str) -> Display {
     match keyword {
         "block" => Display::Block,
+        "flow-root" => Display::FlowRoot,
+        "contents" => Display::Contents,
         "inline" => Display::Inline,
         "inline-block" => Display::InlineBlock,
         "none" => Display::None,
@@ -491,10 +749,49 @@ fn display_of(keyword: &str) -> Display {
         "table-row-group" => Display::TableRowGroup,
         "table-column" => Display::TableColumn,
         "table-column-group" => Display::TableColumnGroup,
-        // `contents` and `list-item` among others: no box type of their own here, and a block
-        // box is the closest this engine has.
+        // `list-item` and `ruby` among others: no box type of their own here, and a block box
+        // is the closest this engine has.
         _ => Display::Block,
     }
+}
+
+/// A `display` value, in its one-keyword or its multi-keyword form.
+///
+/// css-display-3 §2: `<display-outside> || <display-inside>`, with `block` for an outer type left
+/// out and `flow` for an inner one. Each multi-keyword value lands on the box its one-keyword
+/// spelling names: `inline flow-root` is `inline-block`, `block flex` is `flex`. A `list-item`
+/// adds a marker to whatever box the rest names, and has no box type of its own here.
+fn display(value: &CssValue) -> Option<Display> {
+    let tokens = keyword_tokens(value)?;
+    if let [single] = tokens {
+        return as_string(single).map(display_of);
+    }
+    let mut inline = false;
+    let mut inside = None;
+    for token in tokens {
+        if is_keyword(token, "inline") {
+            inline = true;
+        } else if !["block", "run-in", "list-item"]
+            .iter()
+            .any(|outer| is_keyword(token, outer))
+        {
+            inside = as_string(token).map(CowUtils::cow_to_ascii_lowercase);
+        }
+    }
+    Some(match (inline, inside.as_deref()) {
+        (false, None | Some("flow")) => Display::Block,
+        (true, None | Some("flow")) => Display::Inline,
+        (false, Some("flow-root")) => Display::FlowRoot,
+        (true, Some("flow-root")) => Display::InlineBlock,
+        (false, Some("flex")) => Display::Flex,
+        (true, Some("flex")) => Display::InlineFlex,
+        (false, Some("grid")) => Display::Grid,
+        (true, Some("grid")) => Display::InlineGrid,
+        (false, Some("table")) => Display::Table,
+        (true, Some("table")) => Display::InlineTable,
+        // `ruby` and `math`, as in [`display_of`]: a block box is the closest this engine has.
+        (_, Some(_)) => Display::Block,
+    })
 }
 
 /// A `<line-style>`. The four `border-*-style` longhands share that grammar, so the top side's
@@ -519,6 +816,27 @@ fn keyword<K: Keyword>(value: &CssValue) -> Option<K> {
     as_string(value).and_then(K::from_ident)
 }
 
+/// An alignment value, in any of the shapes css-align-3 gives one.
+///
+/// `safe` and `unsafe` say what happens when the item overflows its container (§4.4), `first`
+/// and `last` pick the baseline set to align by (§4.2), and `legacy` beside a position says how
+/// the value inherits (§6.3). None of them changes which alignment this element gets, which is
+/// all layout reads, so the keyword left over decides. `legacy` on its own is its own value.
+fn align(value: &CssValue) -> Option<AlignValue> {
+    let tokens = keyword_tokens(value)?;
+    let modifier = |token: &&CssValue| {
+        ["safe", "unsafe", "first", "last", "legacy"]
+            .iter()
+            .any(|word| is_keyword(token, word))
+    };
+    tokens
+        .iter()
+        .find(|token| !modifier(token))
+        .or(tokens.first())
+        .and_then(as_string)
+        .map(align_of)
+}
+
 fn align_of(keyword: &str) -> AlignValue {
     match keyword {
         "normal" => AlignValue::Normal,
@@ -535,21 +853,6 @@ fn align_of(keyword: &str) -> AlignValue {
         "space-evenly" => AlignValue::SpaceEvenly,
         "legacy" => AlignValue::Legacy,
         _ => AlignValue::Other,
-    }
-}
-
-/// The absolute `font-size` keywords, in px. The CSS scale with `medium` at 16px.
-fn absolute_font_size(keyword: &str) -> Option<f32> {
-    match keyword {
-        "xx-small" => Some(9.0),
-        "x-small" => Some(10.0),
-        "small" => Some(13.0),
-        "medium" => Some(16.0),
-        "large" => Some(18.0),
-        "x-large" => Some(24.0),
-        "xx-large" => Some(32.0),
-        "xxx-large" => Some(48.0),
-        _ => None,
     }
 }
 
@@ -664,6 +967,9 @@ static ENGINE_LONGHANDS: &[(LonghandId, Prop, u16)] = &[
     (LonghandId::TextWrapMode, Prop::TextWrap, G_BOX),
     (LonghandId::TextWrapStyle, Prop::TextWrap, G_BOX),
     (LonghandId::TableLayout, Prop::TableLayout, G_BOX),
+    (LonghandId::ObjectFit, Prop::ObjectFit, G_BOX),
+    (LonghandId::ObjectPosition, Prop::ObjectPosition, G_BOX),
+    (LonghandId::Transform, Prop::Transform, G_BOX),
     (LonghandId::VerticalAlign, Prop::VerticalAlign, G_BOX),
     // size
     (LonghandId::Width, Prop::Width, G_SIZE),
@@ -739,6 +1045,10 @@ static ENGINE_LONGHANDS: &[(LonghandId, Prop, u16)] = &[
     // background
     (LonghandId::BackgroundColor, Prop::BackgroundColor, G_BACKGROUND),
     (LonghandId::BackgroundImage, Prop::BackgroundImage, G_BACKGROUND),
+    (LonghandId::BackgroundSize, Prop::BackgroundImage, G_BACKGROUND),
+    (LonghandId::BackgroundPositionX, Prop::BackgroundImage, G_BACKGROUND),
+    (LonghandId::BackgroundPositionY, Prop::BackgroundImage, G_BACKGROUND),
+    (LonghandId::BackgroundRepeat, Prop::BackgroundImage, G_BACKGROUND),
     (LonghandId::BoxShadow, Prop::BoxShadow, G_BACKGROUND),
     // inset
     (LonghandId::InsetBlockStart, Prop::InsetBlockStart, G_INSET),
@@ -857,7 +1167,7 @@ pub fn computed_style(map: &CssProperties, parent: Option<&ComputedStyle>) -> Co
     let font_size = style.inherited.font_size;
 
     if touched & G_BOX != 0 {
-        resolve_box(map, &mut style);
+        resolve_box(map, &mut style, font_size);
     }
     if touched & G_SIZE != 0 {
         resolve_sizes(map, &mut style, font_size);
@@ -907,26 +1217,15 @@ fn resolve_font(map: &CssProperties, style: &mut ComputedStyle, parent: Option<&
     style.inherited_mut().font_size_declared_in_chain = true;
     style.declared.set(Prop::FontSize);
 
-    // An `em` (or `ex`, `ch`) on `font-size` is a multiple of the *parent's* size, which is the
-    // basis the cascade already resolved it against. What is left is the keywords, and a
-    // percentage on the off chance the computed stage did not settle it.
+    // The cascade has already made the keywords, the percentages and every `em` px, against
+    // the parent's size. A percentage is read again on the off chance the computed stage did not
+    // settle it.
     style.inherited_mut().font_size = if as_unit(declared).is_some() {
         declared.unit_to_px()
     } else if let Some(pct) = as_percentage(declared) {
         parent_font_size * pct / 100.0
-    } else if let Some(number) = as_number(declared) {
-        number
-    } else if let Some(keyword) = as_string(declared) {
-        match absolute_font_size(keyword) {
-            Some(px) => px,
-            // The relative keywords step by the spec's suggested 1.2 factor.
-            None if keyword.eq_ignore_ascii_case("smaller") => parent_font_size / 1.2,
-            None if keyword.eq_ignore_ascii_case("larger") => parent_font_size * 1.2,
-            // A keyword nothing here knows: the readers all fall back to the initial size.
-            None => 16.0,
-        }
     } else {
-        16.0
+        as_number(declared).unwrap_or(16.0)
     };
 }
 
@@ -967,9 +1266,11 @@ fn family_is_monospace(family: &str) -> bool {
 fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
     read!(map, style, Color, inherited_mut, color, color);
 
-    read!(map, style, FontStyle, inherited_mut, font_style, |value| as_string(
-        value
-    )
+    // `oblique` can carry its angle (`oblique 10deg`), which the typed style has no room for.
+    read!(map, style, FontStyle, inherited_mut, font_style, |value| match value {
+        CssValue::List(items) => items.first().and_then(as_string),
+        single => as_string(single),
+    }
     .map(|keyword| match keyword {
         "italic" => FontStyle::Italic,
         "oblique" => FontStyle::Oblique,
@@ -1032,13 +1333,21 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
         TextAlignKeyword::WebkitCenter => TextAlign::WebkitCenter,
     }));
 
+    // `none | [ capitalize | uppercase | lowercase ] || full-width || full-size-kana`: the case
+    // keyword decides, wherever it is written. The other two do nothing here.
     read!(map, style, TextTransform, inherited_mut, text_transform, |value| {
-        as_string(value).map(|keyword| match keyword {
-            "uppercase" => TextTransform::Uppercase,
-            "lowercase" => TextTransform::Lowercase,
-            "capitalize" => TextTransform::Capitalize,
-            _ => TextTransform::None,
-        })
+        let tokens = keyword_tokens(value)?;
+        Some(
+            tokens
+                .iter()
+                .find_map(|token| match as_string(token)?.cow_to_ascii_lowercase().as_ref() {
+                    "uppercase" => Some(TextTransform::Uppercase),
+                    "lowercase" => Some(TextTransform::Lowercase),
+                    "capitalize" => Some(TextTransform::Capitalize),
+                    _ => None,
+                })
+                .unwrap_or(TextTransform::None),
+        )
     });
 
     resolve_text_decoration(map, style);
@@ -1147,9 +1456,8 @@ fn resolve_border_spacing(map: &CssProperties, style: &mut ComputedStyle, font_s
     }
 }
 
-fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
-    read!(map, style, Display, box_mut, display, |value| as_string(value)
-        .map(display_of));
+fn resolve_box(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
+    read!(map, style, Display, box_mut, display, display);
 
     read!(map, style, Position, box_mut, position, |value| as_string(value).map(
         |keyword| match keyword {
@@ -1228,15 +1536,15 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
 
     // `text-wrap` is a shorthand for these two (css-text-4 §5.1); one field holds both, since a
     // line that does not wrap has no style of wrapping.
-    let mode = value(map, longhand(LonghandId::TextWrapMode)).and_then(as_string);
-    let wrap_style = value(map, longhand(LonghandId::TextWrapStyle)).and_then(as_string);
+    let mode = value(map, longhand(LonghandId::TextWrapMode)).and_then(keyword::<TextWrapModeKeyword>);
+    let wrap_style = value(map, longhand(LonghandId::TextWrapStyle)).and_then(keyword::<TextWrapStyleKeyword>);
     if mode.is_some() || wrap_style.is_some() {
         style.box_mut().text_wrap = match (mode, wrap_style) {
-            (Some("nowrap"), _) => TextWrap::NoWrap,
-            (_, Some("balance")) => TextWrap::Balance,
-            (_, Some("pretty")) => TextWrap::Pretty,
-            (_, Some("stable")) => TextWrap::Stable,
-            _ => TextWrap::Wrap,
+            (Some(TextWrapModeKeyword::Nowrap), _) => TextWrap::NoWrap,
+            (_, Some(TextWrapStyleKeyword::Balance)) => TextWrap::Balance,
+            (_, Some(TextWrapStyleKeyword::Pretty)) => TextWrap::Pretty,
+            (_, Some(TextWrapStyleKeyword::Stable)) => TextWrap::Stable,
+            (Some(TextWrapModeKeyword::Wrap) | None, Some(TextWrapStyleKeyword::Auto) | None) => TextWrap::Wrap,
         };
         style.declared.set(Prop::TextWrap);
     }
@@ -1247,9 +1555,42 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
             TableLayoutKeyword::Auto => TableLayout::Auto,
         }));
 
-    read!(map, style, VerticalAlign, box_mut, vertical_align, |value| as_string(
-        value
-    )
+    read!(map, style, ObjectFit, box_mut, object_fit, |value| keyword(value).map(
+        |keyword| match keyword {
+            ObjectFitKeyword::Fill => ObjectFit::Fill,
+            ObjectFitKeyword::Contain => ObjectFit::Contain,
+            ObjectFitKeyword::Cover => ObjectFit::Cover,
+            ObjectFitKeyword::None => ObjectFit::None,
+            ObjectFitKeyword::ScaleDown => ObjectFit::ScaleDown,
+        }
+    ));
+
+    read!(map, style, ObjectPosition, box_mut, object_position, |value| position(
+        value, font_size
+    ));
+
+    read!(map, style, Transform, box_mut, translate, |value| Some(translation(
+        value, font_size
+    )));
+
+    // `[ first | last ] || <'alignment-baseline'> || <'baseline-shift'>`: which baseline set to
+    // use is nothing this engine distinguishes, so the keyword beside it decides. The style holds
+    // one keyword, and a shift (`baseline top`) moves the box further than the baseline it shifts
+    // from, so a shift wins over an alignment baseline in either order.
+    read!(map, style, VerticalAlign, box_mut, vertical_align, |value| {
+        let tokens = keyword_tokens(value)?;
+        let shift = |token: &&CssValue| ["sub", "super", "top", "bottom"].iter().any(|k| is_keyword(token, k));
+        tokens
+            .iter()
+            .find(shift)
+            .or_else(|| {
+                tokens
+                    .iter()
+                    .find(|token| !is_keyword(token, "first") && !is_keyword(token, "last"))
+            })
+            .or(tokens.first())
+            .and_then(as_string)
+    }
     .map(|keyword| match keyword {
         "baseline" => VerticalAlign::Baseline,
         "sub" => VerticalAlign::Sub,
@@ -1506,8 +1847,19 @@ fn resolve_background(map: &CssProperties, style: &mut ComputedStyle, font_size:
         color,
         move |value: &CssValue| used_color(value, current)
     );
-    if let Some(url) = value(map, longhand(LonghandId::BackgroundImage)).and_then(first_url) {
-        style.background_mut().image = Some(Arc::from(url));
+    // Five longhands make one list of layers, so they are read together. A size or a position
+    // with no image to apply to sets nothing, but it is still something the element declared.
+    let layer_longhands = [
+        LonghandId::BackgroundImage,
+        LonghandId::BackgroundSize,
+        LonghandId::BackgroundPositionX,
+        LonghandId::BackgroundPositionY,
+        LonghandId::BackgroundRepeat,
+    ];
+    if layer_longhands.iter().any(|id| value(map, longhand(*id)).is_some()) {
+        if let Some(layers) = background_layers(map, current, font_size) {
+            style.background_mut().layers = layers;
+        }
         style.declared.set(Prop::BackgroundImage);
     }
     read!(
@@ -1617,13 +1969,22 @@ fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) 
     read!(map, style, FlexShrink, flex_mut, shrink, as_number);
     read!(map, style, Order, flex_mut, order, as_integer);
 
-    read!(map, style, FlexWrap, flex_mut, wrap, |value| as_string(value).map(
-        |keyword| match keyword {
-            "wrap" => FlexWrap::Wrap,
-            "wrap-reverse" => FlexWrap::WrapReverse,
-            _ => FlexWrap::NoWrap,
+    // `nowrap | [ wrap | wrap-reverse ] || balance`. `balance` (css-flexbox-2) evens out the lines
+    // of a container that wraps, which layout does not do, but it only means anything on one that
+    // wraps: on its own it is `wrap`.
+    read!(map, style, FlexWrap, flex_mut, wrap, |value| {
+        let tokens = keyword_tokens(value)?;
+        if tokens.iter().any(|token| is_keyword(token, "wrap-reverse")) {
+            Some(FlexWrap::WrapReverse)
+        } else if tokens
+            .iter()
+            .any(|token| is_keyword(token, "wrap") || is_keyword(token, "balance"))
+        {
+            Some(FlexWrap::Wrap)
+        } else {
+            Some(FlexWrap::NoWrap)
         }
-    ));
+    });
 
     // `normal` is 0 in flex and grid layout, which is all that reads these, so it is left to the
     // initial value rather than mapped.
@@ -1634,7 +1995,6 @@ fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) 
         value, font_size
     ));
 
-    let align = |value: &CssValue| as_string(value).map(align_of);
     read!(map, style, AlignItems, flex_mut, align_items, align);
     read!(map, style, AlignSelf, flex_mut, align_self, align);
     read!(map, style, AlignContent, flex_mut, align_content, align);
@@ -1657,13 +2017,18 @@ fn resolve_grid(map: &CssProperties, style: &mut ComputedStyle) {
 
     read!(map, style, GridTemplateAreas, grid_mut, template_areas, grid_areas);
 
-    read!(map, style, GridAutoFlow, grid_mut, auto_flow, |value| as_string(value)
-        .map(|keyword| match keyword {
-            "column" => GridAutoFlow::Column,
-            "row dense" => GridAutoFlow::RowDense,
-            "column dense" => GridAutoFlow::ColumnDense,
-            _ => GridAutoFlow::Row,
-        }));
+    // `[ row | column ] || dense`, with `row` where the direction is left out.
+    read!(map, style, GridAutoFlow, grid_mut, auto_flow, |value| {
+        let tokens = keyword_tokens(value)?;
+        let column = tokens.iter().any(|token| is_keyword(token, "column"));
+        let dense = tokens.iter().any(|token| is_keyword(token, "dense"));
+        Some(match (column, dense) {
+            (false, false) => GridAutoFlow::Row,
+            (true, false) => GridAutoFlow::Column,
+            (false, true) => GridAutoFlow::RowDense,
+            (true, true) => GridAutoFlow::ColumnDense,
+        })
+    });
 }
 
 #[cfg(test)]
@@ -1800,7 +2165,7 @@ mod tests {
         );
         let layers = style_of("background: url(a.png), linear-gradient(red, blue) green");
         assert_eq!(layers.background.color, Color::rgba(0, 128, 0, 255));
-        assert_eq!(layers.background.image.as_deref(), Some("a.png"));
+        assert_eq!(layers.background.first_url().map(|(url, _)| url), Some("a.png"));
     }
 
     /// A CSS-wide keyword on a shorthand reaches every longhand (css-cascade-5 §7.3), so the
@@ -2038,6 +2403,75 @@ mod tests {
         );
     }
 
+    /// A value of several keywords arrives as a list, and is read like its one-keyword spelling.
+    #[test]
+    fn multi_keyword_values_are_read() {
+        let display = |css| style_of(css).box_group.display;
+        assert_eq!(display("display: block flow"), Display::Block);
+        assert_eq!(display("display: inline flow"), Display::Inline);
+        assert_eq!(display("display: inline flow-root"), Display::InlineBlock);
+        assert_eq!(display("display: block flex"), Display::Flex);
+        assert_eq!(display("display: inline grid"), Display::InlineGrid);
+        assert_eq!(display("display: inline table"), Display::InlineTable);
+        assert_eq!(display("display: inline list-item"), Display::Inline);
+        assert_eq!(display("display: list-item flow-root"), Display::FlowRoot);
+
+        let flow = |css| style_of(css).grid.auto_flow;
+        assert_eq!(flow("grid-auto-flow: column dense"), GridAutoFlow::ColumnDense);
+        assert_eq!(flow("grid-auto-flow: dense row"), GridAutoFlow::RowDense);
+        assert_eq!(flow("grid-auto-flow: dense"), GridAutoFlow::RowDense);
+
+        assert_eq!(
+            style_of("align-items: safe center").flex.align_items,
+            AlignValue::Center
+        );
+        assert_eq!(
+            style_of("align-items: last baseline").flex.align_items,
+            AlignValue::Baseline
+        );
+        assert_eq!(
+            style_of("justify-content: unsafe end").flex.justify_content,
+            AlignValue::End
+        );
+        assert_eq!(
+            style_of("justify-items: legacy center").flex.justify_items,
+            AlignValue::Center
+        );
+        assert_eq!(style_of("justify-items: legacy").flex.justify_items, AlignValue::Legacy);
+
+        assert_eq!(
+            style_of("flex-wrap: wrap-reverse balance").flex.wrap,
+            FlexWrap::WrapReverse
+        );
+        assert_eq!(style_of("flex-wrap: balance").flex.wrap, FlexWrap::Wrap);
+        assert_eq!(
+            style_of("text-transform: full-width uppercase")
+                .inherited
+                .text_transform,
+            TextTransform::Uppercase
+        );
+        assert_eq!(
+            style_of("font-style: oblique 10deg").inherited.font_style,
+            FontStyle::Oblique
+        );
+        assert_eq!(
+            style_of("vertical-align: first middle").box_group.vertical_align,
+            VerticalAlign::Middle
+        );
+        assert_eq!(
+            style_of("vertical-align: baseline top").box_group.vertical_align,
+            VerticalAlign::Top
+        );
+        assert_eq!(
+            style_of("vertical-align: top baseline").box_group.vertical_align,
+            VerticalAlign::Top
+        );
+        assert_eq!(
+            style_of("vertical-align: middle super").box_group.vertical_align,
+            VerticalAlign::Super
+        );
+    }
+
     /// The grid shorthands arrive as their four lines, in source order: a later `grid-row` after
     /// `grid-area` now moves the item, which the layouter's own shorthand reader could not do.
     #[test]
@@ -2095,6 +2529,12 @@ mod tests {
         assert_eq!(
             lines("grid-row: 0 a / span -2 a"),
             [GridLine::Auto, GridLine::Auto, GridLine::Auto, GridLine::Auto]
+        );
+        // A quoted `"/"` is not an identifier, so the declaration is dropped and the earlier
+        // placement stands.
+        assert_eq!(
+            lines("grid-row-start: 2; grid-row-start: \"/\""),
+            [GridLine::Line(2), GridLine::Auto, GridLine::Auto, GridLine::Auto]
         );
     }
 
@@ -2441,7 +2881,178 @@ mod tests {
     fn the_background_shorthand_gives_up_its_colour_and_image() {
         let style = style_of("background: #ffffff url(\"grayarrow.gif\") no-repeat");
         assert_eq!(style.background.color, Color::rgba(255, 255, 255, 255));
-        assert_eq!(style.background.image.as_deref(), Some("grayarrow.gif"));
+        assert_eq!(style.background.first_url().map(|(url, _)| url), Some("grayarrow.gif"));
+        assert_eq!(
+            style.background.layers[0].tile.repeat,
+            (BackgroundRepeat::NoRepeat, BackgroundRepeat::NoRepeat)
+        );
+    }
+
+    fn px_anchor(from_end: bool, px: f32) -> Anchor {
+        Anchor {
+            from_end,
+            offset: LengthPercentage::Px(px),
+        }
+    }
+
+    fn pct_anchor(pct: f32) -> Anchor {
+        Anchor {
+            from_end: false,
+            offset: LengthPercentage::Percent(pct),
+        }
+    }
+
+    /// The position of the first background layer, for `background-position: <css>`.
+    fn bg_position(css: &str) -> (Anchor, Anchor) {
+        let style = style_of(&format!("background-image: url(a.png); background-position: {css}"));
+        style.background.layers[0].tile.position
+    }
+
+    /// The two-keyword form may be written in either order, so `center right` has to mean the same
+    /// as `right center`. Taking the first value as the horizontal one put Wikipedia's
+    /// external-link icon in the middle of every link.
+    #[test]
+    fn position_keyword_pairs_are_read_in_either_order() {
+        let right_middle = (px_anchor(true, 0.0), Anchor::CENTER);
+        assert_eq!(bg_position("right center"), right_middle);
+        assert_eq!(bg_position("center right"), right_middle);
+        let middle_top = (Anchor::CENTER, Anchor::START);
+        assert_eq!(bg_position("center top"), middle_top);
+        assert_eq!(bg_position("top center"), middle_top);
+    }
+
+    #[test]
+    fn one_position_value_centres_the_other_axis() {
+        assert_eq!(bg_position("right"), (px_anchor(true, 0.0), Anchor::CENTER));
+        assert_eq!(bg_position("center"), (Anchor::CENTER, Anchor::CENTER));
+        assert_eq!(bg_position("20px"), (px_anchor(false, 20.0), Anchor::CENTER));
+    }
+
+    /// `center 4px` is the two-value form: the `center` is the horizontal value and the length the
+    /// vertical one. An edge keyword takes the offset after it: `right 10px` is 10px from the
+    /// right edge, and `right 10%` 10% from it.
+    #[test]
+    fn position_offsets_belong_to_their_axis() {
+        assert_eq!(bg_position("center 4px"), (Anchor::CENTER, px_anchor(false, 4.0)));
+        assert_eq!(bg_position("4px center"), (px_anchor(false, 4.0), Anchor::CENTER));
+        assert_eq!(bg_position("50% 100%"), (pct_anchor(50.0), pct_anchor(100.0)));
+        assert_eq!(
+            bg_position("right 10px bottom 4px"),
+            (px_anchor(true, 10.0), px_anchor(true, 4.0))
+        );
+        let right_ten_percent = Anchor {
+            from_end: true,
+            offset: LengthPercentage::Percent(10.0),
+        };
+        assert_eq!(bg_position("right 10% top").0, right_ten_percent);
+    }
+
+    /// An anchor only becomes a pixel offset once the box and what is placed in it are known.
+    #[test]
+    fn anchors_resolve_against_the_free_space() {
+        use gosub_interface::used::anchor;
+        assert_eq!(anchor(px_anchor(false, 12.0), 300.0, 20.0), 12.0);
+        assert_eq!(anchor(px_anchor(true, 0.0), 300.0, 20.0), 280.0);
+        assert_eq!(anchor(px_anchor(true, 10.0), 300.0, 20.0), 270.0);
+        assert_eq!(anchor(Anchor::CENTER, 300.0, 20.0), 140.0);
+        assert_eq!(anchor(pct_anchor(100.0), 300.0, 20.0), 280.0);
+    }
+
+    /// The longhands are what the cascade settles, so one written after the shorthand wins. The
+    /// pipeline used to read the `background-position` shorthand's own entry, and ignored it.
+    #[test]
+    fn a_position_longhand_after_the_shorthand_wins() {
+        let style =
+            style_of("background-image: url(a.png); background-position: right bottom; background-position-x: left");
+        assert_eq!(
+            style.background.layers[0].tile.position,
+            (Anchor::START, px_anchor(true, 0.0))
+        );
+    }
+
+    /// Every image is a layer, `url()` or gradient or `none`, and each takes the size, position and
+    /// repeat at its own index, the shorter lists repeated (css-backgrounds-3 §2.1). The pipeline
+    /// used to count gradients only, so a gradient after a `url()` took the `url()`'s size.
+    #[test]
+    fn background_lists_cycle_over_every_image_layer() {
+        let style = style_of(
+            "background-image: url(a.png), linear-gradient(red, blue), none; \
+             background-size: 10px 20px, cover; background-repeat: no-repeat",
+        );
+        let layers = &style.background.layers;
+        assert_eq!(layers.len(), 3);
+        assert!(matches!(layers[1].image, BackgroundImage::Linear(_)));
+        assert_eq!(layers[2].image, BackgroundImage::None);
+        assert_eq!(
+            layers[0].tile.size,
+            BackgroundSize::Explicit(LengthPercentageAuto::Px(10.0), LengthPercentageAuto::Px(20.0))
+        );
+        assert_eq!(layers[1].tile.size, BackgroundSize::Cover);
+        assert_eq!(layers[2].tile.size, layers[0].tile.size);
+        let no_repeat = (BackgroundRepeat::NoRepeat, BackgroundRepeat::NoRepeat);
+        assert!(layers.iter().all(|layer| layer.tile.repeat == no_repeat));
+    }
+
+    /// Background layers do not inherit: a child that declares only a size has no image to size,
+    /// and does not take its parent's.
+    #[test]
+    fn a_size_without_an_image_paints_nothing() {
+        let parent = style_of("background-image: url(a.png)");
+        let child = computed_style(&map_of("background-size: cover"), Some(&parent));
+        assert!(child.background.layers.is_empty());
+        assert!(child.has(Prop::BackgroundImage));
+    }
+
+    /// One `background-size` value is the width; the height is `auto` (css-backgrounds-3 §3.9).
+    #[test]
+    fn one_background_size_leaves_the_height_auto() {
+        let style = style_of("background-image: url(a.png); background-size: 30%");
+        assert_eq!(
+            style.background.layers[0].tile.size,
+            BackgroundSize::Explicit(LengthPercentageAuto::Percent(30.0), LengthPercentageAuto::Auto)
+        );
+    }
+
+    #[test]
+    fn gradient_direction_and_stops() {
+        let style = style_of("background-image: linear-gradient(to right, red 10%, blue)");
+        let BackgroundImage::Linear(gradient) = &style.background.layers[0].image else {
+            panic!("a linear gradient");
+        };
+        assert_eq!(gradient.angle_deg, 90.0);
+        assert_eq!(gradient.stops.len(), 2);
+        assert_eq!(gradient.stops[0].color, Color::rgba(255, 0, 0, 255));
+        assert_eq!(gradient.stops[0].position, Some(0.1));
+        assert_eq!(gradient.stops[1].position, None);
+    }
+
+    #[test]
+    fn object_position_is_typed() {
+        assert_eq!(style_of("").box_group.object_position, (Anchor::CENTER, Anchor::CENTER));
+        assert_eq!(
+            style_of("object-position: right 5px top 0px").box_group.object_position,
+            (px_anchor(true, 5.0), Anchor::START)
+        );
+    }
+
+    /// The translations in a `transform` list add up, a length and a percentage into one `calc()`
+    /// rather than the later one winning.
+    #[test]
+    fn transform_translations_sum() {
+        assert_eq!(style_of("transform: none").box_group.translate, None);
+        assert_eq!(style_of("transform: rotate(10deg)").box_group.translate, None);
+        assert_eq!(
+            style_of("transform: translate(10px, 5%) rotate(10deg) translateX(50%)")
+                .box_group
+                .translate,
+            Some((
+                LengthPercentage::Calc {
+                    px: 10.0,
+                    percent: 50.0
+                },
+                LengthPercentage::Percent(5.0)
+            ))
+        );
     }
 
     /// Pages write the physical `top`/`left`; the pipeline models the insets logically.
@@ -2574,17 +3185,18 @@ mod tests {
     }
 
     /// The absolute `font-size` keywords are the CSS scale with `medium` at 16px; the relative
-    /// ones step by the spec's suggested 1.2 factor, against the parent's size.
+    /// ones step by the spec's suggested 1.2 factor, against the parent's size, which is the
+    /// basis the cascade gives `font-size`.
     #[test]
     fn font_size_keywords() {
         let style = computed_style(&map(&[("font-size", keyword("x-large"))]), None);
         assert_eq!(style.inherited.font_size, 24.0);
 
         let parent = computed_style(&map(&[("font-size", px(20.0))]), None);
-        let child = computed_style(&map(&[("font-size", keyword("larger"))]), Some(&parent));
+        let child = computed_style(&map_with(&[("font-size", keyword("larger"))], 20.0), Some(&parent));
         assert_eq!(child.inherited.font_size, 24.0);
 
-        let child = computed_style(&map(&[("font-size", keyword("smaller"))]), Some(&parent));
+        let child = computed_style(&map_with(&[("font-size", keyword("smaller"))], 20.0), Some(&parent));
         assert!((child.inherited.font_size - 20.0 / 1.2).abs() < 0.001);
     }
 

@@ -50,7 +50,7 @@ fn exactly_equal(a: &CssValue, b: &CssValue) -> bool {
         (CssValue::Color(a), CssValue::Color(b)) => a.exact_parts() == b.exact_parts(),
         (CssValue::Number(a, ak), CssValue::Number(b, bk)) => a.to_bits() == b.to_bits() && ak == bk,
         (CssValue::Percentage(a), CssValue::Percentage(b)) => a.to_bits() == b.to_bits(),
-        (CssValue::String(a), CssValue::String(b)) => a == b,
+        (CssValue::String(a), CssValue::String(b)) | (CssValue::Delim(a), CssValue::Delim(b)) => a == b,
         (CssValue::Unit(a, au), CssValue::Unit(b, bu)) => a.to_bits() == b.to_bits() && au == bu,
         (CssValue::Function(an, aa), CssValue::Function(bn, ba)) => {
             an == bn && aa.len() == ba.len() && aa.iter().zip(ba).all(|(a, b)| exactly_equal(a, b))
@@ -72,7 +72,7 @@ fn hash_value<H: Hasher>(value: &CssValue, state: &mut H) {
             kind.hash(state);
         }
         CssValue::Percentage(number) => number.to_bits().hash(state),
-        CssValue::String(text) => text.hash(state),
+        CssValue::String(text) | CssValue::Delim(text) => text.hash(state),
         CssValue::Unit(number, unit) => {
             number.to_bits().hash(state);
             unit.hash(state);

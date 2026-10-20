@@ -132,6 +132,10 @@ pub fn reach_config(cfg: &FetcherConfig, reach: AddressSpace) -> FetcherConfig {
 /// that is compiled in. Nothing (a null observer) for a reference no tab
 /// owns. Shared by the in-process fetcher, which asks per request, and the
 /// network-process dispatch, which has no fetcher to ask it.
+///
+/// `background` is a revalidation the fetcher started itself: reported on a
+/// row of its own, but not as its reference's progress or timing.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn observer_for_request(
     resource_tx: &ResourceChannel,
     event_tx: &EventChannel,
@@ -140,6 +144,7 @@ pub(crate) fn observer_for_request(
     req_id: RequestId,
     kind: ResourceKind,
     initiator: Initiator,
+    background: bool,
 ) -> Arc<dyn NetObserver + Send + Sync> {
     let Some(reference) = REF_REGISTRY.from_net(reference) else {
         log::trace!("Cannot resolve net reference {:?} to an engine reference", reference);
@@ -157,7 +162,7 @@ pub(crate) fn observer_for_request(
         log::trace!("Cannot find the request reference for reference {:?}", reference);
         return Arc::new(NullEmitter) as Arc<dyn NetObserver + Send + Sync>;
     };
-    let observer = Arc::new(EngineEventEmitter::new(
+    let emitter = EngineEventEmitter::new(
         tab_id,
         req_id,
         reference,
@@ -165,7 +170,9 @@ pub(crate) fn observer_for_request(
         event_tx.clone(),
         kind,
         initiator,
-    )) as Arc<dyn NetObserver + Send + Sync>;
+    );
+    let emitter = if background { emitter.in_background() } else { emitter };
+    let observer = Arc::new(emitter) as Arc<dyn NetObserver + Send + Sync>;
 
     // Timing decorates the emitter rather than replacing it: it reads the
     // fetch timings off each event in passing and forwards the event on.
@@ -176,8 +183,9 @@ pub(crate) fn observer_for_request(
         // Only the main document's request is referenced by its navigation;
         // sub-resources reference a Document, which carries no navigation, so
         // they record unattributed rather than against a guessed one.
+        // A background revalidation is no part of the navigation it refreshes.
         let scope = match reference {
-            crate::net::req_ref_tracker::RequestReference::Navigation(nav_id) => {
+            crate::net::req_ref_tracker::RequestReference::Navigation(nav_id) if !background => {
                 Some(gosub_shared::timing::ScopeId(nav_id.0))
             }
             _ => None,
@@ -235,6 +243,28 @@ impl FetcherContext for EngineNetContext {
             req_id,
             kind,
             initiator,
+            false,
+        )
+    }
+
+    // A revalidation the fetcher starts itself, after the request it refreshes
+    // was answered from the cache: not the navigation loading again.
+    fn background_observer_for(
+        &self,
+        reference: gosub_sonar::RequestReference,
+        req_id: RequestId,
+        kind: ResourceKind,
+        initiator: Initiator,
+    ) -> Arc<dyn NetObserver + Send + Sync> {
+        observer_for_request(
+            &self.resource_tx,
+            &self.event_tx,
+            &self.request_reference_map,
+            reference,
+            req_id,
+            kind,
+            initiator,
+            true,
         )
     }
 
@@ -355,14 +385,18 @@ mod dns_resolver_tests {
     }
 }
 
-/// Cookies across real redirect hops, through a fetcher and the engine's hook: each hop is
-/// judged by its method and the chain before it.
+/// A fetcher with the engine's context against real servers: cookies across redirect hops,
+/// each judged by its method and the chain before it, and how a background revalidation is
+/// reported.
 #[cfg(test)]
-mod redirect_cookie_tests {
+mod fetcher_context_tests {
     use super::*;
     use crate::engine::cookies::{CookieJar, CookieJarHandle, DefaultCookieJar};
+    use crate::engine::events::{NavigationEvent, ResourceEvent};
     use crate::engine::types::NavigationId;
+    use crate::events::{EngineEvent, ResourceUpdate};
     use crate::net::req_ref_tracker::RequestReference;
+    use crate::net::types::FetchResult;
     use crate::tab::TabId;
     use std::collections::HashMap;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -408,6 +442,23 @@ mod redirect_cookie_tests {
     /// holding `cookies` for `site`. The navigation is the user's own, started over the
     /// network, so its hops are judged from its first URL.
     fn navigating_tab(top_level: &Url, site: &Url, cookies: &[&str]) -> (Arc<Fetcher>, gosub_sonar::RequestReference) {
+        navigating_tab_on(
+            top_level,
+            site,
+            cookies,
+            tokio::sync::broadcast::channel(16).0,
+            tokio::sync::broadcast::channel(16).0,
+        )
+    }
+
+    /// [`navigating_tab`], reporting on the given channels.
+    fn navigating_tab_on(
+        top_level: &Url,
+        site: &Url,
+        cookies: &[&str],
+        resource_tx: crate::engine::types::ResourceChannel,
+        event_tx: crate::engine::types::EventChannel,
+    ) -> (Arc<Fetcher>, gosub_sonar::RequestReference) {
         let mut jar = DefaultCookieJar::new();
         let mut headers = http::HeaderMap::new();
         for cookie in cookies {
@@ -425,8 +476,8 @@ mod redirect_cookie_tests {
         let map = Arc::new(RwLock::new(RequestReferenceMap::new()));
         map.write().insert(reference, tab);
         let context = EngineNetContext {
-            resource_tx: tokio::sync::broadcast::channel(16).0,
-            event_tx: tokio::sync::broadcast::channel(16).0,
+            resource_tx,
+            event_tx,
             request_reference_map: map,
             request_ref_tracker: Arc::new(RequestRefTracker::new()),
             tab_identities: identities,
@@ -438,10 +489,7 @@ mod redirect_cookie_tests {
             ..FetcherConfig::default()
         };
         let fetcher = Arc::new(Fetcher::new(config, Arc::new(context)).unwrap());
-        tokio::spawn({
-            let fetcher = fetcher.clone();
-            async move { fetcher.run(tokio_util::sync::CancellationToken::new()).await }
-        });
+        tokio::spawn(fetcher.clone().run(tokio_util::sync::CancellationToken::new()));
         (fetcher, REF_REGISTRY.to_net(reference))
     }
 
@@ -457,6 +505,100 @@ mod redirect_cookie_tests {
             req = req.with_body(crate::net::types::RequestBody::form("a=1"));
         }
         req.build()
+    }
+
+    /// A navigation answered from a stale cached response is revalidated by a request of the
+    /// fetcher's own. That request has a row of its own, but its progress is not the
+    /// navigation's: the navigation already finished, and must not look like it loads again.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_background_revalidation_is_not_the_navigation_loading_again() {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let served = hits.clone();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = vec![0u8; 8192];
+                let _ = stream.read(&mut buf).await;
+                served.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let body = "<p>hello</p>";
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nCache-Control: max-age=0, stale-while-revalidate=60\r\n\
+                     Content-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes()).await;
+            }
+        });
+
+        let url = Url::parse(&format!("http://127.0.0.1:{port}/doc")).unwrap();
+        let (resource_tx, mut resources) = tokio::sync::broadcast::channel(256);
+        let (event_tx, mut events) = tokio::sync::broadcast::channel(256);
+        let (fetcher, reference) = navigating_tab_on(&url, &url, &[], resource_tx, event_tx);
+        // Stale-while-revalidate serves a request made by a document, one with an origin.
+        let request = || {
+            crate::net::types::FetchRequest::builder(http::Method::GET, url.clone())
+                .with_reference(reference)
+                .with_kind(ResourceKind::Primary)
+                .with_origin(url.origin())
+                .build()
+        };
+
+        // The first navigation stores the response; its progress is the navigation's.
+        assert!(matches!(fetcher.fetch(request()).await, FetchResult::Buffered { .. }));
+        let mut navigation_progress = 0;
+        while let Ok(event) = events.try_recv() {
+            if matches!(
+                event,
+                EngineEvent::Navigation {
+                    event: NavigationEvent::Progress { .. },
+                    ..
+                }
+            ) {
+                navigation_progress += 1;
+            }
+        }
+        assert!(
+            navigation_progress > 0,
+            "the navigation's own fetch reports its progress"
+        );
+        while resources.try_recv().is_ok() {}
+
+        // The second is answered stale, and the fetcher revalidates in the background: two
+        // requests end, the cache hit and the revalidation, each on a row of its own.
+        assert!(matches!(fetcher.fetch(request()).await, FetchResult::Buffered { .. }));
+        let mut finished = std::collections::HashSet::new();
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        while finished.len() < 2 {
+            match tokio::time::timeout_at(deadline, resources.recv()).await {
+                Ok(Ok(ResourceUpdate {
+                    event: ResourceEvent::Finished { request_id, .. },
+                    ..
+                })) => {
+                    finished.insert(request_id);
+                }
+                Ok(Ok(_)) => {}
+                other => panic!("the background revalidation never finished: {other:?}"),
+            }
+        }
+        assert_eq!(
+            hits.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "one revalidation went out"
+        );
+
+        while let Ok(event) = events.try_recv() {
+            assert!(
+                !matches!(
+                    event,
+                    EngineEvent::Navigation {
+                        event: NavigationEvent::Progress { .. },
+                        ..
+                    }
+                ),
+                "the revalidation reported progress as the navigation's: {event:?}"
+            );
+        }
     }
 
     fn cookies_at(seen: &Seen, path: &str) -> String {

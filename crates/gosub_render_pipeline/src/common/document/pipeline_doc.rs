@@ -1,471 +1,19 @@
 use crate::common::document::node::{AttrMap, ElementData, Node, NodeType};
-use crate::painter::commands::color::Color;
-use crate::painter::commands::gradient::{ColorStop, Gradient, LinearGradient, Tiling};
-use cow_utils::CowUtils;
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem, CssValue};
 use gosub_interface::document::Document as _;
 use gosub_interface::node::NodeType as GosubNodeType;
-use gosub_interface::style::{Color as StyleColor, ComputedStyle, Display, LengthPercentage, Prop};
+use gosub_interface::style::{ComputedStyle, Display, Prop};
 use gosub_shared::node::NodeId;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-
-// ── Gradient parsing ──────────────────────────────────────────────────────────
-
-/// Parses `linear-gradient(...)` args: an optional leading direction (`to <side>[ <side>]` or an
-/// `<angle>`) then two or more stops. Positionless stops are spread evenly between neighbours.
-/// `current_color` is the element's own `color`, which a `currentcolor` stop stands for.
-fn parse_linear_gradient<S: CssSystem>(args: &[S::Value], current_color: StyleColor) -> Option<Gradient> {
-    let mut groups: Vec<Vec<&S::Value>> = Vec::new();
-    let mut current: Vec<&S::Value> = Vec::new();
-    for a in args {
-        if a.is_comma() {
-            groups.push(std::mem::take(&mut current));
-        } else {
-            current.push(a);
-        }
-    }
-    groups.push(current);
-
-    // An optional direction occupies the first group when it carries no colour.
-    let mut angle_deg = 180.0_f32; // CSS default direction is `to bottom`.
-    let mut first_stop = 0;
-    if let Some(first) = groups.first() {
-        if let Some(angle) = parse_gradient_direction::<S>(first) {
-            angle_deg = angle;
-            first_stop = 1;
-        }
-    }
-
-    let mut colors: Vec<Color> = Vec::new();
-    let mut offsets: Vec<Option<f32>> = Vec::new();
-    for group in groups.iter().skip(first_stop) {
-        let color = group
-            .iter()
-            .find_map(|v| v.used_color(current_color))
-            .map(|c| Color::from_rgba8(c.r, c.g, c.b, c.a));
-        let Some(color) = color else {
-            continue;
-        };
-        colors.push(color);
-        offsets.push(group.iter().find_map(|v| v.as_percentage()).map(|p| p / 100.0));
-    }
-    let n = colors.len();
-    if n < 2 {
-        return None;
-    }
-
-    // Anchor the endpoints, then linearly interpolate any interior gaps.
-    if offsets[0].is_none() {
-        offsets[0] = Some(0.0);
-    }
-    if offsets[n - 1].is_none() {
-        offsets[n - 1] = Some(1.0);
-    }
-    let mut i = 0;
-    while i < n {
-        if offsets[i].is_some() {
-            i += 1;
-            continue;
-        }
-        let start = i - 1; // resolved (endpoints are anchored)
-        let mut end = i;
-        while end < n && offsets[end].is_none() {
-            end += 1;
-        }
-        let a = offsets[start].unwrap_or(0.0);
-        let b = offsets.get(end).and_then(|o| *o).unwrap_or(1.0);
-        let steps = (end - start) as f32;
-        for (k, slot) in offsets.iter_mut().enumerate().take(end).skip(start + 1) {
-            *slot = Some(a + (b - a) * ((k - start) as f32) / steps);
-        }
-        i = end;
-    }
-
-    // Clamp to [0,1] and keep positions non-decreasing (CSS gradient rule).
-    let mut running = 0.0_f32;
-    let stops = colors
-        .into_iter()
-        .zip(offsets)
-        .map(|(color, off)| {
-            let off = off.unwrap_or(0.0).clamp(0.0, 1.0).max(running);
-            running = off;
-            ColorStop { offset: off, color }
-        })
-        .collect();
-
-    Some(Gradient::Linear(LinearGradient {
-        angle_deg,
-        stops,
-        tiling: None,
-    }))
-}
-
-/// Gradient-line angle in CSS degrees, or `None` if the group is a colour stop rather than a
-/// direction (so the gradient uses the default `to bottom`).
-fn parse_gradient_direction<S: CssSystem>(group: &[&S::Value]) -> Option<f32> {
-    // Angle form: `45deg`, `0.25turn`, `1.5rad`, `100grad`.
-    if let Some((v, unit)) = group.first().and_then(|first| first.as_unit()) {
-        return match unit {
-            "deg" => Some(v),
-            "grad" => Some(v * 0.9),
-            "rad" => Some(v.to_degrees()),
-            "turn" => Some(v * 360.0),
-            _ => None,
-        };
-    }
-    // Keyword form: `to <side> [<side>]`.
-    let words: Vec<String> = group
-        .iter()
-        .filter_map(|v| v.as_string())
-        .map(|s| s.cow_to_lowercase().into_owned())
-        .collect();
-    if words.first().map(String::as_str) != Some("to") {
-        return None;
-    }
-    let has = |k: &str| words.iter().any(|w| w == k);
-    Some(match (has("top"), has("right"), has("bottom"), has("left")) {
-        (true, false, false, false) => 0.0,
-        (false, true, false, false) => 90.0,
-        (false, false, false, true) => 270.0,
-        (true, true, false, false) => 45.0,
-        (false, true, true, false) => 135.0,
-        (false, false, true, true) => 225.0,
-        (true, false, false, true) => 315.0,
-        // `to bottom` and any unrecognised combination fall back to a downward gradient.
-        _ => 180.0,
-    })
-}
-
-/// All `linear-gradient(...)` layers of a `background-image` property, in source order (the
-/// first listed layer paints on top). Non-gradient layers (`url()`, `none`) are skipped.
-fn property_gradient_layers<S: CssSystem>(p: &S::Property, current: StyleColor) -> Vec<LinearGradient> {
-    let mut out = Vec::new();
-    let mut push_fn = |name: &str, args: &[S::Value]| {
-        if name.eq_ignore_ascii_case("linear-gradient") {
-            if let Some(Gradient::Linear(g)) = parse_linear_gradient::<S>(args, current) {
-                out.push(g);
-            }
-        }
-    };
-    if let Some((name, args)) = p.as_function() {
-        push_fn(name, args);
-        return out;
-    }
-    if let Some(list) = p.as_list() {
-        for v in list {
-            if let Some((name, args)) = v.as_function() {
-                push_fn(name, args);
-            }
-        }
-    }
-    out
-}
-
-/// One resolved token from a `background-size`/`-position`/`-repeat` value.
-enum BgTok {
-    /// A `<length>` in px (bare `0` included).
-    Len(f32),
-    /// A `<percentage>` (0..100). A percentage *size* still falls back to "fill the box"; a
-    /// percentage *position* is resolved against the box at paint time.
-    Pct(f32),
-    /// A keyword (`cover`, `center`, `no-repeat`, ...), lowercased.
-    Kw(String),
-}
-
-fn value_bg_tok<S: CssSystem>(v: &S::Value) -> Option<BgTok> {
-    if let Some((val, unit)) = v.as_unit() {
-        if unit.eq_ignore_ascii_case("px") {
-            return Some(BgTok::Len(val));
-        }
-    }
-    if let Some(pct) = v.as_percentage() {
-        return Some(BgTok::Pct(pct));
-    }
-    if let Some(n) = v.as_number() {
-        if n == 0.0 {
-            return Some(BgTok::Len(0.0)); // bare `0`
-        }
-    }
-    v.as_string()
-        .map(|s| BgTok::Kw(s.cow_to_ascii_lowercase().into_owned()))
-}
-
-fn prop_bg_tok<S: CssSystem>(p: &S::Property) -> Option<BgTok> {
-    if let Some((val, unit)) = p.as_unit() {
-        if unit.eq_ignore_ascii_case("px") {
-            return Some(BgTok::Len(val));
-        }
-    }
-    if let Some(pct) = p.as_percentage() {
-        return Some(BgTok::Pct(pct));
-    }
-    if let Some(n) = p.as_number() {
-        if n == 0.0 {
-            return Some(BgTok::Len(0.0));
-        }
-    }
-    p.as_string()
-        .map(|s| BgTok::Kw(s.cow_to_ascii_lowercase().into_owned()))
-}
-
-/// Split a `background-*` longhand into comma-separated groups (one per `<bg-layer>`).
-/// A scalar property (e.g. `background-repeat: repeat`) is a single group.
-fn bg_token_groups<S: CssSystem>(p: &S::Property) -> Vec<Vec<BgTok>> {
-    if let Some(list) = p.as_list() {
-        let mut groups: Vec<Vec<BgTok>> = vec![Vec::new()];
-        for v in list {
-            if v.is_comma() {
-                groups.push(Vec::new());
-            } else if let Some(t) = value_bg_tok::<S>(v) {
-                // `groups` is seeded with one Vec and only grows, so `last_mut` is always Some;
-                // handle it without `expect` (which the workspace lints deny).
-                if let Some(last) = groups.last_mut() {
-                    last.push(t);
-                }
-            }
-        }
-        return groups;
-    }
-    match prop_bg_tok::<S>(p) {
-        Some(t) => vec![vec![t]],
-        None => Vec::new(),
-    }
-}
-
-/// `background-size` group -> tile size in px, or `None` for `auto`/`cover`/`contain`/`%`
-/// (which mean "fill the box", i.e. no tiling).
-fn resolve_bg_size(group: &[BgTok]) -> Option<(f32, f32)> {
-    let mut dims = Vec::new();
-    for t in group {
-        match t {
-            BgTok::Len(v) => dims.push(*v),
-            // Percentage- and keyword-sized backgrounds need the box size to resolve; treat
-            // them as "fill the box" for now (no tiling).
-            BgTok::Pct(_) | BgTok::Kw(_) => return None,
-        }
-    }
-    match dims.as_slice() {
-        [w] => Some((*w, *w)),
-        [w, h, ..] => Some((*w, *h)),
-        _ => None,
-    }
-}
-
-/// One axis of `background-position`.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum BgAnchor {
-    /// A length in px from the box's start edge (left / top).
-    Start(f32),
-    /// A length in px from the box's end edge - `right`, `bottom`, and the three-value forms
-    /// `right 10px` / `bottom 1em`.
-    End(f32),
-    /// A percentage: that point of the image is aligned with the same point of the box, so `50%`
-    /// centres it and `100%` puts its far edge on the box's far edge.
-    Percent(f32),
-}
-
-impl BgAnchor {
-    /// Where the tile's start edge lands, given the box's and the tile's extent on this axis.
-    #[must_use]
-    pub fn resolve(self, box_extent: f32, tile_extent: f32) -> f32 {
-        match self {
-            BgAnchor::Start(v) => v,
-            BgAnchor::End(v) => box_extent - tile_extent - v,
-            BgAnchor::Percent(p) => (box_extent - tile_extent) * p / 100.0,
-        }
-    }
-}
-
-/// `background-position` group → one [`BgAnchor`] per axis.
-///
-/// The two-keyword form may be written in either order - `center right` means the same as
-/// `right center` - so the axis a keyword belongs to is decided by the keyword, not by where it
-/// sits in the list. Reading the first value as the horizontal one put Wikipedia's external-link
-/// icon, which is positioned `center right`, in the middle of every link instead of after it.
-///
-/// Also handles the three-value edge-offset form (`right 10px`) and the one-value form, whose
-/// missing axis is `center` rather than the start edge.
-fn resolve_bg_position(group: &[BgTok]) -> (BgAnchor, BgAnchor) {
-    let mut x: Option<BgAnchor> = None;
-    let mut y: Option<BgAnchor> = None;
-    // How many position components were written, so the one-value form can default its other axis
-    // to `center`. A length that an edge keyword swallows (`right 10px`) is part of that keyword's
-    // component, not one of its own.
-    let mut components = 0usize;
-    // Whether the last keyword was an edge one, and which axis/edge it named, so a length after it
-    // becomes an offset from that edge.
-    let mut pending_edge: Option<(bool, bool)> = None;
-    // A leading `center` claims a component without naming an axis, and the two-value form then
-    // means it took the horizontal one: `center 4px` is x = center, y = 4px. Without this the
-    // length filled the still-empty horizontal slot and the tile moved along the wrong axis.
-    let mut center_took_x = false;
-
-    for tok in group {
-        match tok {
-            BgTok::Kw(k) => {
-                let edge = match k.as_str() {
-                    "left" => Some((false, false)),
-                    "right" => Some((false, true)),
-                    "top" => Some((true, false)),
-                    "bottom" => Some((true, true)),
-                    _ => None,
-                };
-                match (edge, k.as_str()) {
-                    (Some((vertical, from_end)), _) => {
-                        let anchor = if from_end {
-                            BgAnchor::End(0.0)
-                        } else {
-                            BgAnchor::Start(0.0)
-                        };
-                        if vertical {
-                            y = Some(anchor);
-                        } else {
-                            x = Some(anchor);
-                        }
-                        components += 1;
-                        pending_edge = Some((vertical, from_end));
-                    }
-                    (None, "center") => {
-                        // Which axis it means depends on what follows, so it waits - but a length
-                        // after it is the *other* axis.
-                        if x.is_none() && y.is_none() {
-                            center_took_x = true;
-                        }
-                        components += 1;
-                        pending_edge = None;
-                    }
-                    // Not a position keyword at all (a `background` shorthand carries
-                    // `no-repeat`, `cover`, … in the same list).
-                    (None, _) => pending_edge = None,
-                }
-            }
-            BgTok::Len(v) => match pending_edge.take() {
-                Some((true, from_end)) => {
-                    y = Some(if from_end {
-                        BgAnchor::End(*v)
-                    } else {
-                        BgAnchor::Start(*v)
-                    })
-                }
-                Some((false, from_end)) => {
-                    x = Some(if from_end {
-                        BgAnchor::End(*v)
-                    } else {
-                        BgAnchor::Start(*v)
-                    })
-                }
-                None => {
-                    if x.is_none() && !center_took_x {
-                        x = Some(BgAnchor::Start(*v));
-                    } else if y.is_none() {
-                        y = Some(BgAnchor::Start(*v));
-                    }
-                    components += 1;
-                }
-            },
-            BgTok::Pct(p) => {
-                pending_edge = None;
-                if x.is_none() && !center_took_x {
-                    x = Some(BgAnchor::Percent(*p));
-                } else if y.is_none() {
-                    y = Some(BgAnchor::Percent(*p));
-                }
-                components += 1;
-            }
-        }
-    }
-
-    // Whatever no component claimed is `center`: that is what a lone `center` means on the axis it
-    // did not name, and what the one-value form means for its missing axis.
-    let centered = BgAnchor::Percent(50.0);
-    match (x, y) {
-        (Some(x), Some(y)) => (x, y),
-        (Some(x), None) => (x, centered),
-        (None, Some(y)) => (centered, y),
-        // No component at all is the initial value, `0% 0%`.
-        (None, None) if components == 0 => (BgAnchor::Start(0.0), BgAnchor::Start(0.0)),
-        (None, None) => (centered, centered),
-    }
-}
-
-/// Whether a keyword names a place in `background-position`, as opposed to the repeat and size
-/// keywords that share the `background` shorthand's token list.
-fn is_position_keyword(k: &str) -> bool {
-    matches!(k, "left" | "right" | "top" | "bottom" | "center")
-}
-
-/// Whether a token could be part of a `<bg-position>`, used to tell a `background-position`
-/// declaration that says something from one that only carries junk.
-fn is_position_token(t: &BgTok) -> bool {
-    match t {
-        BgTok::Kw(k) => is_position_keyword(k),
-        BgTok::Len(_) | BgTok::Pct(_) => true,
-    }
-}
-
-/// `background-repeat` group -> (repeat_x, repeat_y). Defaults to repeating both axes.
-fn resolve_bg_repeat(group: &[BgTok]) -> (bool, bool) {
-    let kws: Vec<&str> = group
-        .iter()
-        .filter_map(|t| match t {
-            BgTok::Kw(k) => Some(k.as_str()),
-            _ => None,
-        })
-        .collect();
-    let axis = |k: &str| k != "no-repeat"; // repeat / space / round all tile
-    match kws.as_slice() {
-        [] => (true, true),
-        ["repeat-x"] => (true, false),
-        ["repeat-y"] => (false, true),
-        [a] => (axis(a), axis(a)),
-        [a, b, ..] => (axis(a), axis(b)),
-    }
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PipelineNodeKind {
     Text,
     Comment,
     Element,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum BgSize {
-    /// `auto` / absent - the image's intrinsic size.
-    Auto,
-    /// Explicit lengths in px.
-    Length(f32, f32),
-    /// `cover` - scale (preserving aspect) so the image fully covers the box, cropping overflow.
-    Cover,
-    /// `contain` - scale (preserving aspect) so the image fits inside the box, letterboxing.
-    Contain,
-}
-
-/// Resolved `background-repeat`/`-size`/`-position` for an element's first background layer. Read
-/// from the `background` shorthand as well as the longhands, since pages write `background: url(x)
-/// repeat`. `cover`/`contain` need the box size, so final tile geometry is computed at paint time.
-#[derive(Debug, Clone, Copy)]
-pub struct BgImageLayout {
-    /// Whether the tile repeats on the x / y axis (`background-repeat`; default repeat both).
-    pub repeat: (bool, bool),
-    /// Where the tile is anchored on each axis (`background-position`), resolved against the box
-    /// at paint time since edges and percentages need to know how big it is.
-    pub position: (BgAnchor, BgAnchor),
-    /// Resolved `background-size`.
-    pub size: BgSize,
-}
-
-impl Default for BgImageLayout {
-    fn default() -> Self {
-        BgImageLayout {
-            repeat: (true, true),
-            position: (BgAnchor::Start(0.0), BgAnchor::Start(0.0)),
-            size: BgSize::Auto,
-        }
-    }
 }
 
 /// The open `<select>` dropdown as the pipeline sees it (mirrors the engine's state).
@@ -512,22 +60,6 @@ pub trait PipelineDocument: Send + Sync {
     /// `z-index` stacks differently from `z-index: auto`.
     fn computed_style(&self, id: NodeId) -> Arc<ComputedStyle>;
 
-    /// `background-image` gradient layers in source order (first listed paints on top), each
-    /// carrying its resolved tiling (`None` tiling = fill the box). Empty for solid/image
-    /// backgrounds.
-    ///
-    /// `box_size` is the painting area the layers are positioned against; an edge or percentage
-    /// `background-position` cannot be resolved without it.
-    fn background_layers(&self, _id: NodeId, _box_size: (f32, f32)) -> Vec<Gradient> {
-        Vec::new()
-    }
-
-    /// Tiling for a raster/SVG `background-image`, read from both the `background` shorthand and
-    /// the longhands. Defaults to "repeat both axes, intrinsic size, no offset".
-    fn background_image_layout(&self, _id: NodeId) -> BgImageLayout {
-        BgImageLayout::default()
-    }
-
     fn is_focused(&self, _id: NodeId) -> bool {
         false
     }
@@ -564,12 +96,6 @@ pub trait PipelineDocument: Send + Sync {
 
     /// Border-box size the user resized a control to.
     fn control_size(&self, _id: NodeId) -> Option<(f64, f64)> {
-        None
-    }
-
-    /// The translation part of CSS `transform` (`translate`/`translateX`/`translateY`), each axis
-    /// in px or a percentage of the element's own box. Other transform functions are ignored.
-    fn transform_translate(&self, _id: NodeId) -> Option<(LengthPercentage, LengthPercentage)> {
         None
     }
 
@@ -966,7 +492,11 @@ where
         }
         if is_pseudo_id(u64::from(id)) {
             let (owner, role) = decode_pseudo(id);
-            // Text child's parent is its pseudo-element; the pseudo-element's parent is the owner.
+            // Text child's parent is its pseudo-element; the pseudo-element's parent is the owner,
+            // or the owner's box parent when the owner is `display: contents`.
+            if !role_is_text(role) && self.is_spliced_away(owner) {
+                return self.parent(owner);
+            }
             return Some(if role_is_text(role) {
                 encode_pseudo(
                     owner,
@@ -980,7 +510,13 @@ where
                 owner
             });
         }
-        self.flat_parent(id)
+        let parent = self.flat_parent(id)?;
+        // A slot or `display: contents` element spliced out of the box tree is still the style
+        // parent (`flat_parent`), but the box parent is wherever it was spliced into.
+        if self.is_spliced_away(parent) {
+            return self.parent(parent);
+        }
+        Some(parent)
     }
 
     /// The flat-tree parent of a real node: the slot it was projected into, or the host
@@ -1031,9 +567,11 @@ where
     ///  - a **shadow host** renders its shadow tree, so it yields the shadow root's children.
     ///    The shadow root itself is spliced out: it generates no box and carries no styles.
     ///  - a **`<slot>`** is replaced by the nodes projected into it, or by its own children as
-    ///    fallback when nothing was. Like `display: contents`, which this engine has no general
-    ///    support for, the slot generates no box - but it stays the *style* parent of what it
-    ///    projects, which [`parent`](Self::parent) is what makes true.
+    ///    fallback when nothing was. The user-agent sheet makes it `display: contents`, so it
+    ///    generates no box - but it stays the *style* parent of what it projects, which
+    ///    [`flat_parent`](Self::flat_parent) is what makes true.
+    ///  - a **`display: contents`** element is replaced by its own `::before`, children and
+    ///    `::after` (css-display-3 §2.5), and likewise stays their style parent.
     ///  - a **light child no slot claimed** is dropped, which is what makes unassigned content
     ///    invisible rather than merely unstyled.
     fn flat_children(&self, id: NodeId) -> Vec<NodeId> {
@@ -1048,8 +586,12 @@ where
         let source = self.doc.shadow_root(id).unwrap_or(id);
 
         let children = self.doc.children(source);
-        // The overwhelmingly common case: no slot among them, so nothing to rewrite.
-        if !children.iter().any(|&child| self.is_slot(child)) {
+        // The overwhelmingly common case: nothing among them to splice away, so nothing to
+        // rewrite.
+        if !children
+            .iter()
+            .any(|&child| self.is_slot(child) || self.is_spliced_contents(child))
+        {
             return children.to_vec();
         }
 
@@ -1062,27 +604,84 @@ where
 
     /// Whether a `<slot>` keeps a box of its own instead of being spliced away.
     ///
-    /// The user-agent sheet gives every slot `display: contents`, which this engine has no
-    /// `Display` variant for - it falls through to `Block` - so the *computed* value cannot
-    /// tell the UA default apart from an authored `display: block`. The raw declared keyword
-    /// can, so read that: only `contents` (or nothing at all) makes the slot transparent.
+    /// The user-agent sheet gives every slot `display: contents`; an author can give it a box
+    /// back. With no `display` at all (no user-agent sheet) it stays transparent too.
     fn slot_generates_a_box(&self, slot: NodeId) -> bool {
-        let arc = self.cached_styles(slot);
-
-        match <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), "display").and_then(|p| p.as_string()) {
-            Some("contents") | None => false,
-            Some(_) => true,
-        }
+        !matches!(self.display_of(slot), None | Some(Display::Contents))
     }
 
-    /// Appends `node` to `out`, or - when it is a slot that generates no box - whatever stands
-    /// in its place.
+    /// Whether `id` is an element whose `display: contents` this adapter splices away: it
+    /// generates no box, and its `::before`, children and `::after` take its place.
+    ///
+    /// Not inside a table, a row group or a row, and not when its own children are table parts:
+    /// the anonymous table boxes are built over DOM siblings and DOM parents, which splicing
+    /// would no longer match. There it keeps a block box, as it had before `contents` was read.
+    /// A slot is answered by [`slot_generates_a_box`](Self::slot_generates_a_box) instead.
+    fn is_spliced_contents(&self, id: NodeId) -> bool {
+        let raw = u64::from(id);
+        if is_pseudo_id(raw) || is_anon_box_id(raw) || self.doc.node_type(id) != GosubNodeType::ElementNode {
+            return false;
+        }
+        if self.is_slot(id) || self.display_of(id) != Some(Display::Contents) {
+            return false;
+        }
+        let in_table_part = self.flat_parent(id).is_some_and(|parent| {
+            matches!(
+                self.display_of(parent),
+                Some(
+                    Display::Table
+                        | Display::TableRowGroup
+                        | Display::TableHeaderGroup
+                        | Display::TableFooterGroup
+                        | Display::TableRow
+                )
+            )
+        });
+        let holds_table_parts = self
+            .doc
+            .children(self.doc.shadow_root(id).unwrap_or(id))
+            .iter()
+            .any(|&child| {
+                self.display_of(child)
+                    .is_some_and(|d| needs_table_parent(&d, Some(&Display::Block)))
+            });
+        !in_table_part && !holds_table_parts
+    }
+
+    /// Whether `id` was spliced out of the box tree: a slot without a box of its own, or a
+    /// `display: contents` element.
+    fn is_spliced_away(&self, id: NodeId) -> bool {
+        (self.is_slot(id) && !self.slot_generates_a_box(id)) || self.is_spliced_contents(id)
+    }
+
+    /// The box children of a real element, before any anonymous table box is wrapped around
+    /// them: `::before`, the flat-tree children, `::after`.
+    fn box_children(&self, id: NodeId) -> Vec<NodeId> {
+        let mut out = Vec::new();
+        // `::before` is inserted as the first child, `::after` as the last.
+        if self.pseudo_box(id, false).is_some() {
+            out.push(encode_pseudo(id, ROLE_BEFORE_ELEM));
+        }
+        out.extend(self.flat_children(id));
+        if self.pseudo_box(id, true).is_some() {
+            out.push(encode_pseudo(id, ROLE_AFTER_ELEM));
+        }
+        out
+    }
+
+    /// Appends `node` to `out`, or - when it is a slot that generates no box, or a
+    /// `display: contents` element - whatever stands in its place.
     ///
     /// The expansion recurses because what a slot projects can be another slot: a `<slot>` in
     /// the light DOM of a nested host is a slottable of the inner tree *and* a slot of the
     /// outer one, so content flows through both. It always terminates - projection steps move
     /// strictly outwards through the host nesting, fallback steps strictly down the tree.
     fn push_flattened(&self, node: NodeId, out: &mut Vec<NodeId>) {
+        if self.is_spliced_contents(node) {
+            // Its children were flattened already, so a `contents` among them is spliced too.
+            out.extend(self.box_children(node));
+            return;
+        }
         if !self.is_slot(node) || self.slot_generates_a_box(node) {
             out.push(node);
             return;
@@ -1269,7 +868,24 @@ where
 
         let parent = self.inherited_from(id);
         let map = self.cached_styles(id);
-        map.computed_style(parent.as_deref())
+        let mut style = map.computed_style(parent.as_deref());
+        if style.box_group.display == Display::Contents {
+            if let Some(display) = self.contents_computes_to(id) {
+                style.box_mut().display = display;
+            }
+        }
+        style
+    }
+
+    /// What `display: contents` computes to on this element, where it cannot mean "no box"; the
+    /// rule is [`Display::contents_computes_to`].
+    fn contents_computes_to(&self, id: NodeId) -> Option<Display> {
+        let is_root = self
+            .doc
+            .parent(id)
+            .is_none_or(|parent| self.doc.node_type(parent) == GosubNodeType::DocumentNode);
+        let tag = self.doc.tag_name(id).unwrap_or("");
+        Display::contents_computes_to(tag, is_root)
     }
 
     /// The cascaded property map of `id`.
@@ -1725,15 +1341,7 @@ where
             };
         }
 
-        let mut out = Vec::new();
-        // `::before` is inserted as the first child, `::after` as the last.
-        if self.pseudo_box(id, false).is_some() {
-            out.push(encode_pseudo(id, ROLE_BEFORE_ELEM));
-        }
-        out.extend(self.flat_children(id));
-        if self.pseudo_box(id, true).is_some() {
-            out.push(encode_pseudo(id, ROLE_AFTER_ELEM));
-        }
+        let out = self.box_children(id);
         let display = self.display_of(id);
         let out = self.wrap_anon_table_runs(display.as_ref(), out);
         let out = self.wrap_anon_row_runs(display.as_ref(), out);
@@ -1810,20 +1418,6 @@ where
         self.doc.control_size(id)
     }
 
-    fn transform_translate(&self, id: NodeId) -> Option<(LengthPercentage, LengthPercentage)> {
-        let arc = if is_pseudo_id(u64::from(id)) {
-            let (owner, role) = decode_pseudo(id);
-            if role_is_text(role) {
-                return None;
-            }
-            self.pseudo_box(owner, role_is_after(role))?.styles.clone()
-        } else {
-            self.cached_styles(id)
-        };
-        let p = <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), "transform")?;
-        translate_of::<C::CssSystem>(p)
-    }
-
     fn is_display_none(&self, id: NodeId) -> bool {
         let style = self.cached_computed_style(id);
         style.has(Prop::Display) && style.box_group.display == Display::None
@@ -1840,140 +1434,6 @@ where
 
     fn computed_style(&self, id: NodeId) -> Arc<ComputedStyle> {
         self.cached_computed_style(id)
-    }
-
-    fn background_layers(&self, id: NodeId, box_size: (f32, f32)) -> Vec<Gradient> {
-        if is_anon_box_id(u64::from(id)) {
-            return Vec::new();
-        }
-        // Read the layers from the pseudo-element's own map, never the owner's.
-        let arc = if is_pseudo_id(u64::from(id)) {
-            let (owner, role) = decode_pseudo(id);
-            if role_is_text(role) {
-                return Vec::new();
-            }
-            match self.pseudo_box(owner, role_is_after(role)) {
-                Some(pb) => pb.styles.clone(),
-                None => return Vec::new(),
-            }
-        } else {
-            self.cached_styles(id)
-        };
-        let map = arc.as_ref();
-
-        // The `background` shorthand arrives expanded; its layers are in `background-image`.
-        let current = self.computed_style(id).inherited.color;
-        let mut layers = <_ as CssPropertyMap<C::CssSystem>>::get(map, "background-image")
-            .map(|p| property_gradient_layers::<C::CssSystem>(p, current))
-            .unwrap_or_default();
-        if layers.is_empty() {
-            return Vec::new();
-        }
-
-        // `background-size/-position/-repeat` are per-layer lists cycled to the layer count.
-        let read_groups = |key: &str| {
-            <_ as CssPropertyMap<C::CssSystem>>::get(map, key)
-                .map(bg_token_groups::<C::CssSystem>)
-                .unwrap_or_default()
-        };
-        let size_groups = read_groups("background-size");
-        let pos_groups = read_groups("background-position");
-        let rep_groups = read_groups("background-repeat");
-        let pick =
-            |groups: &[Vec<BgTok>], i: usize| -> Option<usize> { (!groups.is_empty()).then(|| i % groups.len()) };
-
-        for (i, g) in layers.iter_mut().enumerate() {
-            let Some((tw, th)) = pick(&size_groups, i).and_then(|j| resolve_bg_size(&size_groups[j])) else {
-                continue; // no explicit size -> fill the box (no tiling)
-            };
-            if tw <= 0.0 || th <= 0.0 {
-                continue;
-            }
-            // Resolved against the painting area, as `compute_bg_tiling` does for raster images:
-            // `right`, `center` and a percentage all mean a distance that depends on how much
-            // wider the box is than the tile.
-            let position = pick(&pos_groups, i)
-                .map(|j| resolve_bg_position(&pos_groups[j]))
-                .map(|(x, y)| (x.resolve(box_size.0, tw), y.resolve(box_size.1, th)))
-                .unwrap_or((0.0, 0.0));
-            let repeat = pick(&rep_groups, i)
-                .map(|j| resolve_bg_repeat(&rep_groups[j]))
-                .unwrap_or((true, true));
-            g.tiling = Some(Tiling {
-                tile_size: (tw, th),
-                position,
-                repeat,
-            });
-        }
-
-        layers.into_iter().map(Gradient::Linear).collect()
-    }
-
-    fn background_image_layout(&self, id: NodeId) -> BgImageLayout {
-        if is_anon_box_id(u64::from(id)) {
-            return BgImageLayout::default();
-        }
-        let arc = self.cached_styles(id);
-        let map = arc.as_ref();
-
-        // The shorthand carries repeat/size keywords inline (`background: url(x) no-repeat center
-        // / contain`) and then the longhands are usually empty, so scan both.
-        let mut keywords: Vec<String> = Vec::new();
-        let mut explicit_size: Option<(f32, f32)> = None;
-        let mut position: Option<(BgAnchor, BgAnchor)> = None;
-
-        let mut scan = |key: &str, read_size: bool, read_pos: bool| {
-            let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, key) else {
-                return;
-            };
-            let groups = bg_token_groups::<C::CssSystem>(p);
-            let Some(group) = groups.first() else {
-                return;
-            };
-            if read_size && explicit_size.is_none() {
-                explicit_size = resolve_bg_size(group);
-            }
-            if read_pos && position.is_none() && group.iter().any(is_position_token) {
-                position = Some(resolve_bg_position(group));
-            }
-            for t in group {
-                if let BgTok::Kw(k) = t {
-                    keywords.push(k.clone());
-                }
-            }
-        };
-        scan("background-repeat", false, false);
-        scan("background-size", true, false);
-        scan("background-position", false, true);
-
-        let has = |k: &str| keywords.iter().any(|s| s == k);
-        let repeat = if has("no-repeat") {
-            (false, false)
-        } else if has("repeat-x") {
-            (true, false)
-        } else if has("repeat-y") {
-            (false, true)
-        } else {
-            (true, true)
-        };
-        let size = match explicit_size {
-            Some((w, h)) => BgSize::Length(w, h),
-            None if has("cover") => BgSize::Cover,
-            None if has("contain") => BgSize::Contain,
-            None => BgSize::Auto,
-        };
-        // `background-position` from the longhand wins; otherwise the shorthand's own keywords
-        // (`background: url(x) no-repeat center`) are read as a position.
-        let position = position.unwrap_or_else(|| {
-            let group: Vec<BgTok> = keywords
-                .iter()
-                .filter(|k| is_position_keyword(k))
-                .map(|k| BgTok::Kw(k.clone()))
-                .collect();
-            resolve_bg_position(&group)
-        });
-
-        BgImageLayout { repeat, position, size }
     }
 
     fn clear_style_cache(&self) {
@@ -2150,153 +1610,5 @@ where
             children,
             node_type,
         })
-    }
-}
-
-// ── Helpers used by the bridge ────────────────────────────────────────────────
-
-/// Sum the translate functions of a `transform` list; `None` when there is no translation.
-fn translate_of<S: CssSystem>(p: &S::Property) -> Option<(LengthPercentage, LengthPercentage)> {
-    fn length<S: CssSystem>(v: &S::Value) -> Option<LengthPercentage> {
-        if let Some(pct) = v.as_percentage() {
-            return Some(LengthPercentage::Percent(pct));
-        }
-        if v.as_unit().is_some() {
-            return Some(LengthPercentage::Px(v.unit_to_px()));
-        }
-        v.as_number().map(LengthPercentage::Px)
-    }
-    fn add(a: LengthPercentage, b: LengthPercentage) -> LengthPercentage {
-        match (a, b) {
-            (LengthPercentage::Px(x), LengthPercentage::Px(y)) => LengthPercentage::Px(x + y),
-            (LengthPercentage::Percent(x), LengthPercentage::Percent(y)) => LengthPercentage::Percent(x + y),
-            // Mixed px/% can't be summed without the box; keep the later one.
-            (_, b) => b,
-        }
-    }
-    let funcs: Vec<(&str, &[S::Value])> = match p.as_function() {
-        Some(f) => vec![f],
-        None => p.as_list()?.iter().filter_map(|v| v.as_function()).collect(),
-    };
-    let mut out: Option<(LengthPercentage, LengthPercentage)> = None;
-    for (name, args) in funcs {
-        let args: Vec<&S::Value> = args.iter().filter(|a| !a.is_comma()).collect();
-        let zero = LengthPercentage::ZERO;
-        let (dx, dy) = match name.cow_to_ascii_lowercase().as_ref() {
-            "translate" => (
-                args.first().and_then(|a| length::<S>(a)).unwrap_or(zero),
-                args.get(1).and_then(|a| length::<S>(a)).unwrap_or(zero),
-            ),
-            "translatex" => (args.first().and_then(|a| length::<S>(a)).unwrap_or(zero), zero),
-            "translatey" => (zero, args.first().and_then(|a| length::<S>(a)).unwrap_or(zero)),
-            _ => continue,
-        };
-        out = Some(match out {
-            None => (dx, dy),
-            Some((x, y)) => (add(x, dx), add(y, dy)),
-        });
-    }
-    out
-}
-
-#[cfg(test)]
-mod bg_position_tests {
-    use super::{resolve_bg_position, BgAnchor, BgTok};
-
-    fn kw(k: &str) -> BgTok {
-        BgTok::Kw(k.to_string())
-    }
-
-    /// The two-keyword form may be written in either order, so `center right` has to mean the same
-    /// as `right center`. Taking the first value as the horizontal one put Wikipedia's
-    /// external-link icon in the middle of every link.
-    #[test]
-    fn keyword_pairs_are_read_in_either_order() {
-        let right_middle = (BgAnchor::End(0.0), BgAnchor::Percent(50.0));
-        assert_eq!(resolve_bg_position(&[kw("right"), kw("center")]), right_middle);
-        assert_eq!(resolve_bg_position(&[kw("center"), kw("right")]), right_middle);
-
-        let middle_top = (BgAnchor::Percent(50.0), BgAnchor::Start(0.0));
-        assert_eq!(resolve_bg_position(&[kw("center"), kw("top")]), middle_top);
-        assert_eq!(resolve_bg_position(&[kw("top"), kw("center")]), middle_top);
-    }
-
-    #[test]
-    fn one_value_centres_the_other_axis() {
-        assert_eq!(
-            resolve_bg_position(&[kw("right")]),
-            (BgAnchor::End(0.0), BgAnchor::Percent(50.0))
-        );
-        assert_eq!(
-            resolve_bg_position(&[kw("center")]),
-            (BgAnchor::Percent(50.0), BgAnchor::Percent(50.0))
-        );
-        assert_eq!(
-            resolve_bg_position(&[BgTok::Len(20.0)]),
-            (BgAnchor::Start(20.0), BgAnchor::Percent(50.0))
-        );
-    }
-
-    /// `right 10px` is an offset *from the right edge*, not a position 10px from the left.
-    /// `center 4px` is the two-value form: the `center` is the horizontal value and the length is
-    /// the vertical one. Letting the length take the first empty slot moved the tile sideways.
-    #[test]
-    fn a_leading_center_takes_the_horizontal_axis() {
-        assert_eq!(
-            resolve_bg_position(&[kw("center"), BgTok::Len(4.0)]),
-            (BgAnchor::Percent(50.0), BgAnchor::Start(4.0))
-        );
-        assert_eq!(
-            resolve_bg_position(&[kw("center"), BgTok::Pct(25.0)]),
-            (BgAnchor::Percent(50.0), BgAnchor::Percent(25.0))
-        );
-        // A trailing `center` still means the vertical axis.
-        assert_eq!(
-            resolve_bg_position(&[BgTok::Len(4.0), kw("center")]),
-            (BgAnchor::Start(4.0), BgAnchor::Percent(50.0))
-        );
-    }
-
-    #[test]
-    fn an_edge_keyword_swallows_the_length_after_it() {
-        assert_eq!(
-            resolve_bg_position(&[kw("right"), BgTok::Len(10.0), kw("bottom"), BgTok::Len(4.0)]),
-            (BgAnchor::End(10.0), BgAnchor::End(4.0))
-        );
-    }
-
-    #[test]
-    fn lengths_and_percentages_fill_the_axes_in_order() {
-        assert_eq!(
-            resolve_bg_position(&[BgTok::Len(5.0), BgTok::Len(9.0)]),
-            (BgAnchor::Start(5.0), BgAnchor::Start(9.0))
-        );
-        assert_eq!(
-            resolve_bg_position(&[BgTok::Pct(50.0), BgTok::Pct(100.0)]),
-            (BgAnchor::Percent(50.0), BgAnchor::Percent(100.0))
-        );
-    }
-
-    /// The keywords of a `background` shorthand arrive in the same list as the position ones.
-    #[test]
-    fn non_position_keywords_are_ignored() {
-        assert_eq!(
-            resolve_bg_position(&[kw("no-repeat"), kw("right"), kw("cover")]),
-            (BgAnchor::End(0.0), BgAnchor::Percent(50.0))
-        );
-        assert_eq!(
-            resolve_bg_position(&[kw("no-repeat")]),
-            (BgAnchor::Start(0.0), BgAnchor::Start(0.0))
-        );
-    }
-
-    /// An anchor only becomes a pixel offset once the box and the tile are known.
-    #[test]
-    fn anchors_resolve_against_the_box() {
-        assert_eq!(BgAnchor::Start(12.0).resolve(300.0, 20.0), 12.0);
-        assert_eq!(BgAnchor::End(0.0).resolve(300.0, 20.0), 280.0);
-        assert_eq!(BgAnchor::End(10.0).resolve(300.0, 20.0), 270.0);
-        assert_eq!(BgAnchor::Percent(50.0).resolve(300.0, 20.0), 140.0);
-        assert_eq!(BgAnchor::Percent(100.0).resolve(300.0, 20.0), 280.0);
     }
 }

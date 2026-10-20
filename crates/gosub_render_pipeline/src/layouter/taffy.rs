@@ -1,7 +1,7 @@
 use cow_utils::CowUtils;
 
 use crate::common::document::node::{Node, NodeId as DomNodeId, NodeType};
-use crate::common::document::pipeline_doc::{BgSize, PipelineDocument};
+use crate::common::document::pipeline_doc::PipelineDocument;
 use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::geo;
 use crate::common::geo::Coordinate;
@@ -17,19 +17,22 @@ use crate::layouter::float::{
 use crate::layouter::table::post_process_tables;
 use crate::layouter::text::get_text_layout;
 use crate::layouter::{
-    box_model, BackgroundMedia, CanLayout, ElementContext, ElementContextFormControl, ElementContextImage,
-    ElementContextSelectPopup, ElementContextSvg, ElementContextText, FormControl, LayoutElementId, LayoutElementNode,
-    LayoutTree, MaxHeight, MeterLevel, PopupRow, Resize, SELECT_POPUP_ROW_HEIGHT, SELECT_POPUP_SHADOW,
+    box_model, fraction_between, BackgroundMedia, CanLayout, ElementContext, ElementContextFormControl,
+    ElementContextImage, ElementContextSelectPopup, ElementContextSvg, ElementContextText, FormControl,
+    LayoutElementId, LayoutElementNode, LayoutTree, MaxHeight, MeterLevel, PopupRow, Resize, SELECT_POPUP_ROW_HEIGHT,
+    SELECT_POPUP_SHADOW,
 };
 use crate::rendertree_builder::{RenderNodeId, RenderTree};
 use gosub_fontmanager::ParleyFontSystem;
 use gosub_interface::font_system::FontSystem;
 use gosub_interface::style::{
-    BorderStyle, ComputedStyle, Display as CssDisplay, Float as CssFloat, LengthPercentage as CssLp,
-    LengthPercentageAuto as CssLpa, LineHeight, Overflow as CssOverflow, Position as CssPosition, TextAlign,
-    TextTransform as CssTextTransform, VerticalAlign as CssVerticalAlign, WhiteSpace,
+    BackgroundImage, BackgroundSize, BorderStyle, ComputedStyle, Display as CssDisplay, Float as CssFloat,
+    LengthPercentage as CssLp, LengthPercentageAuto as CssLpa, LineHeight, Overflow as CssOverflow,
+    Position as CssPosition, TextAlign, TextTransform as CssTextTransform, VerticalAlign as CssVerticalAlign,
+    WhiteSpace,
 };
 use gosub_interface::used;
+use gosub_shared::microsyntax::parse_floating_point_number;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -374,6 +377,9 @@ pub struct TaffyLayouter {
     /// the shift added to it. Kept with the taffy tree, so a relayout of the same tree starts
     /// from the CSS margin rather than stacking a second shift on the first.
     baseline_shifts: HashMap<TaffyNodeId, (f32, f32)>,
+    /// Space items that start a wrapped row, set to no width: the CSS width each had, to put
+    /// back should a relayout of the same tree move it off the row's start.
+    collapsed_spaces: HashMap<TaffyNodeId, f32>,
     /// First-line ascent (half-leading included) and line height per font, for baselines.
     font_metrics: HashMap<FontMetricsKey, (f32, f32)>,
     /// The line boxes and DOM nodes of the whole taffy tree, for baseline alignment. Built on
@@ -548,6 +554,7 @@ impl TaffyLayouter {
             float_insets: HashMap::new(),
             abspos_insets: HashMap::new(),
             baseline_shifts: HashMap::new(),
+            collapsed_spaces: HashMap::new(),
             font_metrics: HashMap::new(),
             baseline_index: None,
             percent_line_items: HashMap::new(),
@@ -889,8 +896,12 @@ impl TaffyLayouter {
         for _ in 0..MAX_ROUNDS {
             let mut changed = false;
             for line in lines {
-                for (item, shift) in self.line_shifts(&ctx, *line) {
+                let mut spaces = Vec::new();
+                for (item, shift) in self.line_shifts(&ctx, *line, &mut spaces) {
                     changed |= self.shift_item(item, shift);
+                }
+                for (item, starts_row) in spaces {
+                    changed |= self.collapse_space(item, starts_row);
                 }
             }
             if !changed {
@@ -905,7 +916,14 @@ impl TaffyLayouter {
 
     /// How far down each item of `line` has to move for its row to share one baseline: zero for
     /// the item whose baseline is lowest, and for items that take no part.
-    fn line_shifts(&mut self, ctx: &BaselineCtx<'_>, line: TaffyNodeId) -> Vec<(TaffyNodeId, f32)> {
+    ///
+    /// Also hands back, in `spaces`, each space item of the line and whether it starts a row.
+    fn line_shifts(
+        &mut self,
+        ctx: &BaselineCtx<'_>,
+        line: TaffyNodeId,
+        spaces: &mut Vec<(TaffyNodeId, bool)>,
+    ) -> Vec<(TaffyNodeId, f32)> {
         // Every item is aligned flex-start, so its margin box starts at its row's top; that is
         // how the wrapped rows - which taffy does not expose - are told apart.
         // Each row: its top, then its items with their baselines from that top.
@@ -930,16 +948,39 @@ impl TaffyLayouter {
         }
 
         let mut shifts = Vec::new();
-        for (_, mut items) in rows {
+        for (row, (_, mut items)) in rows.into_iter().enumerate() {
             // Spaces at either end of a row are removed in CSS (css-text-3 §4.1.2), so they take
             // no part: a space in a smaller font, moved down to the baseline, made the line taller.
             // That is the space before " (site)" when the site wraps after a long title.
             let space = |item: &TaffyNodeId| matches!(self.tree.get_node_context(*item), Some(TaffyContext::Text(t)) if !t.text.is_empty() && t.text.chars().all(char::is_whitespace));
             let first = items.iter().take_while(|(item, _)| space(item)).count();
             let last = items.len() - items.iter().rev().take_while(|(item, _)| space(item)).count();
-            for (i, (_, baseline)) in items.iter_mut().enumerate() {
+            // Only a space CSS collapses is removed at a line's start: source whitespace under
+            // `white-space: normal`, not an `&nbsp;`, an ideographic space or a preserved one.
+            // A collapsed space is drawn as one NBSP, the same as an `&nbsp;`, so the DOM text
+            // behind it decides: an `&nbsp;` of its own has no ASCII whitespace in it.
+            let collapsible = |item: &TaffyNodeId| {
+                let Some(dom) = ctx.dom_of.get(item) else {
+                    return false;
+                };
+                matches!(self.tree.get_node_context(*item), Some(TaffyContext::Text(t)) if t.text == "\u{00A0}")
+                    && !ctx.doc.computed_style(*dom).inherited.white_space.preserves_spaces()
+                    && ctx.doc.get_node_by_id(*dom).is_some_and(
+                        |n| matches!(&n.node_type, NodeType::Text(t) if t.contains(|c: char| c.is_ascii_whitespace())),
+                    )
+            };
+            for (i, (item, baseline)) in items.iter_mut().enumerate() {
                 if i < first || i >= last {
                     *baseline = None;
+                }
+                // A space that ends a row may keep its width: it hangs past the row's end. One
+                // in the middle must have it back if a relayout moved it there. The first row is
+                // left alone: an inline box's first row can start in the middle of its parent's
+                // line, where a space at its start is the one between two words.
+                if i < first && row > 0 && collapsible(item) {
+                    spaces.push((*item, true));
+                } else if i < last && space(item) {
+                    spaces.push((*item, false));
                 }
             }
             let line_baseline = items.iter().filter_map(|(_, b)| *b).fold(f32::MIN, f32::max);
@@ -950,6 +991,34 @@ impl TaffyLayouter {
             );
         }
         shifts
+    }
+
+    /// Take the width off a space that starts a row, or give it back to one that no longer does.
+    /// The space before a wrapped word moved onto the next row with it and indented that row by
+    /// a space: CSS removes a collapsible space at the start of a line (css-text-3 §4.1.2), so
+    /// the second line of a wrapped Hacker News title started one space in. Returns whether
+    /// anything changed.
+    fn collapse_space(&mut self, item: TaffyNodeId, starts_row: bool) -> bool {
+        let Ok(style) = self.tree.style(item) else {
+            return false;
+        };
+        let mut style = style.clone();
+        match (starts_row, self.collapsed_spaces.get(&item).copied()) {
+            (true, None) => {
+                // Spaces are given their width as a length; anything else is left be.
+                let taffy::ExpandedDimension::Length(width) = style.size.width.expand() else {
+                    return false;
+                };
+                self.collapsed_spaces.insert(item, width);
+                style.size.width = Dimension::from_length(0.0);
+            }
+            (false, Some(width)) => {
+                self.collapsed_spaces.remove(&item);
+                style.size.width = Dimension::from_length(width);
+            }
+            _ => return false,
+        }
+        self.tree.set_style(item, style).is_ok()
     }
 
     /// Give `item` `shift` px of extra top margin. Returns whether that changed anything.
@@ -1362,6 +1431,7 @@ impl TaffyLayouter {
         self.flattened_inlines.clear();
         self.glue_map.clear();
         self.baseline_shifts.clear();
+        self.collapsed_spaces.clear();
         self.baseline_index = None;
         self.percent_line_items.clear();
         self.inline_level.clear();
@@ -1912,7 +1982,8 @@ impl TaffyLayouter {
             let doc = &layout_tree.render_tree.doc;
             (
                 full.starts_with(|c: char| c.is_ascii_whitespace())
-                    && text_has_inline_neighbor(doc, text_node.node_id, false),
+                    && text_has_inline_neighbor(doc, text_node.node_id, false)
+                    && !follows_collapsible_space(doc, text_node.node_id),
                 full.ends_with(|c: char| c.is_ascii_whitespace())
                     && text_has_inline_neighbor(doc, text_node.node_id, true),
                 split_collapsible_whitespace(full)
@@ -2043,7 +2114,11 @@ impl TaffyLayouter {
             && b.opacity >= 1.0
             && (b.mix_blend_mode.is_empty() || b.mix_blend_mode.as_ref() == "normal")
             && style.background.color.a == 0
-            && style.background.image.is_none()
+            && style
+                .background
+                .layers
+                .iter()
+                .all(|layer| matches!(layer.image, BackgroundImage::None))
             && style.border.top_width == 0.0
             && style.border.right_width == 0.0
             && style.border.bottom_width == 0.0
@@ -2057,7 +2132,7 @@ impl TaffyLayouter {
             && zero_or_auto(style.margin.right)
             && zero_or_auto(style.margin.bottom)
             && zero_or_auto(style.margin.left)
-            && doc.transform_translate(node.node_id).is_none();
+            && style.box_group.translate.is_none();
         if !plain {
             return false;
         }
@@ -2524,6 +2599,10 @@ impl TaffyLayouter {
                         if current_inline_group.is_empty() && starts_a_line && !preserved {
                             continue;
                         }
+                        // A space right after another collapses into it.
+                        if !preserved && follows_collapsible_space(&layout_tree.render_tree.doc, child_node.node_id) {
+                            continue;
+                        }
                         !preserved
                     } else {
                         false
@@ -2562,8 +2641,16 @@ impl TaffyLayouter {
             element_node.children.push(child_layout_element_id);
         }
 
-        // Strip trailing whitespace and deal with any remaining inline elements
-        current_inline_group.truncate(current_inline_group.len().saturating_sub(trailing_ws_count));
+        // Strip trailing whitespace and deal with any remaining inline elements. An inline box
+        // that something follows on the same line keeps it: the line goes on after it, and the
+        // space after is the one that collapses (see `follows_collapsible_space`), so
+        // `a<span> </span> b` keeps its one space.
+        let line_goes_on = !starts_a_line
+            && matches!(dom_node.node_type, NodeType::Element(_))
+            && text_has_inline_neighbor(&layout_tree.render_tree.doc, dom_node.node_id, true);
+        if !line_goes_on {
+            current_inline_group.truncate(current_inline_group.len().saturating_sub(trailing_ws_count));
+        }
         self.process_inlines(
             layout_tree,
             &current_inline_group,
@@ -2598,7 +2685,7 @@ impl TaffyLayouter {
     fn resolve_background_media(&self, layout_tree: &LayoutTree, dom_node_id: DomNodeId) -> Option<BackgroundMedia> {
         let doc = &layout_tree.render_tree.doc;
         let style = doc.computed_style(dom_node_id);
-        let url = style.background.image.as_deref()?;
+        let (url, layer) = style.background.first_url()?;
         if url.is_empty() || url.eq_ignore_ascii_case("none") {
             return None;
         }
@@ -2611,7 +2698,7 @@ impl TaffyLayouter {
             MediaRequest::Pending => return None,
         };
 
-        let layout = doc.background_image_layout(dom_node_id);
+        let layout = layer.tile;
 
         // Store the intrinsic size + layout; the painter finalizes the tile geometry once the box
         // is known. A raster image is used directly. An SVG background is rasterized to a raster
@@ -2636,7 +2723,7 @@ impl TaffyLayouter {
             Media::Svg(ms) => {
                 let size = ms.svg.tree.size();
                 let (rw, rh) = match layout.size {
-                    BgSize::Length(w, h) => (w, h),
+                    BackgroundSize::Explicit(CssLpa::Px(w), CssLpa::Px(h)) => (w, h),
                     _ => (size.width(), size.height()),
                 };
                 let rw = (rw.round() as u32).max(1);
@@ -3069,7 +3156,8 @@ impl TaffyLayouter {
                     // entirely by CSS white-space collapsing, so "\n      Row 1..." in a div must
                     // not indent the line.
                     let had_leading_space = text.starts_with(|c: char| c.is_ascii_whitespace())
-                        && text_has_inline_neighbor(doc, dom_node.node_id, false);
+                        && text_has_inline_neighbor(doc, dom_node.node_id, false)
+                        && !follows_collapsible_space(doc, dom_node.node_id);
                     let had_trailing_space = text.ends_with(|c: char| c.is_ascii_whitespace())
                         && text_has_inline_neighbor(doc, dom_node.node_id, true);
                     let mut collapsed: String = split_collapsible_whitespace(text).collect::<Vec<_>>().join(" ");
@@ -3206,7 +3294,9 @@ impl TaffyLayouter {
         let font_info = control_font_info(&**doc, node_id);
         let disabled = data.get_attribute("disabled").is_some();
         let attr = |name: &str| data.get_attribute(name).map(|s| s.trim().to_string());
-        let attr_f64 = |name: &str| attr(name).and_then(|s| s.parse::<f64>().ok());
+        // HTML's rules for parsing floating-point number values, which reject `NaN`, `inf` and
+        // `1e999`: a NaN bound would make the `clamp` calls below panic.
+        let attr_f64 = |name: &str| data.get_attribute(name).and_then(|s| parse_floating_point_number(s));
 
         let (control, dimension) = match tag.as_ref() {
             "input" => {
@@ -3239,8 +3329,8 @@ impl TaffyLayouter {
                     "range" => {
                         let min = attr_f64("min").unwrap_or(0.0);
                         let max = attr_f64("max").unwrap_or(100.0).max(min);
-                        let value = attr_f64("value").unwrap_or((min + max) / 2.0).clamp(min, max);
-                        let fraction = if max > min { (value - min) / (max - min) } else { 0.0 };
+                        let value = attr_f64("value").unwrap_or(min / 2.0 + max / 2.0).clamp(min, max);
+                        let fraction = fraction_between(value, min, max);
                         (
                             FormControl::Range { min, max, fraction },
                             geo::Dimension::new(129.0, 21.0),
@@ -3353,12 +3443,11 @@ impl TaffyLayouter {
             "meter" => {
                 let min = attr_f64("min").unwrap_or(0.0);
                 let max = attr_f64("max").unwrap_or(1.0).max(min);
-                let span = (max - min).max(f64::EPSILON);
                 let low = attr_f64("low").unwrap_or(min).clamp(min, max);
                 let high = attr_f64("high").unwrap_or(max).clamp(low, max);
-                let optimum = attr_f64("optimum").unwrap_or((min + max) / 2.0).clamp(min, max);
+                let optimum = attr_f64("optimum").unwrap_or(min / 2.0 + max / 2.0).clamp(min, max);
                 let value = attr_f64("value").unwrap_or(min).clamp(min, max);
-                let fraction = (value - min) / span;
+                let fraction = fraction_between(value, min, max);
                 // Green when the value shares the optimum's band (below-low / between /
                 // above-high), yellow one band away, red two away.
                 let band = |v: f64| -> u8 {
@@ -3899,6 +3988,84 @@ fn text_has_inline_neighbor(
     }
 }
 
+/// Whether the text before `id` in its line ends in a collapsible space, looking through inline
+/// element boundaries and past inline elements that hold nothing.
+///
+/// A collapsible space right after another one is removed, even across the edge of an inline
+/// element (css-text-3 §4.1.1). Each text node collapses its own whitespace, so without this two
+/// nodes each kept a space: Hacker News's `ago</a></span> <span id="unv_1"></span> | hide`
+/// showed two spaces before the `|`.
+fn follows_collapsible_space(
+    doc: &Arc<dyn crate::common::document::pipeline_doc::PipelineDocument>,
+    id: gosub_shared::node::NodeId,
+) -> bool {
+    let inline_level = |n: &Node| n.is_inline_element() || n.is_inline_block_element();
+    // An element that is content of its own, not a wrapper around text.
+    let atomic = |n: &Node| {
+        n.is_inline_block_element()
+            || matches!(&n.node_type, NodeType::Element(d) if matches!(
+                d.tag_name.cow_to_ascii_lowercase().as_ref(),
+                "img" | "input" | "button" | "select" | "textarea" | "video" | "audio" | "canvas"
+                    | "iframe" | "object" | "embed" | "svg" | "math" | "meter" | "progress" | "br"
+            ))
+    };
+    let previous = |node: gosub_shared::node::NodeId| {
+        let parent = doc.parent(node)?;
+        let siblings = doc.children(parent);
+        let pos = siblings.iter().position(|&s| s == node)?;
+        Some((parent, pos.checked_sub(1).map(|p| siblings[p])))
+    };
+
+    let mut node = id;
+    loop {
+        let Some((parent, before)) = previous(node) else {
+            return false;
+        };
+        let Some(mut candidate) = before else {
+            // First in its parent: an inline parent continues the line from its own previous
+            // sibling, anything else starts it.
+            match doc.get_node_by_id(parent) {
+                Some(p) if matches!(p.node_type, NodeType::Element(_)) && inline_level(&p) && !atomic(&p) => {
+                    node = parent;
+                    continue;
+                }
+                _ => return false,
+            }
+        };
+        // Descend into the last thing the line drew before `node`.
+        loop {
+            let Some(n) = doc.get_node_by_id(candidate) else {
+                return false;
+            };
+            match &n.node_type {
+                NodeType::Text(t) => {
+                    if t.is_empty() {
+                        break;
+                    }
+                    let preserved = doc.computed_style(candidate).inherited.white_space.preserves_spaces();
+                    return !preserved && t.ends_with(|c: char| c.is_ascii_whitespace());
+                }
+                NodeType::Element(_) => {
+                    // `display: none` draws nothing; look before it.
+                    if doc.computed_style(candidate).box_group.display == CssDisplay::None {
+                        break;
+                    }
+                    if !inline_level(&n) || atomic(&n) {
+                        return false;
+                    }
+                    match doc.children(candidate).last() {
+                        Some(&last) => candidate = last,
+                        // An empty inline element: look before it.
+                        None => break,
+                    }
+                }
+                _ => break,
+            }
+        }
+        node = candidate;
+    }
+}
+
 /// Converts a taffy layout to our own BoxModel structure
 /// Measure callback shared by the full first pass and per-cell table re-layout
 /// (`relayout_cell`). Text is shaped through the font system with memoization;
@@ -4055,7 +4222,7 @@ fn apply_translations(layout_tree: &mut LayoutTree) {
         let Some(el) = layout_tree.arena.get(&id) else {
             continue;
         };
-        let Some((tx, ty)) = doc.transform_translate(el.dom_node_id) else {
+        let Some((tx, ty)) = doc.computed_style(el.dom_node_id).box_group.translate else {
             continue;
         };
         let bb = el.box_model.border_box;

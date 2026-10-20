@@ -22,12 +22,6 @@ pub(super) fn escape_audit() -> Option<gosub_sandbox::audit::AuditReport> {
 /// chunk) for the transport.
 const RING_CAPACITY: u32 = 256 * 1024;
 
-/// How many chunks the pump may fall behind the fetcher before the body drops
-/// it as a slow subscriber. The ring's backpressure stalls the pump whenever
-/// the broker is not draining; this queue absorbs that stall (16 KiB chunks:
-/// at most 16 MiB held) so backpressure costs memory here, never bytes.
-const PUMP_QUEUE: usize = 1024;
-
 const VAULT_TIMEOUT: Duration = Duration::from_secs(5);
 
 type BodyChunks = futures_util::stream::BoxStream<'static, Result<bytes::Bytes, gosub_sonar::net::types::NetError>>;
@@ -58,7 +52,9 @@ pub(super) fn begin_stream(
     expected: Option<u64>,
     shared: Arc<SharedBody>,
 ) -> Result<Streamed, String> {
-    let chunks = shared.subscribe_with_cap(PUMP_QUEUE);
+    // Lossless: the ring's backpressure stalls the pump whenever the broker is not draining,
+    // and the fetcher's body waits for it then, instead of dropping it as a slow subscriber.
+    let chunks = shared.subscribe_lossless();
     let (producer, ring) = gosub_ipc::ring::RingProducer::create(RING_CAPACITY).map_err(|e| e.to_string())?;
     Ok(Streamed {
         head,

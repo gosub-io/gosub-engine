@@ -1715,6 +1715,7 @@ PASS css/css-backgrounds/parsing/border-width-computed.html :: Property border-w
 PASS css/css-backgrounds/parsing/border-width-computed.html :: Property border-width value '1px 2px 3px'
 PASS css/css-backgrounds/parsing/border-width-computed.html :: Property border-width value '1px 2px 3px 4px'
 PASS css/css-backgrounds/parsing/border-width-computed.html :: Property border-width value '0.5em'
+PASS css/css-backgrounds/parsing/border-width-computed.html :: Property border-width value '2px thin medium thick'
 PASS css/css-backgrounds/parsing/border-width-computed.html :: Property border-top-width value '0px'
 PASS css/css-backgrounds/parsing/border-width-computed.html :: Property border-right-width value '10px'
 PASS css/css-backgrounds/parsing/border-width-computed.html :: Property border-bottom-width value 'calc(-0.5em + 10px)'
@@ -13342,6 +13343,15 @@ PASS css/css-fonts/parsing/font-size-adjust-valid.html :: e.style['font-size-adj
 PASS css/css-fonts/parsing/font-size-adjust-valid.html :: e.style['font-size-adjust'] = "0.5" should set the property value
 PASS css/css-fonts/parsing/font-size-adjust-valid.html :: e.style['font-size-adjust'] = "calc(0.5)" should set the property value
 FILE css/css-fonts/parsing/font-size-computed.html
+PASS css/css-fonts/parsing/font-size-computed.html :: xx-small <= x-small
+PASS css/css-fonts/parsing/font-size-computed.html :: x-small <= small
+PASS css/css-fonts/parsing/font-size-computed.html :: small <= medium
+PASS css/css-fonts/parsing/font-size-computed.html :: medium <= large
+PASS css/css-fonts/parsing/font-size-computed.html :: large <= x-large
+PASS css/css-fonts/parsing/font-size-computed.html :: x-large <= xx-large
+PASS css/css-fonts/parsing/font-size-computed.html :: xx-large <= xxx-large
+PASS css/css-fonts/parsing/font-size-computed.html :: inherit <= larger
+PASS css/css-fonts/parsing/font-size-computed.html :: smaller <= inherit
 PASS css/css-fonts/parsing/font-size-computed.html :: Property font-size value '10px'
 PASS css/css-fonts/parsing/font-size-computed.html :: Property font-size value '20%'
 PASS css/css-fonts/parsing/font-size-computed.html :: Property font-size value 'calc(10px - 0.5em)'
@@ -14157,6 +14167,7 @@ PASS css/css-grid/parsing/grid-area-computed.html :: Property grid-column value 
 FILE css/css-grid/parsing/grid-area-invalid.html
 PASS css/css-grid/parsing/grid-area-invalid.html :: e.style['grid-row'] = "1.0" should not set the property value
 PASS css/css-grid/parsing/grid-area-invalid.html :: e.style['grid-column'] = "1 2" should not set the property value
+PASS css/css-grid/parsing/grid-area-invalid.html :: e.style['grid-row-start'] = "+-3" should not set the property value
 PASS css/css-grid/parsing/grid-area-invalid.html :: e.style['grid-column-start'] = "0" should not set the property value
 PASS css/css-grid/parsing/grid-area-invalid.html :: e.style['grid-column-end'] = "1st" should not set the property value
 PASS css/css-grid/parsing/grid-area-invalid.html :: e.style['grid-area'] = "auto / auto / auto / auto / auto" should not set the property value

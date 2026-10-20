@@ -45,18 +45,95 @@ pub enum RoutedOutcome<C: RenderConfiguration> {
 
     /// A top-level navigation to non-renderable content: offer it as a download.
     ///
-    /// `spooled` is the temp file the body was written to; a spool failure fails the
-    /// navigation instead, there is no fallback to a fresh fetch. See
-    /// [`TabCommand::StartDownload`](crate::events::TabCommand::StartDownload) for why the
-    /// body is captured rather than re-requested. Boxed to keep the variants of comparable
-    /// size.
+    /// Made at the response headers: `spool` is the body still being written to a temp file,
+    /// so the embedder hears of the download while it arrives. A body whose declared length
+    /// is over the spool cap fails the navigation instead, and there is no fallback to a
+    /// fresh fetch. See [`TabCommand::StartDownload`](crate::events::TabCommand::StartDownload)
+    /// for why the body is captured rather than re-requested. Boxed to keep the variants of
+    /// comparable size.
     DownloadOffer {
         meta: Box<crate::net::types::FetchResultMeta>,
-        spooled: tempfile::TempPath,
+        spool: Spool,
     },
 }
 
-/// Write a response body to a temp file and return its path.
+/// How far a [`Spool`] has got.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SpoolProgress {
+    /// This many bytes are in the temp file so far.
+    Writing(u64),
+    /// The whole body, this many bytes, is in the temp file.
+    Done(u64),
+    /// Writing stopped with this error; the temp file is gone.
+    Failed(String),
+}
+
+/// A download body being written to a temp file in the background, so the offer can go to
+/// the embedder at the response headers rather than once the whole body has arrived.
+///
+/// Dropping a `Spool` before [`finish`](Self::finish) stops the writing and removes the file:
+/// an offer that is evicted, or a tab that closes, leaves nothing behind.
+pub(crate) struct Spool {
+    progress: tokio::sync::watch::Receiver<SpoolProgress>,
+    result: tokio::sync::oneshot::Receiver<anyhow::Result<tempfile::TempPath>>,
+    stop: tokio_util::sync::DropGuard,
+}
+
+impl std::fmt::Debug for Spool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Spool")
+            .field("progress", &*self.progress.borrow())
+            .finish()
+    }
+}
+
+impl Spool {
+    /// Start writing `peek_buf` and then `body` to a new temp file, on a task of its own.
+    fn start(body: BodyContent, peek_buf: PeekBuf, max_bytes: u64) -> Self {
+        let (progress_tx, progress) = tokio::sync::watch::channel(SpoolProgress::Writing(0));
+        let (result_tx, result) = tokio::sync::oneshot::channel();
+        let stop = tokio_util::sync::CancellationToken::new();
+        let stopped = stop.clone();
+        crate::util::spawn_named("download-spool", async move {
+            let on_written = |n: u64| {
+                progress_tx.send_replace(SpoolProgress::Writing(n));
+            };
+            let written = tokio::select! {
+                r = spool_body_to_temp(body, peek_buf, max_bytes, &on_written) => r,
+                _ = stopped.cancelled() => return,
+            };
+            progress_tx.send_replace(match &written {
+                Ok((_, n)) => SpoolProgress::Done(*n),
+                Err(e) => SpoolProgress::Failed(format!("{e:#}")),
+            });
+            let _ = result_tx.send(written.map(|(path, _)| path));
+        });
+        Self {
+            progress,
+            result,
+            stop: stop.drop_guard(),
+        }
+    }
+
+    /// Follows the writing: the latest [`SpoolProgress`], and a wakeup when it moves.
+    pub(crate) fn progress(&self) -> tokio::sync::watch::Receiver<SpoolProgress> {
+        self.progress.clone()
+    }
+
+    /// Wait for the whole body and take its temp file. Dropping this future before it
+    /// completes stops the writing, as dropping the `Spool` would.
+    pub(crate) async fn finish(self) -> anyhow::Result<tempfile::TempPath> {
+        let Self { result, stop, .. } = self;
+        let written = result
+            .await
+            .unwrap_or_else(|_| Err(anyhow!("the download stopped before its body was written")));
+        stop.disarm();
+        written
+    }
+}
+
+/// Write a response body to a temp file and return its path and length, calling
+/// `on_written` with the running total as it goes.
 ///
 /// Streamed, not buffered: an offer can be gigabytes and the embedder may never answer.
 /// Returns a [`tempfile::TempPath`] so the file is removed if the offer is dropped.
@@ -64,7 +141,8 @@ async fn spool_body_to_temp(
     body: BodyContent,
     peek_buf: PeekBuf,
     max_bytes: u64,
-) -> anyhow::Result<tempfile::TempPath> {
+    on_written: &(dyn Fn(u64) + Send + Sync),
+) -> anyhow::Result<(tempfile::TempPath, u64)> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     // An unaccepted offer occupies the temp filesystem; refuse to spool past the cap.
@@ -81,15 +159,18 @@ async fn spool_body_to_temp(
         .await
         .with_context(|| format!("open {}", path.display()))?;
 
-    match body {
+    let written = match body {
         BodyContent::Buffered { body } => {
             if over(body.len() as u64) {
                 return Err(too_large());
             }
             file.write_all(&body).await.context("write download temp file")?;
+            body.len() as u64
         }
         BodyContent::Stream { shared } => {
-            let mut reader = SharedBody::combined_reader(peek_buf, shared);
+            // Lossless: writing to disk is slower than the network, and a lagging reader of a
+            // shared body is dropped; this one makes the body wait for it instead.
+            let mut reader = SharedBody::combined_reader_lossless(peek_buf, shared);
             let mut buf = vec![0u8; 64 * 1024];
             let mut total: u64 = 0;
             loop {
@@ -102,11 +183,13 @@ async fn spool_body_to_temp(
                     return Err(too_large());
                 }
                 file.write_all(&buf[..n]).await.context("write download temp file")?;
+                on_written(total);
             }
+            total
         }
-    }
+    };
     file.flush().await.context("flush download temp file")?;
-    Ok(path)
+    Ok((path, written))
 }
 
 fn html_escape(text: &str) -> String {
@@ -317,15 +400,20 @@ pub async fn route_response_for<C: RenderConfiguration>(
                 });
             }
             // Binary content or an explicit attachment: offer it to the embedder as a
-            // download instead of failing the navigation. The body is spooled to disk now,
-            // while we still have it - see `DownloadOffer`.
-            // If the body cannot be captured the navigation fails: an offer without its body
-            // would have to re-request the URL on accept, which is exactly what spooling exists
-            // to avoid.
-            let spooled = spool_body_to_temp(body_content, peek_buf, hooks.max_download_spool_bytes).await?;
+            // download instead of failing the navigation. The offer goes now, at the headers;
+            // the body is spooled to disk behind it, while we still have it - see
+            // `DownloadOffer`. A body that says it will not fit fails the navigation here:
+            // an offer without its body would have to re-request the URL on accept, which is
+            // exactly what spooling exists to avoid.
+            let max = hooks.max_download_spool_bytes;
+            if let Some(len) = meta.content_length.filter(|&len| max > 0 && len > max) {
+                return Err(anyhow!(
+                    "download of {len} bytes exceeds net.download.max_spool_bytes ({max} bytes)"
+                ));
+            }
             Ok(RoutedOutcome::DownloadOffer {
                 meta: Box::new(meta),
-                spooled,
+                spool: Spool::start(body_content, peek_buf, max),
             })
         }
 
@@ -362,5 +450,45 @@ pub async fn route_response_for<C: RenderConfiguration>(
         (_, HandlingDecision::Download { .. } | HandlingDecision::Render(_), _) => {
             Ok(RoutedOutcome::Blocked(BlockReason::Policy))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A spool hands over its temp file once the whole body is written, and says so.
+    #[tokio::test]
+    async fn a_spool_finishes_with_the_whole_body() {
+        let shared = Arc::new(SharedBody::new(8));
+        let spool = Spool::start(
+            BodyContent::Stream { shared: shared.clone() },
+            PeekBuf::from_slice(b"head-"),
+            0,
+        );
+        shared.push(Bytes::from_static(b"body"));
+        shared.finish();
+        let mut progress = spool.progress();
+        let path = spool.finish().await.expect("spooled");
+        assert_eq!(std::fs::read(&path).unwrap(), b"head-body");
+        let _ = progress.changed().await;
+        assert_eq!(*progress.borrow(), SpoolProgress::Done(9));
+    }
+
+    /// Dropping a spool whose body is still arriving stops the writing: an offer that is
+    /// evicted or a tab that closes leaves no task reading on.
+    #[tokio::test]
+    async fn dropping_a_spool_stops_its_writing() {
+        let shared = Arc::new(SharedBody::new(8));
+        let spool = Spool::start(BodyContent::Stream { shared: shared.clone() }, PeekBuf::empty(), 0);
+        shared.push(Bytes::from_static(b"part"));
+        let mut progress = spool.progress();
+        drop(spool);
+        // The writer ends, and with it the progress it reported.
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while progress.changed().await.is_ok() {}
+        })
+        .await
+        .expect("the spool kept writing after it was dropped");
     }
 }

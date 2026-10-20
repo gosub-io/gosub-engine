@@ -1699,6 +1699,730 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A navigation streams its body, so a download is not held to the fetcher's cap on a
+    /// buffered body (64 MiB): it spools to disk and is offered, up to `max_spool_bytes`.
+    #[tokio::test]
+    async fn a_download_past_the_buffered_body_cap_is_offered() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        const SIZE: usize = 80 * 1024 * 1024;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\
+                         Content-Disposition: attachment; filename=\"big.iso\"\r\n\
+                         Content-Length: {SIZE}\r\nConnection: close\r\n\r\n"
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let chunk = vec![7u8; 1024 * 1024];
+                    for _ in 0..SIZE / chunk.len() {
+                        if stream.write_all(&chunk).await.is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.navigate(format!("http://127.0.0.1:{port}/big.iso"))
+            .await
+            .expect("navigate");
+
+        let total = tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadRequested { total_bytes, .. }) => return total_bytes,
+                    Ok(EngineEvent::Navigation {
+                        event: crate::events::NavigationEvent::Failed { error, .. },
+                        ..
+                    }) => panic!("navigation failed instead of offering: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for DownloadRequested");
+        assert_eq!(total, Some(SIZE as u64));
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A download is offered at its response headers, not once its body is in: the shell can
+    /// show it while it arrives, and an accepted offer reports progress until it is whole.
+    #[tokio::test]
+    async fn a_download_is_offered_before_its_body_is_in() {
+        use crate::events::{DownloadId, TabCommand};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let payload: Vec<u8> = (0..1024 * 1024).map(|i| (i % 249) as u8).collect();
+        let payload_srv = payload.clone();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+        let release_rx = std::sync::Arc::new(tokio::sync::Mutex::new(Some(release_rx)));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let payload = payload_srv.clone();
+                let release_rx = release_rx.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\
+                         Content-Disposition: attachment; filename=\"held.bin\"\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n",
+                        payload.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(&payload[..300 * 1024]).await;
+                    // The rest only once the test has seen the offer and some progress.
+                    if let Some(rx) = release_rx.lock().await.take() {
+                        let _ = rx.await;
+                    }
+                    let _ = stream.write_all(&payload[300 * 1024..]).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.navigate(format!("http://127.0.0.1:{port}/held.bin"))
+            .await
+            .expect("navigate");
+
+        // The body is held back, so an offer now can only have come at the headers.
+        let (url, offer) = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadRequested { url, offer, .. }) => return (url, offer),
+                    Ok(EngineEvent::Navigation {
+                        event: crate::events::NavigationEvent::Failed { error, .. },
+                        ..
+                    }) => panic!("navigation failed instead of offering: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("no offer while the body was held back");
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("held.bin");
+        tab.send(TabCommand::StartDownload {
+            id: DownloadId(11),
+            url: url.to_string(),
+            target_path: target.clone(),
+            offer: Some(offer),
+        })
+        .await
+        .expect("start download");
+
+        // Still held: what has arrived is reported as progress.
+        let received = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadProgress {
+                        id: DownloadId(11),
+                        received_bytes,
+                        total_bytes,
+                        ..
+                    }) => {
+                        assert_eq!(total_bytes, Some(payload.len() as u64));
+                        return received_bytes;
+                    }
+                    Ok(EngineEvent::DownloadFinished { id: DownloadId(11), .. }) => {
+                        panic!("finished while the body was held back")
+                    }
+                    Ok(EngineEvent::DownloadFailed { error, .. }) => panic!("download failed: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("no progress while the body was arriving");
+        assert!(received < payload.len() as u64, "progress {received} is the whole body");
+
+        release_tx.send(()).unwrap();
+        let finished = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadFinished {
+                        id: DownloadId(11),
+                        received_bytes,
+                        ..
+                    }) => return received_bytes,
+                    Ok(EngineEvent::DownloadFailed { error, .. }) => panic!("download failed: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for DownloadFinished");
+        assert_eq!(finished, payload.len() as u64);
+        assert_eq!(std::fs::read(&target).unwrap(), payload, "file content must match");
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A server for cancel tests: `/page` is a page with a link, anything else a 1 MiB
+    /// attachment of which the first 300 KiB come at once and the rest never.
+    async fn held_download_server() -> u16 {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    if buf[..n].starts_with(b"GET /page ") {
+                        let page = "<html><body><a href=\"/held.bin\">held</a></body></html>";
+                        let head = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\
+                             Content-Length: {}\r\nConnection: close\r\n\r\n",
+                            page.len()
+                        );
+                        let _ = stream.write_all(head.as_bytes()).await;
+                        let _ = stream.write_all(page.as_bytes()).await;
+                        return;
+                    }
+                    let head = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\
+                                Content-Disposition: attachment; filename=\"held.bin\"\r\n\
+                                Content-Length: 1048576\r\nConnection: close\r\n\r\n";
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(&vec![5u8; 300 * 1024]).await;
+                    // Hold the connection open until the client lets go.
+                    let _ = stream.read(&mut buf).await;
+                });
+            }
+        });
+        port
+    }
+
+    /// Wait for download `id` to report progress, then cancel it and wait for it to end.
+    /// Returns whether it ended cancelled (`false` for finished or failed).
+    async fn cancel_after_progress(
+        tab: &crate::tab::TabHandle,
+        events: &mut tokio::sync::broadcast::Receiver<EngineEvent>,
+        id: crate::events::DownloadId,
+    ) -> bool {
+        use crate::events::TabCommand;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadProgress { id: got, .. }) if got == id => return,
+                    Ok(EngineEvent::DownloadFailed { error, .. }) => panic!("download failed: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("no progress before the cancel");
+        tab.send(TabCommand::CancelDownload { id }).await.expect("cancel");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadCancelled { id: got, .. }) if got == id => return true,
+                    Ok(EngineEvent::DownloadFinished { id: got, .. }) if got == id => return false,
+                    Ok(EngineEvent::DownloadFailed { id: got, .. }) if got == id => return false,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("the download did not end after the cancel")
+    }
+
+    /// An accepted offer can be cancelled while its body arrives: it ends cancelled and
+    /// leaves no file behind.
+    #[tokio::test]
+    async fn an_accepted_offer_can_be_cancelled_while_it_arrives() {
+        use crate::events::{DownloadId, TabCommand};
+
+        let port = held_download_server().await;
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.navigate(format!("http://127.0.0.1:{port}/held.bin"))
+            .await
+            .expect("navigate");
+        let (url, offer) = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadRequested { url, offer, .. }) => return (url, offer),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("no offer");
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("held.bin");
+        tab.send(TabCommand::StartDownload {
+            id: DownloadId(21),
+            url: url.to_string(),
+            target_path: target.clone(),
+            offer: Some(offer),
+        })
+        .await
+        .expect("start download");
+        assert!(
+            cancel_after_progress(&tab, &mut events, DownloadId(21)).await,
+            "not cancelled"
+        );
+        assert!(!target.exists(), "a cancelled offer must not be placed");
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A save-link download can be cancelled while it arrives: it ends cancelled and the
+    /// partly written file is removed.
+    #[tokio::test]
+    async fn a_saved_link_can_be_cancelled_while_it_arrives() {
+        use crate::events::{DownloadId, TabCommand};
+
+        let port = held_download_server().await;
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        // From a page, as the context menu offers it.
+        tab.navigate(format!("http://127.0.0.1:{port}/page"))
+            .await
+            .expect("navigate to the page");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::Navigation {
+                        event: crate::events::NavigationEvent::Finished { .. },
+                        ..
+                    }) => return,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("the page did not load");
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("held.bin");
+        tab.send(TabCommand::StartDownload {
+            id: DownloadId(22),
+            url: format!("http://127.0.0.1:{port}/held.bin"),
+            target_path: target.clone(),
+            offer: None,
+        })
+        .await
+        .expect("start download");
+        assert!(
+            cancel_after_progress(&tab, &mut events, DownloadId(22)).await,
+            "not cancelled"
+        );
+        assert!(!target.exists(), "the partial file must be removed");
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// An accepted offer is the download's from then on: navigating the tab elsewhere while
+    /// its body still arrives does not stop it.
+    #[tokio::test]
+    async fn navigating_away_does_not_stop_an_accepted_offer() {
+        use crate::events::{DownloadId, TabCommand};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        const HALF: usize = 512 * 1024;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    if buf[..n].starts_with(b"GET /page ") {
+                        let page = "<html><body>elsewhere</body></html>";
+                        let head = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\
+                             Content-Length: {}\r\nConnection: close\r\n\r\n",
+                            page.len()
+                        );
+                        let _ = stream.write_all(head.as_bytes()).await;
+                        let _ = stream.write_all(page.as_bytes()).await;
+                        return;
+                    }
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\
+                         Content-Disposition: attachment; filename=\"slow.bin\"\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n",
+                        2 * HALF
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(&vec![7u8; HALF]).await;
+                    // Long enough for the tab to have navigated away meanwhile.
+                    tokio::time::sleep(Duration::from_millis(1500)).await;
+                    let _ = stream.write_all(&vec![7u8; HALF]).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.navigate(format!("http://127.0.0.1:{port}/slow.bin"))
+            .await
+            .expect("navigate");
+        let (url, offer) = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadRequested { url, offer, .. }) => return (url, offer),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("no offer");
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("slow.bin");
+        tab.send(TabCommand::StartDownload {
+            id: DownloadId(23),
+            url: url.to_string(),
+            target_path: target.clone(),
+            offer: Some(offer),
+        })
+        .await
+        .expect("start download");
+        tab.navigate(format!("http://127.0.0.1:{port}/page"))
+            .await
+            .expect("navigate away");
+        tab.send(TabCommand::CancelNavigation).await.expect("cancel navigation");
+
+        let received = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadFinished {
+                        id: DownloadId(23),
+                        received_bytes,
+                        ..
+                    }) => {
+                        return received_bytes;
+                    }
+                    Ok(EngineEvent::DownloadFailed {
+                        id: DownloadId(23),
+                        error,
+                        ..
+                    }) => {
+                        panic!("the download stopped with the navigation: {error}")
+                    }
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("the download did not finish");
+        assert_eq!(received, 2 * HALF as u64);
+        assert_eq!(std::fs::metadata(&target).unwrap().len(), 2 * HALF as u64);
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A save-link download cancelled before its file exists leaves alone whatever is at the
+    /// target already: the shell may have agreed to overwrite it, but nothing was written.
+    #[tokio::test]
+    async fn a_download_cancelled_before_its_file_exists_leaves_the_target() {
+        use crate::events::{DownloadId, TabCommand};
+        use tokio::io::AsyncReadExt;
+
+        // Takes the request and never answers it.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let _ = stream.read(&mut buf).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("kept.bin");
+        std::fs::write(&target, b"already here").unwrap();
+        tab.send(TabCommand::StartDownload {
+            id: DownloadId(24),
+            url: format!("http://127.0.0.1:{port}/never.bin"),
+            target_path: target.clone(),
+            offer: None,
+        })
+        .await
+        .expect("start download");
+        tab.send(TabCommand::CancelDownload { id: DownloadId(24) })
+            .await
+            .expect("cancel");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadCancelled { id: DownloadId(24), .. }) => return,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("the download did not end cancelled");
+        assert_eq!(std::fs::read(&target).unwrap(), b"already here");
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// Rendering an offer whose body still arrives, then cancelling that navigation, stops
+    /// the transfer: a rendered offer has no download id, so nothing else could.
+    #[tokio::test]
+    async fn cancelling_a_rendered_offer_stops_its_transfer() {
+        use crate::events::TabCommand;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // Sends the first part of a large page served as an attachment, then holds the rest
+        // back, and says when the client lets go of the connection.
+        let (closed_tx, mut closed_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let closed_tx = closed_tx.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let head = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\
+                                Content-Disposition: attachment; filename=\"page.html\"\r\n\
+                                Content-Length: 1048576\r\nConnection: close\r\n\r\n";
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(&vec![b'a'; 300 * 1024]).await;
+                    let _ = stream.read(&mut buf).await;
+                    let _ = closed_tx.send(());
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.navigate(format!("http://127.0.0.1:{port}/page.html"))
+            .await
+            .expect("navigate");
+        let offer = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadRequested { offer, .. }) => return offer,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("no offer");
+
+        tab.send(TabCommand::RenderDownload { offer }).await.expect("render");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::Navigation {
+                        event: crate::events::NavigationEvent::Started { .. },
+                        ..
+                    }) => return,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("the render did not start");
+        tab.send(TabCommand::CancelNavigation).await.expect("cancel navigation");
+        tokio::time::timeout(Duration::from_secs(10), closed_rx.recv())
+            .await
+            .expect("the transfer went on after its navigation was cancelled");
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A navigation has no deadline for its whole body: a download that takes longer than
+    /// `net.timeout.body_secs` is still offered, as long as it keeps arriving.
+    #[tokio::test]
+    async fn a_download_slower_than_the_body_deadline_is_offered() {
+        use crate::Setting;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let chunk = vec![3u8; 1024];
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\
+                         Content-Disposition: attachment; filename=\"slow.bin\"\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n",
+                        chunk.len() * 6
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    for _ in 0..6 {
+                        tokio::time::sleep(Duration::from_millis(400)).await;
+                        if stream.write_all(&chunk).await.is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        engine
+            .settings()
+            .set("net.timeout.body_secs", Setting::UInt(1))
+            .expect("set body deadline");
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.navigate(format!("http://127.0.0.1:{port}/slow.bin"))
+            .await
+            .expect("navigate");
+
+        let total = tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadRequested { total_bytes, .. }) => return total_bytes,
+                    Ok(EngineEvent::Navigation {
+                        event: crate::events::NavigationEvent::Failed { error, .. },
+                        ..
+                    }) => panic!("navigation failed instead of offering: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for DownloadRequested");
+        assert_eq!(total, Some(6 * 1024));
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A streamed document reaches the parser whole, also past the 4 MiB a shared body keeps
+    /// for a late subscriber: the `<title>` at its very end is the one the tab reports.
+    #[tokio::test]
+    async fn a_large_streamed_document_is_parsed_to_its_end() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let mut page = String::from("<!doctype html><html><head></head><body>");
+        while page.len() < 6 * 1024 * 1024 {
+            page.push_str("<p>filler filler filler filler filler filler filler</p>\n");
+        }
+        page.push_str("<title>the end</title></body></html>");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let page = page.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n",
+                        page.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(page.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.navigate(format!("http://127.0.0.1:{port}/long.html"))
+            .await
+            .expect("navigate");
+
+        tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::Navigation {
+                        event: crate::events::NavigationEvent::Finished { .. },
+                        ..
+                    }) => return,
+                    Ok(EngineEvent::Navigation {
+                        event: crate::events::NavigationEvent::Failed { error, .. },
+                        ..
+                    }) => panic!("navigation failed: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for the navigation to finish");
+        // The handle learns the title from the worker's next state update.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while tab.title().is_empty() && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(tab.title(), "the end", "the document was cut short");
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// Without `child_process::dispatch()` the process settings must not survive
     /// `start()`: a child would re-exec into this test binary's own startup.
     #[cfg(feature = "process-isolation")]
@@ -2349,21 +3073,15 @@ mod tests {
             .await
             .expect("navigate");
         let offer = tokio::time::timeout(Duration::from_secs(10), async {
-            let mut nav_progress = false;
             loop {
                 match event_rx.recv().await {
-                    // The document fetch of the navigation reports load progress.
-                    Ok(EngineEvent::Navigation {
-                        event: crate::events::NavigationEvent::Progress { .. },
-                        ..
-                    }) => nav_progress = true,
                     Ok(EngineEvent::DownloadRequested {
                         url,
                         suggested_filename,
                         total_bytes,
                         offer,
                         ..
-                    }) => return (url, suggested_filename, total_bytes, nav_progress, offer),
+                    }) => return (url, suggested_filename, total_bytes, offer),
                     Ok(_) => continue,
                     Err(e) => panic!("event stream closed: {e}"),
                 }
@@ -2371,7 +3089,6 @@ mod tests {
         })
         .await
         .expect("timed out waiting for DownloadRequested");
-        assert!(offer.3, "expected NavigationEvent::Progress during the document fetch");
         assert_eq!(offer.1, "pretty.bin", "Content-Disposition filename wins");
         assert_eq!(offer.2, Some(payload.len() as u64));
 
@@ -2384,12 +3101,12 @@ mod tests {
             id: DownloadId(7),
             url: offer.0.to_string(),
             target_path: target.clone(),
-            offer: Some(offer.4),
+            offer: Some(offer.3),
         })
         .await
         .expect("start download");
 
-        let (_progress_seen, received) = tokio::time::timeout(Duration::from_secs(10), async {
+        let (progress_seen, received) = tokio::time::timeout(Duration::from_secs(10), async {
             let mut progress_seen = false;
             loop {
                 match event_rx.recv().await {
@@ -2411,6 +3128,8 @@ mod tests {
         })
         .await
         .expect("timed out waiting for DownloadFinished");
+        // The offer came at the headers; the accepted download reports its body as it lands.
+        assert!(progress_seen, "expected DownloadProgress for the accepted offer");
         assert_eq!(received, payload.len() as u64);
         assert_eq!(std::fs::read(&target).unwrap(), payload, "file content must match");
         assert_eq!(

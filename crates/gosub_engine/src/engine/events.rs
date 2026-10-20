@@ -266,8 +266,8 @@ pub enum TabCommand {
     /// With `offer` set, this accepts an [`EngineEvent::DownloadRequested`]: the body captured
     /// during the navigation is placed, and `url` is never requested again - a second request
     /// would be wrong when the navigation was a POST or the URL is single-use. Such a
-    /// download finishes at once, with no intervening
-    /// [`DownloadProgress`](EngineEvent::DownloadProgress). An `offer` that is no longer
+    /// download reports [`DownloadProgress`](EngineEvent::DownloadProgress) while its body
+    /// is still arriving, and finishes once it is placed. An `offer` that is no longer
     /// pending fails with [`DownloadFailed`](EngineEvent::DownloadFailed) rather than
     /// silently fetching.
     ///
@@ -287,6 +287,13 @@ pub enum TabCommand {
     /// with [`LoadError::Content`].
     RenderDownload {
         offer: DownloadOfferId,
+    },
+    /// Stop download `id`, started with [`TabCommand::StartDownload`]: its transfer stops,
+    /// what was written of it is removed, and it ends with
+    /// [`DownloadCancelled`](EngineEvent::DownloadCancelled). A download that has already
+    /// ended, or is being moved into place, is left to finish.
+    CancelDownload {
+        id: DownloadId,
     },
     /// Ask what is at viewport point `(x, y)` (CSS px), e.g. on right-click, to build a native
     /// context menu. Answered with [`EngineEvent::HitTestResult`] carrying the same `token`.
@@ -856,12 +863,15 @@ pub enum EngineEvent {
     /// answers with [`TabCommand::StartDownload`] or [`TabCommand::RenderDownload`] carrying
     /// `offer` - or ignores it.
     ///
-    /// The body has already been transferred and spooled to a temp file by the time this
-    /// arrives, so accepting is a local move rather than a second request. Ignoring the
-    /// event does not release the file: the tab keeps an offer until it is accepted or
-    /// rendered, evicted by newer offers (eight are kept per tab, oldest out first), or the
-    /// tab closes. The bytes move during the *navigation*, so there is no per-download
-    /// progress on accept. This event travels the bounded control bus; a receiver that lagged can list
+    /// Sent at the response headers: the body is still arriving, and is being spooled to a
+    /// temp file behind the offer, so accepting is a local move rather than a second request.
+    /// An accepted offer reports [`DownloadProgress`](Self::DownloadProgress) while the rest
+    /// arrives, then [`DownloadFinished`](Self::DownloadFinished) once it is in place, or
+    /// [`DownloadFailed`](Self::DownloadFailed) if the body could not be had. Ignoring the
+    /// event does not release the file: the tab keeps an offer, and keeps writing its body,
+    /// until it is accepted or rendered, evicted by newer offers (eight are kept per tab,
+    /// oldest out first), or the tab closes; `net.download.max_spool_bytes` bounds what it
+    /// writes. This event travels the bounded control bus; a receiver that lagged can list
     /// what is still pending with
     /// [`TabHandle::pending_downloads`](crate::tab::TabHandle::pending_downloads).
     DownloadRequested {
@@ -873,9 +883,9 @@ pub enum EngineEvent {
         content_type: Option<String>,
         total_bytes: Option<u64>,
     },
-    /// Bytes are flowing to disk for a [`TabCommand::StartDownload`]. Only emitted for
-    /// downloads the engine had to fetch (save-link-as); an accepted offer is already on
-    /// disk and jumps straight to [`DownloadFinished`](Self::DownloadFinished).
+    /// Bytes are on disk for a [`TabCommand::StartDownload`]: a download the engine fetches
+    /// (save-link-as), or an accepted offer, which reports what of its body is written at
+    /// least once before [`DownloadFinished`](Self::DownloadFinished).
     DownloadProgress {
         tab_id: TabId,
         id: DownloadId,
@@ -894,6 +904,11 @@ pub enum EngineEvent {
         tab_id: TabId,
         id: DownloadId,
         error: String,
+    },
+    /// The download stopped at [`TabCommand::CancelDownload`]; nothing of it is left on disk.
+    DownloadCancelled {
+        tab_id: TabId,
+        id: DownloadId,
     },
     /// The page copied/cut `text` (Ctrl+C / Ctrl+X in a text control): put it on the clipboard.
     ClipboardWrite {

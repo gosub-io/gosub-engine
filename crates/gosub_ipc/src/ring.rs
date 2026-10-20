@@ -17,6 +17,9 @@ const HEADER_LEN: usize = 4096;
 const OFF_WRITE_POS: usize = 0;
 const OFF_READ_POS: usize = 64;
 const OFF_DONE: usize = 128;
+/// Set by the consumer when it lets go of the ring, so a producer waiting for
+/// room stops at once instead of after [`STALL_TIMEOUT`].
+const OFF_CONSUMER_GONE: usize = 192;
 
 /// `done` states: streaming (producer still writing), finished (all bytes
 /// delivered), aborted (producer gave up - consumer must error, not wait).
@@ -128,6 +131,10 @@ impl RingMap {
         self.word(OFF_DONE)
     }
 
+    fn consumer_gone(&self) -> &AtomicU32 {
+        self.word(OFF_CONSUMER_GONE)
+    }
+
     fn data(&self) -> *mut u8 {
         // SAFETY: the mapping is at least HEADER_LEN + 1 bytes long.
         unsafe { self.base.as_ptr().add(HEADER_LEN) }
@@ -189,12 +196,15 @@ impl RingProducer {
 
     /// Append the whole buffer, blocking (bounded) while the ring is full -
     /// the backpressure that stalls the producer instead of growing anyone's
-    /// memory. Errors on a corrupt read cursor or a consumer that makes no
-    /// progress within [`STALL_TIMEOUT`].
+    /// memory. Errors on a corrupt read cursor, a consumer that let go of the
+    /// ring, or one that makes no progress within [`STALL_TIMEOUT`].
     pub fn write_all(&mut self, mut src: &[u8]) -> io::Result<()> {
         let cap = self.map.capacity();
         let mut deadline = Instant::now() + STALL_TIMEOUT;
         while !src.is_empty() {
+            if self.map.consumer_gone().load(Ordering::Acquire) != 0 {
+                return Err(io::Error::new(io::ErrorKind::BrokenPipe, "consumer let go of the ring"));
+            }
             let w = self.map.write_pos().load(Ordering::Relaxed); // ours
             let r = self.map.read_pos().load(Ordering::Acquire); // theirs: local copy, then validate
             let used = w.wrapping_sub(r);
@@ -337,6 +347,14 @@ impl RingConsumer {
     }
 }
 
+impl Drop for RingConsumer {
+    /// Tell a producer waiting for room that none will come.
+    fn drop(&mut self) {
+        self.map.consumer_gone().store(1, Ordering::Release);
+        futex_wake(self.map.read_pos());
+    }
+}
+
 /// Drain exactly `body_len` bytes from a received ring fd as the producer
 /// streams. A producer that finishes short of the promised length, aborts, or
 /// stalls is an error.
@@ -390,6 +408,25 @@ mod tests {
         feeder.join().unwrap();
         assert_eq!(body.len(), body_len);
         assert!(body.iter().enumerate().all(|(i, &b)| b == pattern(i)));
+    }
+
+    /// A producer blocked on a full ring stops as soon as the consumer lets
+    /// go, not after the stall timeout.
+    #[test]
+    fn a_consumer_that_lets_go_stops_the_producer() {
+        let (mut producer, fd) = RingProducer::create(4096).unwrap();
+        let consumer = RingConsumer::open(fd).unwrap();
+        producer.write_all(&[1u8; 4096]).unwrap(); // full
+        let started = Instant::now();
+        let writer = std::thread::spawn(move || producer.write_all(&[2u8; 100]));
+        std::thread::sleep(Duration::from_millis(50));
+        drop(consumer);
+        let err = writer.join().unwrap().unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "waited out the stall timeout"
+        );
     }
 
     #[test]

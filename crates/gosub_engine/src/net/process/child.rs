@@ -127,14 +127,14 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
     };
 
     let shutdown = CancellationToken::new();
-    let running = (loopback.clone(), local.clone(), public.clone());
-    let cancel = shutdown.clone();
+    // `run` opens each queue as it is called, before the loops are handed to the runtime.
+    let loops = (
+        loopback.clone().run(shutdown.clone()),
+        local.clone().run(shutdown.clone()),
+        public.clone().run(shutdown.clone()),
+    );
     runtime.spawn(async move {
-        tokio::join!(
-            running.0.run(cancel.clone()),
-            running.1.run(cancel.clone()),
-            running.2.run(cancel)
-        );
+        tokio::join!(loops.0, loops.1, loops.2);
     });
 
     let cancels: Arc<Mutex<HashMap<RequestTag, CancellationToken>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -425,6 +425,18 @@ impl gosub_sonar::net::fetcher_context::FetcherContext for NetProcessContext {
             _ => Arc::new(NullEmitter),
         }
     }
+    // A revalidation the fetcher starts itself has no request on the broker's
+    // side: reported under its tag, it would land in the row of the request it
+    // refreshes, which may still be open, and could end it.
+    fn background_observer_for(
+        &self,
+        _: gosub_sonar::RequestReference,
+        _: gosub_sonar::types::RequestId,
+        _: gosub_sonar::net::types::ResourceKind,
+        _: gosub_sonar::net::types::Initiator,
+    ) -> Arc<dyn gosub_sonar::net::observer::NetObserver + Send + Sync> {
+        Arc::new(NullEmitter)
+    }
     fn on_ref_active(&self, _: gosub_sonar::RequestReference) {}
     fn on_ref_done(&self, _: gosub_sonar::RequestReference) {}
 
@@ -598,6 +610,9 @@ async fn perform_inner(
         .with_streaming(streaming)
         .with_auto_decode(true);
     let mut builder = fetch.context.apply(builder);
+    if fetch.no_total_body_timeout {
+        builder = builder.without_total_body_timeout();
+    }
     if let Some(body) = fetch.body {
         // Plain bytes: the Content-Type already travelled in the headers.
         builder = builder.with_body(RequestBody::bytes(body));

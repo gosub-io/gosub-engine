@@ -14,6 +14,7 @@ use gosub_css3::matcher::property_definitions::get_css_definitions;
 use gosub_css3::matcher::property_ids::PropertyId;
 use gosub_css3::matcher::styling::CssProperties;
 use gosub_css3::stylesheet::CssValue;
+use gosub_interface::document::Document as _;
 use gosub_shared::node::NodeId;
 use rquickjs::class::Trace;
 use rquickjs::{Ctx, Function, JsLifetime, Result, Value};
@@ -84,7 +85,12 @@ fn value_of(map: Option<&CssProperties>, name: &str) -> Option<String> {
     }
 
     // Nothing declared anywhere: the property's initial value, which is what a browser reports
-    // for an element no rule has touched.
+    // for an element no rule has touched. `font-size` is the one whose initial value is a
+    // keyword that computes to a length (css-fonts-4 §3.5): the cascade turns a declared
+    // `medium` into `16px`, and an element nobody declared it on has to read the same.
+    if name == "font-size" {
+        return Some("16px".to_string());
+    }
     let definition = get_css_definitions().find_property(name)?;
     definition
         .has_initial_value()
@@ -119,7 +125,21 @@ impl GosubComputedStyle {
             Some(pseudo) => style_cache::pseudo_style(&doc, self.id, pseudo),
             None => style_cache::element_style(&doc, self.id),
         };
-        value_of(map.as_deref(), &name).unwrap_or_default()
+        let value = value_of(map.as_deref(), &name).unwrap_or_default();
+        // `contents` computes to something else on the root and on replaced elements and form
+        // controls, a fact about the element the cascade's map does not carry.
+        if name == "display" && value == "contents" && self.pseudo.is_none() {
+            let is_root = doc
+                .parent(self.id)
+                .is_none_or(|parent| doc.node_type(parent) == gosub_interface::node::NodeType::DocumentNode);
+            let tag = doc.tag_name(self.id).unwrap_or("");
+            match gosub_interface::style::Display::contents_computes_to(tag, is_root) {
+                Some(gosub_interface::style::Display::Block) => return "block".to_string(),
+                Some(_) => return "none".to_string(),
+                None => {}
+            }
+        }
+        value
     }
 
     /// Whether the engine knows this property at all.

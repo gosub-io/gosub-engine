@@ -101,6 +101,18 @@ impl Css3<'_> {
             TokenType::Function(ref name) => {
                 let node = if name.eq_ignore_ascii_case("calc") {
                     self.parse_calc()?
+                } else if is_math_function(name) {
+                    // Every other math function reads its body the way `calc()` does, as a flat
+                    // token list, and for the same reason: the body is an expression, and an
+                    // expression may hold a parenthesized group. The generic value parser has
+                    // no arm for a bare `(`, so `round(down, (7 - 1) / 3, 1)` stopped at the
+                    // group and the declaration was dropped, while the same call nested inside
+                    // `calc()` - where this parser already read it - was fine. The shape is the
+                    // one a nested call has had all along, which is what the evaluator, the
+                    // spacing check and the serializer expect of a math function.
+                    let name = name.clone();
+                    let arguments = self.recurse(Self::parse_calc_tokens)?;
+                    Node::new(NodeType::Function { name, arguments }, t.location)
                 } else if name.eq_ignore_ascii_case("url") {
                     self.tokenizer.reconsume(t);
                     self.parse_url()?
@@ -198,4 +210,13 @@ impl Css3<'_> {
             }
         }
     }
+}
+
+/// Whether `name` is a math function other than `calc()`, under its own name or a vendor
+/// prefix. `-webkit-calc()` and `-moz-calc()` are read as `calc()` once the value is built
+/// (`reduce_function`), so they have to be parsed as one too.
+fn is_math_function(name: &str) -> bool {
+    use crate::functions::registry::is_math;
+    use crate::matcher::syntax_matcher::strip_vendor_prefix;
+    is_math(name) || strip_vendor_prefix(name).is_some_and(is_math)
 }

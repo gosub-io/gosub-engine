@@ -54,6 +54,17 @@ impl Css3<'_> {
                 }
             }
 
+            // `var()`, `env()` and `attr()` stand in for tokens not yet known, and their fallback
+            // may be any of them - a string, a hash, anything a declaration may hold - so their
+            // arguments are no expression and are read by the generic function parser.
+            if matches!(&t.token_type, TokenType::Function(name) if crate::functions::registry::is_arbitrary_substitution(name))
+            {
+                self.tokenizer.reconsume(t);
+                tokens.push(self.parse_function()?);
+                space = false;
+                continue;
+            }
+
             let node_type = match t.token_type {
                 // A nested function keeps its own argument list. The recursive call consumes
                 // through the matching `)`.
@@ -112,7 +123,7 @@ mod tests {
             body("1px + 2px"),
             vec![
                 CssValue::Unit(1.0, "px".to_string()),
-                CssValue::String("+".to_string()),
+                CssValue::Delim("+".to_string()),
                 CssValue::Unit(2.0, "px".to_string()),
             ]
         );
@@ -145,7 +156,7 @@ mod tests {
                 String::new(),
                 vec![
                     CssValue::Unit(1.0, "px".to_string()),
-                    CssValue::String("+".to_string()),
+                    CssValue::Delim("+".to_string()),
                     CssValue::Function("var".to_string(), vec![CssValue::String("--x".to_string())]),
                 ]
             )]
@@ -176,6 +187,6 @@ mod tests {
         // them is recorded on the operator where the rule can see it.
         let values = body("1px/**/+/**/2px");
         assert_eq!(values.len(), 3);
-        assert_eq!(values[1], CssValue::String("+".to_string()));
+        assert_eq!(values[1], CssValue::Delim("+".to_string()));
     }
 }

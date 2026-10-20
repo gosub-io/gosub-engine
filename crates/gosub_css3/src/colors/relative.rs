@@ -161,7 +161,7 @@ fn split<'a>(name: &str, args: &'a [CssValue]) -> Option<Parts<'a>> {
     // The relative form is the modern one: no commas, and the alpha after a solidus.
     let solidus = rest
         .iter()
-        .position(|value| matches!(value, CssValue::String(word) if word == "/"));
+        .position(|value| matches!(value, CssValue::Delim(word) if word == "/"));
     let (components, alpha) = match solidus {
         Some(at) => {
             if rest.len() != at + 2 {
@@ -219,7 +219,7 @@ pub(crate) fn canonical(name: &str, args: &[CssValue]) -> Option<CssValue> {
         out.push(canonical_component(value, slot, &parts.target)?);
     }
     if let Some(alpha) = parts.alpha {
-        out.push(CssValue::String("/".to_string()));
+        out.push(CssValue::Delim("/".to_string()));
         out.push(canonical_component(alpha, Slot::Plain(1.0), &parts.target)?);
     }
     Some(CssValue::Function(name, out))
@@ -504,7 +504,10 @@ mod tests {
 
     #[test]
     fn a_math_function_sees_the_channels_as_numbers() {
-        let half_red = CssValue::Function("calc".to_string(), vec![word("r"), word("*"), number(0.5)]);
+        let half_red = CssValue::Function(
+            "calc".to_string(),
+            vec![word("r"), CssValue::Delim("*".to_string()), number(0.5)],
+        );
         let args = [word("from"), word("rebeccapurple"), half_red, word("g"), word("b")];
         assert_eq!(resolved("rgb", &args), "color(srgb 0.2 0.2 0.6)");
     }

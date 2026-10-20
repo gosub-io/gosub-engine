@@ -17,7 +17,7 @@ use crate::colors::{CssColor, RgbColor};
 use crate::functions::calc;
 use crate::matcher::bloom::AncestorFilter;
 use crate::matcher::property_definitions::get_css_definitions;
-use crate::matcher::property_ids::{LonghandId, PropertyId, PROPERTY_COUNT};
+use crate::matcher::property_ids::{LonghandId, PropertyId, ShorthandId, PROPERTY_COUNT};
 use crate::property_registry::PropertyRegistry;
 use crate::stylesheet::{Combinator, CssSelector, CssSelectorPart, CssValue, MatcherType, NthSelector, Specificity};
 use crate::system::Css3System;
@@ -555,13 +555,25 @@ fn match_selector_part<C: HasDocument>(
             match attr.matcher {
                 MatcherType::None => true,
                 MatcherType::Equals => wanted_attr_value == got_attr_value,
-                MatcherType::Includes => wanted_attr_value.split_whitespace().any(|s| s == got_attr_value),
+                // One of the attribute's words is exactly the value; a value with whitespace in
+                // it can never be one word, so it matches nothing (selectors-4 §6.1).
+                MatcherType::Includes => {
+                    !wanted_attr_value.contains(|c: char| c.is_ascii_whitespace())
+                        && got_attr_value.split_ascii_whitespace().any(|s| s == wanted_attr_value)
+                }
                 MatcherType::DashMatch => {
                     got_attr_value == wanted_attr_value || got_attr_value.starts_with(&format!("{wanted_attr_value}-"))
                 }
-                MatcherType::PrefixMatch => got_attr_value.starts_with(wanted_attr_value),
-                MatcherType::SuffixMatch => got_attr_value.ends_with(wanted_attr_value),
-                MatcherType::SubstringMatch => got_attr_value.contains(wanted_attr_value),
+                // An empty value matches nothing for the substring matchers (selectors-4 §6.2).
+                MatcherType::PrefixMatch => {
+                    !wanted_attr_value.is_empty() && got_attr_value.starts_with(wanted_attr_value)
+                }
+                MatcherType::SuffixMatch => {
+                    !wanted_attr_value.is_empty() && got_attr_value.ends_with(wanted_attr_value)
+                }
+                MatcherType::SubstringMatch => {
+                    !wanted_attr_value.is_empty() && got_attr_value.contains(wanted_attr_value)
+                }
             }
         }
         CssSelectorPart::PseudoClass(name) => match name.as_ref() {
@@ -1035,6 +1047,71 @@ pub enum InheritedLineHeight {
 #[expect(clippy::cast_possible_truncation, reason = "a line-height fits an f32")]
 pub const DEFAULT_LINE_HEIGHT_PX: f32 = DEFAULT_FONT_SIZE_PX * calc::NORMAL_LINE_HEIGHT as f32;
 
+/// Turn every `<line-width>` keyword in a value into the length it computes to. Recurses, because
+/// `stroke-width` takes a list of them and `column-rule-width` puts them inside `repeat()`.
+///
+/// css-backgrounds-3 §4.1 leaves the sizes to the UA; these are what every browser uses.
+/// `hairline` is one device pixel (css-borders-4), so on a 2x display it is 0.5px and no longer
+/// the same as `thin`; but never more than 1px, which the spec puts first, so below 1x it stays
+/// 1px rather than outgrowing `thin`. The ratio is the one media queries see, which style caches
+/// already key on.
+fn resolve_line_widths(value: CssValue) -> CssValue {
+    match value {
+        CssValue::String(keyword) => {
+            let dpr = f64::from(crate::media_query::media_environment().device_pixel_ratio);
+            let hairline = if dpr > 0.0 { (1.0 / dpr).min(1.0) } else { 1.0 };
+            let px = [("hairline", hairline), ("thin", 1.0), ("medium", 3.0), ("thick", 5.0)]
+                .into_iter()
+                .find(|(name, _)| keyword.eq_ignore_ascii_case(name))
+                .map(|(_, px)| px);
+            match px {
+                Some(px) => CssValue::Unit(px, "px".to_string()),
+                None => CssValue::String(keyword),
+            }
+        }
+        CssValue::List(items) => CssValue::List(items.into_iter().map(resolve_line_widths).collect()),
+        CssValue::Function(name, args) => CssValue::Function(name, args.into_iter().map(resolve_line_widths).collect()),
+        other => other,
+    }
+}
+
+/// The px an absolute `font-size` keyword computes to.
+///
+/// The scale is the one every browser ships, `medium` at 16px. css-fonts-4 §2.5 offers its own
+/// ratios only as guidelines, so this is not a deviation to correct.
+fn absolute_font_size(keyword: &str) -> Option<f64> {
+    let px = match keyword.cow_to_ascii_lowercase().as_ref() {
+        "xx-small" => 9.0,
+        "x-small" => 10.0,
+        "small" => 13.0,
+        "medium" => 16.0,
+        "large" => 18.0,
+        "x-large" => 24.0,
+        "xx-large" => 32.0,
+        "xxx-large" => 48.0,
+        _ => return None,
+    };
+    Some(px)
+}
+
+/// The px a `font-size` keyword computes to, given the parent's size.
+///
+/// The absolute keywords are [`absolute_font_size`]. The relative ones step by the 1.2 the spec
+/// suggests. `math` scales by `math-depth`, which this engine does not have, so it is the
+/// parent's size.
+fn font_size_keyword(keyword: &str, parent: f64) -> Option<f64> {
+    if let Some(px) = absolute_font_size(keyword) {
+        return Some(px);
+    }
+    let px = match keyword.cow_to_ascii_lowercase().as_ref() {
+        "smaller" => parent / 1.2,
+        "larger" => parent * 1.2,
+        "math" => parent,
+        _ => return None,
+    };
+    Some(px)
+}
+
 /// Turn a specified value into a computed one: resolve the relative lengths, do the arithmetic.
 ///
 /// This is what makes a *computed* value computed. css-values says `em` and `rem` resolve at
@@ -1090,6 +1167,9 @@ fn resolve_computed(value: CssValue, units: &calc::Units) -> CssValue {
 /// `font-size` is the one property whose `em` resolves against its parent rather than itself,
 /// and the one whose percentage resolves before layout.
 const FONT_SIZE: PropertyId = PropertyId::Longhand(LonghandId::FontSize);
+/// `font` keeps a value of its own for `getComputedStyle`, whose size has to agree with the
+/// `font-size` longhand.
+const FONT: PropertyId = PropertyId::Shorthand(ShorthandId::Font);
 /// `color` is the one property on which `currentcolor` means the inherited colour.
 const COLOR: PropertyId = PropertyId::Longhand(LonghandId::Color);
 
@@ -1243,6 +1323,38 @@ impl CssProperty {
             specified => specified.clone(),
         };
 
+        // The `font` shorthand's own value has to say the same size the `font-size` longhand
+        // computes to: `font: xx-small serif` reads back as `9px serif`, as every browser has it.
+        // A relative keyword is the size this element ended up with, which is the basis every
+        // property but `font-size` itself is given.
+        //
+        // The scan stops at the size however it is written: what follows is the line-height and
+        // the family, and `math` is a generic family as well as a size keyword, so `font: 12px
+        // math` has to keep it. A length, a percentage or a math function is a size; an angle
+        // (`oblique 10deg`) and a number (a weight) come before it.
+        let specified = match specified {
+            CssValue::List(mut items) if self.id == Some(FONT) => {
+                let own = f64::from(self.font_size_basis);
+                for item in &mut items {
+                    match item {
+                        CssValue::String(keyword) => {
+                            let size =
+                                absolute_font_size(keyword).or_else(|| font_size_keyword(keyword, own).map(|_| own));
+                            if let Some(px) = size {
+                                *item = CssValue::Unit(px, "px".to_string());
+                                break;
+                            }
+                        }
+                        CssValue::Unit(_, unit) if calc::unit_datatype(unit) == Some("length") => break,
+                        CssValue::Percentage(_) | CssValue::Function(..) => break,
+                        _ => {}
+                    }
+                }
+                CssValue::List(items)
+            }
+            other => other,
+        };
+
         // A colour keyword computes to the colour it names (css-color-4 §15). It travels this
         // far as a plain keyword because that is what the *specified* value is - reading
         // `element.style.color` back after setting it to `red` has to answer `red` - and only
@@ -1259,27 +1371,32 @@ impl CssProperty {
         // it is a fraction of the *parent's* font-size, which is exactly what `font_size_basis`
         // holds for this property, where every other percentage needs a containing block and has
         // to wait for layout.
+        //
+        // The keywords resolve here for the same reason. Left as keywords, a child inherited
+        // `smaller` and applied it again, and an `em` on the element itself was measured against
+        // its parent's size.
         if self.id == Some(FONT_SIZE) {
-            if let CssValue::Percentage(pct) = specified {
-                return CssValue::Unit(f64::from(self.font_size_basis) * pct / 100.0, "px".to_string());
+            let parent = f64::from(self.font_size_basis);
+            match &specified {
+                CssValue::Percentage(pct) => return CssValue::Unit(parent * pct / 100.0, "px".to_string()),
+                CssValue::String(keyword) => {
+                    if let Some(px) = font_size_keyword(keyword, parent) {
+                        return CssValue::Unit(px, "px".to_string());
+                    }
+                }
+                _ => {}
             }
         }
 
-        // A `<line-width>` keyword computes to an absolute length (css-backgrounds-3 §4.1 leaves
-        // the sizes to the UA; these are what every browser uses). Only the `*-width` properties
-        // take these keywords, and for them a keyword that reached the consumer as a string
-        // measured as zero, so `border: solid red` drew no border at all.
-        if self.name().ends_with("-width") {
-            if let CssValue::String(keyword) = &specified {
-                let px = [("thin", 1.0), ("medium", 3.0), ("thick", 5.0)]
-                    .into_iter()
-                    .find(|(name, _)| keyword.eq_ignore_ascii_case(name))
-                    .map(|(_, px)| px);
-                if let Some(px) = px {
-                    return CssValue::Unit(px, "px".to_string());
-                }
-            }
-        }
+        // A `<line-width>` keyword computes to an absolute length. A keyword that reached the
+        // consumer as a string measured as zero, so `border: solid red` drew no border at all.
+        // Which properties take one is the grammar's to say: `thin` is a line width on
+        // `column-gap` and a keyword of its own on `scrollbar-width`.
+        let specified = if self.id.is_some_and(|id| get_css_definitions().takes_line_width(id)) {
+            resolve_line_widths(specified)
+        } else {
+            specified
+        };
 
         // Font-relative lengths become px here, which is what the computed stage is for. What
         // survives is what genuinely cannot be decided yet: a percentage, which needs a
@@ -2288,6 +2405,179 @@ mod tests {
             attached: false,
         });
         prop.compute_value().clone()
+    }
+
+    /// Which longhands take a `<line-width>` comes from their grammar, not their name.
+    #[test]
+    fn line_width_properties_come_from_the_grammar() {
+        let defs = get_css_definitions();
+        let mut found: Vec<&str> = crate::matcher::property_ids::ALL_LONGHAND_IDS
+            .iter()
+            .map(|&longhand| PropertyId::Longhand(longhand))
+            .filter(|&id| defs.takes_line_width(id))
+            .map(PropertyId::name)
+            .collect();
+        found.sort_unstable();
+        let mut expected = vec![
+            "-webkit-border-after-width",
+            "-webkit-border-before-width",
+            "-webkit-border-end-width",
+            "-webkit-border-start-width",
+            "-webkit-text-stroke-width",
+            "border-block-end-width",
+            "border-block-start-width",
+            "border-bottom-width",
+            "border-inline-end-width",
+            "border-inline-start-width",
+            "border-left-width",
+            "border-right-width",
+            "border-top-width",
+            "column-gap",
+            "column-rule-width",
+            "grid-column-gap",
+            "grid-row-gap",
+            "outline-width",
+            "row-gap",
+            "stroke-width",
+        ];
+        expected.sort_unstable();
+        assert_eq!(found, expected);
+    }
+
+    #[test]
+    fn line_width_keywords_compute_to_lengths() {
+        let px = |n| CssValue::Unit(n, "px".into());
+        let keyword = |k: &str| CssValue::String(k.into());
+        assert_eq!(computed_for("border-top-width", keyword("thick")), px(5.0));
+        assert_eq!(computed_for("outline-width", keyword("thin")), px(1.0));
+        assert_eq!(computed_for("column-gap", keyword("medium")), px(3.0));
+        assert_eq!(
+            computed_for(
+                "stroke-width",
+                CssValue::List(vec![keyword("thin"), CssValue::Comma, keyword("thick")])
+            ),
+            CssValue::List(vec![px(1.0), CssValue::Comma, px(5.0)])
+        );
+        // `thin` is a keyword of its own here, not a width.
+        assert_eq!(computed_for("scrollbar-width", keyword("thin")), keyword("thin"));
+        // `normal` on a gap is not a line width either.
+        assert_eq!(computed_for("row-gap", keyword("normal")), keyword("normal"));
+    }
+
+    /// `hairline` is one device pixel: 1px on a 1x display, half of one on a 2x display, where
+    /// `thin` stays 1px. Below 1x a device pixel is more than 1px, and hairline stops at 1px.
+    #[test]
+    fn hairline_is_one_device_pixel() {
+        use crate::media_query::{media_environment, set_media_environment, MediaEnvironment};
+        let px = |n| CssValue::Unit(n, "px".into());
+        let keyword = |k: &str| CssValue::String(k.into());
+        let saved = media_environment();
+
+        set_media_environment(MediaEnvironment {
+            device_pixel_ratio: 1.0,
+            ..saved
+        });
+        assert_eq!(computed_for("border-top-width", keyword("hairline")), px(1.0));
+
+        set_media_environment(MediaEnvironment {
+            device_pixel_ratio: 2.0,
+            ..saved
+        });
+        assert_eq!(computed_for("border-top-width", keyword("hairline")), px(0.5));
+        assert_eq!(computed_for("border-top-width", keyword("thin")), px(1.0));
+
+        set_media_environment(MediaEnvironment {
+            device_pixel_ratio: 0.5,
+            ..saved
+        });
+        assert_eq!(computed_for("border-top-width", keyword("hairline")), px(1.0));
+
+        set_media_environment(saved);
+    }
+
+    /// The `font-size` keywords compute to px against the parent's size, which is the basis the
+    /// cascade gives `font-size`.
+    #[test]
+    fn font_size_keywords_compute_to_lengths() {
+        let font_size = |value: &str, parent: f32| {
+            let mut prop = CssProperty::new(FONT_SIZE);
+            prop.font_size_basis = parent;
+            prop.declared.push(DeclarationProperty {
+                value: CssValue::String(value.into()).into(),
+                origin: CssOrigin::Author,
+                important: false,
+                location: no_location(),
+                specificity: Specificity::new(1, 0, 0),
+                shadow_depth: 0,
+                order: 0,
+                layer: None,
+                attached: false,
+            });
+            match prop.compute_value() {
+                CssValue::Unit(px, unit) if unit == "px" => *px,
+                other => panic!("{value} computed to {other:?}"),
+            }
+        };
+        assert_eq!(font_size("large", 20.0), 18.0);
+        assert_eq!(font_size("XX-Small", 20.0), 9.0);
+        assert_eq!(font_size("medium", 20.0), 16.0);
+        assert_eq!(font_size("initial", 20.0), 16.0, "the initial value is `medium`");
+        assert_eq!(font_size("larger", 20.0), 24.0);
+        assert!((font_size("smaller", 20.0) - 20.0 / 1.2).abs() < 1e-9);
+        assert_eq!(font_size("math", 20.0), 20.0, "no math-depth, so the parent's size");
+    }
+
+    /// The `font` shorthand's own value says the same size as the longhand. A relative keyword is
+    /// the element's own size, which is the basis the shorthand is given. The family is never
+    /// read as a size, though `math` is both.
+    #[test]
+    fn the_font_shorthand_says_its_size_in_px() {
+        let shorthand = |items: Vec<CssValue>| {
+            let mut prop = CssProperty::new(FONT);
+            prop.font_size_basis = 24.0;
+            prop.declared.push(DeclarationProperty {
+                value: CssValue::List(items).into(),
+                origin: CssOrigin::Author,
+                important: false,
+                location: no_location(),
+                specificity: Specificity::new(1, 0, 0),
+                shadow_depth: 0,
+                order: 0,
+                layer: None,
+                attached: false,
+            });
+            prop.compute_value().clone()
+        };
+        let keyword = |s: &str| CssValue::String(s.into());
+        let px = |n: f64| CssValue::Unit(n, "px".into());
+        let font = |size: &str| shorthand(vec![keyword(size), keyword("serif")]);
+        let sized = |n: f64| CssValue::List(vec![px(n), keyword("serif")]);
+        assert_eq!(font("xx-small"), sized(9.0));
+        assert_eq!(font("larger"), sized(24.0));
+        assert_eq!(font("smaller"), sized(24.0));
+
+        // The size is a length, so `math` after it is the family.
+        assert_eq!(
+            shorthand(vec![px(12.0), keyword("math")]),
+            CssValue::List(vec![px(12.0), keyword("math")])
+        );
+        // An angle and a weight come before the size and do not end the scan.
+        assert_eq!(
+            shorthand(vec![
+                keyword("oblique"),
+                CssValue::Unit(10.0, "deg".into()),
+                CssValue::Number(700.0, NumberKind::Integer),
+                keyword("small"),
+                keyword("math"),
+            ]),
+            CssValue::List(vec![
+                keyword("oblique"),
+                CssValue::Unit(10.0, "deg".into()),
+                CssValue::Number(700.0, NumberKind::Integer),
+                px(13.0),
+                keyword("math"),
+            ])
+        );
     }
 
     #[test]

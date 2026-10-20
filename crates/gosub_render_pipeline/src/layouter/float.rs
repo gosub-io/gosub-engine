@@ -74,12 +74,13 @@ fn clear_sides(doc: &dyn PipelineDocument, id: DomNodeId) -> (bool, bool) {
 
 /// Whether a box establishes a block formatting context, and so grows to contain its floats.
 ///
-/// Only the `overflow` trigger is recognised; `display: flow-root`, table cells and the other
+/// The `overflow` trigger and `display: flow-root` are recognised; table cells and the other
 /// BFC roots are not modelled by this pipeline yet. The document root always contains its
 /// floats so the page scroll height includes them.
 fn establishes_bfc(doc: &dyn PipelineDocument, id: DomNodeId) -> bool {
     let style = doc.computed_style(id);
-    (style.has(Prop::OverflowX) && style.box_group.overflow_x.establishes_bfc())
+    (style.has(Prop::Display) && style.box_group.display == Display::FlowRoot)
+        || (style.has(Prop::OverflowX) && style.box_group.overflow_x.establishes_bfc())
         || (style.has(Prop::OverflowY) && style.box_group.overflow_y.establishes_bfc())
 }
 

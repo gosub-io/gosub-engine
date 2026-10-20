@@ -118,6 +118,18 @@ pub struct ElementContextFormControl {
     pub disabled: bool,
 }
 
+/// Where `value` sits between `min` and `max`, as a fraction: 0 at `min`, 1 at `max`, 0 when the
+/// range is empty. Both differences are taken on halves, so bounds near the largest double
+/// (`min="-1e308" max="1e308"`) do not overflow to an infinity and turn the fraction into NaN.
+pub(crate) fn fraction_between(value: f64, min: f64, max: f64) -> f64 {
+    let span = max / 2.0 - min / 2.0;
+    if span > 0.0 {
+        (value / 2.0 - min / 2.0) / span
+    } else {
+        0.0
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum FormControl {
     /// `<input>` text-like types and `<textarea>`.
@@ -429,7 +441,7 @@ pub enum BackgroundMedia {
         media_id: MediaId,
         /// Intrinsic image size in px (for a rasterized SVG tile, the tile's pixel size).
         natural: (f32, f32),
-        layout: crate::common::document::pipeline_doc::BgImageLayout,
+        layout: gosub_interface::style::BackgroundTile,
     },
     Svg(MediaId),
 }

@@ -3,6 +3,7 @@ use crate::rasterizer::shadow::paint_shadows;
 use cairo::{Context, Operator};
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::painter::commands::border::{per_side_strips, BorderStyle};
+use gosub_render_pipeline::painter::commands::brush::Brush;
 use gosub_render_pipeline::painter::commands::rectangle::{BlendMode, Rectangle};
 use gosub_render_pipeline::tiler::Tile;
 
@@ -48,9 +49,22 @@ pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangl
 
     paint_shadows(cr, tile, rectangle.shadows(), false, dpr);
     if let Some(brush) = rectangle.background() {
-        setup_rectangle_path(cr, rectangle);
-        set_brush(cr, brush, rectangle.rect(), media_store);
-        _ = cr.fill();
+        // A tile that does not repeat paints only where it lies; its padded edge must not show.
+        let footprint = match brush {
+            Brush::Image(_, Some(t)) => t.footprint(rectangle.rect()),
+            _ => None,
+        };
+        if footprint.is_none_or(|f| f.width > 0.0 && f.height > 0.0) {
+            _ = cr.save();
+            if let Some(f) = footprint {
+                cr.rectangle(f.x, f.y, f.width, f.height);
+                cr.clip();
+            }
+            setup_rectangle_path(cr, rectangle);
+            set_brush(cr, brush, rectangle.rect(), media_store);
+            _ = cr.fill();
+            _ = cr.restore();
+        }
     }
     paint_shadows(cr, tile, rectangle.shadows(), true, dpr);
 
@@ -196,4 +210,61 @@ fn setup_inset_path(cr: &Context, rect: &Rectangle, inset: f64) {
     );
 
     cr.close_path();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gosub_render_pipeline::common::geo::Rect;
+    use gosub_render_pipeline::common::media::MediaType;
+    use gosub_render_pipeline::layering::layer::LayerId;
+    use gosub_render_pipeline::painter::commands::gradient::Tiling;
+    use gosub_render_pipeline::tiler::{TileId, TileState};
+
+    /// A 2x2 opaque red RGBA PNG.
+    const RED_PNG: [u8; 74] = [
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00,
+        0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x08, 0x06, 0x00, 0x00, 0x00, 0x72, 0xb6, 0x0d, 0x24, 0x00, 0x00, 0x00,
+        0x11, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0xf0, 0x1f, 0x84, 0x19, 0x60, 0x0c, 0x00,
+        0x47, 0xca, 0x07, 0xf9, 0x67, 0x59, 0x6e, 0xb7, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42,
+        0x60, 0x82,
+    ];
+
+    #[test]
+    fn scaled_single_tile_keeps_its_edge_and_paints_nothing_past_it() {
+        let store = MediaStore::new();
+        let media_id = store.load_media_from_data(MediaType::Image, &RED_PNG).expect("decodes");
+        // The 2x2 image scaled to 20x20 (so bilinear sampling) and placed once at the top-left.
+        let tiling = Tiling {
+            tile_size: (20.0, 20.0),
+            position: (0.0, 0.0),
+            repeat: (false, false),
+        };
+        let rect = Rect::new(0.0, 0.0, 40.0, 40.0);
+        let rectangle = Rectangle::new(rect).with_background(Brush::image_tiled(media_id, Some(tiling)));
+        let tile = Tile {
+            id: TileId::new(0),
+            layer_id: LayerId::new(0),
+            elements: Vec::new(),
+            texture_id: None,
+            state: TileState::Dirty,
+            rect,
+            bgcolor: None,
+        };
+
+        let mut surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 40, 40).expect("surface");
+        {
+            let cr = Context::new(&surface).expect("context");
+            do_paint_rectangle(&cr, &tile, &rectangle, &store, 1.0);
+        }
+        surface.flush();
+        let stride = surface.stride() as usize;
+        let data = surface.data().expect("pixels");
+        // ARGB32 is native-endian; on little-endian hosts alpha is the fourth byte.
+        let alpha = |x: usize, y: usize| data[y * stride + x * 4 + 3];
+        assert_eq!(alpha(19, 10), 255, "the tile's last column is opaque, not faded");
+        assert_eq!(alpha(10, 19), 255, "the tile's last row is opaque, not faded");
+        assert_eq!(alpha(20, 10), 0, "nothing right of the tile");
+        assert_eq!(alpha(10, 20), 0, "nothing below the tile");
+    }
 }

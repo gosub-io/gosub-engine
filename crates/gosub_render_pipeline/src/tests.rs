@@ -42,6 +42,60 @@ mod rendertree_from_engine {
         rt
     }
 
+    /// Range and meter attributes are read with HTML's rules for parsing floating-point numbers
+    /// (#1392). `NaN` used to reach `f64::clamp` as a bound and panic layout; `inf` and `1e999`
+    /// were taken as numbers. Each is an error now, and the attribute's default applies.
+    #[test]
+    fn non_numeric_range_and_meter_attributes_fall_back_to_their_defaults() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::{CanLayout, ElementContext, FormControl};
+
+        let html = r#"<html><body>
+          <input id="nan-min" type="range" min="NaN">
+          <input id="inf" type="range" max="1e999" value="inf">
+          <input id="lenient" type="range" value=" +25px">
+          <input id="huge" type="range" min="-1e308" max="1e308" value="1e308">
+          <meter id="nan-low" low="nan" value="0.5"></meter>
+          <meter id="meter-nan-min" min="NaN" value="0.25"></meter>
+        </body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc)));
+        let ids = ["nan-min", "inf", "lenient", "huge", "nan-low", "meter-nan-min"];
+        let nodes: Vec<_> = ids
+            .iter()
+            .map(|id| find_node_by_id_attr(&adapter.doc, adapter.doc.root(), id).expect(id))
+            .collect();
+        let mut render_tree = RenderTree::new(adapter);
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let fraction = |index: usize| {
+            let control = layout_tree
+                .arena
+                .values()
+                .find_map(|el| match &el.context {
+                    ElementContext::FormControl(fc) if el.dom_node_id == nodes[index] => Some(fc.control.clone()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("{} is a form control", ids[index]));
+            match control {
+                FormControl::Range { fraction, .. } | FormControl::Meter { fraction, .. } => fraction,
+                other => panic!("{}: unexpected {other:?}", ids[index]),
+            }
+        };
+        // min 0, max 100, value halfway.
+        assert_eq!(fraction(0), 0.5, "NaN min");
+        assert_eq!(fraction(1), 0.5, "1e999 max and inf value");
+        assert_eq!(fraction(2), 0.25, "leading whitespace, + and a trailing unit");
+        // max - min overflows a double; the fraction must not turn into inf / inf.
+        assert_eq!(fraction(3), 1.0, "bounds near the largest double");
+        // min 0, max 1.
+        assert_eq!(fraction(4), 0.5, "NaN low");
+        assert_eq!(fraction(5), 0.25, "NaN meter min");
+    }
+
     /// `border-top: 3px dashed red` (a per-side shorthand) must set that side's width, style
     /// and color - from a stylesheet and from an inline `style=""` alike.
     #[test]
@@ -213,7 +267,7 @@ mod rendertree_from_engine {
             r.background.color.a, 0,
             "a background without a colour resets background-color to transparent"
         );
-        assert!(r.background.image.is_some(), "background image via the longhand");
+        assert!(r.background.first_url().is_some(), "background image via the longhand");
     }
 
     /// A sibling combinator walks elements only: `* ~ .target` is not satisfied by the
@@ -747,6 +801,49 @@ mod rendertree_from_engine {
             LengthPercentageAuto::Px(30.0),
             "the wildcard needs a language"
         );
+    }
+
+    /// `[att~=val]` looks for `val` among the attribute's words, and a `val` with whitespace in
+    /// it matches nothing (selectors-4 §6.1). An empty `^=`, `$=` or `*=` matches nothing (§6.2).
+    #[test]
+    fn attribute_word_and_substring_selectors() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::LengthPercentageAuto;
+
+        let html = r#"<html><head><style>
+          p[data-rel~=nofollow] { width: 100px }
+          p[data-rel~="a b"] { height: 30px }
+          p[data-p^=""], p[data-s$=""], p[data-c*=""] { width: 200px }
+          p[data-p^=ab], p[data-s$=yz], p[data-c*=mn] { height: 40px }
+        </style></head><body>
+          <p id="list" data-rel="noopener nofollow">x</p>
+          <p id="single" data-rel="nofollow">x</p>
+          <p id="longer" data-rel="nofollowing">x</p>
+          <p id="word" data-rel="a">x</p>
+          <p id="phrase" data-rel="a b">x</p>
+          <p id="prefix" data-p="abc">x</p>
+          <p id="suffix" data-s="xyz">x</p>
+          <p id="substring" data-c="lmno">x</p>
+        </body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let size = |id: &str| {
+            let node = find_node_by_id_attr(&adapter.doc, root, id).expect(id);
+            adapter.computed_style(node).size.clone()
+        };
+        let px = LengthPercentageAuto::Px;
+
+        assert_eq!(size("list").width, px(100.0), "nofollow is one of the words");
+        assert_eq!(size("single").width, px(100.0), "and the only word");
+        assert_ne!(size("longer").width, px(100.0), "a word must match whole");
+        assert_ne!(size("word").height, px(30.0), "a value with a space is never one word");
+        assert_ne!(size("phrase").height, px(30.0), "not even against the same text");
+        for id in ["prefix", "suffix", "substring"] {
+            assert_ne!(size(id).width, px(200.0), "an empty value matches nothing: {id}");
+            assert_eq!(size(id).height, px(40.0), "a non-empty one still matches: {id}");
+        }
     }
 
     /// CSS 2 §10.3.7 regression: an absolutely-positioned auto-width box must shrink to fit
@@ -1533,13 +1630,15 @@ mod rendertree_from_engine {
                 #abs { font-size: small; }
                 #outer { font-size: 50%; }
                 #nested { font-size: 50%; }
+                #padded { font-size: large; padding-left: 1em; }
             </style></head>
             <body>
                 <p id="pct">a</p>
-                <p id="smaller">b</p>
+                <p id="smaller">b <b id="in-smaller">b</b></p>
                 <p id="larger">c</p>
                 <p id="abs">d</p>
                 <p id="outer"><span id="nested">e</span></p>
+                <p id="padded">f</p>
             </body></html>
         "#;
 
@@ -1563,6 +1662,12 @@ mod rendertree_from_engine {
             "one step down from 20px"
         );
         assert!((size_of("larger") - 20.0 * 1.2).abs() < 0.01, "one step up from 20px");
+        // A child inherits the size `smaller` computed to, not the keyword to apply again.
+        assert!(
+            (size_of("in-smaller") - 20.0 / 1.2).abs() < 0.01,
+            "inherits one step down, got {}",
+            size_of("in-smaller")
+        );
         // An absolute keyword ignores the parent and takes its place on the CSS scale.
         assert!((size_of("abs") - 13.0).abs() < 0.01, "`small` is 13px");
         // Percentages compound down the tree: 50% of 50% of 20px.
@@ -1571,6 +1676,13 @@ mod rendertree_from_engine {
             "nested percentages compound: got {} for #nested, {} for #outer",
             size_of("nested"),
             size_of("outer")
+        );
+        // An `em` on a keyword-sized element is the element's own size, not its parent's.
+        let padded = find_node_by_id_attr(&adapter.doc, root, "padded").expect("find #padded");
+        assert_eq!(
+            adapter.computed_style(padded).padding.left,
+            LengthPercentage::Px(18.0),
+            "1em of `large`"
         );
     }
 
@@ -1602,8 +1714,8 @@ mod rendertree_from_engine {
         let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
         let root = adapter.doc.root();
 
-        let url_of = |id| match adapter.computed_style(id).background.image.as_deref() {
-            Some(url) => url.to_string(),
+        let url_of = |id| match adapter.computed_style(id).background.first_url() {
+            Some((url, _)) => url.to_string(),
             None => panic!("expected a background image url"),
         };
 
@@ -1620,7 +1732,7 @@ mod rendertree_from_engine {
         // value `none` means.
         let plain = find_node_by_id_attr(&adapter.doc, root, "plain").expect("find #plain");
         assert!(
-            adapter.computed_style(plain).background.image.is_none(),
+            adapter.computed_style(plain).background.layers.is_empty(),
             "plain element should have no background image"
         );
     }
@@ -1851,6 +1963,46 @@ mod rendertree_from_engine {
         assert!((w - 120.0).abs() < 0.5, "expected 120.0px, got {w}");
         let w = width_px_of(html, "plain");
         assert!((w - 300.0).abs() < 0.5, "expected 300.0px, got {w}");
+    }
+
+    /// Wikipedia's citation brackets: `.reference a::before { content: "[" }`. A string holding
+    /// `[`, `]` or `/` was refused by the grammar as punctuation, so no box was generated.
+    #[test]
+    fn content_strings_of_brackets_and_slashes_generate_their_text() {
+        use crate::common::document::node::NodeType;
+        use crate::common::document::pipeline_doc::PipelineDocument;
+
+        let html = r#"<html><head><style>
+            #cite::before { content: "["; }
+            #cite::after { content: "]"; }
+            #slash::before { content: "/"; }
+        </style></head><body><sup id="cite">1</sup><span id="slash">x</span></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        // The text of every node below `id`, generated or not, in order.
+        fn text_below(adapter: &GosubDocumentAdapter<Config>, id: gosub_shared::node::NodeId, out: &mut String) {
+            for child in adapter.children(id) {
+                if let Some(NodeType::Text(text)) = adapter.get_node_by_id(child).map(|n| n.node_type) {
+                    out.push_str(&text);
+                }
+                text_below(adapter, child, out);
+            }
+        }
+        let text_of = |id: &str| {
+            let mut out = String::new();
+            text_below(
+                &adapter,
+                find_node_by_id_attr(&adapter.doc, root, id).expect(id),
+                &mut out,
+            );
+            out
+        };
+
+        assert_eq!(text_of("cite"), "[1]");
+        assert_eq!(text_of("slash"), "/x");
     }
 
     #[test]
@@ -2253,6 +2405,166 @@ mod rendertree_from_engine {
             size(pictured),
             (40.0, 20.0),
             "the first source that matches and decodes"
+        );
+    }
+
+    /// `object-fit` and `object-position` place an 80x40 image in a 100x100 box. The image is
+    /// painted over the content box as one non-repeating tile positioned in it (backends paint a
+    /// tile only where it lies): `contain` letterboxes it, `cover` crops it, `none` keeps its size
+    /// at the chosen corner, `scale-down` behaves as `none` when the image is the smaller one.
+    /// Padding moves the content box, and `fill` still stretches the image over the whole box.
+    #[test]
+    fn object_fit_places_the_image_in_its_content_box() {
+        use crate::common::browser_state::{BrowserState, WireframeState};
+        use crate::common::geo::{Dimension, Rect};
+        use crate::common::MediaStore;
+        use crate::layering::layer::LayerList;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+        use crate::painter::commands::brush::Brush;
+        use crate::painter::commands::PaintCommand;
+        use crate::painter::Painter;
+        use base64::Engine;
+        use gosub_fontmanager::ParleyFontSystem;
+        use image::ImageEncoder;
+        use parking_lot::Mutex;
+
+        let mut bytes = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut bytes)
+            .write_image(&[255; 80 * 40 * 4], 80, 40, image::ExtendedColorType::Rgba8)
+            .expect("encode");
+        let src = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        );
+        let html = format!(
+            r#"<html><head><style>
+                body {{ margin: 0 }}
+                img {{ display: block; width: 100px; height: 100px; }}
+            </style></head><body>
+                <img id="contain" src="{src}" style="object-fit: contain">
+                <img id="cover" src="{src}" style="object-fit: cover">
+                <img id="none" src="{src}" style="object-fit: none; object-position: right bottom">
+                <img id="scale-down" src="{src}" style="object-fit: scale-down; object-position: 10px 20px">
+                <img id="padded" src="{src}" style="object-fit: contain; object-position: left top; padding: 5px">
+                <img id="fill" src="{src}">
+                <img id="avatar" src="{src}" style="object-fit: cover; width: 100.1px; border-radius: 50%">
+                <img id="corner" src="{src}" style="object-fit: none; object-position: left top; border-radius: 50%">
+            </body></html>"#
+        );
+
+        let mut doc = html_compile::<Config>(&html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let ids = [
+            "contain",
+            "cover",
+            "none",
+            "scale-down",
+            "padded",
+            "fill",
+            "avatar",
+            "corner",
+        ]
+        .map(|id| find_node_by_id_attr(&adapter.doc, root, id).expect(id));
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let store = Arc::new(MediaStore::new());
+        store.set_synchronous_fetch(true);
+        let mut layouter =
+            TaffyLayouter::with_font_system_and_media_store(Arc::new(Mutex::new(ParleyFontSystem::new())), store);
+        let layout_tree = layouter.layout(render_tree, Some(Dimension::new(800.0, 800.0)), 1.0);
+        let elements: Vec<_> = ids
+            .iter()
+            .map(|dom| {
+                let (id, el) = layout_tree
+                    .arena
+                    .iter()
+                    .find(|(_, el)| el.dom_node_id == *dom)
+                    .expect("the img is laid out");
+                (*id, el.box_model.border_box.y)
+            })
+            .collect();
+
+        let layer_list = Arc::new(LayerList::new(Arc::new(layout_tree)));
+        let state = BrowserState {
+            visible_layer_list: vec![true; layer_list.layer_ids.read().len()],
+            wireframed: WireframeState::None,
+            debug_hover: false,
+            current_hovered_element: None,
+            show_tilegrid: false,
+            debug_table_cells: false,
+            viewport: Rect::new(0.0, 0.0, 800.0, 800.0),
+            tile_list: None,
+            dpi_scale_factor: 1.0,
+        };
+        let painter = Painter::new(layer_list, None);
+
+        // The one image rectangle each element paints: its rect relative to the element's top,
+        // and its tile as (width, height, x, y), or `None` for a stretched image.
+        type Placed = ((f64, f64, f64, f64), Option<(f32, f32, f32, f32)>);
+        let image_of = |(id, top): (_, f64)| -> Placed {
+            let images: Vec<Placed> = painter
+                .paint_element(id, &state)
+                .into_iter()
+                .filter_map(|cmd| match cmd {
+                    PaintCommand::Rectangle(r) => match r.background() {
+                        Some(Brush::Image(_, tiling)) => {
+                            let rect = r.rect();
+                            let tile = tiling.map(|t| (t.tile_size.0, t.tile_size.1, t.position.0, t.position.1));
+                            Some(((rect.x, rect.y - top, rect.width, rect.height), tile))
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(images.len(), 1, "one image rectangle: {images:?}");
+            images[0]
+        };
+        let [contain, cover, none, scale_down, padded, fill] = [0, 1, 2, 3, 4, 5].map(|i| image_of(elements[i]));
+
+        assert_eq!(
+            contain,
+            ((0.0, 0.0, 100.0, 100.0), Some((100.0, 50.0, 0.0, 25.0))),
+            "contain: full width, centred"
+        );
+        assert_eq!(
+            cover,
+            ((0.0, 0.0, 100.0, 100.0), Some((200.0, 100.0, -50.0, 0.0))),
+            "cover: full height, cropped either side"
+        );
+        assert_eq!(
+            none,
+            ((0.0, 0.0, 100.0, 100.0), Some((80.0, 40.0, 20.0, 60.0))),
+            "none: natural size, at the bottom-right corner"
+        );
+        assert_eq!(
+            scale_down,
+            ((0.0, 0.0, 100.0, 100.0), Some((80.0, 40.0, 10.0, 20.0))),
+            "scale-down: never enlarged, offset from the top-left"
+        );
+        assert_eq!(
+            padded,
+            ((5.0, 5.0, 100.0, 100.0), Some((100.0, 50.0, 0.0, 0.0))),
+            "the content box, inside the padding"
+        );
+        assert_eq!(fill, ((0.0, 0.0, 100.0, 100.0), None), "fill stretches over the box");
+
+        // The image rectangle carries the content box's radii whatever part of the box the image
+        // covers: a round avatar (with a width f32 cannot hold exactly), and an image that covers
+        // only the top-left corner, which must still follow that corner's curve.
+        let image_rounded = |i: usize| {
+            painter.paint_element(elements[i].0, &state).into_iter().any(|cmd| {
+                matches!(&cmd, PaintCommand::Rectangle(r) if matches!(r.background(), Some(Brush::Image(..))) && r.is_rounded())
+            })
+        };
+        assert!(image_rounded(6), "a cover image is clipped to the rounded box");
+        assert!(
+            image_rounded(7),
+            "a partly covering image is clipped to the rounded corner"
         );
     }
 
@@ -3874,13 +4186,17 @@ mod rendertree_from_engine {
                     crate::common::document::pipeline_doc::ROLE_BEFORE_ELEM,
                 );
             }
-            let layers = adapter.background_layers(id, (100.0, 100.0));
-            let [crate::painter::commands::gradient::Gradient::Linear(gradient)] = layers.as_slice() else {
-                panic!("one gradient layer on .{class}, got {layers:?}");
+            let style = adapter.computed_style(id);
+            let [gosub_interface::style::BackgroundLayer {
+                image: gosub_interface::style::BackgroundImage::Linear(gradient),
+                ..
+            }] = &*style.background.layers
+            else {
+                panic!("one gradient layer on .{class}, got {:?}", style.background.layers);
             };
             assert_eq!(gradient.stops.len(), 2, "both stops on .{class}");
-            let color = &gradient.stops[0].color;
-            (color.r8(), color.g8(), color.b8(), color.a8())
+            let color = gradient.stops[0].color;
+            (color.r, color.g, color.b, color.a)
         };
         assert_eq!(first_stop("plain"), (255, 0, 0, 255));
         // The exact mix is 127.5; the typed colour truncates its channels (`to_color` in
@@ -3995,6 +4311,83 @@ mod rendertree_from_engine {
             "the inline-block wraps its widest child, got {ib:?} around {a:?}"
         );
         assert!(ib.x > 0.0, "it stays on the line after \"before\", got {ib:?}");
+    }
+
+    /// A `flow-root` establishes a block formatting context (css-display-3 §2.2): it grows to
+    /// contain its floats, and its first child's top margin stays inside it instead of collapsing
+    /// through. A plain block next to it shows both going the other way.
+    #[test]
+    fn a_flow_root_contains_its_floats_and_keeps_its_childs_margin() {
+        let html = r#"<html><body style="margin: 0">
+          <div id="root" style="display: flow-root"><div style="float: left; width: 50px; height: 40px"></div></div>
+          <div id="plain"><div style="float: left; width: 50px; height: 40px"></div></div>
+          <div id="m-root" style="display: flow-root; margin-top: 100px"><div id="m-root-child" style="margin-top: 10px; height: 5px"></div></div>
+          <div id="m-plain" style="margin-top: 100px"><div id="m-plain-child" style="margin-top: 10px; height: 5px"></div></div>
+        </body></html>"#;
+        let [root, plain, m_root, m_root_child, m_plain, m_plain_child] = border_boxes(
+            html,
+            &["root", "plain", "m-root", "m-root-child", "m-plain", "m-plain-child"],
+        )[..] else {
+            unreachable!()
+        };
+
+        assert!(
+            (root.height - 40.0).abs() < 0.5,
+            "the flow-root grows to its float, got {root:?}"
+        );
+        assert!(plain.height < 0.5, "a plain block does not, got {plain:?}");
+
+        assert!(
+            (m_root_child.y - m_root.y - 10.0).abs() < 0.5,
+            "the child's margin stays inside the flow-root, got {m_root:?} around {m_root_child:?}"
+        );
+        assert!(
+            (m_plain_child.y - m_plain.y).abs() < 0.5,
+            "in a plain block it collapses through, got {m_plain:?} around {m_plain_child:?}"
+        );
+    }
+
+    /// The children of a `display: contents` element are laid out as children of its parent
+    /// (css-display-3 §2.5): inside a flex container they are flex items, side by side, and the
+    /// wrapper's padding has no box to apply to.
+    #[test]
+    fn a_contents_wrappers_children_are_its_parents_flex_items() {
+        let html = r#"<html><body style="margin: 0">
+          <div id="row" style="display: flex">
+            <div id="a" style="width: 50px; height: 20px"></div>
+            <div style="display: contents; padding: 30px"><div id="b" style="width: 50px; height: 20px"></div><div id="c" style="width: 50px; height: 20px"></div></div>
+          </div>
+        </body></html>"#;
+        let [row, a, b, c] = border_boxes(html, &["row", "a", "b", "c"])[..] else {
+            unreachable!()
+        };
+
+        assert!(
+            (a.y - b.y).abs() < 0.5 && (b.y - c.y).abs() < 0.5,
+            "all three share the flex row, got {a:?} {b:?} {c:?}"
+        );
+        assert!(
+            (b.x - 50.0).abs() < 0.5 && (c.x - 100.0).abs() < 0.5,
+            "one after the other with no padding in between, got {b:?} {c:?}"
+        );
+        assert!((row.height - 20.0).abs() < 0.5, "the row is one item tall, got {row:?}");
+    }
+
+    /// Inside a line, a `display: contents` span leaves its content on the line, in order.
+    #[test]
+    fn a_contents_span_keeps_its_content_on_the_line() {
+        let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
+          <p><i id="a">a</i> <span style="display: contents">b <b id="c">c</b></span> <i id="d">d</i></p>
+        </body></html>"#;
+        let [a, c, d] = border_boxes(html, &["a", "c", "d"])[..] else {
+            unreachable!()
+        };
+
+        assert!(
+            (a.y - c.y).abs() < 0.5 && (c.y - d.y).abs() < 0.5,
+            "one line, got {a:?} {c:?} {d:?}"
+        );
+        assert!(a.x < c.x && c.x < d.x, "in document order, got {a:?} {c:?} {d:?}");
     }
 
     /// `height` does not apply to a non-replaced inline box (CSS 2 §10.6.1), so a percentage on
@@ -4270,6 +4663,67 @@ mod rendertree_from_engine {
         );
     }
 
+    /// A space right after another collapses into it, across the edges of inline elements and
+    /// past an element that holds nothing. Hacker News puts an empty `<span>` between two
+    /// spaces in `4 hours ago <span id="unv_1"></span> | hide`, and both spaces were drawn.
+    #[test]
+    fn spaces_either_side_of_an_empty_element_collapse_to_one() {
+        let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
+          <div><span><a href="/i">ago</a></span> <span></span> | <a id="hide" href="/h">hide</a></div>
+          <div><span><a href="/i">ago</a></span> | <a id="one" href="/h">hide</a></div>
+          <div>a <span><b>x </b></span> <span id="after">b</span></div>
+          <div>a <span><b>x </b></span><span id="after_one">b</span></div>
+        </body></html>"#;
+        let [hide, one, after, after_one] = border_boxes(html, &["hide", "one", "after", "after_one"])[..] else {
+            unreachable!()
+        };
+        assert!(
+            (hide.x - one.x).abs() < 0.5,
+            "the empty element changes nothing, got {hide:?} against {one:?}"
+        );
+        assert!(
+            (after.x - after_one.x).abs() < 0.5,
+            "a space after one that ends an inline element collapses into it, got {after:?} against {after_one:?}"
+        );
+    }
+
+    /// The space a collapse keeps is the first one, inside the element, so the element keeps
+    /// it: `a<span> </span> b` has one space, not none.
+    #[test]
+    fn a_space_kept_inside_an_element_still_separates() {
+        let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
+          <div><span id="a">a</span><span> </span> <span id="b">b</span></div>
+          <div><span id="c">a</span> <span id="d">b</span></div>
+        </body></html>"#;
+        let [a, b, c, d] = border_boxes(html, &["a", "b", "c", "d"])[..] else {
+            unreachable!()
+        };
+        assert!(
+            b.x > a.x + a.width + 1.0,
+            "a space is left between them, got {b:?} after {a:?}"
+        );
+        assert!(
+            ((b.x - a.x) - (d.x - c.x)).abs() < 0.5,
+            "exactly one space, got {b:?} after {a:?} against {d:?} after {c:?}"
+        );
+    }
+
+    /// A wrapped line starts with its first word, not with the space before it. The space was a
+    /// box of its own that wrapped with the word, so the second line of a long Hacker News title
+    /// started one space in. The title's shape matters: a link inside a span, its words joining
+    /// the span's line, and a first word too long for the line, so the space cannot end it.
+    #[test]
+    fn a_wrapped_line_does_not_start_with_a_space() {
+        let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
+          <div style="width: 5ch"><span class="titleline"><a href="/x">aaaaaaaaaa <b id="g">gggg</b></a><span> (<a href="/f">site</a>)</span></span></div>
+        </body></html>"#;
+        let [g] = border_boxes(html, &["g"])[..] else {
+            unreachable!()
+        };
+        assert!(g.y > 10.0, "gggg wraps onto the second line, got {g:?}");
+        assert!(g.x.abs() < 0.5, "the second line starts at the left edge, got {g:?}");
+    }
+
     /// An inline element only gives up its box when the box shows nothing. One with a background
     /// keeps it, and with it a place among its parent's children.
     #[test]
@@ -4279,7 +4733,7 @@ mod rendertree_from_engine {
         use crate::layouter::CanLayout as _;
 
         let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
-          <div>one <a id="plain" href="/a">two</a> <a id="drawn" href="/b" style="background: red">three</a> <a id="spaced" href="/c" style="padding: 0 4px">four</a> five</div>
+          <div>one <a id="plain" href="/a">two</a> <a id="drawn" href="/b" style="background: red">three</a> <a id="spaced" href="/c" style="padding: 0 4px">four</a> <a id="graded" href="/d" style="background: linear-gradient(red, blue)">five</a> six</div>
         </body></html>"#;
         let rt = parse_to_rendertree(html);
         let doc = rt.doc.clone();
@@ -4315,6 +4769,7 @@ mod rendertree_from_engine {
         assert!(!has_own_box("plain"), "a plain link's words join the line");
         assert!(has_own_box("drawn"), "a link with a background keeps its box");
         assert!(has_own_box("spaced"), "a link with padding keeps its box");
+        assert!(has_own_box("graded"), "a link with a gradient background keeps its box");
     }
 
     /// A flattened link still has a box where its words are: focus, hover and `#fragment` look

@@ -840,7 +840,8 @@ fn resolve_font_size_basis(map: &mut CssProperties, inherited: Option<&CssProper
                 // `html { font-size: 62.5% }` is the idiom that makes 1rem equal 10px.
                 #[expect(clippy::cast_possible_truncation, reason = "a font-size fits an f32")]
                 CssValue::Percentage(pct) => parent_px * (*pct as f32) / 100.0,
-                // A keyword (`larger`), or anything else this does not resolve: inheriting the
+                // The keywords are px by now. What is left is what the computed stage could not
+                // settle, such as a `calc()` over a percentage and a length: inheriting the
                 // parent's size is closer than falling back to the initial one.
                 _ => parent_px,
             }

@@ -446,7 +446,8 @@ impl<C: RenderConfiguration> HtmlPipeline<C> for HtmlPipelineImpl<C> {
         peek_buf: PeekBuf,
         shared: Arc<SharedBody>,
     ) -> anyhow::Result<ParsedDocument<C>> {
-        let reader = SharedBody::combined_reader(peek_buf, shared);
+        // Lossless: a document the parser falls behind on waits for it, not cut short.
+        let reader = SharedBody::combined_reader_lossless(peek_buf, shared);
         self.parse_with_reader(request, handle, meta, reader).await
     }
 

@@ -413,6 +413,43 @@ mod tests {
         );
     }
 
+    /// A fallback is only substituted when it is used, so a cycle through one that is not used
+    /// is no cycle (css-variables-1 "replace a var() function", csswg-drafts#11500). This is WPT
+    /// css/css-variables/variable-cycles.html, "Cycle in unused fallback".
+    #[test]
+    fn a_cycle_through_an_unused_fallback_is_no_cycle() {
+        // `var(--y, var(--next, cycle))`: --y is defined, so the fallback is never read.
+        let through_y = |next: &str| {
+            let fallback = CssValue::Function("var".to_string(), vec![s(next), CssValue::Comma, s("cycle")]);
+            CssValue::Function("var".to_string(), vec![s("--y"), CssValue::Comma, fallback])
+        };
+        let inherited = HashMap::new();
+        let declared = vec![
+            (
+                "--x".to_string(),
+                CssValue::Function("var".to_string(), vec![s("--a"), CssValue::Comma, s("valid")]),
+            ),
+            ("--a".to_string(), through_y("--b")),
+            ("--b".to_string(), through_y("--c")),
+            ("--c".to_string(), through_y("--a")),
+            ("--y".to_string(), s("valid")),
+        ];
+        let scope = CustomScope {
+            inherited: &inherited,
+            local: &declared,
+            registry: None,
+        };
+        let attr = |_: &[CssValue]| None;
+        let mut budget = SubstitutionBudget::for_element();
+        for (name, value) in &declared {
+            assert_eq!(
+                compute_custom_property(name, value, &scope, &attr, &mut budget),
+                Some(vec![s("valid")]),
+                "{name}"
+            );
+        }
+    }
+
     #[test]
     fn a_substitution_past_the_token_limit_is_invalid() {
         // `--p0: x; --pN: var(--pN-1) var(--pN-1)`: --pN is 2^N tokens.

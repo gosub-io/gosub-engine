@@ -288,6 +288,7 @@ FILE css/css-values/attr-all-types.html
 FILE css/css-values/attr-argument-grammar.html
 FILE css/css-values/attr-container-style-query.html
 FILE css/css-values/attr-css-wide-keywords.html
+PASS css/css-values/attr-css-wide-keywords.html :: font-style: attr(data-foo type(*)) with data-foo="inherit"
 FILE css/css-values/attr-cycle.html
 PASS css/css-values/attr-cycle.html :: Untitled
 FILE css/css-values/attr-invalidation.html
@@ -967,6 +968,7 @@ FILE css/css-values/cap-invalidation.html
 PASS css/css-values/cap-invalidation.html :: Untitled
 FILE css/css-values/ch-empty-pseudo-recalc-on-font-load.html
 FILE css/css-values/ch-pseudo-recalc-on-font-load.html
+HARNESS css/css-values/ch-pseudo-recalc-on-font-load.html
 FILE css/css-values/ch-recalc-on-font-load.html
 HARNESS css/css-values/ch-recalc-on-font-load.html
 FILE css/css-values/clamp-color-computed.html
@@ -1226,6 +1228,7 @@ FILE css/css-values/getComputedStyle-border-radius-003.html
 FILE css/css-values/getComputedStyle-calc-mixed-units-001.html
 PASS css/css-values/getComputedStyle-calc-mixed-units-001.html :: testing background-size: calc(67% - 54% + 4em) 50%
 FILE css/css-values/getComputedStyle-calc-mixed-units-002.html
+PASS css/css-values/getComputedStyle-calc-mixed-units-002.html :: testing width: calc(8lh + 7px)
 PASS css/css-values/getComputedStyle-calc-mixed-units-002.html :: testing width: calc(4em + 2.6458333cm)
 PASS css/css-values/getComputedStyle-calc-mixed-units-002.html :: testing height: calc(5em + 26.458333mm)
 PASS css/css-values/getComputedStyle-calc-mixed-units-002.html :: testing width: calc(2in + 101.6Q)
@@ -2041,6 +2044,7 @@ PASS css/css-values/position/position-valid.tentative.html :: e.style['object-po
 FILE css/css-values/progress-computed.html
 PASS css/css-values/progress-computed.html :: progress(1, 0, 1) should be used-value-equivalent to 1
 PASS css/css-values/progress-computed.html :: progress(progress(1, 0, 1), progress(0px, 0px, 1px), progress(1deg, 0deg, 1deg)) should be used-value-equivalent to 1
+PASS css/css-values/progress-computed.html :: progress(sign(-10px) * 10px, (10px - 10px), 10px * progress(1deg, 0deg, 1deg)) should be used-value-equivalent to 0
 PASS css/css-values/progress-computed.html :: calc(progress(100px, 0px, 50px) * 10px + 100px) should be used-value-equivalent to 110px
 PASS css/css-values/progress-computed.html :: calc(progress(100, 0, sign(50px))) should be used-value-equivalent to 1
 PASS css/css-values/progress-computed.html :: progress(50em, 10em, 110em) should be used-value-equivalent to 0.4
@@ -2048,9 +2052,16 @@ PASS css/css-values/progress-computed.html :: progress(1000em, 10em, 110em) shou
 PASS css/css-values/progress-computed.html :: scale(progress(50em, 10rem, 110em)) should be used-value-equivalent to scale(1)
 PASS css/css-values/progress-computed.html :: scale(progress(1000em, 10rem, 110em)) should be used-value-equivalent to scale(1)
 PASS css/css-values/progress-computed.html :: scale(progress(0em, 0rem, 0em)) should be used-value-equivalent to scale(0)
+PASS css/css-values/progress-computed.html :: scale(progress(sign(1em - 1rem) * 1ex, 0rem, 0em)) should be used-value-equivalent to scale(0)
 PASS css/css-values/progress-computed.html :: calc(progress(1, 0, 1) * 10px) should be used-value-equivalent to 10px
 PASS css/css-values/progress-computed.html :: calc(progress(1, 0, 1) * 1s) should be used-value-equivalent to 1s
 PASS css/css-values/progress-computed.html :: calc(progress(1, 0, 1) * 1deg) should be used-value-equivalent to 1deg
+PASS css/css-values/progress-computed.html :: calc(progress(sign(1001em - 10lh * progress(100px, 2rex, 10ex)) * 10em, 2rem, 12em) / 2) should be used-value-equivalent to 0.4
+PASS css/css-values/progress-computed.html :: calc(progress(sign(1001em - 10lh * progress(100px, 2rex, 10ex)) * 20em, 2rem, 12em) * 10) should be used-value-equivalent to 10
+PASS css/css-values/progress-computed.html :: calc(progress(sign(1001em - 10lh * progress(100px, 2rex, 10ex)) * 20em, 2rem, 12em) * 30) should be used-value-equivalent to 30
+PASS css/css-values/progress-computed.html :: calc(progress(sign(1001em - 10lh * progress(100px, 2rex, 10ex)) * 20em, 2rem, 12em) / 4) should be used-value-equivalent to 0.25
+PASS css/css-values/progress-computed.html :: calc(progress(sign(1001em - 10lh * progress(100px, 2rex, 10ex)) * 20em, 2rem, 12em) * 4) should be used-value-equivalent to 4
+PASS css/css-values/progress-computed.html :: calc(progress(sign(1001em - 10lh * progress(100px, 2rex, 10ex)) * 20em, 2rem, 12em) * 2) should be used-value-equivalent to 2
 PASS css/css-values/progress-computed.html :: calc(progress(no-clamp 100px, 0px, 50px) * 10px + 100px) should be used-value-equivalent to 120px
 PASS css/css-values/progress-computed.html :: calc(progress(no-clamp 100, 0, sign(1rem - 5px))) should be used-value-equivalent to 100
 PASS css/css-values/progress-computed.html :: progress(no-clamp 50em, 10em, 110em) should be used-value-equivalent to 0.4
@@ -2108,7 +2119,12 @@ PASS css/css-values/progress-serialize.html :: 'progress(10em, 0px, 10em)' as a 
 PASS css/css-values/progress-serialize.html :: 'progress(10em, 0px, 10rem)' as a specified value should serialize as 'progress(10em, 0px, 10rem)'.
 PASS css/css-values/progress-serialize.html :: 'scale(progress(10em, 0px, 10rem))' as a specified value should serialize as 'scale(progress(10em, 0px, 10rem))'.
 PASS css/css-values/progress-serialize.html :: 'progress(10em, 0px, 10rem)' as a computed value should serialize as '1'.
+PASS css/css-values/progress-serialize.html :: 'progress(100px, (10px - 10px), 100px)' as a specified value should serialize as 'calc(1)'.
+PASS css/css-values/progress-serialize.html :: 'scale(progress(100px, (10px - 10px), 100px))' as a specified value should serialize as 'scale(calc(1))'.
 PASS css/css-values/progress-serialize.html :: 'progress(100px, (10px - 10px), 100px)' as a computed value should serialize as '1'.
+PASS css/css-values/progress-serialize.html :: 'progress(1%, (10% - 10%), 100%)' as a specified value should serialize as 'calc(0.01)'.
+PASS css/css-values/progress-serialize.html :: 'scale(progress(1%, (10% - 10%), 100%))' as a specified value should serialize as 'scale(calc(0.01))'.
+PASS css/css-values/progress-serialize.html :: 'progress(1%, (10% - 10%), 100%)' as a computed value should serialize as '0.01'.
 PASS css/css-values/progress-serialize.html :: 'calc(0.5 * progress(100px, 0px, 100px))' as a specified value should serialize as 'calc(0.5)'.
 PASS css/css-values/progress-serialize.html :: 'scale(calc(0.5 * progress(100px, 0px, 100px)))' as a specified value should serialize as 'scale(calc(0.5))'.
 PASS css/css-values/progress-serialize.html :: 'calc(0.5 * progress(100px, 0px, 100px))' as a computed value should serialize as '0.5'.
@@ -2132,7 +2148,12 @@ PASS css/css-values/progress-serialize.html :: 'progress(no-clamp 10em, 0px, 10e
 PASS css/css-values/progress-serialize.html :: 'progress(no-clamp 10em, 0px, 10rem)' as a specified value should serialize as 'progress(no-clamp 10em, 0px, 10rem)'.
 PASS css/css-values/progress-serialize.html :: 'scale(progress(no-clamp 10em, 0px, 10rem))' as a specified value should serialize as 'scale(progress(no-clamp 10em, 0px, 10rem))'.
 PASS css/css-values/progress-serialize.html :: 'progress(no-clamp 10em, 0px, 10rem)' as a computed value should serialize as '1'.
+PASS css/css-values/progress-serialize.html :: 'progress(no-clamp 100px, (10px - 10px), 100px)' as a specified value should serialize as 'calc(1)'.
+PASS css/css-values/progress-serialize.html :: 'scale(progress(no-clamp 100px, (10px - 10px), 100px))' as a specified value should serialize as 'scale(calc(1))'.
 PASS css/css-values/progress-serialize.html :: 'progress(no-clamp 100px, (10px - 10px), 100px)' as a computed value should serialize as '1'.
+PASS css/css-values/progress-serialize.html :: 'progress(no-clamp 1%, (10% - 10%), 100%)' as a specified value should serialize as 'calc(0.01)'.
+PASS css/css-values/progress-serialize.html :: 'scale(progress(no-clamp 1%, (10% - 10%), 100%))' as a specified value should serialize as 'scale(calc(0.01))'.
+PASS css/css-values/progress-serialize.html :: 'progress(no-clamp 1%, (10% - 10%), 100%)' as a computed value should serialize as '0.01'.
 PASS css/css-values/progress-serialize.html :: 'calc(0.5 * progress(no-clamp 100px, 0px, 100px))' as a specified value should serialize as 'calc(0.5)'.
 PASS css/css-values/progress-serialize.html :: 'scale(calc(0.5 * progress(no-clamp 100px, 0px, 100px)))' as a specified value should serialize as 'scale(calc(0.5))'.
 PASS css/css-values/progress-serialize.html :: 'calc(0.5 * progress(no-clamp 100px, 0px, 100px))' as a computed value should serialize as '0.5'.
@@ -2270,6 +2291,7 @@ FILE css/css-values/rem-unit-root-element.html
 PASS css/css-values/rem-unit-root-element.html :: rem based margin.
 PASS css/css-values/rem-unit-root-element.html :: rem based padding.
 PASS css/css-values/rem-unit-root-element.html :: rem based line-height.
+PASS css/css-values/rem-unit-root-element.html :: Check that rem font-size is based on the initial font-size.
 FILE css/css-values/rex-invalidation.html
 PASS css/css-values/rex-invalidation.html :: Untitled
 FILE css/css-values/rgba-011.html
@@ -2279,6 +2301,7 @@ PASS css/css-values/ric-invalidation.html :: Untitled
 FILE css/css-values/rlh-invalidation.html
 PASS css/css-values/rlh-invalidation.html :: Untitled
 FILE css/css-values/rlh-on-root-lengths.html
+PASS css/css-values/rlh-on-root-lengths.html :: Non font or line-height properties on :root should resolve rlh against :root line-height
 FILE css/css-values/round-function.html
 PASS css/css-values/round-function.html :: round(23px, 10px) should be used-value-equivalent to 20px
 PASS css/css-values/round-function.html :: round(18px, 10px) should be used-value-equivalent to 20px
@@ -2470,6 +2493,7 @@ PASS css/css-values/round-function.html :: round(down, -1, infinity) should be u
 PASS css/css-values/round-function.html :: calc(1 / round(down, -1 * 0, infinity)) should be used-value-equivalent to calc(-infinity)
 PASS css/css-values/round-function.html :: calc(1 / round(down, 0, infinity)) should be used-value-equivalent to calc(infinity)
 PASS css/css-values/round-function.html :: calc(1 / round(down, 1, infinity)) should be used-value-equivalent to calc(infinity)
+PASS css/css-values/round-function.html :: round(down, (7 - 1) / 3, 1) should be used-value-equivalent to 2
 FILE css/css-values/round-mod-rem-computed.html
 PASS css/css-values/round-mod-rem-computed.html :: round(10,10) should be used-value-equivalent to 10
 PASS css/css-values/round-mod-rem-computed.html :: mod(1,1) should be used-value-equivalent to 0
