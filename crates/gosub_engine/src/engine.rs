@@ -29,6 +29,7 @@ mod policy;
 pub mod settings_store;
 pub mod types;
 pub mod viewport_meta;
+pub mod visual_viewport;
 
 pub use context::BrowsingContext;
 pub use damage::{Damage, DamageLevel};
