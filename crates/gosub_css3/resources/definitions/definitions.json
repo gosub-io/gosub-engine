@@ -5897,7 +5897,7 @@
     },
     {
       "name": "text-decoration-inset",
-      "syntax": "<length>{1,2} | auto",
+      "syntax": "auto | <length-percentage>{1,2}",
       "computed": [
         "absoluteLengthOrKeyword"
       ],
@@ -6526,7 +6526,7 @@
     },
     {
       "name": "word-spacing",
-      "syntax": "normal | <length>",
+      "syntax": "normal | <length-percentage>",
       "computed": [
         "absoluteLength"
       ],

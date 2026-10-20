@@ -290,6 +290,9 @@ pub struct TabWorker<C: RenderConfiguration> {
     present_mode: PresentMode,
     /// The newest viewport requested by the tab, which may differ from the committed one.
     desired_viewport: Viewport,
+    /// The layout viewport and scale last reported with [`EngineEvent::PageScaleChanged`];
+    /// `None` while it has always matched the screen.
+    reported_page_scale: Option<crate::engine::viewport_meta::PageScale>,
     /// Current scroll offset in CSS pixels (updated by MouseScroll). Mirrors the integer-rounded
     /// position held by `scroll`; the rest of the worker reads these.
     scroll_x: i32,
@@ -440,6 +443,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             surface: None,
             present_mode: PresentMode::Fifo,
             desired_viewport: Default::default(),
+            reported_page_scale: None,
             scroll_x: 0,
             scroll_y: 0,
             // The engine owns wheel-scroll smoothing; embedders send one delta per notch.
@@ -1016,7 +1020,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 /// "Almost to the end of the page" - clamped to the real maximum by the
                 /// scroll state, so it means "top"/"bottom" for Home/End.
                 const FAR: f32 = 1.0e9;
-                let page = (self.desired_viewport.height as f32 - LINE).max(LINE);
+                let page = (self.context.viewport().height as f32 - LINE).max(LINE);
                 let shift = modifiers.contains(Modifiers::SHIFT);
                 match key {
                     "ArrowDown" => self.scroll_page_by(0.0, LINE, false),
@@ -1343,7 +1347,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let max_y = {
             let ph = self.context.page_height();
             if ph > 0.0 {
-                (ph - self.desired_viewport.height as f64).max(0.0)
+                (ph - self.context.viewport().height as f64).max(0.0)
             } else {
                 f64::MAX
             }
@@ -1353,7 +1357,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let max_x = {
             let pw = self.context.page_width();
             if pw > 0.0 {
-                (pw - self.desired_viewport.width as f64).max(0.0)
+                (pw - self.context.viewport().width as f64).max(0.0)
             } else {
                 f64::MAX
             }
@@ -1796,7 +1800,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     fn apply_remote_effects(&mut self) {
         use crate::engine::tab::remote_effects::{action_for, Action};
-        let viewport = (self.desired_viewport.width as f64, self.desired_viewport.height as f64);
+        let viewport = (
+            self.context.viewport().width as f64,
+            self.context.viewport().height as f64,
+        );
         for (provenance, effect) in self.context.take_remote_effects() {
             match action_for(effect, provenance, self.current_url.as_ref(), viewport) {
                 Ok(Action::Focus { focused, editable }) => {
@@ -2801,7 +2808,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
 
             // Full render: rebuild stages 1-6 only (no display list), then submit TileCache.
-            self.context.set_viewport(self.desired_viewport);
+            self.apply_viewport();
             self.context.rebuild_pipeline_cache_if_needed();
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             if let Some(error) = self.context.take_remote_failure() {
@@ -2840,13 +2847,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // as the scaling bug it is. The backend scales its scene to match (or, on the GPU
             // tile path, rasterizes its tiles at this ratio), so the page is re-rendered at
             // this resolution instead of stretched.
+            //
+            // Sized from the layout viewport, which is set first: with mobile viewport handling
+            // it is wider than the screen, and the embedder shows the texture scaled to fit.
+            self.apply_viewport();
             let dpr = render_backend.device_pixel_ratio().max(1);
-            let mut surface_size = self.desired_viewport.as_size();
+            let mut surface_size = self.context.viewport().as_size();
             surface_size.width *= dpr;
             surface_size.height *= dpr;
 
             let surface_recreated = self.ensure_surface_tracked(render_backend.clone(), surface_size)?;
-            self.context.set_viewport(self.desired_viewport);
 
             // Consolidated tile path (opt-in): rather than the one-shot whole-viewport scene, run
             // the SAME shared tile pipeline the CPU backends use (stages 1-6 → cached tiles). The
@@ -2873,7 +2883,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 if let Some(ref mut surf) = self.surface {
                     let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::GpuTileComposite);
                     let tiles = self.context.placed_gpu_tiles();
-                    let vp = (self.desired_viewport.width, self.desired_viewport.height);
+                    let vp = (self.context.viewport().width, self.context.viewport().height);
                     let (sx, sy) = self.context.scroll_xy();
                     let page_height = self.context.page_height() as f32;
                     match render_backend.composite_tiles(surf.as_mut(), &tiles, vp, (sx as f32, sy as f32), page_height)
@@ -2924,9 +2934,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
         // Ensure we have a surface of the right size to draw on.
         // Track whether the surface was recreated (meaning pixels are blank and must be re-rendered).
-        let surface_recreated = self.ensure_surface_tracked(render_backend.clone(), self.desired_viewport.as_size())?;
-        // Propagate the current viewport so the pipeline lays out at the right dimensions.
-        self.context.set_viewport(self.desired_viewport);
+        // Propagate the current viewport so the pipeline lays out at the right dimensions, and
+        // size the surface from the layout viewport that makes.
+        self.apply_viewport();
+        let surface_recreated =
+            self.ensure_surface_tracked(render_backend.clone(), self.context.viewport().as_size())?;
         // Rebuild the render list if anything has changed
         self.context.rebuild_render_list_if_needed();
 
@@ -2939,8 +2951,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
         log::debug!(
             "[tick_draw] tab={:?} vp={}x{} render_items={} epoch={}",
             self.tab_id,
-            self.desired_viewport.width,
-            self.desired_viewport.height,
+            self.context.viewport().width,
+            self.context.viewport().height,
             self.context.render_list().items.len(),
             scene_epoch,
         );
@@ -3030,6 +3042,31 @@ impl<C: RenderConfiguration> TabWorker<C> {
         self.desired_viewport = vp;
         self.state = TabState::PendingRendering(self.desired_viewport);
         self.runtime.dirty = true;
+    }
+
+    /// Lay the page out for the screen the embedder asked for, and tell the embedder when that
+    /// gives a layout viewport of another size or scale than it was last told about.
+    fn apply_viewport(&mut self) {
+        use crate::engine::viewport_meta::PageScale;
+
+        self.context.set_viewport(self.desired_viewport);
+        let page = self.context.page_scale();
+        let last = self
+            .reported_page_scale
+            .unwrap_or_else(|| PageScale::identity(self.desired_viewport.width, self.desired_viewport.height));
+        if page == last {
+            return;
+        }
+        self.reported_page_scale = Some(page);
+        self.send_event(EngineEvent::PageScaleChanged {
+            tab_id: self.tab_id,
+            layout_width: page.layout_width,
+            layout_height: page.layout_height,
+            scale: page.scale,
+            min_scale: page.min_scale,
+            max_scale: page.max_scale,
+            user_scalable: page.user_scalable,
+        });
     }
 
     /// Bind local+session storage handles into the underlying browsing context.

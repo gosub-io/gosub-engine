@@ -28,11 +28,17 @@ fn strip_trailing_comma_multiplier(re: &Regex, syntax: &str) -> String {
 
 /// Overrides for upstream PROPERTY grammars where both sources are wrong or
 /// incomplete for real-world CSS.
-const PROPERTY_SYNTAX_PATCHES: [(&str, &str); 4] = [
+const PROPERTY_SYNTAX_PATCHES: [(&str, &str); 6] = [
     // webref only carries the modern space-separated basic-shape <rect()>, but
     // the dominant real-world clip syntax is the legacy comma-separated CSS2
     // rect() (MDN's <shape>). Accept both.
     ("clip", "<shape> | <rect()> | auto"),
+    // webref still types these from css-text-3 and an older text-decor draft, as a plain
+    // `<length>`; css-text-4 §8.2 and css-text-decor-4 §2.6 take a `<length-percentage>`, and the
+    // wpt parsing suites assert the percentage. The matcher used to let a percentage into any
+    // length slot by accident, which hid the difference.
+    ("word-spacing", "normal | <length-percentage>"),
+    ("text-decoration-inset", "auto | <length-percentage>{1,2}"),
     // webref types background-clip as <visual-box># which misses `text` (and
     // `border-area`) from css-backgrounds-4; gradient text via
     // `background-clip: text` is widely deployed. MDN's <bg-clip> carries the

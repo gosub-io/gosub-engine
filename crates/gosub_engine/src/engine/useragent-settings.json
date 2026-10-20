@@ -49,6 +49,14 @@
       "description": "Maximum allowed page zoom factor."
     }
   ],
+  "viewport": [
+    {
+      "key": "mobile",
+      "type": "b",
+      "default": "b:false",
+      "description": "Lay pages out as a mobile browser does: at the width their viewport <meta> asks for, or 980px without one, scaled to fit the screen. Set by an embedder on a small touch screen, for its run only."
+    }
+  ],
   "fonts": [
     {
       "key": "default_size",

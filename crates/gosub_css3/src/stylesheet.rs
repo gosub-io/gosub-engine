@@ -26,13 +26,18 @@ use crate::tokenizer::NumberKind;
 /// instead of a fixed fallback. Non-positive dimensions are ignored.
 ///
 /// This updates the viewport half of the thread's [`MediaEnvironment`], which media queries
-/// read too - the two must never disagree. Callers that also care about colour scheme or
-/// resolution should build a whole environment and use [`set_media_environment`] instead.
+/// read too - the two must never disagree. The viewport is taken to be the whole screen, so
+/// `device-width`/`device-height` report it as well, as the engine's own environment does for a
+/// desktop window. Callers that also care about colour scheme or resolution, or whose layout
+/// viewport is not the screen, should build a whole environment and use
+/// [`set_media_environment`] instead.
 pub fn set_layout_viewport(width: f32, height: f32) {
     if width > 0.0 && height > 0.0 {
         let mut env = media_environment();
         env.width = width;
         env.height = height;
+        env.device_width = width;
+        env.device_height = height;
         set_media_environment(env);
     }
 }
