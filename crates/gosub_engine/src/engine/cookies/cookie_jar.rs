@@ -150,6 +150,26 @@ fn cookie_date_month(token: &[u8]) -> Option<u32> {
     Some(index as u32 + 1)
 }
 
+/// Parse a `Max-Age` value as RFC 6265bis §5.6.2 does: digits, optionally after a `-`, read as
+/// a base 10 integer. A value too large for an `i64` saturates instead of failing, so it is
+/// still capped at 400 days, or still deletes the cookie when negative.
+///
+/// Returns `None` when the attribute is to be ignored: the value is empty, starts with
+/// anything but a digit or `-` and a digit (so `+5` is refused), or has a non-digit later on.
+fn parse_max_age(s: &str) -> Option<i64> {
+    let (negative, digits) = match s.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, s),
+    };
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let value = digits
+        .bytes()
+        .fold(0i64, |n, b| n.saturating_mul(10).saturating_add(i64::from(b - b'0')));
+    Some(if negative { -value } else { value })
+}
+
 /// Returns `true` when two hostnames share the same registrable domain (eTLD+1).
 ///
 /// Uses the compile-time embedded Mozilla Public Suffix List (`psl` crate) for
@@ -657,7 +677,12 @@ impl CookieJar for DefaultCookieJar {
                             }
                         }
                         "expires" => expires_str = Some(v.to_string()),
-                        "max-age" => max_age = v.trim().parse::<i64>().ok(),
+                        // An invalid Max-Age is ignored, so it does not undo an earlier one.
+                        "max-age" => {
+                            if let Some(seconds) = parse_max_age(v.trim()) {
+                                max_age = Some(seconds);
+                            }
+                        }
                         "samesite" => {
                             let val = v.trim();
                             if val.eq_ignore_ascii_case("lax") {
@@ -1594,6 +1619,103 @@ mod tests {
                 cookie.name
             );
         }
+    }
+
+    /// RFC 6265bis §5.6.2: digits, optionally after a `-`, and nothing else. Too many digits
+    /// saturate instead of failing.
+    #[test]
+    fn max_age_is_read_as_delta_seconds() {
+        assert_eq!(parse_max_age("3600"), Some(3600));
+        assert_eq!(parse_max_age("-1"), Some(-1));
+        assert_eq!(parse_max_age("0"), Some(0));
+        assert_eq!(parse_max_age("-0"), Some(0));
+        assert_eq!(parse_max_age("007"), Some(7));
+        assert_eq!(parse_max_age("99999999999999999999"), Some(i64::MAX));
+        assert_eq!(parse_max_age("-99999999999999999999"), Some(-i64::MAX));
+
+        for value in ["", "-", "+5", "5x", "5 5", "--5", "5-", "0x10", "1.5", " 5"] {
+            assert_eq!(parse_max_age(value), None, "{value:?}");
+        }
+    }
+
+    /// A Max-Age too large for an `i64` is capped at 400 days, not dropped.
+    #[test]
+    fn a_huge_max_age_is_capped_at_400_days() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        jar.store_response_cookies(&req, &headers(&["big=1; Max-Age=99999999999999999999"]), None);
+
+        let limit = Utc::now().timestamp() + MAX_COOKIE_LIFETIME_SECS;
+        let expires = jar.entries["https://example.com"][0]
+            .expires
+            .expect("a persistent cookie, not a session one");
+        assert!(
+            (limit - 60..=limit).contains(&expires),
+            "expires at {expires}, the limit is {limit}"
+        );
+    }
+
+    /// A Max-Age too negative for an `i64` still deletes the cookie.
+    #[test]
+    fn a_huge_negative_max_age_deletes_the_cookie() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        jar.store_response_cookies(&req, &headers(&["tok=abc; Path=/"]), None);
+        jar.store_response_cookies(
+            &req,
+            &headers(&["tok=abc; Path=/; Max-Age=-99999999999999999999"]),
+            None,
+        );
+
+        assert!(
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).is_none(),
+            "a huge negative Max-Age must delete the cookie"
+        );
+    }
+
+    /// An invalid Max-Age is ignored: the cookie falls back to Expires, or is a session
+    /// cookie, and an earlier valid Max-Age still applies.
+    #[test]
+    fn an_invalid_max_age_is_ignored() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        jar.store_response_cookies(
+            &req,
+            &headers(&[
+                "plus=1; Max-Age=+5",
+                "suffix=1; Max-Age=5x",
+                "empty=1; Max-Age=",
+                "dash=1; Max-Age=-",
+            ]),
+            None,
+        );
+        for cookie in &jar.entries["https://example.com"] {
+            assert_eq!(cookie.expires, None, "{} must be a session cookie", cookie.name);
+        }
+
+        // The ignored Max-Age does not override the past Expires, so the cookie is deleted.
+        jar.store_response_cookies(
+            &req,
+            &headers(&["plus=1; Max-Age=+5; Expires=Thu, 01 Jan 1970 00:00:01 GMT"]),
+            None,
+        );
+        let cookies = jar
+            .get_request_cookies(&req, None, SameSiteContext::SameSite)
+            .unwrap_or_default();
+        assert!(
+            !cookies.contains("plus=1"),
+            "Expires must apply when Max-Age is ignored: {cookies}"
+        );
+
+        jar.store_response_cookies(&req, &headers(&["kept=1; Max-Age=3600; Max-Age=x"]), None);
+        let kept = jar.entries["https://example.com"]
+            .iter()
+            .find(|c| c.name == "kept")
+            .expect("kept is stored");
+        assert!(
+            kept.expires.is_some(),
+            "a later invalid Max-Age must not undo Max-Age=3600"
+        );
     }
 
     /// A count is not a size: big cookies hit the byte budget first, and the
