@@ -321,6 +321,24 @@ pub enum TabCommand {
         width: u32,
         height: u32,
     },
+    /// Target pixels per screen CSS px: the embedder's display scale (egui's pixels per point).
+    /// A tab that composites GPU tiles makes its frame the screen's size at this scale, so the
+    /// embedder can show it pixel for pixel whatever the page's zoom. Until it is set, the device
+    /// pixel ratio stands in for it.
+    SetDisplayScale {
+        scale: f32,
+    },
+    /// Zoom the page by `factor` about the screen point (`focus_x`, `focus_y`), screen CSS px:
+    /// one step of a pinch, the factor being how much the fingers' distance changed since the
+    /// last one. The page point under the focus stays under it. Clamped to the zoom range the
+    /// page allows; ignored where it allows none (`user-scalable=no`), without mobile viewport
+    /// handling, and on backends that do not composite GPU tiles. Answered with
+    /// [`EngineEvent::VisualViewportChanged`].
+    PinchZoom {
+        focus_x: f32,
+        focus_y: f32,
+        factor: f32,
+    },
     /// Set the tab's scroll offset to an absolute position in CSS px, clamped to the page.
     /// Use this when the shell owns the scroll position (smooth scrolling, a scrollbar drag,
     /// a restored session) and needs to tell the engine where it is - as opposed to
@@ -959,10 +977,11 @@ pub enum EngineEvent {
     /// after that: mobile viewport handling (`useragent.viewport.mobile`) lays a page out at the
     /// width its viewport `<meta>` asks for, or 980px, and the embedder shows it at `scale`.
     ///
-    /// From here on the tab's coordinates are layout CSS px: the embedder divides pointer and
-    /// touch positions and scroll deltas by `scale`, and draws the frame, which covers the layout
-    /// viewport, scaled into its screen rect. Its device pixel ratio should follow the scale too,
-    /// or the tab rasterizes far more pixels than the screen shows.
+    /// Pointer and touch positions and scroll deltas stay screen CSS px: the tab maps them into
+    /// the page itself, through the visual viewport. The embedder draws the frame scaled into its
+    /// screen rect; it covers the layout viewport, or the screen on backends that composite GPU
+    /// tiles. Its device pixel ratio should follow the scale too, or the tab rasterizes far more
+    /// pixels than the screen shows.
     PageScaleChanged {
         tab_id: TabId,
         /// The layout viewport, in CSS px.
@@ -974,6 +993,24 @@ pub enum EngineEvent {
         min_scale: f64,
         max_scale: f64,
         user_scalable: bool,
+    },
+    /// The visual viewport moved or changed size: the part of the layout viewport on screen,
+    /// after a [`TabCommand::PinchZoom`], a pan while zoomed in, or a navigation that undid the
+    /// zoom. Nothing is sent before the first zoom, and a [`Self::PageScaleChanged`] starts over:
+    /// the visual viewport is then the whole layout viewport at that event's scale.
+    ///
+    /// A position the tab reports in layout-viewport CSS px (a picker's box) is on screen at
+    /// `(x - offset_x) * scale`, `(y - offset_y) * scale`.
+    VisualViewportChanged {
+        tab_id: TabId,
+        /// Screen CSS px per page CSS px.
+        scale: f64,
+        /// The visual viewport's top-left inside the layout viewport, page CSS px.
+        offset_x: f64,
+        offset_y: f64,
+        /// Its size, page CSS px.
+        width: f64,
+        height: f64,
     },
     #[cfg(feature = "unstable-api")]
     /// Declared but never emitted; emission arrives with the pending mac-app patches.

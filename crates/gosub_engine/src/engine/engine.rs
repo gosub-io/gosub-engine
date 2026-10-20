@@ -3826,6 +3826,168 @@ mod tests {
         assert!(reported, "no PageScaleChanged for a 980px layout");
     }
 
+    /// A backend that composites GPU tiles, as Vello does on a phone, without a GPU: it keeps
+    /// the views it was asked to composite.
+    struct TileCompositingBackend {
+        inner: NullBackend,
+        views: Arc<parking_lot::Mutex<Vec<gosub_render_pipeline::render::backend::CompositeView>>>,
+    }
+
+    impl gosub_render_pipeline::render::backend::RenderBackend for TileCompositingBackend {
+        fn name(&self) -> &'static str {
+            "tile-compositing"
+        }
+        fn create_surface(
+            &self,
+            size: gosub_render_pipeline::render::backend::SurfaceSize,
+            present: gosub_render_pipeline::render::backend::PresentMode,
+        ) -> anyhow::Result<Box<dyn gosub_render_pipeline::render::backend::ErasedSurface + Send>> {
+            self.inner.create_surface(size, present)
+        }
+        fn render(
+            &self,
+            ctx: &mut dyn gosub_render_pipeline::render::render_context::RenderContext,
+            surface: &mut dyn gosub_render_pipeline::render::backend::ErasedSurface,
+        ) -> anyhow::Result<()> {
+            self.inner.render(ctx, surface)
+        }
+        fn snapshot(
+            &self,
+            surface: &mut dyn gosub_render_pipeline::render::backend::ErasedSurface,
+            max_dim: u32,
+        ) -> anyhow::Result<gosub_render_pipeline::render::backend::RgbaImage> {
+            self.inner.snapshot(surface, max_dim)
+        }
+        fn external_handle(
+            &self,
+            surface: &mut dyn gosub_render_pipeline::render::backend::ErasedSurface,
+        ) -> anyhow::Result<gosub_render_pipeline::render::backend::ExternalHandle> {
+            self.inner.external_handle(surface)
+        }
+        fn renders_to_gpu_texture(&self) -> bool {
+            true
+        }
+        fn gpu_tile_compositing(&self) -> bool {
+            true
+        }
+        fn composite_tiles(
+            &self,
+            _surface: &mut dyn gosub_render_pipeline::render::backend::ErasedSurface,
+            _tiles: &[gosub_render_pipeline::render::backend::PlacedGpuTile],
+            view: &gosub_render_pipeline::render::backend::CompositeView,
+            _page_height: f32,
+        ) -> anyhow::Result<()> {
+            self.views.lock().push(*view);
+            Ok(())
+        }
+    }
+
+    /// A pinch on a phone zooms about the fingers: the tab reports the visual viewport that
+    /// gives, and composites that part of the page, larger.
+    #[tokio::test]
+    async fn a_pinch_zooms_the_visual_viewport() {
+        use crate::events::TabCommand;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let body = "<html><body><div style='height:5000px'>written for a desktop</div></body></html>";
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(body.as_bytes()).await;
+                });
+            }
+        });
+
+        let views = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let backend = TileCompositingBackend {
+            inner: NullBackend::new(),
+            views: views.clone(),
+        };
+        let settings = EngineConfig::builder().max_zones(1).build().unwrap();
+        let mut engine: GosubEngine<crate::html::DefaultRenderConfig<TileCompositingBackend>> = GosubEngine::new(
+            Some(settings),
+            Arc::new(backend),
+            Arc::new(DefaultCompositor::default()),
+        );
+        engine
+            .settings()
+            .set_transient("useragent.viewport.mobile", gosub_config::settings::Setting::Bool(true))
+            .expect("the setting is known");
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.send(TabCommand::SetViewport {
+            x: 0,
+            y: 0,
+            width: 360,
+            height: 780,
+        })
+        .await
+        .expect("viewport");
+        tab.send(TabCommand::SetDisplayScale { scale: 3.0 })
+            .await
+            .expect("display scale");
+        tab.send(TabCommand::ResumeDrawing { fps: 60 }).await.expect("drawing");
+        tab.navigate(format!("http://127.0.0.1:{port}/"))
+            .await
+            .expect("navigate");
+        assert!(
+            wait_for(&mut event_rx, |ev| matches!(
+                ev,
+                EngineEvent::PageScaleChanged { layout_width: 980, .. }
+            ))
+            .await,
+            "no PageScaleChanged for a 980px layout"
+        );
+
+        // Fingers spread to twice their distance around the middle of the screen.
+        tab.send(TabCommand::PinchZoom {
+            focus_x: 180.0,
+            focus_y: 390.0,
+            factor: 2.0,
+        })
+        .await
+        .expect("pinch");
+        let fit = 360.0 / 980.0;
+        let zoomed = wait_for(&mut event_rx, |ev| {
+            matches!(
+                ev,
+                EngineEvent::VisualViewportChanged { scale, offset_x, width, .. }
+                    if (scale - 2.0 * fit).abs() < 1e-9
+                        // The page point under the fingers, 490px across, stays under them.
+                        && (offset_x - 245.0).abs() < 1e-6
+                        && (width - 490.0).abs() < 1e-6
+            )
+        })
+        .await;
+        assert!(zoomed, "no VisualViewportChanged for the pinch");
+
+        // The frame stays the screen at the display scale, and shows the zoomed-in part.
+        let composited = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let found = views
+                    .lock()
+                    .iter()
+                    .any(|v| (v.scale - 2.0 * fit * 3.0).abs() < 1e-9 && (v.origin.0 - 245.0).abs() < 1e-6);
+                if found {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(composited.is_ok(), "the zoomed view was never composited");
+    }
+
     /// Wait (with timeout) for an event matching `pred`; true when it arrived.
     async fn wait_for(rx: &mut broadcast::Receiver<EngineEvent>, pred: impl Fn(&EngineEvent) -> bool) -> bool {
         tokio::time::timeout(Duration::from_secs(10), async {

@@ -74,6 +74,8 @@ Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, 
 | **Rendering control** | |
 | `ResumeDrawing { fps }` / `SuspendDrawing` | Nothing paints before the first `ResumeDrawing`. |
 | `SetViewport { x, y, width, height }` | CSS px: the screen area the tab draws into. With [mobile viewport](#mobile-viewport) handling on, the page may be laid out at another size. |
+| `SetDisplayScale { scale }` | Target pixels per screen CSS px (egui's pixels per point). On backends that composite GPU tiles the frame is the screen at this scale. Until set, the device pixel ratio stands in. |
+| `PinchZoom { focus_x, focus_y, factor }` | One step of a pinch, about a screen point: see [mobile viewport](#mobile-viewport). |
 | `SetScroll { x, y }` | Absolute; cancels any scroll animation. See [Scrolling](#scrolling). |
 | `SetTitle { title }` | A UA-set title, e.g. for a `LoadHtml` page with no `<title>`. |
 | **Input** | |
@@ -115,6 +117,7 @@ Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, 
 | `HitTestResult { token, hit }` | Answers `QueryHitTest` with the same token. |
 | `FavIconChanged { favicon }` | Raw bytes as served (ICO/PNG/SVG); decode them yourself. Emitted once per committed navigation, and not at all when there is no reachable icon, so keep your placeholder. |
 | `PageScaleChanged { layout_width, layout_height, scale, min_scale, max_scale, user_scalable }` | The page is laid out at another size than the screen you set, and shown at `scale`. Only with [mobile viewport](#mobile-viewport) handling on. |
+| `VisualViewportChanged { scale, offset_x, offset_y, width, height }` | A pinch zoom or a pan while zoomed in moved the part of the page on screen. See [mobile viewport](#mobile-viewport). |
 | **Downloads** | |
 | `DownloadRequested { offer, url, suggested_filename, ... }` | The navigation was cancelled and the page stayed. Answer with `StartDownload` or `RenderDownload` carrying `offer`, or ignore it. The body is already spooled to a temp file (up to `net.download.max_spool_bytes`). Ignoring the event does not release it: the tab keeps an offer until it is accepted or rendered, until newer offers evict it (8 per tab, oldest first), or until the tab closes. Missed it to `Lagged`? `tab.pending_downloads()` lists what is still there. |
 | `DownloadProgress` / `DownloadFinished` / `DownloadFailed { id, ... }` | Correlated by the `DownloadId` you minted. `DownloadProgress` only appears for downloads the engine had to fetch (save-link-as) - an accepted offer is already on disk and finishes at once. `DownloadFailed` may leave a partial file. |
@@ -254,12 +257,14 @@ On a phone, a page written for a desktop window would be squeezed into the scree
 
 `SetViewport` stays the screen size. When the page's layout size differs from it, the tab emits `PageScaleChanged`, and again whenever it changes (a navigation, a rotation). From then on:
 
--   The frame covers the layout viewport. Draw it scaled into your screen rect.
--   Divide pointer and touch positions and scroll deltas by `scale` before sending them. The tab works in the page's CSS px.
--   Multiply positions the tab reports, such as `PickerRequested`'s box, by `scale` to place them on screen.
+-   Draw the frame scaled into your screen rect. It covers the layout viewport, or, on backends that composite GPU tiles, the screen at the scale from `SetDisplayScale`, which you then show pixel for pixel.
+-   Send pointer and touch positions and scroll deltas in screen CSS px, as without mobile handling. The tab maps them into the page itself.
+-   Positions the tab reports, such as `PickerRequested`'s box, are layout-viewport CSS px. Unzoomed they are on screen at `scale` times that; zoomed in, see below.
 -   Set `DEVICE_PIXEL_RATIO` to `ceil(display scale × scale)`, or the tab rasterizes far more pixels than the screen shows, then send `ResumeDrawing` so it redraws at the new ratio.
 
-A page is always shown at the scale that fits its width to the screen. Where the tag asks for another initial scale, a browser shows part of the page and lets the user pan; that needs a visual viewport separate from the layout viewport, which the engine does not have yet, and so does pinch zoom. `min_scale`, `max_scale` and `user_scalable` are reported for when it does. Pages a renderer process lays out (process isolation) keep the screen's size.
+A page starts at the scale that fits its width to the screen. On backends that composite GPU tiles the user can then zoom in, between that scale and `max_scale`, unless the page says `user-scalable=no`. Send `PinchZoom` once per frame of a two-finger gesture, with the fingers' midpoint and how much their distance changed since the last step. The tab zooms about that point and answers with `VisualViewportChanged`: the visual viewport, the part of the layout viewport now on screen, at `scale` screen px per page px and at `offset_x`, `offset_y` inside the layout viewport. A position the tab reports is then on screen at `(x - offset_x) × scale`, `(y - offset_y) × scale`. Zoomed in, a swipe moves the visual viewport first, and scrolls the layout viewport only once it reaches its edge, so `position: fixed` content stays with the layout viewport, as in other mobile browsers. A navigation, a rotation or a new layout viewport starts over unzoomed.
+
+While zoomed in, the frame scales tiles rasterized for the unzoomed page, so text gets softer the further in you go. Edges against transparency (a fixed or translucent layer over the page) can show a thin dark fringe while scaled. Where the tag asks for an initial scale other than fitting the width, the page still starts fitted. Pages a renderer process lays out (process isolation), and backends that do not composite GPU tiles, keep to fitting the width with no zoom.
 
 ------------------------------------------------------------------------
 

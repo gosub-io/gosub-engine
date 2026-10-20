@@ -412,8 +412,7 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
         &self,
         surface: &mut dyn ErasedSurface,
         tiles: &[gosub_render_pipeline::render::backend::PlacedGpuTile],
-        viewport: (u32, u32),
-        scroll: (f32, f32),
+        view: &gosub_render_pipeline::render::backend::CompositeView,
         _page_height: f32,
     ) -> Result<()> {
         let s = surface
@@ -425,30 +424,21 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
             .get_texture(s.texture_store_id)
             .ok_or_else(|| anyhow!("invalid texture id in VelloSurface"))?;
 
-        // Cull to the visible viewport, or we'd issue a draw per tile for the WHOLE page every
-        // frame (thousands on a tall page). Mirrors the CPU path's `pipeline_composite`. Culling
-        // is in CSS pixels; the tiles' texture sizes are physical, hence the division.
+        // Cull to the visual viewport, or we'd issue a draw per tile for the WHOLE page every
+        // frame (thousands on a tall page). Mirrors the CPU path's `pipeline_composite`. Tiles
+        // are placed in layout-viewport coordinates the way the compositor places them (fixed
+        // ones ignore scroll, sticky ones catch up), then tested against the part on screen.
+        // Culling is in CSS pixels; the tiles' texture sizes are physical, hence the division.
         let dpr = self.device_pixel_ratio();
-        let (vw, vh) = (viewport.0 as f32, viewport.1 as f32);
-        let (sx, sy) = scroll;
-        use gosub_render_pipeline::render::backend::TileAnchor;
         let visible = |t: &gosub_render_pipeline::render::backend::PlacedGpuTile| {
-            // Fixed tiles are pinned to the viewport, so cull them against [0, viewport] in page
-            // space (page == viewport for fixed); scrolling tiles cull against [scroll, +viewport].
-            let (ox, oy) = match t.anchor {
-                TileAnchor::Fixed => (0.0, 0.0),
-                TileAnchor::Scroll => (sx, sy),
-                // A sticky tile lands at `page - scroll + offset`, so cull its page box against
-                // the inverse-mapped window `[scroll - offset, +viewport]`.
-                TileAnchor::Sticky(c) => {
-                    let (dx, dy) = c.offset(sx as f64, sy as f64);
-                    (sx - dx as f32, sy - dy as f32)
-                }
-            };
-            t.page_x + t.width as f32 / dpr as f32 > ox
-                && t.page_x < ox + vw
-                && t.page_y + t.height as f32 / dpr as f32 > oy
-                && t.page_y < oy + vh
+            let (x, y) = gosub_render_pipeline::render::backend::anchored_tile_pos(
+                t.page_x as f64,
+                t.page_y as f64,
+                view.scroll.0,
+                view.scroll.1,
+                t.anchor,
+            );
+            view.shows(x, y, t.width as f64 / dpr as f64, t.height as f64 / dpr as f64)
         };
 
         let views: Vec<(
@@ -480,8 +470,7 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
             wgpu::TextureFormat::Rgba8Unorm,
             s.size.width,
             s.size.height,
-            scroll.0,
-            scroll.1,
+            view,
             dpr,
             &placed,
         );
