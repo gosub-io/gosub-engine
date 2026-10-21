@@ -33,6 +33,8 @@ pub struct DocumentImpl<C: HasDocument> {
     named_ids_by_node: HashMap<NodeId, Vec<String>>,
     pub doctype: DocumentType,
     pub quirks_mode: QuirksMode,
+    /// The parser's scripting flag determines whether `noscript` text is serialized literally.
+    scripting_enabled: bool,
     pub stylesheets: Vec<<C::CssSystem as CssSystem>::Stylesheet>,
     /// Links whose bytes have not arrived, as `(position in `stylesheets`, url)`. Filled in
     /// after the parse; see [`Document::add_pending_stylesheet`].
@@ -63,12 +65,14 @@ struct FocusState {
 }
 
 impl<C: HasDocument> PartialEq for DocumentImpl<C> {
+    /// Compare document content and serialization metadata, including the scripting state.
     fn eq(&self, other: &Self) -> bool {
         self.url == other.url
             && self.arena == other.arena
             && self.named_id_elements == other.named_id_elements
             && self.doctype == other.doctype
             && self.quirks_mode == other.quirks_mode
+            && self.scripting_enabled == other.scripting_enabled
             && self.stylesheets == other.stylesheets
     }
 }
@@ -76,6 +80,7 @@ impl<C: HasDocument> PartialEq for DocumentImpl<C> {
 // ── new Document<C> trait impl ──────────────────────────────────────────────
 
 impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
+    /// Create an empty document with its root registered and scripting enabled by default.
     fn new(document_type: DocumentType, url: Option<Url>) -> Self {
         let mut doc = Self {
             url,
@@ -84,6 +89,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             named_ids_by_node: HashMap::new(),
             doctype: document_type,
             quirks_mode: QuirksMode::NoQuirks,
+            scripting_enabled: true,
             stylesheets: Vec::new(),
             pending_stylesheets: Vec::new(),
             hovered_nodes: parking_lot::RwLock::new(std::collections::HashSet::new()),
@@ -423,6 +429,16 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         self.quirks_mode = mode;
     }
 
+    /// Report the parser's retained scripting setting used for `noscript` serialization.
+    fn scripting_enabled(&self) -> bool {
+        self.scripting_enabled
+    }
+
+    /// Store the scripting setting so later serialization of `noscript` uses the same mode.
+    fn set_scripting_enabled(&mut self, enabled: bool) {
+        self.scripting_enabled = enabled;
+    }
+
     fn doctype(&self) -> DocumentType {
         self.doctype
     }
@@ -477,6 +493,11 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
 
     fn write_from_node(&self, node_id: NodeId) -> String {
         crate::writer::DocumentWriter::write_from_node::<C>(node_id, self)
+    }
+
+    /// Serialize a subtree iteratively with XML escaping and balanced tags for inline SVG decoding.
+    fn write_xml_from_node(&self, node_id: NodeId) -> String {
+        crate::writer::DocumentWriter::write_xml_from_node::<C>(node_id, self)
     }
 
     fn is_hovered(&self, id: NodeId) -> bool {

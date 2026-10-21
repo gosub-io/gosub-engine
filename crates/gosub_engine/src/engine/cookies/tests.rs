@@ -490,8 +490,10 @@ mod cookie_tests {
     // ── http-state test suite runner ──────────────────────────────────────────
     //
     // Test vectors from https://github.com/abarth/http-state (222 cases).
-    // All tests use http://home.example.org:8888/cookie-parser as the
-    // set-from and send-to URL (plain HTTP, so Secure cookies are rejected).
+    // All tests set cookies from http://home.example.org:8888/cookie-parser;
+    // sent-to may be an absolute URL on another host or a relative URL.
+    // The default send-to is /cookie-parser-result (plain HTTP, so Secure
+    // cookies are rejected).
     //
     // Known-failing tests are listed in KNOWN_FAILING below with the reason.
     // The test panics if any test outside that list unexpectedly fails, or if
@@ -500,46 +502,10 @@ mod cookie_tests {
     /// Tests we know diverge from the http-state expectations.
     /// Format: (test-id, reason)
     const KNOWN_FAILING: &[(&str, &str)] = &[
-        // ── Domain attribute semantics ────────────────────────────────────────
-        // DOMAIN0002/0006/0010/0024/0029/0035/0036: The http-state suite was
-        // written in ~2011–2013 and captures browser quirks that differ from
-        // RFC 6265.  These tests expect cookies with Domain=host to NOT be sent
-        // to the same-origin request that set them, which contradicts RFC 6265
-        // §5.4 and modern browser behaviour (also confirmed by the WPT suite).
-        // We follow the RFC and WPT, so these tests disagree with our output.
         (
-            "DOMAIN0002",
-            "http-state quirk: Domain=host expected not sent; RFC says send",
+            "OPTIONAL_DOMAIN0042",
+            "Legacy: rejects an earlier invalid Domain; RFC 6265bis §5.7 uses the final empty Domain (host-only)",
         ),
-        (
-            "DOMAIN0006",
-            "http-state quirk: Domain=.host expected not sent; RFC says send",
-        ),
-        (
-            "DOMAIN0010",
-            "http-state quirk: Domain=..host expected not sent; RFC says send",
-        ),
-        (
-            "DOMAIN0024",
-            "http-state quirk: two Domain attrs expected not sent; RFC says send",
-        ),
-        (
-            "DOMAIN0029",
-            "http-state quirk: no Domain attr expected not sent; RFC says send",
-        ),
-        (
-            "DOMAIN0035",
-            "http-state quirk: cross-origin Domain expected not sent; RFC says send",
-        ),
-        (
-            "DOMAIN0036",
-            "http-state quirk: mixed Domain attrs expected not sent; RFC says send",
-        ),
-        (
-            "OPTIONAL_DOMAIN0030",
-            "Domain= (empty) treated as host-only — not yet handled",
-        ),
-        ("OPTIONAL_DOMAIN0041", "Domain then empty Domain — not yet handled"),
         // Note: PATH0006/0007/0010/0015/0016/0017/0026/0027/0032 and ORDERING0001
         // were previously here but now pass after:
         //   - (name, domain, path) dedup so same-name/different-path cookies coexist
@@ -552,7 +518,7 @@ mod cookie_tests {
         ("DISABLED_CHROMIUM0023", "CR byte in cookie value — invalid HTTP header"),
         (
             "DISABLED_PATH0029",
-            "Optional: path /cookie-parser-result/foo/bar — same domain limitation",
+            "Optional: percent-encoded request path expected to match decoded cookie path",
         ),
     ];
 
@@ -632,14 +598,7 @@ mod cookie_tests {
             // Use the per-test sent-to URL when present; fall back to the default.
             let send_url = tc.sent_to.as_deref().map_or_else(
                 || default_send.clone(),
-                |path| {
-                    let mut u = default_send.clone();
-                    // sent-to values are path+query strings like "/foo/bar?q=1"
-                    let (p, q) = path.split_once('?').unwrap_or((path, ""));
-                    u.set_path(p);
-                    u.set_query(if q.is_empty() { None } else { Some(q) });
-                    u
-                },
+                |url| default_send.join(url).expect("valid http-state sent-to URL"),
             );
 
             let mut jar = DefaultCookieJar::new();

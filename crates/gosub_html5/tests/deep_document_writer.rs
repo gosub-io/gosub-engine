@@ -25,6 +25,7 @@ impl ModuleConfiguration for Config {
 
 const REALISTIC_STACK: usize = 2 * 1024 * 1024;
 
+/// Both output formats preserve all 50,000 nesting levels while running on a 2 MiB worker stack.
 #[test]
 fn a_deeply_nested_document_serializes() {
     // Well past the ~5000 that used to abort. Tree construction is iterative, so nothing upstream
@@ -37,23 +38,29 @@ fn a_deeply_nested_document_serializes() {
     html.push_str(&"</g>".repeat(DEPTH));
     html.push_str("</svg>");
 
-    let written = std::thread::Builder::new()
+    let (html, xml) = std::thread::Builder::new()
         .stack_size(REALISTIC_STACK)
         .spawn(move || {
             let mut stream = ByteStream::from_str(&html, Encoding::UTF8);
             let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
             let _ = Html5Parser::<Config>::parse_document(&mut stream, &mut doc, None);
-            doc.write_from_node(NodeId::root())
+            (
+                doc.write_from_node(NodeId::root()),
+                doc.write_xml_from_node(NodeId::root()),
+            )
         })
         .expect("spawn")
         .join()
         .expect("serializing must not abort the process");
 
     // The whole subtree was written, not truncated by some depth cut-off.
-    assert_eq!(written.matches("<g>").count(), DEPTH);
-    assert_eq!(written.matches("</g>").count(), DEPTH);
+    for written in [html, xml] {
+        assert_eq!(written.matches("<g>").count(), DEPTH);
+        assert_eq!(written.matches("</g>").count(), DEPTH);
+    }
 }
 
+/// Ordinary HTML retains attributes and comments while void elements omit their closing tags.
 #[test]
 fn ordinary_documents_serialize_unchanged() {
     let mut stream = ByteStream::from_str(
@@ -65,6 +72,6 @@ fn ordinary_documents_serialize_unchanged() {
 
     assert_eq!(
         doc.write_from_node(NodeId::root()),
-        "<html><head></head><body><p class=\"x\">hello<!-- c --><br></br></p></body></html>"
+        "<html><head></head><body><p class=\"x\">hello<!-- c --><br></p></body></html>"
     );
 }

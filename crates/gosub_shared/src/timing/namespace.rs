@@ -191,7 +191,7 @@ impl Timing {
             Timing::HoverAncestorWalk => "Walking up from the element under the cursor, since :hover applies to its ancestors too.",
             Timing::HoverSetHovered => "Applying the change: marking the new chain hovered and the old one not.",
             Timing::PageDomComplete => "When the document finished parsing, measured from the start of the navigation.",
-            Timing::PageFirstPaint => "When something first appeared on screen, measured from the start of the navigation.",
+            Timing::PageFirstPaint => "When the new page first appeared on screen, measured from the start of the navigation.",
             Timing::PageLoadComplete => "When the page and everything it asked for had finished, measured from the start of the navigation.",
             Timing::Other(_) => "Measured by the embedder; the engine does not know what it is.",
         }
