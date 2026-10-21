@@ -42,6 +42,31 @@ mod rendertree_from_engine {
         rt
     }
 
+    /// Inline SVG is handed to an XML parser. HTML's `&nbsp;`, raw script text, and open-only
+    /// `<br>` must not leak into that handoff, including inside `foreignObject`.
+    #[test]
+    fn inline_svg_serialization_reaches_layout_as_svg() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::{CanLayout, ElementContext};
+
+        let tree = parse_to_rendertree(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10">
+              <desc data-value="&amp;&quot;&lt;&gt;&nbsp;">A &amp; B &lt; C &gt; D &nbsp;</desc>
+              <foreignObject><div><br><script>if (a < b && b > c) "&nbsp;";</script></div></foreignObject>
+              <rect width="20" height="10"/>
+            </svg>"#,
+        );
+        let layout = TaffyLayouter::new().layout(tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+        assert!(
+            layout
+                .arena
+                .values()
+                .any(|el| matches!(&el.context, ElementContext::Svg(_))),
+            "inline SVG failed to decode and fell back to ordinary element layout"
+        );
+    }
+
     /// Range and meter attributes are read with HTML's rules for parsing floating-point numbers
     /// (#1392). `NaN` used to reach `f64::clamp` as a bound and panic layout; `inf` and `1e999`
     /// were taken as numbers. Each is an error now, and the attribute's default applies.

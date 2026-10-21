@@ -12,5 +12,9 @@ gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_inte
 resvg = { workspace = true }
 stacker = { workspace = true }
 
+[dev-dependencies]
+gosub_html5 = { path = "../gosub_html5", registry = "gosub" }
+gosub_css3 = { path = "../gosub_css3", registry = "gosub" }
+
 [lints]
 workspace = true

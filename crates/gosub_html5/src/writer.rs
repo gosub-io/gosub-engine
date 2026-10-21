@@ -3,14 +3,92 @@ use gosub_interface::document::Document;
 use gosub_interface::node::NodeType;
 use gosub_shared::node::NodeId;
 
+use crate::node::HTML_NAMESPACE;
+
+/// Iterative HTML serialization and XML-compatible output for inline SVG consumers.
 pub struct DocumentWriter;
 
 impl DocumentWriter {
+    /// Serialize a node and its descendants with HTML fragment serialization rules.
     pub fn write_from_node<C: HasDocument>(node_id: NodeId, doc: &C::Document) -> String {
         let mut buffer = String::new();
-        write_node::<C>(node_id, doc, &mut buffer);
+        write_node::<C>(node_id, doc, Format::Html, &mut buffer);
         buffer
     }
+
+    /// Serialize an inline SVG subtree for an XML consumer: escape all text, avoid HTML-only
+    /// entities, and close every element, including HTML elements inside `foreignObject`.
+    pub fn write_xml_from_node<C: HasDocument>(node_id: NodeId, doc: &C::Document) -> String {
+        let mut buffer = String::new();
+        write_node::<C>(node_id, doc, Format::Xml, &mut buffer);
+        buffer
+    }
+}
+
+/// The DOM's HTML output and its inline SVG decoder require different serialization rules.
+#[derive(Clone, Copy, PartialEq)]
+enum Format {
+    Html,
+    Xml,
+}
+
+/// Escape text or an attribute value without re-escaping the references written here.
+/// HTML rules: <https://html.spec.whatwg.org/multipage/parsing.html#escapingString>.
+fn write_escaped(value: &str, attribute: bool, format: Format, buf: &mut String) {
+    for ch in value.chars() {
+        match ch {
+            '&' => buf.push_str("&amp;"),
+            '\u{a0}' if format == Format::Html => buf.push_str("&nbsp;"),
+            '<' => buf.push_str("&lt;"),
+            '>' => buf.push_str("&gt;"),
+            '"' if attribute => buf.push_str("&quot;"),
+            // XML normalizes literal carriage returns, and attribute tabs/newlines, so use
+            // character references to preserve the DOM values across the XML parse.
+            '\r' if format == Format::Xml => buf.push_str("&#13;"),
+            '\n' if format == Format::Xml && attribute => buf.push_str("&#10;"),
+            '\t' if format == Format::Xml && attribute => buf.push_str("&#9;"),
+            _ => buf.push(ch),
+        }
+    }
+}
+
+/// Only HTML elements give their text children a raw-text serialization context.
+fn has_raw_text<C: HasDocument>(id: NodeId, doc: &C::Document) -> bool {
+    if doc.namespace(id) != Some(HTML_NAMESPACE) {
+        return false;
+    }
+    match doc.tag_name(id) {
+        Some("style" | "script" | "xmp" | "iframe" | "noembed" | "noframes" | "plaintext") => true,
+        Some("noscript") => doc.scripting_enabled(),
+        _ => false,
+    }
+}
+
+/// HTML void elements (including the obsolete serialization exceptions) have no contents or
+/// closing tag. A foreign element with the same local name is not void.
+fn serializes_as_void<C: HasDocument>(id: NodeId, name: &str, doc: &C::Document) -> bool {
+    doc.namespace(id) == Some(HTML_NAMESPACE)
+        && matches!(
+            name,
+            "area"
+                | "base"
+                | "basefont"
+                | "bgsound"
+                | "br"
+                | "col"
+                | "embed"
+                | "frame"
+                | "hr"
+                | "img"
+                | "input"
+                | "keygen"
+                | "link"
+                | "meta"
+                | "param"
+                | "source"
+                | "track"
+                | "wbr"
+        )
 }
 
 /// Write an attribute name back out as source text.
@@ -52,7 +130,9 @@ enum Step {
     CloseShadowRoot,
 }
 
-fn write_node<C: HasDocument>(root: NodeId, doc: &C::Document, buf: &mut String) {
+/// Append a subtree in the selected format using a heap work stack to keep deep trees stack-safe.
+/// Shadow roots are emitted as declarative templates before their host's light children.
+fn write_node<C: HasDocument>(root: NodeId, doc: &C::Document, format: Format, buf: &mut String) {
     let mut stack = vec![Step::Enter(root)];
 
     while let Some(step) = stack.pop() {
@@ -108,7 +188,11 @@ fn write_node<C: HasDocument>(root: NodeId, doc: &C::Document, buf: &mut String)
             }
             NodeType::TextNode => {
                 if let Some(value) = doc.text_value(id) {
-                    buf.push_str(value);
+                    if format == Format::Html && doc.parent(id).is_some_and(|parent| has_raw_text::<C>(parent, doc)) {
+                        buf.push_str(value);
+                    } else {
+                        write_escaped(value, false, format, buf);
+                    }
                 }
             }
             NodeType::CommentNode => {
@@ -131,11 +215,14 @@ fn write_node<C: HasDocument>(root: NodeId, doc: &C::Document, buf: &mut String)
                         buf.push(' ');
                         write_attribute_name(attr_name, buf);
                         buf.push_str("=\"");
-                        buf.push_str(attr_value);
+                        write_escaped(attr_value, true, format, buf);
                         buf.push('"');
                     }
                 }
                 buf.push('>');
+                if format == Format::Html && serializes_as_void::<C>(id, name, doc) {
+                    continue;
+                }
                 stack.push(Step::Close(id));
 
                 // A shadow host's tree is written back out as the declarative template that

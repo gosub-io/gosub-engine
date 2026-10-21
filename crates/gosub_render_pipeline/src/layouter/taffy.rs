@@ -3062,10 +3062,10 @@ impl TaffyLayouter {
                 }
 
                 if data.tag_name.eq_ignore_ascii_case("svg") {
-                    let inner_html = layout_tree.render_tree.doc.inner_html(dom_node.node_id);
+                    let svg_xml = layout_tree.render_tree.doc.svg_xml(dom_node.node_id);
                     match self
                         .media_store
-                        .load_media_from_data(MediaType::Svg, inner_html.into_bytes().as_slice())
+                        .load_media_from_data(MediaType::Svg, svg_xml.into_bytes().as_slice())
                     {
                         Ok(media_id) => {
                             let media = self.media_store.get(media_id, MediaType::Svg);
