@@ -8,8 +8,8 @@
 //! `persist_zone_from_snapshot` and `remove_zone` read then rewrite the entire JSON
 //! file; for large datasets use the SQLite store. Writes go to a temp file renamed
 //! over the target (atomic on POSIX filesystems). Persistence is best-effort: I/O and
-//! serialization errors are logged, never panicked on. A failed read or parse
-//! skips the write, preserving the file for recovery.
+//! serialization errors are logged, never panicked on. An unreadable or malformed
+//! existing file is preserved for recovery; a missing file is recreated on the next write.
 //!
 //! ```ignore,no_run
 //! let store = JsonCookieStore::new("cookies.json".into())?;
@@ -83,11 +83,15 @@ impl JsonCookieStore {
 
     /// Loads and deserializes the full cookie store file.
     ///
-    /// Returns `None` if the file cannot be read or deserialized (the error is
-    /// logged). Callers must not replace an unreadable file with a partial store.
+    /// A missing file starts an empty store so persistence can recreate it. Other read or
+    /// deserialization failures are logged and return `None`; callers must not replace an
+    /// unreadable existing file with a partial store.
     fn load_file(&self) -> Option<CookieStoreFile> {
         let contents = match fs::read_to_string(&self.path) {
             Ok(contents) => contents,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Some(CookieStoreFile { zones: HashMap::new() });
+            }
             Err(e) => {
                 log::error!("Failed to read cookie store file {:?}: {e}", self.path);
                 return None;
@@ -227,12 +231,10 @@ mod tests {
         h
     }
 
-    /// Every saving path must preserve the original bytes when loading the
-    /// existing store fails, including when a jar saves itself on mutation.
-    #[test]
-    fn failed_loads_do_not_overwrite_the_store() {
-        type Mutation = fn(&JsonCookieStore, ZoneId);
-        let mutations: [(&str, Mutation); 4] = [
+    type Mutation = fn(&JsonCookieStore, ZoneId);
+
+    fn saving_mutations() -> [(&'static str, Mutation); 4] {
+        [
             ("snapshot", |store, zone| {
                 let url = Url::parse("https://example.com/").unwrap();
                 store.jar_for(zone).unwrap().write().store_response_cookies(
@@ -244,12 +246,17 @@ mod tests {
             ("remove", JsonCookieStore::remove_zone),
             ("flush", |store, _| store.persist_all()),
             ("release", JsonCookieStore::release_zone),
-        ];
+        ]
+    }
 
+    /// Every saving path must preserve the original bytes when loading the
+    /// existing store fails, including when a jar saves itself on mutation.
+    #[test]
+    fn failed_loads_do_not_overwrite_the_store() {
         // A malformed JSON suffix exercises parsing; an invalid UTF-8 byte
         // makes read_to_string fail before deserialization.
         for suffix in [b"\n{".as_slice(), b"\xff".as_slice()] {
-            for (name, mutate) in mutations {
+            for (name, mutate) in saving_mutations() {
                 let dir = tempdir().unwrap();
                 let path = dir.path().join("cookies.json");
                 let store = JsonCookieStore::new(path.clone()).unwrap();
@@ -272,6 +279,67 @@ mod tests {
                 );
                 assert!(!path.with_extension("json.tmp").exists(), "{name} attempted a write");
             }
+        }
+    }
+
+    #[test]
+    fn a_removed_or_moved_store_is_recreated() {
+        for move_aside in [false, true] {
+            for (name, mutate) in saving_mutations() {
+                let dir = tempdir().unwrap();
+                let path = dir.path().join("cookies.json");
+                let backup = dir.path().join("cookies.backup");
+                let store = JsonCookieStore::new(path.clone()).unwrap();
+                let zone = ZoneId::new();
+                let url = Url::parse("https://example.com/").unwrap();
+                store.jar_for(zone).unwrap().write().store_response_cookies(
+                    &url,
+                    &mk_headers(&["id=original; Path=/"]),
+                    None,
+                );
+                let original = fs::read(&path).unwrap();
+                if move_aside {
+                    fs::rename(&path, &backup).unwrap();
+                } else {
+                    fs::remove_file(&path).unwrap();
+                }
+
+                mutate(&store, zone);
+
+                assert!(path.is_file(), "{name} did not recreate the missing store");
+                let saved: CookieStoreFile = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+                if name == "remove" {
+                    assert!(saved.zones.is_empty());
+                } else {
+                    assert_eq!(saved.zones.len(), 1);
+                    assert!(!saved.zones[&zone].entries.is_empty(), "{name} lost the cached cookies");
+                }
+                if move_aside {
+                    assert_eq!(fs::read(&backup).unwrap(), original);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn other_read_errors_do_not_attempt_a_write() {
+        for (name, mutate) in saving_mutations() {
+            let dir = tempdir().unwrap();
+            let path = dir.path().join("cookies.json");
+            let store = JsonCookieStore::new(path.clone()).unwrap();
+            let zone = ZoneId::new();
+            let _ = store.jar_for(zone).unwrap();
+            fs::remove_file(&path).unwrap();
+            fs::create_dir(&path).unwrap();
+            assert_ne!(
+                fs::read_to_string(&path).unwrap_err().kind(),
+                std::io::ErrorKind::NotFound
+            );
+
+            mutate(&store, zone);
+
+            assert!(path.is_dir(), "{name} replaced the unreadable path");
+            assert!(!path.with_extension("json.tmp").exists(), "{name} attempted a write");
         }
     }
 
