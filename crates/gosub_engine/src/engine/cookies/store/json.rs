@@ -468,17 +468,19 @@ mod tests {
         log::set_max_level(log::LevelFilter::Error);
 
         let dir = tempdir().unwrap();
-        let path = dir.path().join("cookies.json");
+        // A backslash exercises Debug escaping on Unix too; on Windows it is a path separator.
+        let path = dir.path().join(r"cookies\store.json");
         let store = JsonCookieStore::new(path.clone()).unwrap();
         let zone = ZoneId::new();
         let _ = store.jar_for(zone).unwrap();
         let original = fs::read(&path).unwrap();
+        let logged_path = format!("{path:?}");
         let errors = || {
             LOGGER
                 .0
                 .lock()
                 .iter()
-                .filter(|line| line.contains(&path.display().to_string()))
+                .filter(|line| line.contains(&logged_path))
                 .count()
         };
         let mutate = saving_mutations()[0].1;
