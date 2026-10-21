@@ -642,7 +642,7 @@ impl CookieJar for DefaultCookieJar {
             // Collected during attribute parsing; resolved after the loop.
             let mut max_age: Option<i64> = None;
             let mut expires_str: Option<String> = None;
-            let mut domain_rejected = false;
+            let mut domain_attribute = None;
             // Separate flag so that an empty value "" doesn't cause the
             // next attribute to be mistakenly treated as the value.
             let mut value_parsed = false;
@@ -675,13 +675,8 @@ impl CookieJar for DefaultCookieJar {
                             }
                         }
                         "domain" => {
-                            // Strip leading dot, then normalise to lowercase (RFC 4343).
-                            let d = v.trim().trim_start_matches('.').cow_to_ascii_lowercase();
-                            if is_valid_cookie_domain(request_host, &d) {
-                                cookie.domain = Some(d.into_owned());
-                            } else {
-                                domain_rejected = true;
-                            }
+                            // Validate only the last Domain attribute (RFC 6265bis §5.7).
+                            domain_attribute = Some(v.trim());
                         }
                         "expires" => expires_str = Some(v.to_string()),
                         // An invalid Max-Age is ignored, so it does not undo an earlier one.
@@ -712,6 +707,9 @@ impl CookieJar for DefaultCookieJar {
                     cookie.secure = true;
                 } else if part.eq_ignore_ascii_case("httponly") {
                     cookie.http_only = true;
+                } else if part.eq_ignore_ascii_case("domain") {
+                    // An attribute without '=' has an empty value (§5.6).
+                    domain_attribute = Some("");
                 }
             }
 
@@ -719,9 +717,16 @@ impl CookieJar for DefaultCookieJar {
                 cookie.path = Some(default_path.to_string());
             }
 
-            // Drop the cookie if the Domain attribute failed validation (RFC 6265 §5.3).
-            if domain_rejected {
-                continue;
+            if let Some(domain) = domain_attribute {
+                // Ignore exactly one leading dot (§5.6.3). An empty final Domain
+                // leaves the cookie host-only, including after an earlier Domain.
+                let domain = domain.strip_prefix('.').unwrap_or(domain).cow_to_ascii_lowercase();
+                if !domain.is_empty() {
+                    if !is_valid_cookie_domain(request_host, &domain) {
+                        continue;
+                    }
+                    cookie.domain = Some(domain.into_owned());
+                }
             }
 
             // Reject Secure cookies over plain HTTP (RFC 6265bis §4.1.2.1).
@@ -1371,6 +1376,89 @@ mod tests {
             Some("s=1"),
             "cookie with valid Domain superdomain must be stored and returned"
         );
+    }
+
+    #[test]
+    fn domain_ignores_only_one_leading_dot() {
+        let req = url("https://example.com/");
+        for (domain, expected) in [
+            ("example.com", Some("id=1")),
+            (".EXAMPLE.COM", Some("id=1")),
+            ("..example.com", None),
+        ] {
+            let mut jar = DefaultCookieJar::new();
+            jar.store_response_cookies(&req, &headers(&[&format!("id=1; Domain={domain}")]), None);
+            assert_eq!(
+                jar.get_request_cookies(&req, None, SameSiteContext::SameSite)
+                    .as_deref(),
+                expected,
+                "Domain={domain}",
+            );
+        }
+    }
+
+    #[test]
+    fn only_the_last_domain_attribute_is_validated() {
+        let req = url("https://example.com/");
+        for (attributes, expected) in [
+            ("Domain=other.com; Domain=example.com", Some("id=1")),
+            ("Domain=example.com; Domain=other.com", None),
+            (
+                "Domain=example.com; Domain=other.com; Domain=.EXAMPLE.COM",
+                Some("id=1"),
+            ),
+            ("Domain=com; Domain=example.com", Some("id=1")),
+        ] {
+            let mut jar = DefaultCookieJar::new();
+            jar.store_response_cookies(&req, &headers(&[&format!("id=1; {attributes}")]), None);
+            assert_eq!(
+                jar.get_request_cookies(&req, None, SameSiteContext::SameSite)
+                    .as_deref(),
+                expected,
+                "{attributes}",
+            );
+        }
+
+        // Oversized attributes are ignored, so the previous Domain still applies.
+        let mut jar = DefaultCookieJar::new();
+        let header = format!(
+            "id=1; Domain=example.com; Domain={}",
+            "x".repeat(MAX_ATTRIBUTE_VALUE_BYTES + 1)
+        );
+        jar.store_response_cookies(&req, &headers(&[&header]), None);
+        assert_eq!(
+            jar.get_request_cookies(&url("https://sub.example.com/"), None, SameSiteContext::SameSite)
+                .as_deref(),
+            Some("id=1"),
+        );
+    }
+
+    #[test]
+    fn an_empty_last_domain_makes_the_cookie_host_only() {
+        let req = url("https://home.example.com/");
+        for attributes in [
+            "Domain=",
+            "Domain=example.com; Domain=",
+            "Domain=other.com; Domain=",
+            "Domain=example.com; Domain",
+            "Domain=example.com; Domain=.",
+        ] {
+            let mut jar = DefaultCookieJar::new();
+            jar.store_response_cookies(&req, &headers(&[&format!("id=1; {attributes}")]), None);
+            assert_eq!(
+                jar.get_request_cookies(&req, None, SameSiteContext::SameSite)
+                    .as_deref(),
+                Some("id=1"),
+                "{attributes}",
+            );
+            for other_host in ["https://sibling.example.com/", "https://sub.home.example.com/"] {
+                assert!(
+                    jar.get_request_cookies(&url(other_host), None, SameSiteContext::SameSite)
+                        .is_none(),
+                    "{attributes} must not send to {other_host}",
+                );
+            }
+        }
     }
 
     // ── Secure attribute / HTTP rejection ────────────────────────────────────
