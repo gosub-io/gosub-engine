@@ -326,13 +326,15 @@ fn charset_label_to_encoding(label: &str) -> Option<Encoding> {
 }
 
 impl<'a, C: HasDocument> Html5Parser<'a, C> {
-    // Initializes the parser for whole document parsing
+    /// Initialize the parser and retain its selected scripting mode on the document for serialization.
     fn init(
         tokenizer: Tokenizer<'a>,
         document: &'a mut C::Document,
         error_logger: Rc<RefCell<ErrorLogger>>,
         options: Option<Html5ParserOptions>,
     ) -> Self {
+        let scripting_enabled = options.as_ref().is_none_or(|o| o.scripting_enabled);
+        document.set_scripting_enabled(scripting_enabled);
         Self {
             tokenizer,
             insertion_mode: InsertionMode::Initial,
@@ -347,7 +349,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             open_elements: OpenElements::default(),
             head_element: None,
             form_element: None,
-            scripting_enabled: options.as_ref().is_none_or(|o| o.scripting_enabled),
+            scripting_enabled,
             stylesheet_source: options.and_then(|o| o.stylesheets),
             frameset_ok: true,
             foster_parenting: false,
@@ -370,11 +372,12 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         }
     }
 
-    /// Creates a new parser with a dummy document and dummy tokenizer. This is ONLY used for testing purposes.
+    /// Create a parser for tests with scripting enabled on both the parser and the supplied document.
     /// Regular users should use the `parse_document()` and `parse_fragment()` functions instead.
     pub fn new_parser(stream: &'a mut ByteStream, document: &'a mut C::Document, start_location: Location) -> Self {
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
         let tokenizer = Tokenizer::new(stream, None, error_logger.clone(), start_location);
+        document.set_scripting_enabled(true);
 
         Self {
             tokenizer,
@@ -1847,9 +1850,10 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         self.document.doctype() == DocumentType::IframeSrcDoc
     }
 
-    /// Enables or disables scripting
+    /// Update the parser and document scripting settings together, including `noscript` serialization.
     pub fn enabled_scripting(&mut self, enabled: bool) {
         self.scripting_enabled = enabled;
+        self.document.set_scripting_enabled(enabled);
     }
 
     fn acknowledge_closing_tag(&mut self, is_self_closing: bool) {

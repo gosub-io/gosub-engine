@@ -47,6 +47,11 @@ pub trait PipelineDocument: Send + Sync {
     fn body_node_id(&self) -> Option<NodeId>;
     fn base_url(&self) -> String;
     fn inner_html(&self, id: NodeId) -> String;
+    /// Serialize an inline SVG subtree for the XML decoder. HTML-backed documents override
+    /// this; documents already serializing XML can reuse their normal output.
+    fn svg_xml(&self, id: NodeId) -> String {
+        self.inner_html(id)
+    }
     fn get_node_by_id(&self, _id: NodeId) -> Option<Node> {
         None
     }
@@ -1499,6 +1504,14 @@ where
             return String::new();
         }
         self.doc.write_from_node(id)
+    }
+
+    /// Serialize a real DOM subtree for the SVG XML decoder; synthetic layout nodes emit nothing.
+    fn svg_xml(&self, id: NodeId) -> String {
+        if is_pseudo_id(u64::from(id)) || is_anon_box_id(u64::from(id)) {
+            return String::new();
+        }
+        self.doc.write_xml_from_node(id)
     }
 
     fn get_node_by_id(&self, id: NodeId) -> Option<Node> {

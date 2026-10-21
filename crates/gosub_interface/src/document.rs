@@ -197,8 +197,25 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
 
     // Serialisation
 
+    /// Whether scripting is enabled for this document, including `noscript` serialization.
+    /// The default matches the HTML parser's default options.
+    fn scripting_enabled(&self) -> bool {
+        true
+    }
+
+    /// Retain the parser's scripting flag for later serialization. Documents supporting
+    /// scripting-disabled parsing override this along with [`Document::scripting_enabled`].
+    fn set_scripting_enabled(&mut self, _enabled: bool) {}
+
     fn write(&self) -> String;
     fn write_from_node(&self, id: NodeId) -> String;
+
+    /// Serialize an inline SVG subtree for an XML parser. HTML document implementations must
+    /// override this to escape raw text, avoid HTML-only entities, and close void elements.
+    /// Other document implementations can keep their existing XML-compatible serialization.
+    fn write_xml_from_node(&self, id: NodeId) -> String {
+        self.write_from_node(id)
+    }
 
     fn is_hovered(&self, _id: NodeId) -> bool {
         false

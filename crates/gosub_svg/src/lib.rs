@@ -63,8 +63,9 @@ impl SVGDocument {
         Ok(Self { tree })
     }
 
+    /// Decode an inline SVG subtree using XML serialization, not DOM HTML serialization.
     pub fn from_html_doc<C: HasDocument>(id: NodeId, doc: C::Document) -> Result<Self> {
-        let str = doc.write_from_node(id);
+        let str = doc.write_xml_from_node(id);
 
         Self::from_str(&str)
     }
