@@ -44,7 +44,9 @@ use gosub_render_pipeline::layering::layer::{LayerId, LayerList};
 use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
 use gosub_render_pipeline::layouter::{CanLayout, LayoutElementId, LayoutTree};
 use gosub_render_pipeline::painter::{PaintScene, Painter};
-use gosub_render_pipeline::render::backend::{anchored_tile_pos, CachedTile, ExternalHandle};
+use gosub_render_pipeline::render::backend::{
+    anchored_tile_pos, CachedTile, CompositeView, ExternalHandle, PlacedGpuTile,
+};
 use gosub_render_pipeline::rendertree_builder::RenderTree;
 use gosub_render_pipeline::tile_budget::defer_tiles_outside_window;
 use gosub_render_pipeline::tiler::{TileList, TileState};
@@ -58,6 +60,7 @@ use url::Url;
 // tests, but there is no `allow-unreachable-in-tests` to match.
 #[allow(clippy::unreachable)]
 mod forms_tests;
+mod zoom_tiles;
 
 /// GPU-scene cache: the layer list (for hit-testing) plus the whole-page paint command list
 /// (for the backend to render). The GPU equivalent of [`PipelineCache`] - it skips tiling,
@@ -188,6 +191,15 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// changes it), so it can move without any command reaching this context - see
     /// `invalidate_raster_if_dpr_changed`.
     cache_dpr: Option<u32>,
+
+    /// Counts the passes that laid the page out anew, so tiles painted from an older layout can
+    /// tell they are out of date. A repaint drops only the zoom tiles under its damage, and a
+    /// raster-window extension paints nothing new.
+    content_generation: u64,
+    /// See [`Self::set_scroll_scale`].
+    scroll_scale: f64,
+    /// Tiles at the scale a zoomed-in page is shown at, when that is sharper than the page's own.
+    zoom_tiles: Option<zoom_tiles::ZoomTiles>,
 
     /// Cached rasterized tiles for the full page. Valid until content damage is recorded.
     pipeline_cache: Option<PipelineCache>,
@@ -416,6 +428,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             scroll_dirty: false,
             raster_dirty: false,
             cache_dpr: None,
+            content_generation: 0,
+            scroll_scale: 1.0,
+            zoom_tiles: None,
             pipeline_cache: None,
             scene_cache: None,
             hover_leaf: None,
@@ -716,6 +731,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         }
         self.pipeline_cache = None;
         self.scene_cache = None;
+        self.content_generation = self.content_generation.wrapping_add(1);
         // A renderer's tile hashes say nothing about DPR, so the pixels it would
         // answer `TileUnchanged` for were rasterized at the old one.
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -821,8 +837,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         // A move that leaves the page on the same device pixel is no visible change. Callers
         // on most paths pass whole CSS pixels; the GPU tile path passes exact offsets, and moves
         // in device-pixel steps. Compared as rendered positions, not as a distance: a move of
-        // less than a device pixel can still cross a rounding boundary.
-        let dpr = self.cache_dpr.unwrap_or(1).max(1) as f64;
+        // less than a device pixel can still cross a rounding boundary. Zoomed in, a device
+        // pixel is a smaller part of a CSS one.
+        let dpr = f64::from(self.cache_dpr.unwrap_or(1).max(1)).max(self.scroll_scale);
         let device = |v: f64| (v * dpr).round();
         if device(self.scroll_x) == device(x) && device(self.scroll_y) == device(y) {
             return;
@@ -839,6 +856,12 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         {
             self.raster_dirty = true;
         }
+    }
+
+    /// How many device pixels a CSS pixel of the page is drawn over, when that is more than the
+    /// device pixel ratio: a zoomed-in page shows a scroll the DPR would round away.
+    pub fn set_scroll_scale(&mut self, scale: f64) {
+        self.scroll_scale = if scale.is_finite() { scale } else { 1.0 };
     }
 
     /// Reset scroll to the top (called on navigation).
@@ -1088,6 +1111,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// Shared by [`Self::rebuild_pipeline_cache_if_needed`] and
     /// [`Self::rebuild_render_list_if_needed`].
     fn rebuild_full_pipeline(&mut self) {
+        self.content_generation = self.content_generation.wrapping_add(1);
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
         if self.remote_render_active() {
             match self.try_remote_pipeline() {
@@ -1948,6 +1972,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         } = old_cache;
 
         let damage = self.damage.take();
+        // The page's tiles are painted again under the damage, and so are the zoom tiles there.
+        if let (Some(zoom), Some(rect)) = (self.zoom_tiles.as_mut(), damage.bounding_rect()) {
+            zoom.forget(rect);
+        }
         self.pipeline_cache = Some(pipeline_repaint_damaged(
             layer_list,
             page_height,
@@ -2180,11 +2208,84 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
     /// Placed GPU tiles for the current pipeline cache, in page coordinates. Empty unless the
     /// active backend rasterized GPU-resident tiles. Handed to `RenderBackend::composite_tiles`.
-    pub fn placed_gpu_tiles(&self) -> Vec<gosub_render_pipeline::render::backend::PlacedGpuTile> {
-        self.pipeline_cache
+    ///
+    /// A layer the zoom tiles cover on screen comes from them instead (see
+    /// [`Self::update_zoom_tiles`]).
+    pub fn placed_gpu_tiles(&self, view: &CompositeView) -> Vec<PlacedGpuTile> {
+        let Some(cache) = self.pipeline_cache.as_ref() else {
+            return Vec::new();
+        };
+        let dpr = f64::from(self.cache_dpr.unwrap_or(1).max(1));
+        let zoom = self
+            .zoom_tiles
             .as_ref()
-            .map(|c| collect_placed_gpu_tiles(&c.tiles))
-            .unwrap_or_default()
+            .filter(|z| z.generation() == self.content_generation)
+            .zip(cache.tile_list.as_ref());
+        let Some((zoom, tile_list)) = zoom else {
+            return collect_placed_gpu_tiles(&cache.tiles, dpr);
+        };
+        // The page's tiles are in layer order already; pick a layer at a time from them.
+        let mut by_layer: std::collections::HashMap<u64, Vec<&BakedTile>> = std::collections::HashMap::new();
+        for tile in &cache.tiles {
+            by_layer.entry(tile.layer_id).or_default().push(tile);
+        }
+        let mut placed = Vec::with_capacity(cache.tiles.len());
+        for &layer in tile_list.layer_list.layer_ids.read().iter() {
+            let rect = zoom_tiles::layer_rect(view, tile_list, layer);
+            if zoom.covers(layer, rect) {
+                placed.extend(zoom.placed(layer, rect, tile_list));
+            } else if let Some(tiles) = by_layer.get(&layer.as_u64()) {
+                placed.extend(collect_placed_gpu_tiles(tiles.iter().copied(), dpr));
+            }
+        }
+        placed
+    }
+
+    /// Keep tiles at the scale `view` is drawn at, for a page zoomed in past the scale its own
+    /// tiles were rasterized at. Returns whether the tiles to composite changed.
+    ///
+    /// While the scale is still moving (`settled` is false) nothing is rasterized: the tiles
+    /// there are, at whatever scale, are drawn stretched until it stops. Then the tiles for the
+    /// new scale are made in one go and replace the old ones, so the page sharpens all at once
+    /// and never shows a hole. At a scale that holds, panning fills in what comes into view.
+    pub fn update_zoom_tiles(&mut self, view: &CompositeView, settled: bool) -> bool {
+        let base = f64::from(self.cache_dpr.unwrap_or(1).max(1));
+        let generation = self.content_generation;
+        let tile_list = self.pipeline_cache.as_ref().and_then(|c| c.tile_list.as_ref());
+        let (Some(tile_list), Some(rasterizer)) = (tile_list, self.rasterizer.as_deref()) else {
+            return self.zoom_tiles.take().is_some();
+        };
+        if view.scale <= base {
+            return self.zoom_tiles.take().is_some();
+        }
+        // Painted from a pass that is gone: what they show may no longer be on the page.
+        let mut changed = false;
+        if self.zoom_tiles.as_ref().is_some_and(|z| z.generation() != generation) {
+            self.zoom_tiles = None;
+            changed = true;
+        }
+        let current = self.zoom_tiles.as_ref().is_some_and(|z| z.scale() == view.scale);
+        if !current && !settled {
+            return changed;
+        }
+        let page = PipelineRect::new(
+            0.0,
+            0.0,
+            tile_list.layer_list.layout_tree.root_dimension.width,
+            self.page_height(),
+        );
+        let state = paint_state(tile_list.layer_list.layer_ids.read().len(), page);
+        let media_store = Arc::clone(&self.media_store);
+        let mut zoom = match self.zoom_tiles.take() {
+            Some(z) if current => z,
+            _ => {
+                changed = true;
+                zoom_tiles::ZoomTiles::new(view.scale, generation)
+            }
+        };
+        changed |= zoom.fill(view, tile_list, rasterizer, &media_store, &state);
+        self.zoom_tiles = Some(zoom);
+        changed
     }
 
     /// Current scroll offset in CSS pixels.
@@ -3374,17 +3475,7 @@ fn paint_dirty_tiles(
     full_page_rect: PipelineRect,
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
 ) {
-    let paint_state = BrowserState {
-        visible_layer_list: vec![true; layer_ids.len()],
-        wireframed: WireframeState::None,
-        debug_hover: false,
-        current_hovered_element: None,
-        show_tilegrid: false,
-        debug_table_cells: std::env::var("GOSUB_DEBUG_TABLE_CELLS").is_ok(),
-        viewport: full_page_rect,
-        tile_list: None,
-        dpi_scale_factor: 1.0,
-    };
+    let paint_state = paint_state(layer_ids.len(), full_page_rect);
     let painter = Painter::new(tile_list.layer_list.clone(), rasterizer.and_then(|r| r.font_system()))
         .with_shape_cache(Arc::clone(&tile_list.shape_cache));
 
@@ -3407,6 +3498,21 @@ fn paint_dirty_tiles(
     // written here have to be released before the next pass paints. Reporting them is what
     // makes that a walk of these tiles instead of the whole page.
     tile_list.note_painted(painted);
+}
+
+/// What a tile pass paints with: every layer shown, no debug overlays.
+fn paint_state(layer_count: usize, viewport: PipelineRect) -> BrowserState {
+    BrowserState {
+        visible_layer_list: vec![true; layer_count],
+        wireframed: WireframeState::None,
+        debug_hover: false,
+        current_hovered_element: None,
+        show_tilegrid: false,
+        debug_table_cells: std::env::var("GOSUB_DEBUG_TABLE_CELLS").is_ok(),
+        viewport,
+        tile_list: None,
+        dpi_scale_factor: 1.0,
+    }
 }
 
 /// Re-emit baked tiles in strict back-to-front layer order (the same order a full render
@@ -4545,6 +4651,161 @@ mod tests {
                 "the repaint must leave exactly the tiles a full rebuild would - a dropped or \
                  duplicated tile shows up as a blank or corrupted band on screen"
             );
+        }
+
+        /// Zoomed in past the scale its tiles were rasterized at, the page on screen is drawn again
+        /// at the zoom, once it holds still: until then the tiles there are stay up, stretched.
+        #[test]
+        fn a_zoom_that_holds_is_rasterized_at_its_scale() {
+            use gosub_render_pipeline::common::texture::{GpuTile, TextureId};
+            use gosub_render_pipeline::common::texture_store::TextureStore;
+            use gosub_render_pipeline::render::backend::PixelFormat;
+            use gosub_render_pipeline::tiler::Tile;
+
+            /// GPU tiles, and the scale each was asked for.
+            struct ScaleRecorder {
+                scales: Arc<parking_lot::Mutex<Vec<f64>>>,
+            }
+            impl Rasterable for ScaleRecorder {
+                fn rasterize(&self, tile: &Tile, store: &mut TextureStore, media: &MediaStore) -> Option<TextureId> {
+                    self.rasterize_at(tile, 1.0, store, media)
+                }
+                fn rasterize_at(
+                    &self,
+                    tile: &Tile,
+                    scale: f64,
+                    store: &mut TextureStore,
+                    _media: &MediaStore,
+                ) -> Option<TextureId> {
+                    let mut scales = self.scales.lock();
+                    scales.push(scale);
+                    let px = |v: f64| (v * scale).round() as usize;
+                    let gpu = GpuTile::untracked(scales.len() as u64);
+                    Some(store.add_gpu(px(tile.rect.width), px(tile.rect.height), gpu, PixelFormat::Rgba8))
+                }
+            }
+
+            let html = r#"<html><body style="margin:0">
+                    <div style="position:fixed;top:0;height:40px;width:100%;background:#00f"></div>
+                    <p>Some text to read</p>
+                    <div style="height:3000px;background:#eee"></div>
+                </body></html>"#;
+            let scales = Arc::new(parking_lot::Mutex::new(Vec::new()));
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_rasterizer(
+                Box::new(ScaleRecorder {
+                    scales: Arc::clone(&scales),
+                }),
+                RasterStrategy::Sequential,
+            );
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 512,
+                height: 1024,
+            });
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc), None);
+            ctx.invalidate_raster_if_dpr_changed(1);
+            ctx.rebuild_pipeline_cache_if_needed();
+            scales.lock().clear();
+
+            let unzoomed = CompositeView::unzoomed((512, 1024), (0.0, 0.0), 1.0);
+            assert!(
+                !ctx.update_zoom_tiles(&unzoomed, true),
+                "unzoomed, the page's own tiles are sharp"
+            );
+            let base = ctx.placed_gpu_tiles(&unzoomed);
+            assert!(!base.is_empty());
+
+            // A quarter of the width, at 4x, a way down the page.
+            let zoomed = CompositeView {
+                scroll: (0.0, 500.0),
+                origin: (100.0, 200.0),
+                size: (128.0, 256.0),
+                scale: 4.0,
+            };
+            assert!(
+                !ctx.update_zoom_tiles(&zoomed, false),
+                "nothing is rasterized mid-pinch"
+            );
+            assert!(scales.lock().is_empty());
+
+            assert!(ctx.update_zoom_tiles(&zoomed, true));
+            assert!(!scales.lock().is_empty() && scales.lock().iter().all(|&s| s == 4.0));
+            let sharp = ctx.placed_gpu_tiles(&zoomed);
+            assert!(
+                sharp.iter().all(|t| t.width == 128.0 && t.height == 128.0),
+                "every layer on screen comes from 512px tiles at 4x"
+            );
+            assert_covered(&sharp, &zoomed);
+
+            // Holding still costs nothing more.
+            scales.lock().clear();
+            assert!(!ctx.update_zoom_tiles(&zoomed, true));
+            assert!(scales.lock().is_empty());
+
+            // A pan fills in what comes into view.
+            let panned = CompositeView {
+                origin: (100.0, 600.0),
+                ..zoomed
+            };
+            assert!(ctx.update_zoom_tiles(&panned, true));
+            assert!(!scales.lock().is_empty());
+            let sharp = ctx.placed_gpu_tiles(&panned);
+            assert!(sharp.iter().all(|t| t.width == 128.0));
+            assert_covered(&sharp, &panned);
+
+            // A repaint somewhere else on the page leaves them be.
+            scales.lock().clear();
+            ctx.damage.escalate(DamageLevel::Paint);
+            ctx.damage.add_rect(PipelineRect::new(0.0, 2500.0, 512.0, 100.0));
+            ctx.rebuild_pipeline_cache_if_needed();
+            assert!(!ctx.update_zoom_tiles(&panned, true));
+            assert!(
+                !scales.lock().contains(&4.0),
+                "only the page's own tiles were painted again"
+            );
+
+            // The next pinch shows those tiles, stretched, until it holds.
+            scales.lock().clear();
+            let further = CompositeView { scale: 6.0, ..panned };
+            assert!(!ctx.update_zoom_tiles(&further, false));
+            assert!(scales.lock().is_empty());
+            assert!(ctx.placed_gpu_tiles(&further).iter().all(|t| t.width == 128.0));
+
+            // A repaint under them, mid-pinch: they show what was there, so the page's own tiles
+            // take over until the zoom holds again.
+            ctx.damage.escalate(DamageLevel::Paint);
+            ctx.damage.add_rect(PipelineRect::new(0.0, 0.0, 1024.0, 4000.0));
+            ctx.rebuild_pipeline_cache_if_needed();
+            assert!(!ctx.update_zoom_tiles(&further, false));
+            let soft = ctx.placed_gpu_tiles(&further);
+            assert!(soft.iter().all(|t| t.width != 128.0));
+            assert_covered(&soft, &further);
+            assert!(ctx.update_zoom_tiles(&further, true));
+            let sharp = ctx.placed_gpu_tiles(&further);
+            assert!(sharp.iter().all(|t| (t.width - 512.0 / 6.0).abs() < 1e-3));
+            assert_covered(&sharp, &further);
+        }
+
+        /// Every point of the view lands on a tile that scrolls with the page: no hole.
+        fn assert_covered(tiles: &[PlacedGpuTile], view: &CompositeView) {
+            use gosub_render_pipeline::render::backend::TileAnchor;
+            let steps = 16;
+            for i in 0..=steps {
+                for j in 0..=steps {
+                    let x = view.origin.0 + view.size.0 * (i as f64 / steps as f64).min(0.999);
+                    let y = view.origin.1 + view.size.1 * (j as f64 / steps as f64).min(0.999);
+                    let hit = tiles.iter().filter(|t| t.anchor == TileAnchor::Scroll).any(|t| {
+                        let (tx, ty) =
+                            anchored_tile_pos(t.page_x as f64, t.page_y as f64, view.scroll.0, view.scroll.1, t.anchor);
+                        x >= tx && x < tx + t.width as f64 && y >= ty && y < ty + t.height as f64
+                    });
+                    assert!(hit, "nothing drawn at ({x}, {y}) of the view");
+                }
+            }
         }
 
         /// A resize must re-run taffy over the tree it already has, not build a new one.

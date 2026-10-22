@@ -347,10 +347,11 @@ pub struct PlacedGpuTile {
     /// Position on the page, in CSS pixels.
     pub page_x: f32,
     pub page_y: f32,
-    /// Size of the tile's texture, in physical pixels (CSS size times the DPR it was
-    /// rasterized at), as for CPU tiles.
-    pub width: u32,
-    pub height: u32,
+    /// Size on the page, in CSS pixels. The texture holds it at whatever scale the tile was
+    /// rasterized at, which need not be the scale it is drawn at: a zoom shows the tiles it has
+    /// until sharper ones replace them.
+    pub width: f32,
+    pub height: f32,
     pub texture_id: u64,
     /// Group opacity (1.0 = opaque) of the tile's layer, applied by the GPU compositor.
     pub opacity: f32,

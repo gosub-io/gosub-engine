@@ -84,6 +84,7 @@ pub enum Timing {
     PipelineHoverRasterize,
     PipelineHoverPainting,
     GpuTileRebuild,
+    GpuZoomTiles,
     GpuTileComposite,
 
     HoverTotal,
@@ -137,6 +138,7 @@ impl Timing {
             Timing::PipelineHoverRasterize => "pipeline.hover.rasterize",
             Timing::PipelineHoverPainting => "pipeline.hover.painting",
             Timing::GpuTileRebuild => "gputile.rebuild",
+            Timing::GpuZoomTiles => "gputile.zoom",
             Timing::GpuTileComposite => "gputile.composite",
             Timing::HoverTotal => "hover.total",
             Timing::HoverHitTest => "hover.hit_test",
@@ -185,6 +187,7 @@ impl Timing {
             Timing::PipelineHoverRasterize => "Rasterizing only the tiles a hover touched.",
             Timing::PipelineHoverPainting => "Painting only what a hover changed.",
             Timing::GpuTileRebuild => "Rebuilding the GPU's copy of a tile after it was repainted.",
+            Timing::GpuZoomTiles => "Drawing the part of a zoomed-in page on screen at the zoom.",
             Timing::GpuTileComposite => "Compositing the tiles on the GPU into the frame shown.",
             Timing::HoverTotal => "Everything one mouse position costs: finding what is under it, and updating whatever that changes.",
             Timing::HoverHitTest => "Finding which element is under the cursor, searched through the layers back to front.",
@@ -232,6 +235,7 @@ impl Timing {
             | Timing::PipelineHoverRasterize
             | Timing::PipelineHoverPainting
             | Timing::GpuTileRebuild
+            | Timing::GpuZoomTiles
             | Timing::GpuTileComposite => Group::Paint,
             Timing::HoverTotal | Timing::HoverHitTest | Timing::HoverAncestorWalk | Timing::HoverSetHovered => {
                 Group::Hover
@@ -311,6 +315,7 @@ impl Timing {
             Timing::PipelineHoverRasterize,
             Timing::PipelineHoverPainting,
             Timing::GpuTileRebuild,
+            Timing::GpuZoomTiles,
             Timing::GpuTileComposite,
             Timing::HoverTotal,
             Timing::HoverHitTest,

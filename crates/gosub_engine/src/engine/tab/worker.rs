@@ -46,6 +46,11 @@ use url::Url;
 /// An icon larger than this is not an icon.
 const MAX_FAVICON_BYTES: usize = 512 * 1024;
 
+/// How long a zoom holds still before the page is rasterized again at it. Shorter, and a slow
+/// pinch rasterizes at every pause in it; longer, and the text stays soft visibly long after the
+/// fingers stop.
+const PINCH_SETTLE: std::time::Duration = std::time::Duration::from_millis(120);
+
 /// Move an accepted offer's spooled body to `target_path`, returning the bytes written.
 /// Blocking; callers run it on the blocking pool.
 ///
@@ -305,6 +310,9 @@ pub struct TabWorker<C: RenderConfiguration> {
     /// The view the GPU tile frame on screen was composited for: a pinch changes it without
     /// changing the page, and still needs a new frame.
     committed_view: Option<CompositeView>,
+    /// When the last pinch step came in, while the zoom may still be moving; `None` once it has
+    /// held for [`PINCH_SETTLE`] and the page has been drawn sharp at it.
+    pinch_at: Option<std::time::Instant>,
     /// Current scroll offset in CSS pixels (updated by MouseScroll). Mirrors the integer-rounded
     /// position held by `scroll`; the rest of the worker reads these.
     scroll_x: i32,
@@ -461,6 +469,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             reported_visual: None,
             display_scale: None,
             committed_view: None,
+            pinch_at: None,
             scroll_x: 0,
             scroll_y: 0,
             // The engine owns wheel-scroll smoothing; embedders send one delta per notch.
@@ -2809,6 +2818,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
             self.apply_remote_effects();
         }
+        // A zoom that has held still is drawn again, sharp at its scale.
+        if self.pinch_at.is_some_and(|at| at.elapsed() >= PINCH_SETTLE) {
+            self.pinch_at = None;
+            self.runtime.dirty = true;
+        }
+
         // Skip rendering when nothing has changed to avoid burning CPU at the tick rate.
         if !self.runtime.dirty {
             return Ok(());
@@ -2946,7 +2961,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 }
                 let scene_epoch = self.context.scene_epoch();
                 let view = self.composite_view(dpr);
+                let zoom_changed = {
+                    let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::GpuZoomTiles);
+                    self.context.update_zoom_tiles(&view, self.pinch_at.is_none())
+                };
                 if !surface_recreated
+                    && !zoom_changed
                     && scene_epoch == self.runtime.committed_scene_epoch
                     && self.committed_view == Some(view)
                 {
@@ -2957,7 +2977,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 }
                 if let Some(ref mut surf) = self.surface {
                     let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::GpuTileComposite);
-                    let tiles = self.context.placed_gpu_tiles();
+                    let tiles = self.context.placed_gpu_tiles(&view);
                     let page_height = self.context.page_height() as f32;
                     match render_backend.composite_tiles(surf.as_mut(), &tiles, &view, page_height) {
                         Ok(()) => match render_backend.external_handle(surf.as_mut()) {
@@ -3174,21 +3194,35 @@ impl<C: RenderConfiguration> TabWorker<C> {
         else {
             return;
         };
+        self.sync_scroll_scale();
         if new_scroll != scroll {
             self.context.set_scroll(new_scroll.0, new_scroll.1);
             let (x, y) = self.context.scroll_xy();
+            // Where the layout viewport did not go all the way (a move too small to show, or
+            // past the end of the page), the visual viewport makes up the rest, or the point
+            // under the fingers would wander off a little with every step.
+            self.visual.pan(new_scroll.0 - x, new_scroll.1 - y);
             self.scroll_x = x.round() as i32;
             self.scroll_y = y.round() as i32;
             self.scroll.reset(x, y);
             self.scroll_anim_last = None;
         }
         self.report_visual_viewport();
+        self.pinch_at = Some(std::time::Instant::now());
         self.runtime.dirty = true;
         self.runtime.render_now = true;
     }
 
+    /// Tell the context how finely the page is drawn, for it to tell which scrolls show.
+    fn sync_scroll_scale(&mut self) {
+        let dpr = self.zone_context.render_backend.device_pixel_ratio().max(1);
+        let scale = self.composite_view(dpr).scale;
+        self.context.set_scroll_scale(scale);
+    }
+
     /// Tell the embedder where the visual viewport is, when that changed since it was last told.
     fn report_visual_viewport(&mut self) {
+        self.sync_scroll_scale();
         let (offset_x, offset_y) = self.visual.offset();
         let now = (self.visual.scale(), offset_x, offset_y);
         if self.reported_visual == Some(now) || (self.reported_visual.is_none() && self.visual.unzoomed()) {
