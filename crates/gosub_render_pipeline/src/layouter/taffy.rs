@@ -281,6 +281,14 @@ enum InlineEntry {
     Break(f64),
 }
 
+/// The block container whose line boxes a flattened inline element's content joins, so a block
+/// inside that element can end the lines before it and take its place among the block's children.
+struct LineFlow<'a> {
+    node: &'a mut LayoutElementNode,
+    leaf: TaffyNodeId,
+    justify: Option<taffy::JustifyContent>,
+}
+
 /// A [`TaffyTree`] that can move between threads.
 ///
 /// # Why this is needed
@@ -2063,8 +2071,11 @@ impl TaffyLayouter {
     ///
     /// Anything the box would show or change keeps it: a background, border, padding, margin or
     /// outline, a position, a vertical-align, an opacity or blend mode, a transform. So does a
-    /// block-level child, and an element with no content, whose position would be lost. Only
-    /// elements known not to be replaced qualify.
+    /// float or positioned child, and an element with no content, whose position would be lost.
+    /// Only elements known not to be replaced qualify.
+    ///
+    /// A block-level child does not keep it: an inline box is broken around a block inside it
+    /// (CSS 2.1 §9.2.1.1), and that is what laying its content out in the parent's lines does.
     fn is_plain_inline(&self, layout_tree: &LayoutTree, node: &Node) -> bool {
         let NodeType::Element(data) = &node.node_type else {
             return false;
@@ -2084,6 +2095,7 @@ impl TaffyLayouter {
                 | "i"
                 | "ins"
                 | "kbd"
+                | "label"
                 | "nobr"
                 | "q"
                 | "s"
@@ -2145,7 +2157,8 @@ impl TaffyLayouter {
             match &child.node_type {
                 NodeType::Text(text) => has_content |= !is_collapsible_whitespace(text),
                 NodeType::Element(_) => {
-                    if !(child.is_inline_element() || child.is_inline_block_element()) {
+                    if !(child.is_inline_element() || child.is_inline_block_element() || is_in_flow_block(doc, &child))
+                    {
                         return false;
                     }
                     has_content = true;
@@ -2156,32 +2169,59 @@ impl TaffyLayouter {
         has_content
     }
 
+    /// Whether `node` has a block-level box inside it that breaks it in two (see
+    /// [`is_in_flow_block`]), as a child or inside an inline child.
+    fn holds_a_block(layout_tree: &LayoutTree, node: &Node, depth: usize) -> bool {
+        let doc = &layout_tree.render_tree.doc;
+        depth < MAX_LAYOUT_DEPTH
+            && node
+                .children
+                .iter()
+                .filter_map(|child| doc.get_node_by_id(*child))
+                .any(|child| {
+                    is_in_flow_block(doc, &child)
+                        || (child.is_inline_element() && Self::holds_a_block(layout_tree, &child, depth + 1))
+                })
+    }
+
     /// Lay out the content of a plain inline element (see [`Self::is_plain_inline`]) in the
     /// parent's line: text as words, nested plain elements the same way, anything else as the
-    /// inline box it would have been. The element keeps an arena entry - focus, `#fragment`
-    /// targets and hover repaints all look an element up by its DOM node - with no taffy node
-    /// and no place in the parent's children; its box is settled from its content after layout.
+    /// inline box it would have been. A block child ends the lines so far and goes into `flow`'s
+    /// block as a child of its own; the lines after it start below it. The element keeps an arena
+    /// entry - focus, `#fragment` targets and hover repaints all look an element up by its DOM
+    /// node - with no taffy node and no place in the parent's children; its box is settled from
+    /// its content after layout. Returns that content.
     #[allow(clippy::too_many_arguments)]
     fn push_flattened_inline(
         &mut self,
         layout_tree: &mut LayoutTree,
         render_node_id: RenderNodeId,
         parent: LayoutElementId,
+        flow: &mut LineFlow<'_>,
         group: &mut Vec<InlineEntry>,
         trailing_ws_count: &mut usize,
         starts_a_line: bool,
         depth: usize,
-    ) {
+    ) -> Vec<LayoutElementId> {
+        let mut content = Vec::new();
         let Some(render_node) = layout_tree.render_tree.get_node_by_id(render_node_id) else {
-            return;
+            return content;
         };
         let children = render_node.children.clone();
         let Some(dom_node) = layout_tree.render_tree.get_document_node_by_render_id(render_node_id) else {
-            return;
+            return content;
         };
         // Taken before the content's, so layout ids stay in tree order.
         let id = layout_tree.next_node_id();
-        let first = group.len();
+        let items = |group: &[InlineEntry]| -> Vec<LayoutElementId> {
+            group
+                .iter()
+                .filter_map(|entry| match entry {
+                    InlineEntry::Item(id, _) => Some(*id),
+                    InlineEntry::Break(_) => None,
+                })
+                .collect()
+        };
 
         for child_id in children {
             let Some(child) = layout_tree.render_tree.get_document_node_by_render_id(child_id) else {
@@ -2193,7 +2233,9 @@ impl TaffyLayouter {
             );
             match &child.node_type {
                 NodeType::Text(text) if !is_collapsible_whitespace(text) && !preserved => {
+                    let before = group.len();
                     self.push_text_words(layout_tree, &child, child_id, group);
+                    content.extend(items(&group[before..]));
                     *trailing_ws_count = 0;
                     continue;
                 }
@@ -2205,15 +2247,34 @@ impl TaffyLayouter {
                     continue;
                 }
                 NodeType::Element(_) if depth < MAX_LAYOUT_DEPTH && self.is_plain_inline(layout_tree, &child) => {
-                    self.push_flattened_inline(
+                    content.extend(self.push_flattened_inline(
                         layout_tree,
                         child_id,
                         id,
+                        flow,
                         group,
                         trailing_ws_count,
                         starts_a_line,
                         depth + 1,
-                    );
+                    ));
+                    continue;
+                }
+                NodeType::Element(_) if is_in_flow_block(&layout_tree.render_tree.doc, &child) => {
+                    // As the block's own loop does with a block child: the lines so far are done.
+                    group.truncate(group.len().saturating_sub(*trailing_ws_count));
+                    self.process_inlines(layout_tree, group, flow.node, flow.leaf, flow.justify);
+                    group.clear();
+                    *trailing_ws_count = 0;
+                    let Some((block_id, block_taffy_id)) =
+                        self.generate_taffy_element(layout_tree, child_id, depth + 1)
+                    else {
+                        continue;
+                    };
+                    if let Err(e) = self.tree.add_child(flow.leaf, block_taffy_id) {
+                        log::warn!("Failed to add child to taffy tree: {:?}", e);
+                    }
+                    flow.node.children.push(block_id);
+                    content.push(block_id);
                     continue;
                 }
                 _ => {}
@@ -2221,8 +2282,12 @@ impl TaffyLayouter {
 
             let is_ws =
                 matches!(&child.node_type, NodeType::Text(text) if is_collapsible_whitespace(text)) && !preserved;
-            // Leading whitespace of a line box is dropped, as in the parent's own loop.
-            if is_ws && group.is_empty() && starts_a_line {
+            // Leading whitespace of a line box is dropped, and a space right after another
+            // collapses into it, as in the parent's own loop.
+            if is_ws
+                && ((group.is_empty() && starts_a_line)
+                    || follows_collapsible_space(&layout_tree.render_tree.doc, child.node_id))
+            {
                 continue;
             }
             let Some((child_layout_id, child_taffy_id)) = self.generate_taffy_element(layout_tree, child_id, depth + 1)
@@ -2230,16 +2295,10 @@ impl TaffyLayouter {
                 continue;
             };
             group.push(InlineEntry::Item(child_layout_id, child_taffy_id));
+            content.push(child_layout_id);
             *trailing_ws_count = if is_ws { *trailing_ws_count + 1 } else { 0 };
         }
 
-        let content = group[first..]
-            .iter()
-            .filter_map(|entry| match entry {
-                InlineEntry::Item(id, _) => Some(*id),
-                InlineEntry::Break(_) => None,
-            })
-            .collect();
         layout_tree.arena.insert(
             id,
             LayoutElementNode {
@@ -2248,7 +2307,7 @@ impl TaffyLayouter {
                 render_node_id,
                 parent: Some(parent),
                 box_model: box_model::BoxModel::ZERO,
-                children: content,
+                children: content.clone(),
                 context: ElementContext::None,
                 background_media: None,
                 collapsed_borders: None,
@@ -2256,6 +2315,7 @@ impl TaffyLayouter {
         );
         self.dom_to_layout_mapping.insert(dom_node.node_id, id);
         self.flattened_inlines.push(id);
+        content
     }
 
     /// Give each flattened inline element (see [`Self::push_flattened_inline`]) the box around
@@ -2494,11 +2554,20 @@ impl TaffyLayouter {
                 continue;
             };
 
-            if shares_lines && self.is_plain_inline(layout_tree, &child_node) {
+            // One with a block inside is broken around it, on its own in its parent or not.
+            if (shares_lines || (!parent_is_flex_or_grid && Self::holds_a_block(layout_tree, &child_node, depth)))
+                && self.is_plain_inline(layout_tree, &child_node)
+            {
+                let parent = element_node.id;
                 self.push_flattened_inline(
                     layout_tree,
                     *child_id,
-                    element_node.id,
+                    parent,
+                    &mut LineFlow {
+                        node: &mut element_node,
+                        leaf: leaf_id,
+                        justify: line_justify,
+                    },
                     &mut current_inline_group,
                     &mut trailing_ws_count,
                     starts_a_line,
@@ -3995,6 +4064,21 @@ fn text_has_inline_neighbor(
 /// element (css-text-3 §4.1.1). Each text node collapses its own whitespace, so without this two
 /// nodes each kept a space: Hacker News's `ago</a></span> <span id="unv_1"></span> | hide`
 /// showed two spaces before the `|`.
+/// Whether `node` is a block-level box in normal flow, which breaks an inline box around it
+/// (CSS 2.1 §9.2.1.1). A float or a positioned box is out of flow and breaks nothing.
+fn is_in_flow_block(doc: &Arc<dyn crate::common::document::pipeline_doc::PipelineDocument>, node: &Node) -> bool {
+    if !matches!(node.node_type, NodeType::Element(_)) {
+        return false;
+    }
+    let style = doc.computed_style(node.node_id);
+    let b = &style.box_group;
+    matches!(
+        b.display,
+        CssDisplay::Block | CssDisplay::FlowRoot | CssDisplay::Flex | CssDisplay::Grid | CssDisplay::Table
+    ) && b.float == CssFloat::None
+        && !matches!(b.position, CssPosition::Absolute | CssPosition::Fixed)
+}
+
 fn follows_collapsible_space(
     doc: &Arc<dyn crate::common::document::pipeline_doc::PipelineDocument>,
     id: gosub_shared::node::NodeId,
