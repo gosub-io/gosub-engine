@@ -4310,6 +4310,64 @@ mod rendertree_from_engine {
             .collect()
     }
 
+    /// An inline box is broken around a block inside it (CSS 2.1 §9.2.1.1): the block starts on a
+    /// line of its own at the containing block's left edge, and what follows it goes below. It
+    /// was laid out as a flex item of the inline box, beside the text before it, so an input
+    /// made `display: block` inside a `<label>` sat next to the label text.
+    #[test]
+    fn an_inline_is_broken_around_a_block_inside_it() {
+        let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
+          <label id="l">Name <div id="d" style="height: 20px">x</div> <span id="t">tail</span></label>
+          <p><label>Date <input id="i" style="display: block"></label></p>
+          <p><span>Wrapped <label>in two <div id="nd">nested</div></label></span></p>
+          <p><label id="l3">Plain <input id="i3"></label></p>
+        </body></html>"#;
+        let [d, t, i, nd, l3, i3] = border_boxes(html, &["d", "t", "i", "nd", "l3", "i3"])[..] else {
+            unreachable!()
+        };
+
+        assert!(
+            d.x < 0.5 && d.y >= 15.0,
+            "the block goes under the label text, got {d:?}"
+        );
+        assert!(
+            (d.width - 800.0).abs() < 0.5,
+            "the block is as wide as the body, got {d:?}"
+        );
+        assert!(
+            t.x < 0.5 && t.y >= d.y + d.height - 0.5,
+            "the text after the block starts a line below it, got {t:?}"
+        );
+        assert!(i.x < 0.5, "a block input goes under its label text, got {i:?}");
+        assert!(nd.x < 0.5, "an inline around the label is broken too, got {nd:?}");
+        assert!(
+            (i3.y - l3.y).abs() < 0.5 && i3.x > 0.0,
+            "an inline input stays beside its label text, got {l3:?} and {i3:?}"
+        );
+    }
+
+    /// A space after an empty inline element collapses into the one before it, in an element
+    /// laid out in its parent's line as much as anywhere. Wikipedia's main-menu label
+    /// (`<label><span class="icon"></span> <span>Main menu</span></label>` after a space) kept
+    /// both and moved its text a space to the right.
+    #[test]
+    fn a_flattened_inline_collapses_a_space_after_an_empty_element() {
+        let x_of_word = |inner: &str| {
+            let html = format!(
+                r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
+                  <p>Menu <label>{inner}<span id="w">word</span></label></p>
+                </body></html>"#
+            );
+            border_boxes(&html, &["w"])[0].x
+        };
+        let with_icon = x_of_word("<span></span> ");
+        let without = x_of_word("");
+        assert!(
+            (with_icon - without).abs() < 0.5,
+            "one space before the word either way, got {with_icon} and {without}"
+        );
+    }
+
     /// An inline-block is a block container inside (CSS Display 3 §2: `inline flow-root`), so
     /// its block children stack. It was mapped onto a non-wrapping flex row, which put them
     /// side by side: Beacon's "did you mean" box showed its label, title and address on one line.
