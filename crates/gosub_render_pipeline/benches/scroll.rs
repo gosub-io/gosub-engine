@@ -57,7 +57,7 @@ use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
 use gosub_render_pipeline::layouter::CanLayout;
 use gosub_render_pipeline::painter::Painter;
 use gosub_render_pipeline::rendertree_builder::RenderTree;
-use gosub_render_pipeline::tile_budget::defer_tiles_outside_window;
+use gosub_render_pipeline::tile_budget::{defer_tiles_outside_window, window_band};
 use gosub_render_pipeline::tiler::{TileId, TileList, TileState};
 use gosub_shared::config::ParserConfig;
 
@@ -214,38 +214,50 @@ fn paint_dirty(fixture: &Fixture, tile_list: &mut TileList, layer_ids: &[LayerId
     painted
 }
 
+/// Where a tile is: the engine carries baked pixels over by position, since a tile that left
+/// the grid and came back is a new tile.
+type TilePos = (u64, u64, u64);
+
+fn tile_pos(tile_list: &TileList, tile_id: TileId) -> Option<TilePos> {
+    let tile = tile_list.get_tile(tile_id)?;
+    Some((tile.rect.x.to_bits(), tile.rect.y.to_bits(), tile.layer_id.as_u64()))
+}
+
 /// Stage 4 from scratch plus the first painted window: what the grid costs to build, and what
 /// the first screenful costs to paint.
 fn first_window(fixture: &Fixture) -> usize {
     let mut tile_list = TileList::from_arc(Arc::clone(&fixture.layer_list), Dimension::new(TILE, TILE));
-    tile_list.generate();
+    tile_list.cover(window_band(0.0, VIEWPORT.1));
 
     let layer_ids = tile_list.layer_list.layer_ids.read().clone();
     defer_tiles_outside_window(&mut tile_list, 0.0, VIEWPORT.1);
     paint_dirty(fixture, &mut tile_list, &layer_ids, full_page_rect(fixture)).len()
 }
 
-/// The state a scroll starts from: a generated grid with the first window already painted.
-fn at_top(fixture: &Fixture) -> (TileList, HashSet<TileId>) {
+/// The state a scroll starts from: the first window tiled and painted.
+fn at_top(fixture: &Fixture) -> (TileList, HashSet<TilePos>) {
     let mut tile_list = TileList::from_arc(Arc::clone(&fixture.layer_list), Dimension::new(TILE, TILE));
-    tile_list.generate();
+    tile_list.cover(window_band(0.0, VIEWPORT.1));
 
     let layer_ids = tile_list.layer_list.layer_ids.read().clone();
     defer_tiles_outside_window(&mut tile_list, 0.0, VIEWPORT.1);
     let painted = paint_dirty(fixture, &mut tile_list, &layer_ids, full_page_rect(fixture));
-    (tile_list, painted.into_iter().collect())
+    let done = painted.into_iter().filter_map(|id| tile_pos(&tile_list, id)).collect();
+    (tile_list, done)
 }
 
-/// One scroll step, as the engine's extend path runs it: keep the grid, hold on to what is
-/// already painted, park what the window no longer covers, paint the rest.
-fn extend_pass(fixture: &Fixture, tile_list: &mut TileList, done: &mut HashSet<TileId>, scroll_y: f64) -> usize {
-    // Stage 4: the grid is a pure function of the layer list and the tile size, neither of
-    // which a scroll touches, so it is reset rather than rebuilt.
+/// One scroll step, as the engine's extend path runs it: move the grid to the new window, hold
+/// on to what is already painted, paint the rest.
+fn extend_pass(fixture: &Fixture, tile_list: &mut TileList, done: &mut HashSet<TilePos>, scroll_y: f64) -> usize {
+    // Stage 4: the tiles still in the window are reset rather than rebuilt; only the rows the
+    // window gained are tiled.
     tile_list.reset_states();
+    tile_list.cover(window_band(scroll_y, VIEWPORT.1));
     // What earlier passes painted is still good; the engine recognises these by page position
-    // among the tiles it has baked, which for a reused grid is the same set.
-    for &tile_id in done.iter() {
-        if let Some(tile) = tile_list.get_tile_mut(tile_id) {
+    // among the tiles it has baked.
+    for tile in tile_list.arena.values_mut() {
+        let pos = (tile.rect.x.to_bits(), tile.rect.y.to_bits(), tile.layer_id.as_u64());
+        if done.contains(&pos) {
             tile.state = TileState::Ready;
         }
     }
@@ -254,11 +266,11 @@ fn extend_pass(fixture: &Fixture, tile_list: &mut TileList, done: &mut HashSet<T
     let layer_ids = tile_list.layer_list.layer_ids.read().clone();
     let painted = paint_dirty(fixture, tile_list, &layer_ids, full_page_rect(fixture));
     let count = painted.len();
-    done.extend(painted);
+    done.extend(painted.into_iter().filter_map(|id| tile_pos(tile_list, id)));
     count
 }
 
-fn scroll_through(fixture: &Fixture, tile_list: &mut TileList, done: &mut HashSet<TileId>) -> usize {
+fn scroll_through(fixture: &Fixture, tile_list: &mut TileList, done: &mut HashSet<TilePos>) -> usize {
     let mut painted = 0;
     for &scroll_y in &fixture.offsets {
         painted += extend_pass(fixture, tile_list, done, scroll_y);
