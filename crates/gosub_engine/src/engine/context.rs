@@ -4790,6 +4790,87 @@ mod tests {
             assert_covered(&sharp, &further);
         }
 
+        /// A zoom tile the rasterizer gave nothing back for leaves the page's own tiles showing
+        /// there, and is tried again on the next fill.
+        #[test]
+        fn a_zoom_tile_that_fails_to_rasterize_leaves_no_hole() {
+            use gosub_render_pipeline::common::texture::{GpuTile, TextureId};
+            use gosub_render_pipeline::common::texture_store::TextureStore;
+            use gosub_render_pipeline::render::backend::PixelFormat;
+            use gosub_render_pipeline::tiler::Tile;
+            use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+            /// GPU tiles at the device pixel ratio; at any other scale only once `zoom_works`.
+            struct FailsToZoom {
+                zoom_works: Arc<AtomicBool>,
+                next: AtomicU64,
+            }
+            impl Rasterable for FailsToZoom {
+                fn rasterize(&self, tile: &Tile, store: &mut TextureStore, media: &MediaStore) -> Option<TextureId> {
+                    self.rasterize_at(tile, 1.0, store, media)
+                }
+                fn rasterize_at(
+                    &self,
+                    tile: &Tile,
+                    scale: f64,
+                    store: &mut TextureStore,
+                    _media: &MediaStore,
+                ) -> Option<TextureId> {
+                    if scale != 1.0 && !self.zoom_works.load(Ordering::Relaxed) {
+                        return None;
+                    }
+                    let px = |v: f64| (v * scale).round() as usize;
+                    let gpu = GpuTile::untracked(self.next.fetch_add(1, Ordering::Relaxed));
+                    Some(store.add_gpu(px(tile.rect.width), px(tile.rect.height), gpu, PixelFormat::Rgba8))
+                }
+            }
+
+            let html = r#"<html><body style="margin:0">
+                    <p>Some text to read</p>
+                    <div style="height:3000px;background:#eee"></div>
+                </body></html>"#;
+            let zoom_works = Arc::new(AtomicBool::new(false));
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_rasterizer(
+                Box::new(FailsToZoom {
+                    zoom_works: Arc::clone(&zoom_works),
+                    next: AtomicU64::new(1),
+                }),
+                RasterStrategy::Sequential,
+            );
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 512,
+                height: 1024,
+            });
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc), None);
+            ctx.invalidate_raster_if_dpr_changed(1);
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            let zoomed = CompositeView {
+                scroll: (0.0, 0.0),
+                origin: (100.0, 200.0),
+                size: (128.0, 256.0),
+                scale: 4.0,
+            };
+            ctx.update_zoom_tiles(&zoomed, true);
+            let soft = ctx.placed_gpu_tiles(&zoomed);
+            assert!(
+                soft.iter().all(|t| t.width != 128.0),
+                "no zoom tile was drawn, so the page's own tiles show"
+            );
+            assert_covered(&soft, &zoomed);
+
+            zoom_works.store(true, Ordering::Relaxed);
+            assert!(ctx.update_zoom_tiles(&zoomed, true), "the failed tiles are tried again");
+            let sharp = ctx.placed_gpu_tiles(&zoomed);
+            assert!(!sharp.is_empty() && sharp.iter().all(|t| t.width == 128.0));
+            assert_covered(&sharp, &zoomed);
+        }
+
         /// Every point of the view lands on a tile that scrolls with the page: no hole.
         fn assert_covered(tiles: &[PlacedGpuTile], view: &CompositeView) {
             use gosub_render_pipeline::render::backend::TileAnchor;

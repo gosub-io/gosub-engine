@@ -31,6 +31,16 @@ pub(crate) const ZOOM_TILE_PX: f64 = 512.0;
 /// (layer, column, row) on the zoom grid.
 type Key = (u64, i64, i64);
 
+/// What rasterizing one cell gave.
+enum Cell {
+    /// Nothing paints there.
+    Empty,
+    Drawn(TilePixels),
+    /// The rasterizer gave nothing back: left out, so the page's tiles show there and the next
+    /// fill tries again.
+    Failed,
+}
+
 /// The zoom tiles of one scale, for the page content of one pipeline pass.
 pub(crate) struct ZoomTiles {
     /// Texture pixels per CSS px.
@@ -129,7 +139,12 @@ impl ZoomTiles {
                     Painter::new(Arc::clone(&tile_list.layer_list), rasterizer.font_system())
                         .with_shape_cache(Arc::clone(&tile_list.shape_cache))
                 });
-                let pixels = self.rasterize(key, layer, tile_list, painter, paint_state, rasterizer, media_store);
+                let pixels = match self.rasterize(key, layer, tile_list, painter, paint_state, rasterizer, media_store)
+                {
+                    Cell::Empty => None,
+                    Cell::Drawn(pixels) => Some(pixels),
+                    Cell::Failed => continue,
+                };
                 self.tiles.insert(key, pixels);
                 changed = true;
             }
@@ -168,7 +183,7 @@ impl ZoomTiles {
         paint_state: &BrowserState,
         rasterizer: &(dyn Rasterable + Send + Sync),
         media_store: &MediaStore,
-    ) -> Option<TilePixels> {
+    ) -> Cell {
         let rect = self.cell_rect(key);
         // The page grid has already worked out which elements paint where; any element that
         // reaches this cell is in a page tile that does.
@@ -179,12 +194,14 @@ impl ZoomTiles {
             .flat_map(|tile| tile.elements.iter().map(|e| e.id))
             .collect();
         if near.is_empty() {
-            return None;
+            return Cell::Empty;
         }
         // In the layer's paint order, which the page tiles keep but their union does not.
         let elements: Vec<TiledLayoutElement> = {
             let layers = tile_list.layer_list.layers.read();
-            let layer = layers.get(&layer)?;
+            let Some(layer) = layers.get(&layer) else {
+                return Cell::Failed;
+            };
             layer
                 .elements
                 .iter()
@@ -211,8 +228,10 @@ impl ZoomTiles {
             bgcolor: None,
         };
         let mut store = TextureStore::new();
-        let id = rasterizer.rasterize_at(&tile, self.scale, &mut store, media_store)?;
-        store.get(id).map(|t| t.pixels.clone())
+        let pixels = rasterizer
+            .rasterize_at(&tile, self.scale, &mut store, media_store)
+            .and_then(|id| store.get(id).map(|t| t.pixels.clone()));
+        pixels.map_or(Cell::Failed, Cell::Drawn)
     }
 }
 
