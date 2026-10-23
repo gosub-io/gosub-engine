@@ -1240,6 +1240,12 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             self.config_store.get_uint("renderer.tile.size") as f64,
         ));
 
+        // A zoom tile is painted from the page tiles under it, and a cell can reach past the
+        // window those covered. Once the grid moves, what lies there may have tiles, so the
+        // cells that crossed the old edge are painted again on the next fill.
+        if let (Some(zoom), Some((lo, hi))) = (self.zoom_tiles.as_mut(), self.tile_budget.rastered_band()) {
+            zoom.forget_outside_rows(lo, hi);
+        }
         self.note_rastered_window();
         // Anything evicted that fell back inside the window has just been rastered again.
         self.tile_budget.note_full_raster();
@@ -4905,6 +4911,96 @@ mod tests {
             let sharp = ctx.placed_gpu_tiles(&zoomed);
             assert!(!sharp.is_empty() && sharp.iter().all(|t| t.width == 128.0));
             assert_covered(&sharp, &zoomed);
+        }
+
+        /// A zoom tile is painted from the page tiles under it, and those only cover the raster
+        /// window. A tile that reached past the window is painted again once the window moves
+        /// over what it missed, instead of showing it missing when scrolled to.
+        #[test]
+        fn a_zoom_tile_past_the_window_is_painted_again_when_the_window_moves() {
+            use gosub_render_pipeline::common::texture::{GpuTile, TextureId};
+            use gosub_render_pipeline::common::texture_store::TextureStore;
+            use gosub_render_pipeline::render::backend::PixelFormat;
+            use gosub_render_pipeline::tiler::Tile;
+
+            /// GPU tiles; for every zoom tile, its top and how many elements it painted.
+            struct ElementRecorder {
+                zoomed: Arc<parking_lot::Mutex<Vec<(f64, usize)>>>,
+            }
+            impl Rasterable for ElementRecorder {
+                fn rasterize(&self, tile: &Tile, store: &mut TextureStore, media: &MediaStore) -> Option<TextureId> {
+                    self.rasterize_at(tile, 1.0, store, media)
+                }
+                fn rasterize_at(
+                    &self,
+                    tile: &Tile,
+                    scale: f64,
+                    store: &mut TextureStore,
+                    _media: &MediaStore,
+                ) -> Option<TextureId> {
+                    if scale != 1.0 {
+                        self.zoomed.lock().push((tile.rect.y, tile.elements.len()));
+                    }
+                    let px = |v: f64| (v * scale).round() as usize;
+                    let gpu = GpuTile::untracked(1);
+                    Some(store.add_gpu(px(tile.rect.width), px(tile.rect.height), gpu, PixelFormat::Rgba8))
+                }
+            }
+
+            // The red box sits below the first window and inside the zoom tile over 490 px.
+            let html = r#"<html><body style="margin:0">
+                    <div style="height:800px;background:#eee"></div>
+                    <div style="height:50px;background:#f00"></div>
+                    <div style="height:2000px;background:#eee"></div>
+                </body></html>"#;
+            let zoomed = Arc::new(parking_lot::Mutex::new(Vec::new()));
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_rasterizer(
+                Box::new(ElementRecorder {
+                    zoomed: Arc::clone(&zoomed),
+                }),
+                RasterStrategy::Sequential,
+            );
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 512,
+                height: 200,
+            });
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc), None);
+            ctx.invalidate_raster_if_dpr_changed(1);
+            // The window is 110..710, so the grid ends at 768, above the red box.
+            ctx.set_scroll(0.0, 310.0);
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            // At 1.05 a zoom tile is 512 / 1.05 = 487.6 px: the one over 490 reaches to 975.
+            let view = |scroll_y: f64, origin_y: f64| CompositeView {
+                scroll: (0.0, scroll_y),
+                origin: (0.0, origin_y),
+                size: (100.0, 20.0),
+                scale: 1.05,
+            };
+            assert!(ctx.update_zoom_tiles(&view(310.0, 180.0), true));
+            let Some(&(top, before)) = zoomed.lock().last() else {
+                unreachable!("the zoom tile on screen is rasterized");
+            };
+            assert!((top - 512.0 / 1.05).abs() < 1e-6);
+
+            // The window moves to 400..1000, over the red box.
+            zoomed.lock().clear();
+            ctx.set_scroll(0.0, 600.0);
+            assert!(ctx.raster_dirty, "scrolling past the slack must raster");
+            ctx.rebuild_pipeline_cache_if_needed();
+            assert!(ctx.update_zoom_tiles(&view(600.0, 210.0), true));
+            let Some(&(_, after)) = zoomed.lock().iter().find(|(y, _)| *y == top) else {
+                unreachable!("the zoom tile that reached past the old window is painted again");
+            };
+            assert!(
+                after > before,
+                "painted again from the moved grid, the tile holds the red box ({after} > {before} elements)"
+            );
         }
 
         /// Every point of the view lands on a tile that scrolls with the page: no hole.

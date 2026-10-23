@@ -173,6 +173,14 @@ impl ZoomTiles {
         self.tiles.retain(|&(_, c, r), _| !overlaps(c, r, side, &rect));
     }
 
+    /// Let go of the tiles that reach outside rows `lo..hi`, in every layer: the page grid they
+    /// were painted from ended there, so they miss whatever lies beyond it.
+    pub(crate) fn forget_outside_rows(&mut self, lo: f64, hi: f64) {
+        let side = self.side;
+        self.tiles
+            .retain(|&(_, _, r), _| r as f64 * side >= lo && (r + 1) as f64 * side <= hi);
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn rasterize(
         &self,
