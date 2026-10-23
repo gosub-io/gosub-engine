@@ -17,9 +17,9 @@ pub struct PlacedTileTex<'a> {
     /// Position on the page, in CSS pixels.
     pub page_x: f32,
     pub page_y: f32,
-    /// Size of the tile's texture, in physical pixels.
-    pub width: u32,
-    pub height: u32,
+    /// Size on the page, in CSS pixels; the texture is stretched over it, whatever its own size.
+    pub width: f32,
+    pub height: f32,
     /// Group opacity (1.0 = opaque) of the tile's layer; the blit shader fades the tile by it.
     pub opacity: f32,
     /// How the tile responds to scroll (normal flow vs. `position: fixed`).
@@ -218,9 +218,10 @@ pub struct GpuTileCompositor {
 impl GpuTileCompositor {
     /// Clear `target_view` to white and composite every tile in `tiles` where `view` puts it.
     ///
-    /// Positions are CSS pixels; the tiles' textures are physical ones, rasterized at `dpr`. Each
-    /// tile's edges land on whole target pixels, rounded the way the CPU compositor rounds, so
-    /// unzoomed both backends put a tile in the same place for the same scroll.
+    /// Positions and sizes are CSS pixels, and each texture is drawn over its tile's size whatever
+    /// scale it was rasterized at. Each tile's edges land on whole target pixels, rounded the way
+    /// the CPU compositor rounds, so unzoomed both backends put a tile in the same place for the
+    /// same scroll.
     #[allow(clippy::too_many_arguments)]
     pub fn composite(
         &mut self,
@@ -231,7 +232,6 @@ impl GpuTileCompositor {
         target_w: u32,
         target_h: u32,
         view: &CompositeView,
-        dpr: u32,
         tiles: &[PlacedTileTex<'_>],
     ) {
         if self.blit.as_ref().map(|b| b.target_format) != Some(target_format) {
@@ -274,9 +274,8 @@ impl GpuTileCompositor {
                     view.scroll.1,
                     tile.anchor,
                 );
-                let dpr = dpr as f64;
                 let uniform = BlitUniform {
-                    dst: view.target_rect(ex, ey, tile.width as f64 / dpr, tile.height as f64 / dpr),
+                    dst: view.target_rect(ex, ey, tile.width as f64, tile.height as f64),
                     viewport: [target_w as f32, target_h as f32],
                     opacity: tile.opacity,
                 };
@@ -429,8 +428,8 @@ mod tests {
                 view: &red_view,
                 page_x: 0.0,
                 page_y: 0.0,
-                width: 256,
-                height: 256,
+                width: 256.0,
+                height: 256.0,
                 opacity: 1.0,
                 anchor: TileAnchor::Scroll,
             },
@@ -438,8 +437,8 @@ mod tests {
                 view: &blue_view,
                 page_x: 256.0,
                 page_y: 0.0,
-                width: 256,
-                height: 256,
+                width: 256.0,
+                height: 256.0,
                 opacity: 1.0,
                 anchor: TileAnchor::Scroll,
             },
@@ -454,7 +453,6 @@ mod tests {
             tw,
             th,
             &CompositeView::unzoomed((tw, th), (0.0, 0.0), 1.0),
-            1,
             &tiles,
         );
 
@@ -480,9 +478,15 @@ mod tests {
         // At 2x the same 256px textures are 128 CSS px tiles: the blue one, at CSS x 128, must
         // start at physical pixel 256, not 128.
         let hidpi = [
-            PlacedTileTex { ..tiles[0] },
+            PlacedTileTex {
+                width: 128.0,
+                height: 128.0,
+                ..tiles[0]
+            },
             PlacedTileTex {
                 page_x: 128.0,
+                width: 128.0,
+                height: 128.0,
                 ..tiles[1]
             },
         ];
@@ -494,7 +498,6 @@ mod tests {
             tw,
             th,
             &CompositeView::unzoomed((tw / 2, th / 2), (0.0, 0.0), 2.0),
-            2,
             &hidpi,
         );
         let pixels = read_back(&device, &queue, &target, tw, th);
@@ -506,6 +509,40 @@ mod tests {
         let (r1, _, b1) = at(256, 128);
         assert!(r0 > 180 && b0 < 80, "pixel 255 should be red, got r={r0} b={b0}");
         assert!(b1 > 180 && r1 < 80, "pixel 256 should be blue, got r={r1} b={b1}");
+
+        // Tiles rasterized at different scales sit side by side: a zoom draws sharper tiles next to
+        // ones it has not replaced yet. The blue texture holds 64 CSS px at 4x, so at 2x it ends
+        // at physical pixel 384, whatever size its texture is.
+        let mixed = [
+            PlacedTileTex { ..hidpi[0] },
+            PlacedTileTex {
+                width: 64.0,
+                height: 64.0,
+                ..hidpi[1]
+            },
+        ];
+        compositor.composite(
+            &device,
+            &queue,
+            &target_view,
+            wgpu::TextureFormat::Rgba8Unorm,
+            tw,
+            th,
+            &CompositeView::unzoomed((tw / 2, th / 2), (0.0, 0.0), 2.0),
+            &mixed,
+        );
+        let pixels = read_back(&device, &queue, &target, tw, th);
+        let at = |x: u32, y: u32| -> (u8, u8, u8) {
+            let o = ((y * tw + x) * 4) as usize;
+            (pixels[o], pixels[o + 1], pixels[o + 2])
+        };
+        let (r0, _, b0) = at(383, 64);
+        let (r1, g1, b1) = at(384, 64);
+        assert!(b0 > 180 && r0 < 80, "pixel 383 should be blue, got r={r0} b={b0}");
+        assert!(
+            r1 > 200 && g1 > 200 && b1 > 200,
+            "pixel 384 should be white, got ({r1},{g1},{b1})"
+        );
 
         // Zoomed in by a fraction, and the visual viewport a fraction of a pixel into the page: the
         // two tiles still meet, with no white column between them, and fill the frame.
@@ -523,7 +560,6 @@ mod tests {
             tw,
             th,
             &zoomed,
-            1,
             &tiles,
         );
         let pixels = read_back(&device, &queue, &target, tw, th);
@@ -551,7 +587,6 @@ mod tests {
             tw,
             th,
             &CompositeView::unzoomed((tw, th), (0.0, 0.0), 1.0),
-            1,
             &veiled,
         );
         let pixels = read_back(&device, &queue, &target, tw, th);

@@ -152,11 +152,22 @@ impl Rasterable for VelloRasterizer {
     }
 
     fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, media_store: &MediaStore) -> Option<TextureId> {
-        // Tiles are rasterized at physical pixels, like the CPU rasterizers: the scene is built
-        // in CSS pixels and drawn under the DPR scale into a texture `dpr` times the tile's size.
-        // `composite_tiles` places them in physical pixels to match.
         let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed).max(1);
-        let (width, height) = (tile.rect.width as u32 * dpr, tile.rect.height as u32 * dpr);
+        self.rasterize_at(tile, f64::from(dpr), texture_store, media_store)
+    }
+
+    fn rasterize_at(
+        &self,
+        tile: &Tile,
+        scale: f64,
+        texture_store: &mut TextureStore,
+        media_store: &MediaStore,
+    ) -> Option<TextureId> {
+        // Tiles are rasterized at physical pixels, like the CPU rasterizers: the scene is built
+        // in CSS pixels and drawn under the scale into a texture `scale` times the tile's size.
+        // A zoom tile's size is chosen to make that a whole number of pixels.
+        let px = |v: f64| ((v * scale).round() as u32).max(1);
+        let (width, height) = (px(tile.rect.width), px(tile.rect.height));
 
         let mut scene = Scene::new();
 
@@ -175,7 +186,7 @@ impl Rasterable for VelloRasterizer {
                 &element.paint_commands,
                 tile_size,
                 affine,
-                dpr as f64,
+                scale,
                 (0.0, 0.0),
                 media_store,
             );
@@ -183,9 +194,9 @@ impl Rasterable for VelloRasterizer {
 
         scene.pop_layer();
 
-        let scene = if dpr > 1 {
+        let scene = if scale != 1.0 {
             let mut scaled = Scene::new();
-            scaled.append(&scene, Some(Affine::scale(dpr as f64)));
+            scaled.append(&scene, Some(Affine::scale(scale)));
             scaled
         } else {
             scene

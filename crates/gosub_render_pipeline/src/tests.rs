@@ -4319,10 +4319,11 @@ mod rendertree_from_engine {
         let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
           <label id="l">Name <div id="d" style="height: 20px">x</div> <span id="t">tail</span></label>
           <p><label>Date <input id="i" style="display: block"></label></p>
-          <p><span>Wrapped <label>in two <div id="nd">nested</div></label></span></p>
+          <div id="w"><span>Wrapped <label>in two <div id="nd">nested</div></label></span></div>
           <p><label id="l3">Plain <input id="i3"></label></p>
         </body></html>"#;
-        let [d, t, i, nd, l3, i3] = border_boxes(html, &["d", "t", "i", "nd", "l3", "i3"])[..] else {
+        // A `<div>` start tag closes an open `<p>`, so the nested case sits in a `<div>`.
+        let [d, t, i, w, nd, l3, i3] = border_boxes(html, &["d", "t", "i", "w", "nd", "l3", "i3"])[..] else {
             unreachable!()
         };
 
@@ -4339,7 +4340,10 @@ mod rendertree_from_engine {
             "the text after the block starts a line below it, got {t:?}"
         );
         assert!(i.x < 0.5, "a block input goes under its label text, got {i:?}");
-        assert!(nd.x < 0.5, "an inline around the label is broken too, got {nd:?}");
+        assert!(
+            nd.x < 0.5 && nd.y >= w.y + 15.0,
+            "an inline around the label is broken too, got {nd:?} in {w:?}"
+        );
         assert!(
             (i3.y - l3.y).abs() < 0.5 && i3.x > 0.0,
             "an inline input stays beside its label text, got {l3:?} and {i3:?}"
