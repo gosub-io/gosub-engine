@@ -1996,6 +1996,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             self.media_store.clone(),
             self.config_store.get_uint("renderer.tile.size") as f64,
             self.repaint_band(),
+            f64::from(self.cache_dpr.unwrap_or(1).max(1)),
         ));
         self.enforce_tile_budget(false);
     }
@@ -3357,6 +3358,9 @@ fn hit_region_at(
 /// `dirty_nodes` are the DOM nodes whose cached styles are stale; only those are re-evaluated,
 /// so the rest of a repainted tile keeps its cached CSS. Used by `:hover` and `:focus`, and by
 /// anything else that changes appearance without moving a box.
+///
+/// `raster_dpr` is the device pixel ratio `prev_baked_tiles` were rasterized at: their sizes are
+/// in device pixels, the damage in CSS ones.
 #[allow(clippy::too_many_arguments)]
 fn pipeline_repaint_damaged(
     layer_list: Arc<LayerList>,
@@ -3371,6 +3375,7 @@ fn pipeline_repaint_damaged(
     media_store: Arc<MediaStore>,
     tile_size: f64,
     band: TileBand,
+    raster_dpr: f64,
 ) -> PipelineCache {
     // Stage 4: tiling — reuse existing LayerList, no layout work. Only `band` gets tiles; damage
     // outside it is dropped below rather than repainted.
@@ -3438,10 +3443,12 @@ fn pipeline_repaint_damaged(
         // go. Nothing shows the gap: the band covers every row scrolling can reach without a new
         // pass, and that pass paints whatever has no baked tile.
         clean_baked.extend(prev_by_pos.into_values().filter(|baked| {
+            let w = f64::from(baked.width) / raster_dpr;
+            let h = f64::from(baked.height) / raster_dpr;
             !(baked.page_x < damage_rect.x + damage_rect.width
-                && baked.page_x + baked.width as f64 > damage_rect.x
+                && baked.page_x + w > damage_rect.x
                 && baked.page_y < damage_rect.y + damage_rect.height
-                && baked.page_y + baked.height as f64 > damage_rect.y)
+                && baked.page_y + h > damage_rect.y)
         }));
     } else {
         // Nothing localised to repaint - carry every previous tile forward, but re-emit in
@@ -5445,6 +5452,46 @@ mod tests {
                 unreachable!("pipeline cache must exist");
             };
             assert!(has_tile_near(cache, 0.0, 0.5), "the viewport must be baked");
+        }
+
+        /// Paints every tile at twice its size, as a rasterizer does at a device pixel ratio of 2.
+        struct DoubleDensityRasterizer;
+
+        impl Rasterable for DoubleDensityRasterizer {
+            fn rasterize(&self, tile: &Tile, store: &mut TextureStore, _media: &MediaStore) -> Option<TextureId> {
+                let (w, h) = (tile.rect.width as usize * 2, tile.rect.height as usize * 2);
+                Some(store.add(w, h, vec![0xFFu8; w * h * 4], PixelFormat::PreMulArgb32))
+            }
+        }
+
+        /// A repaint drops the baked tiles outside the grid that the damage touches. At a device
+        /// pixel ratio of 2 a tile's pixels are twice its size on the page; measured in pixels,
+        /// its neighbours above and to the left would look damaged too and be dropped.
+        #[test]
+        fn a_repaint_at_dpr_2_keeps_the_baked_tiles_next_to_the_damage() {
+            let (mut ctx, _calls) = tall_page_context(128);
+            ctx.set_rasterizer(Box::new(DoubleDensityRasterizer), RasterStrategy::ParallelCached);
+            ctx.invalidate_raster_if_dpr_changed(2);
+            ctx.rebuild_pipeline_cache_if_needed();
+            ctx.set_scroll(0.0, 5000.0);
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            let baked_at = |ctx: &BrowsingContext<DefaultRenderConfig>, x: f64, y: f64| {
+                ctx.pipeline_cache
+                    .as_ref()
+                    .is_some_and(|c| c.tiles.iter().any(|t| t.page_x == x && t.page_y == y))
+            };
+            assert!(baked_at(&ctx, 0.0, 0.0) && baked_at(&ctx, 256.0, 256.0));
+
+            // Inside the tile at (256, 256) alone, far outside the grid around the viewport.
+            ctx.damage.escalate(DamageLevel::Paint);
+            ctx.damage.add_rect(PipelineRect::new(300.0, 300.0, 10.0, 10.0));
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            assert!(!baked_at(&ctx, 256.0, 256.0), "the damaged tile is stale and must go");
+            for (x, y) in [(0.0, 0.0), (256.0, 0.0), (0.0, 256.0)] {
+                assert!(baked_at(&ctx, x, y), "the undamaged tile at ({x}, {y}) must stay baked");
+            }
         }
 
         #[test]
