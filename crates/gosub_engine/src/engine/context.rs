@@ -48,7 +48,8 @@ use gosub_render_pipeline::render::backend::{
     anchored_tile_pos, CachedTile, CompositeView, ExternalHandle, PlacedGpuTile,
 };
 use gosub_render_pipeline::rendertree_builder::RenderTree;
-use gosub_render_pipeline::tile_budget::defer_tiles_outside_window;
+use gosub_render_pipeline::tile_budget::{defer_tiles_outside_window, window_band};
+use gosub_render_pipeline::tiler::TileBand;
 use gosub_render_pipeline::tiler::{TileList, TileState};
 use gosub_shared::node::NodeId;
 use gosub_shared::{timing_start, timing_stop};
@@ -1226,6 +1227,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             return;
         };
 
+        // A zoom tile is painted from the page tiles under it, and a cell can reach past the
+        // rows those covered. Once the grid moves, what lies there may have tiles, so the cells
+        // over the rows it gained are painted again on the next fill.
+        let tiled_before = self.zoom_tiles.is_some().then(|| tile_list.tiled_rows());
         self.pipeline_cache = Some(pipeline_extend_raster(
             tile_list,
             page_height,
@@ -1238,7 +1243,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             self.media_store.clone(),
             self.config_store.get_uint("renderer.tile.size") as f64,
         ));
-
+        let tiled_after = self.pipeline_cache.as_ref().and_then(|c| c.tile_list.as_ref());
+        if let (Some(zoom), Some(before), Some(after)) = (self.zoom_tiles.as_mut(), tiled_before, tiled_after) {
+            zoom.forget_gained_rows(&before, &after.tiled_rows());
+        }
         self.note_rastered_window();
         // Anything evicted that fell back inside the window has just been rastered again.
         self.tile_budget.note_full_raster();
@@ -1988,8 +1996,28 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             prev_tile_cache,
             self.media_store.clone(),
             self.config_store.get_uint("renderer.tile.size") as f64,
+            self.repaint_band(),
+            f64::from(self.cache_dpr.unwrap_or(1).max(1)),
         ));
         self.enforce_tile_budget(false);
+    }
+
+    /// The tiles a paint-only repaint covers: the window around the viewport, stretched over the
+    /// rows last rasterized. Scrolling inside those composites what is baked without another
+    /// pass, so a damaged tile there that is not repainted would show stale until then. Rows
+    /// rasterized away from the window (a jump not yet followed by its pass) are left out: that
+    /// pass re-rasters around the viewport, and stretching to them would tile the gap between.
+    fn repaint_band(&self) -> TileBand {
+        let vp_h = self.viewport.height as f64;
+        let band = window_band(self.scroll_y, vp_h);
+        match (band, self.tile_budget.rastered_band()) {
+            (TileBand::Rows { lo, hi, vp_h }, Some((rlo, rhi))) if rlo < hi && rhi > lo => TileBand::Rows {
+                lo: lo.min(rlo),
+                hi: hi.max(rhi),
+                vp_h,
+            },
+            (band, _) => band,
+        }
     }
 
     /// Rebuild stages 1-6 (pipeline cache) if content has changed, without building a display
@@ -2914,7 +2942,7 @@ fn pipeline_build_cache(
     let ts4 = timing_start!(gosub_shared::timing::Timing::PipelineTiling);
     let mut tile_list = TileList::from_arc(layer_list, PipelineDimension::new(tile_size, tile_size));
     let saved_layer_list = Arc::clone(&tile_list.layer_list);
-    tile_list.generate();
+    tile_list.cover(window_band(scroll_y, viewport.height as f64));
     timing_stop!(ts4);
 
     // Park the rest of the page: stages 5 and 6 below only touch dirty tiles.
@@ -2991,21 +3019,24 @@ fn pipeline_extend_raster(
 ) -> PipelineCache {
     let layer_list = Arc::clone(&tile_list.layer_list);
 
-    // Stage 4: reuse the grid the last pass built. A scroll moves neither a box nor a layer, and
-    // the grid is a pure function of the layer list and the tile size, so tiling again would
-    // produce the same tiles, the same element-to-tile assignment and the same R-tree - on a
-    // 29 000 px article, 1 201 tiles and 36 827 assignments, four fifths of it an outline lookup
-    // and an R-tree query per element. Only the per-tile state differs per pass, and the loop
-    // below sets it. Anything that can move a box (layout damage, a viewport resize, a DPR
-    // change) drops the cache instead, so nothing stale can reach here.
+    // Stage 4: reuse the grid the last pass built, moved to the new window. A scroll moves
+    // neither a box nor a layer, and a tile is a pure function of the layer list, the tile size
+    // and its cell, so the tiles still inside the window would come out the same - and so does
+    // the element index, the outline lookup and R-tree build that was four fifths of tiling a
+    // 29 000 px article. Only the rows the window gained are tiled, the rows it left are dropped,
+    // and the per-tile state the loop below sets is reset. Anything that can move a box (layout
+    // damage, a viewport resize, a DPR change) drops the cache instead, so nothing stale can
+    // reach here.
     let ts4 = timing_start!(gosub_shared::timing::Timing::PipelineExtendTiling);
     let dimension = PipelineDimension::new(tile_size, tile_size);
+    let band = window_band(scroll_y, viewport.height as f64);
     if tile_list.default_tile_dimension == dimension {
         tile_list.reset_states();
+        tile_list.cover(band);
     } else {
         // `renderer.tile.size` changed under us, and the grid is a function of it.
         tile_list = TileList::from_arc(Arc::clone(&layer_list), dimension);
-        tile_list.generate();
+        tile_list.cover(band);
         // Everything baked under the old size has to go with it. Both carry-over paths below
         // match on the tile's origin - the baked tiles on `(page_x, page_y, layer_id)`, the
         // pixel cache on that plus a hash of the paint commands - and neither says how big the
@@ -3032,6 +3063,10 @@ fn pipeline_extend_raster(
         tile.state = TileState::Ready;
         clean_baked.push(baked);
     }
+    // What is left was baked for rows outside the window, which have no tile now. The pixels
+    // are still good: keep them until the budget evicts them, so scrolling back composites them
+    // instead of rastering again.
+    clean_baked.extend(prev_by_pos.into_values());
     defer_tiles_outside_window(&mut tile_list, scroll_y, viewport.height as f64);
 
     // Paint across the full tile-grid width, not the viewport width: the grid's column count
@@ -3073,7 +3108,7 @@ fn pipeline_extend_raster(
         .chain(clean_baked)
         .map(|t| ((t.page_x.to_bits(), t.page_y.to_bits(), t.layer_id), t))
         .collect();
-    let all_baked_tiles = order_baked_tiles_by_layer(&tile_list, &layer_ids, full_page_rect, by_key);
+    let all_baked_tiles = order_baked_tiles_by_layer(&layer_ids, by_key);
     let cached_tiles = Arc::new(cpu_cached_tiles(&all_baked_tiles));
 
     PipelineCache {
@@ -3324,6 +3359,9 @@ fn hit_region_at(
 /// `dirty_nodes` are the DOM nodes whose cached styles are stale; only those are re-evaluated,
 /// so the rest of a repainted tile keeps its cached CSS. Used by `:hover` and `:focus`, and by
 /// anything else that changes appearance without moving a box.
+///
+/// `raster_dpr` is the device pixel ratio `prev_baked_tiles` were rasterized at: their sizes are
+/// in device pixels, the damage in CSS ones.
 #[allow(clippy::too_many_arguments)]
 fn pipeline_repaint_damaged(
     layer_list: Arc<LayerList>,
@@ -3337,11 +3375,14 @@ fn pipeline_repaint_damaged(
     prev_tile_cache: TilePixelCache,
     media_store: Arc<MediaStore>,
     tile_size: f64,
+    band: TileBand,
+    raster_dpr: f64,
 ) -> PipelineCache {
-    // Stage 4: tiling — reuse existing LayerList, no layout work.
+    // Stage 4: tiling — reuse existing LayerList, no layout work. Only `band` gets tiles; damage
+    // outside it is dropped below rather than repainted.
     let ts4 = timing_start!(gosub_shared::timing::Timing::PipelineHoverTiling);
     let mut tile_list = TileList::from_arc(Arc::clone(&layer_list), PipelineDimension::new(tile_size, tile_size));
-    tile_list.generate();
+    tile_list.cover(band);
     let total_tiles = tile_list.arena.len();
     timing_stop!(ts4);
 
@@ -3399,11 +3440,22 @@ fn pipeline_repaint_damaged(
                 clean_baked.push(baked);
             }
         }
+        // The rest was baked outside the band. Undamaged pixels stay; damaged ones are stale and
+        // go. Nothing shows the gap: the band covers every row scrolling can reach without a new
+        // pass, and that pass paints whatever has no baked tile.
+        clean_baked.extend(prev_by_pos.into_values().filter(|baked| {
+            let w = f64::from(baked.width) / raster_dpr;
+            let h = f64::from(baked.height) / raster_dpr;
+            !(baked.page_x < damage_rect.x + damage_rect.width
+                && baked.page_x + w > damage_rect.x
+                && baked.page_y < damage_rect.y + damage_rect.height
+                && baked.page_y + h > damage_rect.y)
+        }));
     } else {
         // Nothing localised to repaint - carry every previous tile forward, but re-emit in
         // back-to-front layer order (see order_baked_tiles_by_layer): `into_values()` is
         // unordered and would scramble overlapping-layer compositing.
-        let all_tiles = order_baked_tiles_by_layer(&tile_list, &layer_ids, full_page_rect, prev_by_pos);
+        let all_tiles = order_baked_tiles_by_layer(&layer_ids, prev_by_pos);
         let cached_tiles = Arc::new(cpu_cached_tiles(&all_tiles));
         return PipelineCache {
             tiles: all_tiles,
@@ -3450,7 +3502,7 @@ fn pipeline_repaint_damaged(
         .chain(clean_baked)
         .map(|t| ((t.page_x.to_bits(), t.page_y.to_bits(), t.layer_id), t))
         .collect();
-    let all_baked_tiles = order_baked_tiles_by_layer(&tile_list, &layer_ids, full_page_rect, by_key);
+    let all_baked_tiles = order_baked_tiles_by_layer(&layer_ids, by_key);
 
     let cached_tiles = Arc::new(cpu_cached_tiles(&all_baked_tiles));
 
@@ -3519,27 +3571,25 @@ fn paint_state(layer_count: usize, viewport: PipelineRect) -> BrowserState {
 /// produces them). The compositor blits tiles in list order with source-over, so overlapping
 /// layers (e.g. the base layer and a `position: sticky`/`fixed` header sharing a page position)
 /// must stay layer-ordered or a lower tile paints over a higher one. `by_key` maps
-/// `(page_x bits, page_y bits, layer_id)` → tile; positions with no baked tile (empty/transparent)
-/// are simply skipped.
+/// `(page_x bits, page_y bits, layer_id)` → tile. Ordering does not go through the tile grid:
+/// most baked tiles lie outside the band it covers. Within a layer the tiles do not overlap, so
+/// row order there only makes the list deterministic. A tile of a layer that is gone is dropped.
 fn order_baked_tiles_by_layer(
-    tile_list: &TileList,
     layer_ids: &[LayerId],
-    full_page_rect: PipelineRect,
-    mut by_key: std::collections::HashMap<(u64, u64, u64), BakedTile>,
+    by_key: std::collections::HashMap<(u64, u64, u64), BakedTile>,
 ) -> Vec<BakedTile> {
-    let mut ordered = Vec::with_capacity(by_key.len());
-    for &layer_id in layer_ids {
-        for tile_id in tile_list.get_intersecting_tiles(layer_id, full_page_rect) {
-            let Some(tile) = tile_list.arena.get(&tile_id) else {
-                continue;
-            };
-            let key = (tile.rect.x.to_bits(), tile.rect.y.to_bits(), tile.layer_id.as_u64());
-            if let Some(t) = by_key.remove(&key) {
-                ordered.push(t);
-            }
-        }
-    }
-    ordered
+    let rank: std::collections::HashMap<u64, usize> =
+        layer_ids.iter().enumerate().map(|(i, id)| (id.as_u64(), i)).collect();
+    let mut ordered: Vec<(usize, BakedTile)> = by_key
+        .into_values()
+        .filter_map(|tile| rank.get(&tile.layer_id).map(|&r| (r, tile)))
+        .collect();
+    ordered.sort_by(|(ra, a), (rb, b)| {
+        ra.cmp(rb)
+            .then(a.page_y.total_cmp(&b.page_y))
+            .then(a.page_x.total_cmp(&b.page_x))
+    });
+    ordered.into_iter().map(|(_, tile)| tile).collect()
 }
 
 /// Stage 7: composite visible tiles from the cache into `rl`.
@@ -4871,6 +4921,107 @@ mod tests {
             assert_covered(&sharp, &zoomed);
         }
 
+        /// A zoom tile is painted from the page tiles under it, and those only cover the raster
+        /// window. A tile that reached past the window is painted again once the window moves
+        /// over what it missed, instead of showing it missing when scrolled to. A fixed layer's
+        /// tiles cover the same rows wherever the page is scrolled, so its zoom tiles stay.
+        #[test]
+        fn a_zoom_tile_past_the_window_is_painted_again_when_the_window_moves() {
+            use gosub_render_pipeline::common::texture::{GpuTile, TextureId};
+            use gosub_render_pipeline::common::texture_store::TextureStore;
+            use gosub_render_pipeline::render::backend::PixelFormat;
+            use gosub_render_pipeline::tiler::Tile;
+
+            /// GPU tiles; for every zoom tile, its top and how many elements it painted.
+            struct ElementRecorder {
+                zoomed: Arc<parking_lot::Mutex<Vec<(f64, usize)>>>,
+            }
+            impl Rasterable for ElementRecorder {
+                fn rasterize(&self, tile: &Tile, store: &mut TextureStore, media: &MediaStore) -> Option<TextureId> {
+                    self.rasterize_at(tile, 1.0, store, media)
+                }
+                fn rasterize_at(
+                    &self,
+                    tile: &Tile,
+                    scale: f64,
+                    store: &mut TextureStore,
+                    _media: &MediaStore,
+                ) -> Option<TextureId> {
+                    if scale != 1.0 {
+                        self.zoomed.lock().push((tile.rect.y, tile.elements.len()));
+                    }
+                    let px = |v: f64| (v * scale).round() as usize;
+                    let gpu = GpuTile::untracked(1);
+                    Some(store.add_gpu(px(tile.rect.width), px(tile.rect.height), gpu, PixelFormat::Rgba8))
+                }
+            }
+
+            // The red box sits below the first window and inside the zoom tile over 490 px.
+            let html = r#"<html><body style="margin:0">
+                    <div style="position:fixed;top:0;height:40px;width:100%;background:#00f"></div>
+                    <div style="height:800px;background:#eee"></div>
+                    <div style="height:50px;background:#f00"></div>
+                    <div style="height:2000px;background:#eee"></div>
+                </body></html>"#;
+            let zoomed = Arc::new(parking_lot::Mutex::new(Vec::new()));
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_rasterizer(
+                Box::new(ElementRecorder {
+                    zoomed: Arc::clone(&zoomed),
+                }),
+                RasterStrategy::Sequential,
+            );
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 512,
+                height: 200,
+            });
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc), None);
+            ctx.invalidate_raster_if_dpr_changed(1);
+            // The window is 110..710, so the grid ends at 768, above the red box.
+            ctx.set_scroll(0.0, 310.0);
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            // At 1.05 a zoom tile is 512 / 1.05 = 487.6 px: the one over 490 reaches to 975, and
+            // stays on screen when the page scrolls to 600. So does the fixed header's.
+            let top = 512.0 / 1.05;
+            let view = |scroll_y: f64| CompositeView {
+                scroll: (0.0, scroll_y),
+                origin: (0.0, 180.0),
+                size: (100.0, 20.0),
+                scale: 1.05,
+            };
+            assert!(ctx.update_zoom_tiles(&view(310.0), true));
+            let Some(&(_, before)) = zoomed.lock().iter().find(|(y, _)| *y == top) else {
+                unreachable!("the zoom tile on screen is rasterized");
+            };
+            assert!(
+                zoomed.lock().iter().any(|(y, _)| *y == 0.0),
+                "the fixed header has a zoom tile"
+            );
+
+            // The window moves to 400..1000, over the red box.
+            zoomed.lock().clear();
+            ctx.set_scroll(0.0, 600.0);
+            assert!(ctx.raster_dirty, "scrolling past the slack must raster");
+            ctx.rebuild_pipeline_cache_if_needed();
+            assert!(ctx.update_zoom_tiles(&view(600.0), true));
+            let Some(&(_, after)) = zoomed.lock().iter().find(|(y, _)| *y == top) else {
+                unreachable!("the zoom tile that reached past the old window is painted again");
+            };
+            assert!(
+                after > before,
+                "painted again from the moved grid, the tile holds the red box ({after} > {before} elements)"
+            );
+            assert!(
+                !zoomed.lock().iter().any(|(y, _)| *y == 0.0),
+                "the fixed header's zoom tile is kept"
+            );
+        }
+
         /// Every point of the view lands on a tile that scrolls with the page: no hole.
         fn assert_covered(tiles: &[PlacedGpuTile], view: &CompositeView) {
             use gosub_render_pipeline::render::backend::TileAnchor;
@@ -5188,49 +5339,55 @@ mod tests {
             assert!(!ctx.raster_dirty, "the extension must satisfy the scroll");
         }
 
-        /// The grid is a pure function of the layer list and the tile size, and a scroll changes
-        /// neither, so an extension must reuse it rather than tile the page again. `generate`
-        /// hands out fresh ids from a running counter, so a regeneration would replace every
-        /// id - which is what this watches.
-        #[test]
-        fn extending_the_window_reuses_the_tile_grid() {
-            /// Every tile by id, with the layer and page position it was generated for, so a
-            /// regenerated grid (new ids) and a moved one (same ids, other geometry) both show.
-            fn grid(ctx: &BrowsingContext<DefaultRenderConfig>) -> std::collections::BTreeSet<(String, u64, u64, u64)> {
-                let Some(cache) = ctx.pipeline_cache.as_ref() else {
-                    unreachable!("pipeline cache must exist");
-                };
-                let Some(tile_list) = cache.tile_list.as_ref() else {
-                    unreachable!("a local render keeps its tile grid");
-                };
-                tile_list
-                    .arena
-                    .iter()
-                    .map(|(id, tile)| {
-                        (
-                            id.to_string(),
-                            tile.layer_id.as_u64(),
-                            tile.rect.x.to_bits(),
-                            tile.rect.y.to_bits(),
-                        )
-                    })
-                    .collect()
-            }
+        /// Every tile by layer and page position, with its id: a tile rebuilt in place gets a
+        /// new id from the running counter, so this shows both a moved and a rebuilt grid.
+        fn grid(ctx: &BrowsingContext<DefaultRenderConfig>) -> std::collections::BTreeMap<(u64, u64, u64), String> {
+            let Some(cache) = ctx.pipeline_cache.as_ref() else {
+                unreachable!("pipeline cache must exist");
+            };
+            let Some(tile_list) = cache.tile_list.as_ref() else {
+                unreachable!("a local render keeps its tile grid");
+            };
+            tile_list
+                .arena
+                .iter()
+                .map(|(id, tile)| {
+                    (
+                        (tile.layer_id.as_u64(), tile.rect.x.to_bits(), tile.rect.y.to_bits()),
+                        id.to_string(),
+                    )
+                })
+                .collect()
+        }
 
+        /// A scroll moves neither a box nor a layer, so an extension keeps the tiles still inside
+        /// the window and only tiles the rows it gained. The rows it left lose their tiles: the
+        /// grid follows the viewport, however long the page is (#1393).
+        #[test]
+        fn extending_the_window_moves_the_tile_grid() {
             let (mut ctx, _calls) = tall_page_context(128);
             ctx.rebuild_pipeline_cache_if_needed();
             let before = grid(&ctx);
             assert!(!before.is_empty(), "a 10 000 px page must produce tiles");
 
-            ctx.set_scroll(0.0, 5000.0);
-            assert!(ctx.raster_dirty, "scrolling to unbaked content must raster");
+            // Past the slack, but still overlapping the first window.
+            ctx.set_scroll(0.0, VP_H as f64 * 1.5);
+            assert!(ctx.raster_dirty, "scrolling past the slack must raster");
             ctx.rebuild_pipeline_cache_if_needed();
+            let after = grid(&ctx);
 
-            assert_eq!(before, grid(&ctx), "the extension must not rebuild the tile grid");
+            let kept: Vec<_> = after.iter().filter(|(pos, _)| before.contains_key(*pos)).collect();
+            assert!(!kept.is_empty(), "the windows overlap, so some tiles must stay");
+            for (pos, id) in &kept {
+                assert_eq!(&before[*pos], *id, "a tile still in the window must not be tiled again");
+            }
+            assert!(after.len() > kept.len(), "the rows the window gained must get tiles");
 
-            // A reused grid must not accumulate the commands of everything it ever painted:
-            // however far the page is scrolled, only what the last pass painted may hold any.
-            let mut y = 5000.0;
+            // However far the page is scrolled, the grid stays a window's worth of tiles, and only
+            // what the last pass painted holds paint commands: after the jump, one new row a step.
+            ctx.set_scroll(0.0, 5000.0);
+            ctx.rebuild_pipeline_cache_if_needed();
+            let mut y = 5000.0 + VP_H as f64;
             while y < 10_000.0 {
                 ctx.set_scroll(0.0, y);
                 ctx.rebuild_pipeline_cache_if_needed();
@@ -5240,19 +5397,113 @@ mod tests {
                 let Some(tile_list) = cache.tile_list.as_ref() else {
                     unreachable!("a local render keeps its tile grid");
                 };
+                let total = tile_list.arena.len();
+                assert!(
+                    total <= before.len() * 2,
+                    "at scroll {y} the grid holds {total} tiles, a window holds about {}",
+                    before.len()
+                );
                 let holding = tile_list
                     .arena
                     .values()
                     .filter(|t| t.elements.iter().any(|e| !e.paint_commands.is_empty()))
                     .count();
-                let total = tile_list.arena.len();
                 assert!(
-                    holding * 4 < total,
-                    "at scroll {y} the reused grid holds commands for {holding} of {total} tiles,                      so a pass is not releasing what it painted"
+                    holding * 2 < total,
+                    "at scroll {y} the reused grid holds commands for {holding} of {total} tiles, \
+                     so a pass is not releasing what it painted"
+                );
+                // Against the window last rastered: near the end of the page a step can stay
+                // inside it and run no pass.
+                let Some((lo, hi)) = ctx.tile_budget.rastered_band() else {
+                    unreachable!("a pass notes the window it rastered");
+                };
+                assert!(
+                    tile_list
+                        .arena
+                        .values()
+                        .all(|t| t.rect.y < hi && t.rect.y + t.rect.height > lo),
+                    "at scroll {y} the grid kept a tile outside the window"
                 );
                 y += VP_H as f64;
             }
-            assert_eq!(before, grid(&ctx), "scrolling the page must not rebuild the tile grid");
+        }
+
+        /// The grid drops the rows a scroll leaves, but their pixels stay baked until the budget
+        /// evicts them: scrolling back composites them instead of rastering the page again.
+        #[test]
+        fn scrolling_back_reuses_what_was_baked_outside_the_grid() {
+            let (mut ctx, raster_calls) = tall_page_context(128);
+            ctx.rebuild_pipeline_cache_if_needed();
+            assert!(raster_calls.swap(0, Ordering::Relaxed) > 0);
+
+            ctx.set_scroll(0.0, 5000.0);
+            ctx.rebuild_pipeline_cache_if_needed();
+            assert!(
+                raster_calls.swap(0, Ordering::Relaxed) > 0,
+                "the new window must be rastered"
+            );
+            let Some(cache) = ctx.pipeline_cache.as_ref() else {
+                unreachable!("pipeline cache must exist after extend");
+            };
+            assert!(
+                has_tile_near(cache, 0.0, 0.5),
+                "the top of the page must still be baked"
+            );
+
+            ctx.set_scroll(0.0, 0.0);
+            if ctx.raster_dirty {
+                ctx.rebuild_pipeline_cache_if_needed();
+            }
+            assert_eq!(
+                raster_calls.swap(0, Ordering::Relaxed),
+                0,
+                "scrolling back to baked rows must not raster them again"
+            );
+            let Some(cache) = ctx.pipeline_cache.as_ref() else {
+                unreachable!("pipeline cache must exist");
+            };
+            assert!(has_tile_near(cache, 0.0, 0.5), "the viewport must be baked");
+        }
+
+        /// Paints every tile at twice its size, as a rasterizer does at a device pixel ratio of 2.
+        struct DoubleDensityRasterizer;
+
+        impl Rasterable for DoubleDensityRasterizer {
+            fn rasterize(&self, tile: &Tile, store: &mut TextureStore, _media: &MediaStore) -> Option<TextureId> {
+                let (w, h) = (tile.rect.width as usize * 2, tile.rect.height as usize * 2);
+                Some(store.add(w, h, vec![0xFFu8; w * h * 4], PixelFormat::PreMulArgb32))
+            }
+        }
+
+        /// A repaint drops the baked tiles outside the grid that the damage touches. At a device
+        /// pixel ratio of 2 a tile's pixels are twice its size on the page; measured in pixels,
+        /// its neighbours above and to the left would look damaged too and be dropped.
+        #[test]
+        fn a_repaint_at_dpr_2_keeps_the_baked_tiles_next_to_the_damage() {
+            let (mut ctx, _calls) = tall_page_context(128);
+            ctx.set_rasterizer(Box::new(DoubleDensityRasterizer), RasterStrategy::ParallelCached);
+            ctx.invalidate_raster_if_dpr_changed(2);
+            ctx.rebuild_pipeline_cache_if_needed();
+            ctx.set_scroll(0.0, 5000.0);
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            let baked_at = |ctx: &BrowsingContext<DefaultRenderConfig>, x: f64, y: f64| {
+                ctx.pipeline_cache
+                    .as_ref()
+                    .is_some_and(|c| c.tiles.iter().any(|t| t.page_x == x && t.page_y == y))
+            };
+            assert!(baked_at(&ctx, 0.0, 0.0) && baked_at(&ctx, 256.0, 256.0));
+
+            // Inside the tile at (256, 256) alone, far outside the grid around the viewport.
+            ctx.damage.escalate(DamageLevel::Paint);
+            ctx.damage.add_rect(PipelineRect::new(300.0, 300.0, 10.0, 10.0));
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            assert!(!baked_at(&ctx, 256.0, 256.0), "the damaged tile is stale and must go");
+            for (x, y) in [(0.0, 0.0), (256.0, 0.0), (0.0, 256.0)] {
+                assert!(baked_at(&ctx, x, y), "the undamaged tile at ({x}, {y}) must stay baked");
+            }
         }
 
         #[test]

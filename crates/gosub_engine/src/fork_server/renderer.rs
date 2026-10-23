@@ -29,9 +29,9 @@ use gosub_render_pipeline::layouter::LayoutElementId;
 use gosub_render_pipeline::rasterizer::{BakedTile, Rasterable};
 use gosub_render_pipeline::render::backend::TileAnchor;
 use gosub_render_pipeline::tile_budget::{
-    defer_tiles_outside_band, defer_tiles_outside_window, raster_window, TilePosKey,
+    defer_tiles_outside_band, defer_tiles_outside_window, raster_window, window_band, TilePosKey,
 };
-use gosub_render_pipeline::tiler::{TileList, TileState};
+use gosub_render_pipeline::tiler::{TileBand, TileList, TileState};
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 use gosub_shared::node::NodeId;
 use parking_lot::Mutex;
@@ -850,8 +850,17 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         let mut since = 0u64;
 
         // Stage 4: tiling, from the retained layer list.
+        // Only the band gets tiles; the whole page only for a one-shot render that has no viewport.
         let mut tile_list = TileList::from_arc(Arc::clone(&self.layer_list), Dimension::new(TILE_SIZE, TILE_SIZE));
-        tile_list.generate();
+        match (scroll_y, band) {
+            (Some(scroll_y), RasterBand::Window) => tile_list.cover(window_band(scroll_y, self.viewport_height)),
+            (Some(scroll_y), RasterBand::Viewport) => tile_list.cover(TileBand::Rows {
+                lo: scroll_y,
+                hi: scroll_y + self.viewport_height,
+                vp_h: self.viewport_height,
+            }),
+            (None, _) => tile_list.generate(),
+        }
         if let Some(scroll_y) = scroll_y {
             match band {
                 RasterBand::Window => defer_tiles_outside_window(&mut tile_list, scroll_y, self.viewport_height),
