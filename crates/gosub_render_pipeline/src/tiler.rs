@@ -268,6 +268,20 @@ impl TileList {
         self.arena.get(&tile_id)
     }
 
+    /// The rows each layer has tiles for, as the top of the first and the bottom of the last.
+    /// A band is tiled whole, so every row between has tiles too.
+    pub fn tiled_rows(&self) -> HashMap<LayerId, (f64, f64)> {
+        let tile_h = self.default_tile_dimension.height;
+        self.tiles
+            .iter()
+            .filter_map(|(&layer_id, layer)| {
+                let (&(first, _), _) = layer.cells.first_key_value()?;
+                let (&(last, _), _) = layer.cells.last_key_value()?;
+                Some((layer_id, (first as f64 * tile_h, (last + 1) as f64 * tile_h)))
+            })
+            .collect()
+    }
+
     /// The tiles of `layer_id` that exist and touch `viewport`, edges included, in row order.
     pub fn get_intersecting_tiles(&self, layer_id: LayerId, viewport: Rect) -> Vec<TileId> {
         let Some(tile_layer) = self.tiles.get(&layer_id) else {

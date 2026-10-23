@@ -173,12 +173,32 @@ impl ZoomTiles {
         self.tiles.retain(|&(_, c, r), _| !overlaps(c, r, side, &rect));
     }
 
-    /// Let go of the tiles that reach outside rows `lo..hi`, in every layer: the page grid they
-    /// were painted from ended there, so they miss whatever lies beyond it.
-    pub(crate) fn forget_outside_rows(&mut self, lo: f64, hi: f64) {
+    /// Let go of the tiles over rows a layer's page grid gained between `before` and `after`
+    /// (both [`TileList::tiled_rows`]): they were painted from a grid that stopped short of
+    /// those rows, so they miss whatever is there. A layer whose rows did not grow, a fixed one
+    /// say, keeps its tiles.
+    pub(crate) fn forget_gained_rows(
+        &mut self,
+        before: &HashMap<LayerId, (f64, f64)>,
+        after: &HashMap<LayerId, (f64, f64)>,
+    ) {
+        let gained: HashMap<u64, [(f64, f64); 2]> = after
+            .iter()
+            .map(|(layer, &(lo, hi))| {
+                let strips = match before.get(layer) {
+                    Some(&(was_lo, was_hi)) => [(lo, was_lo.min(hi)), (was_hi.max(lo), hi)],
+                    None => [(lo, hi), (hi, hi)],
+                };
+                (layer.as_u64(), strips)
+            })
+            .collect();
         let side = self.side;
-        self.tiles
-            .retain(|&(_, _, r), _| r as f64 * side >= lo && (r + 1) as f64 * side <= hi);
+        self.tiles.retain(|&(layer, _, r), _| {
+            let (top, bottom) = (r as f64 * side, (r + 1) as f64 * side);
+            gained
+                .get(&layer)
+                .is_none_or(|strips| strips.iter().all(|&(lo, hi)| lo >= hi || top >= hi || bottom <= lo))
+        });
     }
 
     #[allow(clippy::too_many_arguments)]

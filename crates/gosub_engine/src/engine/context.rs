@@ -1227,6 +1227,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             return;
         };
 
+        // A zoom tile is painted from the page tiles under it, and a cell can reach past the
+        // rows those covered. Once the grid moves, what lies there may have tiles, so the cells
+        // over the rows it gained are painted again on the next fill.
+        let tiled_before = self.zoom_tiles.is_some().then(|| tile_list.tiled_rows());
         self.pipeline_cache = Some(pipeline_extend_raster(
             tile_list,
             page_height,
@@ -1239,12 +1243,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             self.media_store.clone(),
             self.config_store.get_uint("renderer.tile.size") as f64,
         ));
-
-        // A zoom tile is painted from the page tiles under it, and a cell can reach past the
-        // window those covered. Once the grid moves, what lies there may have tiles, so the
-        // cells that crossed the old edge are painted again on the next fill.
-        if let (Some(zoom), Some((lo, hi))) = (self.zoom_tiles.as_mut(), self.tile_budget.rastered_band()) {
-            zoom.forget_outside_rows(lo, hi);
+        let tiled_after = self.pipeline_cache.as_ref().and_then(|c| c.tile_list.as_ref());
+        if let (Some(zoom), Some(before), Some(after)) = (self.zoom_tiles.as_mut(), tiled_before, tiled_after) {
+            zoom.forget_gained_rows(&before, &after.tiled_rows());
         }
         self.note_rastered_window();
         // Anything evicted that fell back inside the window has just been rastered again.
@@ -4922,7 +4923,8 @@ mod tests {
 
         /// A zoom tile is painted from the page tiles under it, and those only cover the raster
         /// window. A tile that reached past the window is painted again once the window moves
-        /// over what it missed, instead of showing it missing when scrolled to.
+        /// over what it missed, instead of showing it missing when scrolled to. A fixed layer's
+        /// tiles cover the same rows wherever the page is scrolled, so its zoom tiles stay.
         #[test]
         fn a_zoom_tile_past_the_window_is_painted_again_when_the_window_moves() {
             use gosub_render_pipeline::common::texture::{GpuTile, TextureId};
@@ -4956,6 +4958,7 @@ mod tests {
 
             // The red box sits below the first window and inside the zoom tile over 490 px.
             let html = r#"<html><body style="margin:0">
+                    <div style="position:fixed;top:0;height:40px;width:100%;background:#00f"></div>
                     <div style="height:800px;background:#eee"></div>
                     <div style="height:50px;background:#f00"></div>
                     <div style="height:2000px;background:#eee"></div>
@@ -4982,31 +4985,40 @@ mod tests {
             ctx.set_scroll(0.0, 310.0);
             ctx.rebuild_pipeline_cache_if_needed();
 
-            // At 1.05 a zoom tile is 512 / 1.05 = 487.6 px: the one over 490 reaches to 975.
-            let view = |scroll_y: f64, origin_y: f64| CompositeView {
+            // At 1.05 a zoom tile is 512 / 1.05 = 487.6 px: the one over 490 reaches to 975, and
+            // stays on screen when the page scrolls to 600. So does the fixed header's.
+            let top = 512.0 / 1.05;
+            let view = |scroll_y: f64| CompositeView {
                 scroll: (0.0, scroll_y),
-                origin: (0.0, origin_y),
+                origin: (0.0, 180.0),
                 size: (100.0, 20.0),
                 scale: 1.05,
             };
-            assert!(ctx.update_zoom_tiles(&view(310.0, 180.0), true));
-            let Some(&(top, before)) = zoomed.lock().last() else {
+            assert!(ctx.update_zoom_tiles(&view(310.0), true));
+            let Some(&(_, before)) = zoomed.lock().iter().find(|(y, _)| *y == top) else {
                 unreachable!("the zoom tile on screen is rasterized");
             };
-            assert!((top - 512.0 / 1.05).abs() < 1e-6);
+            assert!(
+                zoomed.lock().iter().any(|(y, _)| *y == 0.0),
+                "the fixed header has a zoom tile"
+            );
 
             // The window moves to 400..1000, over the red box.
             zoomed.lock().clear();
             ctx.set_scroll(0.0, 600.0);
             assert!(ctx.raster_dirty, "scrolling past the slack must raster");
             ctx.rebuild_pipeline_cache_if_needed();
-            assert!(ctx.update_zoom_tiles(&view(600.0, 210.0), true));
+            assert!(ctx.update_zoom_tiles(&view(600.0), true));
             let Some(&(_, after)) = zoomed.lock().iter().find(|(y, _)| *y == top) else {
                 unreachable!("the zoom tile that reached past the old window is painted again");
             };
             assert!(
                 after > before,
                 "painted again from the moved grid, the tile holds the red box ({after} > {before} elements)"
+            );
+            assert!(
+                !zoomed.lock().iter().any(|(y, _)| *y == 0.0),
+                "the fixed header's zoom tile is kept"
             );
         }
 
