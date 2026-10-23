@@ -12,7 +12,21 @@ use std::sync::Arc;
 pub use gosub_interface::render::backend::RasterStrategy;
 
 pub trait Rasterable {
+    /// Rasterize at the device pixel ratio.
     fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, media_store: &MediaStore) -> Option<TextureId>;
+
+    /// Rasterize at `scale` texture pixels per CSS px, which need not be a whole number: a
+    /// zoomed-in page is drawn sharp at the size it is shown. Only GPU tile compositing asks for
+    /// a scale of its own; a rasterizer that cannot draw at one draws at the device pixel ratio.
+    fn rasterize_at(
+        &self,
+        tile: &Tile,
+        _scale: f64,
+        texture_store: &mut TextureStore,
+        media_store: &MediaStore,
+    ) -> Option<TextureId> {
+        self.rasterize(tile, texture_store, media_store)
+    }
 
     /// The font system this rasterizer draws with, so the layouter can measure against the very
     /// same font collection. `None` for rasterizers that don't shape through a [`FontSystem`]
@@ -525,16 +539,21 @@ pub fn cpu_cached_tiles(baked: &[BakedTile]) -> Vec<CachedTile> {
 
 /// Placed GPU tiles for the current page, in page coordinates - handed to a GPU backend's
 /// `composite_tiles` step. Empty for CPU backends.
-pub fn collect_placed_gpu_tiles(baked: &[BakedTile]) -> Vec<crate::render::backend::PlacedGpuTile> {
+///
+/// The tiles were rasterized at `dpr`, which gives their size on the page.
+pub fn collect_placed_gpu_tiles<'a>(
+    baked: impl IntoIterator<Item = &'a BakedTile>,
+    dpr: f64,
+) -> Vec<crate::render::backend::PlacedGpuTile> {
     baked
-        .iter()
+        .into_iter()
         .filter_map(|t| {
             if let TilePixels::Gpu(tile) = &t.pixels {
                 Some(crate::render::backend::PlacedGpuTile {
                     page_x: t.page_x as f32,
                     page_y: t.page_y as f32,
-                    width: t.width,
-                    height: t.height,
+                    width: (f64::from(t.width) / dpr) as f32,
+                    height: (f64::from(t.height) / dpr) as f32,
                     texture_id: tile.id(),
                     opacity: t.opacity,
                     anchor: t.anchor,

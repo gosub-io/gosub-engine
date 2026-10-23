@@ -428,8 +428,6 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
         // frame (thousands on a tall page). Mirrors the CPU path's `pipeline_composite`. Tiles
         // are placed in layout-viewport coordinates the way the compositor places them (fixed
         // ones ignore scroll, sticky ones catch up), then tested against the part on screen.
-        // Culling is in CSS pixels; the tiles' texture sizes are physical, hence the division.
-        let dpr = self.device_pixel_ratio();
         let visible = |t: &gosub_render_pipeline::render::backend::PlacedGpuTile| {
             let (x, y) = gosub_render_pipeline::render::backend::anchored_tile_pos(
                 t.page_x as f64,
@@ -438,7 +436,7 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
                 view.scroll.1,
                 t.anchor,
             );
-            view.shows(x, y, t.width as f64 / dpr as f64, t.height as f64 / dpr as f64)
+            view.shows(x, y, t.width as f64, t.height as f64)
         };
 
         let views: Vec<(
@@ -471,7 +469,6 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
             s.size.width,
             s.size.height,
             view,
-            dpr,
             &placed,
         );
 
