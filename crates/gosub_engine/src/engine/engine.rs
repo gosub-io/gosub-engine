@@ -107,6 +107,9 @@ pub struct EngineContext {
     /// this to attach cookies itself, so no cookie value is ever handled by tab
     /// code - see [`TabIdentityRegistry`].
     pub tab_identities: Arc<TabIdentityRegistry>,
+    /// The disk every tab's download spools hold together, which
+    /// `net.download.max_total_spool_bytes` bounds.
+    pub(crate) download_spool: Arc<crate::net::SpoolBudget>,
     /// The fork server renderers are forked from, if `security.renderer_process`
     /// is on and it started (set once at [`GosubEngine::start`], like `io_tx`).
     /// One per engine: what it holds (a warmed font system, a confinement tier)
@@ -149,6 +152,7 @@ impl Default for EngineContext {
             request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
             internal_pages: InternalPages::with_builtins(),
             tab_identities: Arc::new(TabIdentityRegistry::new()),
+            download_spool: Arc::default(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             renderer_process: OnceLock::new(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -211,6 +215,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                 request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
                 internal_pages: InternalPages::with_builtins(),
                 tab_identities: Arc::new(TabIdentityRegistry::new()),
+                download_spool: Arc::default(),
                 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
                 renderer_process: OnceLock::new(),
                 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -1694,6 +1699,157 @@ mod tests {
         let error = outcome.expect("navigation should fail, not offer");
         assert!(error.to_string().contains("max_spool_bytes"), "got {error}");
         assert!(tab.pending_downloads().is_empty());
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// Spooled offers wait on the embedder, 8 to a tab, so `net.download.max_total_spool_bytes`
+    /// bounds them across tabs. A body that would go over stops spooling: one that says its
+    /// length fails the navigation at the headers, one that does not fails the download once
+    /// accepted, as a body past `max_spool_bytes` does. The offers already made stay, and
+    /// accepting one or closing its tab gives its bytes back.
+    #[tokio::test(flavor = "current_thread")]
+    async fn download_spools_share_one_budget_across_tabs() {
+        use crate::events::{DownloadId, NavigationEvent, TabCommand};
+        use crate::Setting;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        const SIZE: usize = 64 * 1024;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    // `/sized.bin` says its length; anything else is read to the end.
+                    let sized = String::from_utf8_lossy(&buf[..n]).starts_with("GET /sized.bin");
+                    let length = if sized {
+                        format!("Content-Length: {SIZE}\r\n")
+                    } else {
+                        String::new()
+                    };
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\
+                         Content-Disposition: attachment; filename=\"a.bin\"\r\n\
+                         {length}Connection: close\r\n\r\n"
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(&[7u8; SIZE]).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        // Room for one body, not two.
+        engine
+            .settings()
+            .set("net.download.max_total_spool_bytes", Setting::UInt(SIZE + SIZE / 2))
+            .expect("set cap");
+        let budget = Arc::clone(&engine.context.download_spool);
+        let mut zone = engine.zone_builder().create().expect("zone");
+        let url = format!("http://127.0.0.1:{port}/a.bin");
+        let sized_url = format!("http://127.0.0.1:{port}/sized.bin");
+        let dir = tempfile::tempdir().unwrap();
+
+        // What the next navigation of `tab` comes to: its offer, or why it failed.
+        async fn offered(
+            events: &mut tokio::sync::broadcast::Receiver<EngineEvent>,
+            tab: crate::tab::TabId,
+        ) -> Result<crate::events::DownloadOfferId, String> {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    match events.recv().await {
+                        Ok(EngineEvent::DownloadRequested { tab_id, offer, .. }) if tab_id == tab => return Ok(offer),
+                        Ok(EngineEvent::Navigation {
+                            tab_id,
+                            event: NavigationEvent::Failed { error, .. },
+                            ..
+                        }) if tab_id == tab => return Err(error.to_string()),
+                        Ok(_) => continue,
+                        Err(e) => panic!("event stream closed: {e}"),
+                    }
+                }
+            })
+            .await
+            .expect("timed out")
+        }
+        // How the download `id` ends: finished, or why it failed.
+        async fn saved(
+            events: &mut tokio::sync::broadcast::Receiver<EngineEvent>,
+            id: DownloadId,
+        ) -> Result<(), String> {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    match events.recv().await {
+                        Ok(EngineEvent::DownloadFinished { id: done, .. }) if done == id => return Ok(()),
+                        Ok(EngineEvent::DownloadFailed { id: failed, error, .. }) if failed == id => return Err(error),
+                        Ok(_) => continue,
+                        Err(e) => panic!("event stream closed: {e}"),
+                    }
+                }
+            })
+            .await
+            .expect("timed out")
+        }
+        async fn settles(budget: &crate::net::SpoolBudget, at: u64) {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while budget.used() != at {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .unwrap_or_else(|_| panic!("the spools hold {} bytes, expected {at}", budget.used()));
+        }
+        let accept = |id: u64, offer| TabCommand::StartDownload {
+            id: DownloadId(id),
+            url: url.clone(),
+            target_path: dir.path().join(format!("{id}.bin")),
+            offer: Some(offer),
+        };
+
+        let first = zone.tab_builder().create().await.expect("tab");
+        first.navigate(url.clone()).await.expect("navigate");
+        let first_offer = offered(&mut events, first.tab_id).await.expect("the first offer fits");
+        settles(&budget, SIZE as u64).await;
+
+        // A second body of unknown length is offered, but stops spooling at the total.
+        let second = zone.tab_builder().create().await.expect("tab");
+        second.navigate(url.clone()).await.expect("navigate");
+        let second_offer = offered(&mut events, second.tab_id)
+            .await
+            .expect("offered at the headers");
+        second.send(accept(2, second_offer)).await.expect("accept");
+        let error = saved(&mut events, DownloadId(2))
+            .await
+            .expect_err("its body did not fit beside the first");
+        assert!(error.contains("net.download.max_total_spool_bytes"), "got {error}");
+        // One that says its length does not get as far as an offer.
+        second.navigate(sized_url.clone()).await.expect("navigate");
+        let error = offered(&mut events, second.tab_id)
+            .await
+            .expect_err("a declared length over the total fails at the headers");
+        assert!(error.contains("net.download.max_total_spool_bytes"), "got {error}");
+        assert_eq!(first.pending_downloads().len(), 1, "the first offer stays");
+        settles(&budget, SIZE as u64).await;
+
+        // Accepting the first moves its file out of the temp dir, and frees its bytes.
+        first.send(accept(1, first_offer)).await.expect("accept");
+        saved(&mut events, DownloadId(1)).await.expect("the first is saved");
+        settles(&budget, 0).await;
+
+        second.navigate(sized_url).await.expect("navigate");
+        offered(&mut events, second.tab_id)
+            .await
+            .expect("with the first saved, the second fits");
+        settles(&budget, SIZE as u64).await;
+
+        // A tab that closes drops its offers, and their bytes with them.
+        assert!(zone.close_tab(second.tab_id).await);
+        settles(&budget, 0).await;
 
         engine.close_zone(zone).await;
         engine.shutdown().await.expect("shutdown");

@@ -32,9 +32,10 @@ pub struct ResourcePipelines<C: RenderConfiguration> {
     pub css: Box<dyn CssPipeline + Send>,
     pub js: Box<dyn JsPipeline + Send>,
     pub fonts: Box<dyn FontPipeline + Send>,
-    /// `net.download.max_spool_bytes`: cap on a download body spooled before the embedder
-    /// accepts it. 0 = unlimited.
-    pub(crate) max_download_spool_bytes: u64,
+    /// How much a download body may spool before the embedder accepts it: one body
+    /// (`net.download.max_spool_bytes`), and every tab's together
+    /// (`net.download.max_total_spool_bytes`).
+    pub(crate) download_spool: crate::net::SpoolLimits,
     // pub viewer: &'a mut dyn ViewerPipeline,
     // pub download: &'a mut dyn DownloadManager,
     // pub external: &'a mut dyn ExternalOpener,
@@ -48,7 +49,7 @@ impl<C: RenderConfiguration> ResourcePipelines<C> {
         io_tx: IoChannel,
         accept_language: Option<String>,
         max_document_bytes: usize,
-        max_download_spool_bytes: u64,
+        download_spool: crate::net::SpoolLimits,
         font_system: Arc<Mutex<C::FontSystem>>,
         capture_source: bool,
         source_only: bool,
@@ -58,7 +59,7 @@ impl<C: RenderConfiguration> ResourcePipelines<C> {
         // engine's own pages (`source_only` false), which may still render
         // in-process when the renderer cannot, and need a document for that.
         Self {
-            max_download_spool_bytes,
+            download_spool,
             html: Box::new(
                 HtmlPipelineImpl::new(
                     zone_id,

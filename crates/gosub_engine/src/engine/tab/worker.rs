@@ -1088,6 +1088,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
     /// Mirror the pending offers onto the sink so a shell that missed a
     /// `DownloadRequested` can still find them.
+    /// The bounds on a download spooled for this tab, from the settings as they are now.
+    fn download_spool_limits(&self) -> crate::net::SpoolLimits {
+        let config = &self.zone_context.config_store;
+        crate::net::SpoolLimits {
+            per_download: config.get_uint("net.download.max_spool_bytes") as u64,
+            total: config.get_uint("net.download.max_total_spool_bytes") as u64,
+            budget: Arc::clone(&self.zone_context.engine_context.download_spool),
+        }
+    }
+
     fn publish_pending_downloads(&self) {
         self.sink
             .set_pending_downloads(self.pending_offers.iter().map(|p| p.info.clone()).collect());
@@ -1204,7 +1214,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     }
                 };
                 let dest = target_path.clone();
-                let placed = tokio::task::spawn_blocking(move || place_spooled_download(body, &dest)).await;
+                // The bytes stay counted until the file has left the temp directory.
+                let (body, lease) = body.into_parts();
+                let placed = tokio::task::spawn_blocking(move || {
+                    let placed = place_spooled_download(body, &dest);
+                    drop(lease);
+                    placed
+                })
+                .await;
                 let event = match placed {
                     Ok(Ok(received_bytes)) => EngineEvent::DownloadFinished {
                         tab_id,
@@ -2235,7 +2252,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let event_tx = self.zone_context.event_tx.clone();
         let accept_language = self.services.accept_language.clone();
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
-        let max_download_spool_bytes = self.zone_context.config_store.get_uint("net.download.max_spool_bytes") as u64;
+        let download_spool = self.download_spool_limits();
         let font_system = self.zone_context.font_system.clone();
         // Capture the document source only when a renderer process may need it
         // (it re-parses there); otherwise skip the copy.
@@ -2310,7 +2327,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 io_tx.clone(),
                 accept_language.clone(),
                 max_document_bytes,
-                max_download_spool_bytes,
+                download_spool.clone(),
                 font_system.clone(),
                 capture_source,
                 capture_source,
@@ -2567,7 +2584,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let io_tx = self.zone_context.io_tx.clone();
         let accept_language = self.services.accept_language.clone();
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
-        let max_download_spool_bytes = self.zone_context.config_store.get_uint("net.download.max_spool_bytes") as u64;
+        let download_spool = self.download_spool_limits();
         let font_system = self.zone_context.font_system.clone();
         // Same rule as navigate(): keep the source only when a renderer process may re-parse it.
         let capture_source = self.remote_render_available();
@@ -2655,7 +2672,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 io_tx.clone(),
                 accept_language.clone(),
                 max_document_bytes,
-                max_download_spool_bytes,
+                download_spool.clone(),
                 font_system.clone(),
                 capture_source,
                 source_only,
