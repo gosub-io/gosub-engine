@@ -12,6 +12,16 @@ use crate::sizing::rows::{
 use crate::types::{BorderCollapse, CellLayout, CollapsedBorders, CssLength, CssProp, TableSizing};
 use crate::TableTree;
 
+/// A length property of `node` in px, a percentage resolved against `basis`; `None` for `auto`
+/// and `none`.
+fn specified_length<T: TableTree>(tree: &T, node: T::NodeId, prop: CssProp, basis: f64) -> Option<f64> {
+    match tree.css_length(node, prop) {
+        CssLength::Px(w) => Some(w),
+        CssLength::Percent(p) => Some(p / 100.0 * basis),
+        _ => None,
+    }
+}
+
 /// Entry point for the CSS table layout algorithm.
 ///
 /// Reads the table structure from `tree` starting at `table_node`, computes
@@ -88,11 +98,16 @@ pub fn compute_table_layout<T: TableTree>(
         // No grid, but the element's specified size still applies (§17.5.2/3: the used
         // size is the greater of the specified size and the grid extent - zero here).
         // Extents are content-box; the caller wraps border and padding around them.
-        let w = match tree.css_length(table_node, CssProp::Width) {
-            CssLength::Px(w) => (w - own_edges_x).max(0.0),
-            CssLength::Percent(p) => (p / 100.0 * available_width - own_edges_x).max(0.0),
-            _ => 0.0,
-        };
+        // `max-width` and then `min-width` clamp it as they do a grid (CSS 2 §10.4).
+        let length = |prop| specified_length(tree, table_node, prop, available_width);
+        let mut w = length(CssProp::Width).unwrap_or(0.0);
+        if let Some(max) = length(CssProp::MaxWidth) {
+            w = w.min(max);
+        }
+        if let Some(min) = length(CssProp::MinWidth) {
+            w = w.max(min);
+        }
+        let w = (w - own_edges_x).max(0.0);
         let h = match tree.css_length(table_node, CssProp::Height) {
             CssLength::Px(h) => (h - own_edges_y).max(0.0),
             _ => 0.0,
@@ -125,11 +140,9 @@ pub fn compute_table_layout<T: TableTree>(
     // Resolve the explicit table width, if any; auto tables shrink-to-fit
     // inside `compute_column_widths`. The table's own edges come off a border-box
     // width further down, once the collapsed perimeter is known.
-    let specified_table_width = match tree.css_length(model.node, CssProp::Width) {
-        CssLength::Px(w) => Some(w),
-        CssLength::Percent(p) => Some(p / 100.0 * available_width),
-        _ => None,
-    };
+    let specified_table_width = specified_length(tree, model.node, CssProp::Width, available_width);
+    let min_table_width = specified_length(tree, model.node, CssProp::MinWidth, available_width);
+    let max_table_width = specified_length(tree, model.node, CssProp::MaxWidth, available_width);
 
     // Column widths
     let all_grids: Vec<&SectionGrid<T::NodeId>> = header_grids
@@ -213,19 +226,36 @@ pub fn compute_table_layout<T: TableTree>(
         }
     };
 
-    let (col_widths, table_width) = compute_column_widths(
-        tree,
-        n_cols,
-        explicit_table_width,
-        available_width,
-        fit_width,
-        spacing_x,
-        &all_grids,
-        model.sizing,
-        &col_specs,
-        &collapsed_borders,
-        (capmin - fit_edges_x).max(0.0),
-    );
+    let columns = |tree: &mut T, explicit: Option<f64>| {
+        compute_column_widths(
+            tree,
+            n_cols,
+            explicit,
+            available_width,
+            fit_width,
+            spacing_x,
+            &all_grids,
+            model.sizing,
+            &col_specs,
+            &collapsed_borders,
+            (capmin - fit_edges_x).max(0.0),
+        )
+    };
+    // `max-width` and then `min-width` clamp the tentative width by laying the table out again
+    // at the limit as its width (CSS 2 §10.4). A width under the grid's minimum still gives the
+    // grid's minimum, so a table never shrinks below its content for `max-width`.
+    let limit = |w: f64| (w - own_edges_x).max(0.0);
+    let (mut col_widths, mut table_width) = columns(tree, explicit_table_width);
+    if let Some(max) = max_table_width.map(limit) {
+        if table_width > max {
+            (col_widths, table_width) = columns(tree, Some(max));
+        }
+    }
+    if let Some(min) = min_table_width.map(limit) {
+        if table_width < min {
+            (col_widths, table_width) = columns(tree, Some(min));
+        }
+    }
 
     if std::env::var_os("LATTICE_DEBUG").is_some() {
         eprintln!(
