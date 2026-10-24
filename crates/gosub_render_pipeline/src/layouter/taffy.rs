@@ -3117,6 +3117,11 @@ impl TaffyLayouter {
                 if taffy_context.is_none() {
                     if let Some(fc) = self.extract_form_control(layout_tree, dom_node, data) {
                         taffy_context = Some(TaffyContext::FormControl(fc));
+                        // A widget sizes like a replaced element: `display: block` with an auto
+                        // width keeps its intrinsic width instead of filling the line (CSS 2
+                        // §10.3.4), and a flex or grid item may shrink below its min-content
+                        // (css-sizing-3 §5.2.2, compressible replaced elements).
+                        taffy_style.item_is_replaced = true;
                         // A drag-resized control keeps the size the user gave it (border box).
                         if let Some((w, h)) = layout_tree.render_tree.doc.control_size(dom_node.node_id) {
                             taffy_style.box_sizing = taffy::BoxSizing::BorderBox;
@@ -3158,6 +3163,15 @@ impl TaffyLayouter {
                         }
                     }
                 }
+
+                // A replaced element or form control keeps its own width as a block, where a
+                // non-replaced block is stretched to its container (CSS 2 §10.3.4): without
+                // this, `display: block` on an input or an image made it full width. An `<img>`
+                // still loading has no context yet, but is replaced all the same. An inline
+                // `<svg>` is left out for now: its CSS width does not always reach this style (a
+                // `width: 100%` reads as auto), and the stretch is what gives it that width.
+                taffy_style.item_is_replaced = data.tag_name.eq_ignore_ascii_case("img")
+                    || matches!(taffy_context, Some(TaffyContext::FormControl(_)));
             }
             NodeType::Text(text) => {
                 let parent_node = match dom_node.parent_id {

@@ -212,6 +212,7 @@ impl FontSystem for ParleyFontSystem {
         }
         if style.letter_spacing != 0.0 {
             builder.push_default(parley::StyleProperty::LetterSpacing(style.letter_spacing));
+            builder.push_default(parley::StyleProperty::FontFeatures(NO_OPTIONAL_LIGATURES.into()));
         }
         builder.push_default(parley::StyleProperty::Brush(()));
 
@@ -232,6 +233,12 @@ impl FontSystem for ParleyFontSystem {
         (width, height)
     }
 }
+
+/// Letter-spaced text is drawn without optional ligatures (CSS Text 3 §8.2): the spacing goes
+/// between letters a ligature would join. Parley would also count it once per letter in the
+/// ligature when breaking lines but once per glyph in the width it reports, so a run measured
+/// at its own width would not fit it.
+const NO_OPTIONAL_LIGATURES: &str = r#""liga" 0, "clig" 0, "dlig" 0"#;
 
 impl ParleyFontSystem {
     /// Shape `text` with an already-resolved font, so measurement and drawing agree on the
@@ -258,6 +265,7 @@ impl ParleyFontSystem {
         // Must match measurement, or drawing comes out narrower than the reserved layout box.
         if style.letter_spacing != 0.0 {
             builder.push_default(parley::StyleProperty::LetterSpacing(style.letter_spacing));
+            builder.push_default(parley::StyleProperty::FontFeatures(NO_OPTIONAL_LIGATURES.into()));
         }
         builder.push_default(parley::StyleProperty::Brush(()));
 
@@ -559,6 +567,20 @@ mod tests {
             shaped.width,
             spaced.width
         );
+    }
+
+    /// Letter-spaced text laid out at its own measured width stays on one line. With a "fi"
+    /// ligature in it, Parley counted the spacing twice when breaking and once in the width,
+    /// so `gosub://config` broke after `//` in a box sized to fit it.
+    #[test]
+    fn letter_spaced_text_fits_its_measured_width() {
+        let mut fs = ParleyFontSystem::new();
+        let mut style = TextStyle::new("sans-serif", 16.0);
+        style.letter_spacing = 1.0;
+        let (width, height) = fs.measure("gosub://config", &style);
+        style.max_width = Some(width);
+        let (_, at_width) = fs.measure("gosub://config", &style);
+        assert_eq!(at_width, height, "one line at its own width ({width})");
     }
 
     #[test]

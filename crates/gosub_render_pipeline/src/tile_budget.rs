@@ -16,7 +16,7 @@ use crate::common::geo::Rect;
 use crate::common::texture::TilePixels;
 use crate::rasterizer::{BakedTile, TilePixelCache};
 use crate::render::backend::{anchored_tile_pos, TileAnchor};
-use crate::tiler::{TileList, TileState};
+use crate::tiler::{TileBand, TileList, TileState};
 
 /// A tile's position identity: (page_x bits, page_y bits, layer id). One eviction unit covers
 /// the baked tile at that position plus any pixel-cache entries for it.
@@ -67,6 +67,13 @@ pub const REFRESH_MARGIN_VIEWPORTS: f64 = 0.5;
 pub fn raster_window(scroll_y: f64, vp_h: f64) -> (f64, f64) {
     let margin = RASTER_MARGIN_VIEWPORTS * vp_h;
     (scroll_y - margin, scroll_y + vp_h + margin)
+}
+
+/// The tiles a pass around `scroll_y` needs: the [`raster_window`]. Nothing outside it gets a
+/// tile, so a pass allocates for the viewport, however long the page is.
+pub fn window_band(scroll_y: f64, vp_h: f64) -> TileBand {
+    let (lo, hi) = raster_window(scroll_y, vp_h);
+    TileBand::Rows { lo, hi, vp_h }
 }
 
 /// The band that must be resident before the next frame; escaping it triggers a re-raster.
@@ -141,6 +148,12 @@ impl TileBudget {
     /// than the window around the viewport: a resize pass rasterizes the viewport alone.
     pub fn note_rastered_band(&self, lo: f64, hi: f64, page_height: f64) {
         self.state.lock().rastered = Some(clamp_to_page((lo, hi), page_height));
+    }
+
+    /// The page-space rows last noted as rasterized, if any. Scrolling inside them composites
+    /// what is baked without a new pass, so a pass that repaints in place has to cover them.
+    pub fn rastered_band(&self) -> Option<(f64, f64)> {
+        self.state.lock().rastered
     }
 
     /// Stamp the tiles visible at the given scroll position as most-recently composited.
@@ -538,19 +551,143 @@ mod tests {
             type HtmlParser = Html5Parser<'static, Self>;
         }
 
-        fn tall_page_tiles() -> TileList {
-            let mut doc = html_compile::<Config>(
-                r#"<html><body style="margin:0"><div style="height:6000px;background:#ccc"></div></body></html>"#,
-            );
+        /// `html` laid out 512 px wide, with an empty grid.
+        fn page_grid(html: &str) -> TileList {
+            let mut doc = html_compile::<Config>(html);
             doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
 
             let mut render_tree = RenderTree::new(Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc))));
             let _ = render_tree.parse();
 
             let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(512.0, TILE)), 1.0);
-            let mut tile_list = TileList::new(LayerList::new(Arc::new(layout_tree)), Dimension::new(TILE, TILE));
+            TileList::new(LayerList::new(Arc::new(layout_tree)), Dimension::new(TILE, TILE))
+        }
+
+        const TALL_PAGE: &str =
+            r#"<html><body style="margin:0"><div style="height:6000px;background:#ccc"></div></body></html>"#;
+
+        fn tall_page_tiles() -> TileList {
+            let mut tile_list = page_grid(TALL_PAGE);
             tile_list.generate();
             tile_list
+        }
+
+        /// A tile's layer and position, and per element its id and placement in the tile.
+        type TileShape = (u64, u64, u64, Vec<(String, [u64; 6])>);
+
+        /// What a tile is, minus its id: where it is and what it paints.
+        fn tile_shape(tile: &crate::tiler::Tile) -> TileShape {
+            let elements = tile
+                .elements
+                .iter()
+                .map(|e| {
+                    let placement = [
+                        e.rect.x,
+                        e.rect.y,
+                        e.rect.width,
+                        e.rect.height,
+                        e.position.x,
+                        e.position.y,
+                    ];
+                    (format!("{:?}", e.id), placement.map(f64::to_bits))
+                })
+                .collect();
+            (
+                tile.rect.x.to_bits(),
+                tile.rect.y.to_bits(),
+                tile.layer_id.as_u64(),
+                elements,
+            )
+        }
+
+        #[test]
+        fn a_huge_page_only_gets_tiles_for_the_window() {
+            // #1393: one tile per cell of the page was ~19.5M tiles for this page.
+            let mut tile_list = page_grid(
+                r#"<html><body style="margin:0"><div style="height:1000000000px;background:#ccc"></div></body></html>"#,
+            );
+            let page_h = tile_list.layer_list.layout_tree.root_dimension.height;
+            assert!(page_h > 1.0e8, "the page must really be that tall, got {page_h}");
+
+            let (lo, hi) = raster_window(0.0, TILE);
+            let window_rows = ((hi - lo) / TILE).ceil() as usize + 1;
+            let window_tiles = window_rows * (512.0 / TILE) as usize * tile_list.layer_list.layer_ids.read().len();
+
+            tile_list.cover(window_band(0.0, TILE));
+            let at_top = tile_list.arena.len();
+            assert!(at_top > 0, "the window must get tiles");
+            assert!(
+                at_top <= window_tiles,
+                "{at_top} tiles for a window of at most {window_tiles}"
+            );
+
+            // Deep down the page: the same handful, and none left behind at the top.
+            let scroll = 5.0e8;
+            tile_list.cover(window_band(scroll, TILE));
+            assert!(
+                tile_list.arena.len() <= window_tiles,
+                "{} tiles after a jump",
+                tile_list.arena.len()
+            );
+            let (lo, hi) = raster_window(scroll, TILE);
+            assert!(
+                tile_list
+                    .arena
+                    .values()
+                    .all(|t| t.rect.y < hi && t.rect.y + t.rect.height > lo),
+                "every tile must lie in the window around the new scroll position"
+            );
+        }
+
+        #[test]
+        fn covering_a_band_tiles_it_as_the_whole_page_would() {
+            let full = tall_page_tiles();
+            let mut whole: Vec<_> = full.arena.values().map(tile_shape).collect();
+            whole.sort();
+
+            let mut banded = page_grid(TALL_PAGE);
+            banded.cover(window_band(3000.0, TILE));
+            let (lo, hi) = raster_window(3000.0, TILE);
+            let mut expected: Vec<_> = full
+                .arena
+                .values()
+                .filter(|t| t.rect.y < hi && t.rect.y + t.rect.height > lo)
+                .map(tile_shape)
+                .collect();
+            expected.sort();
+            let mut got: Vec<_> = banded.arena.values().map(tile_shape).collect();
+            got.sort();
+
+            assert!(!got.is_empty());
+            assert!(got.len() < whole.len());
+            assert_eq!(
+                got, expected,
+                "a banded tile must be the tile a whole-page grid has there"
+            );
+        }
+
+        #[test]
+        fn moving_the_band_keeps_the_tiles_it_still_covers() {
+            let mut tile_list = page_grid(TALL_PAGE);
+            tile_list.cover(window_band(2000.0, TILE));
+            let before: std::collections::HashMap<_, _> = tile_list
+                .arena
+                .values()
+                .map(|t| ((t.rect.x.to_bits(), t.rect.y.to_bits(), t.layer_id), t.id))
+                .collect();
+
+            tile_list.cover(window_band(2000.0 + TILE, TILE));
+            let (lo, hi) = raster_window(2000.0 + TILE, TILE);
+            let mut kept = 0;
+            for tile in tile_list.arena.values() {
+                assert!(tile.rect.y < hi && tile.rect.y + tile.rect.height > lo);
+                if let Some(&id) = before.get(&(tile.rect.x.to_bits(), tile.rect.y.to_bits(), tile.layer_id)) {
+                    assert_eq!(id, tile.id, "a tile still in the band must be the same tile");
+                    kept += 1;
+                }
+            }
+            assert!(kept > 0, "the bands overlap, so some tiles must carry over");
+            assert!(kept < before.len(), "the row scrolled out must be dropped");
         }
 
         fn count(tile_list: &TileList, state: TileState) -> usize {

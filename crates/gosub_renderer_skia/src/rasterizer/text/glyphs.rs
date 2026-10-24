@@ -21,7 +21,7 @@ fn typeface_for(blob: &gosub_interface::font::FontBlob) -> Option<Typeface> {
     RUN_TYPEFACES.with(|cell| {
         cell.borrow_mut()
             .entry(key)
-            .or_insert_with(|| FontMgr::new().new_from_data(blob.as_u8(), blob.index as usize))
+            .or_insert_with(|| FontMgr::new().new_from_data(skia_safe::Data::new_copy(blob.as_u8()), blob.index))
             .clone()
     })
 }

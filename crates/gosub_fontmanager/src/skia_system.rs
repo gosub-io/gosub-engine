@@ -88,7 +88,7 @@ fn build_web_font_mgr() -> Option<FontMgr> {
     let mut provider = TypefaceFontProvider::new();
     let mut any = false;
     for (family, bytes) in reg.fonts.iter() {
-        let Some(tf) = fm.new_from_data(bytes, None) else {
+        let Some(tf) = fm.new_from_data(skia_safe::Data::new_copy(bytes), None) else {
             continue;
         };
         for instance in weight_instances(&tf) {
@@ -312,11 +312,9 @@ thread_local! {
 fn typeface_blob(typeface: &skia_safe::Typeface) -> Option<FontBlob> {
     TYPEFACE_BLOBS.with(|cell| {
         let mut map = cell.borrow_mut();
-        let entry = map.entry(typeface.unique_id()).or_insert_with(|| {
-            typeface
-                .to_font_data()
-                .map(|(data, index)| (Arc::new(data), index as u32))
-        });
+        let entry = map
+            .entry(typeface.unique_id())
+            .or_insert_with(|| typeface.to_font_bytes().map(|(data, index)| (Arc::new(data), index)));
         entry.as_ref().map(|(data, index)| {
             let bytes: Arc<Vec<u8>> = Arc::clone(data);
             FontBlob::new(bytes, *index)
@@ -395,12 +393,15 @@ impl FontSystem for SkiaFontSystem {
         // Validate the bytes and derive the family name if none was supplied.
         let family = match family_override {
             Some(f) => f.to_string(),
-            None => match system_font_mgr().new_from_data(&data, None) {
+            None => match system_font_mgr().new_from_data(skia_safe::Data::new_copy(&data), None) {
                 Some(tf) => tf.family_name(),
                 None => return Err(FontError::InvalidFont("could not decode font data".into())),
             },
         };
-        if system_font_mgr().new_from_data(&data, None).is_none() {
+        if system_font_mgr()
+            .new_from_data(skia_safe::Data::new_copy(&data), None)
+            .is_none()
+        {
             return Err(FontError::InvalidFont(format!("unsupported font data for '{family}'")));
         }
         let mut reg = registry().lock();
