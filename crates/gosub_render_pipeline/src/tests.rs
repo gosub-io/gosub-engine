@@ -4327,6 +4327,31 @@ mod rendertree_from_engine {
         assert_eq!((p.width, p.height), (129.0, 21.0), "unstretched, its intrinsic size");
     }
 
+    /// `min-width` and `max-width` clamp a table's width as they do any box's (CSS 2 §10.4), but
+    /// never below what its content needs. Hacker News centres a `width: 85%; min-width: 796px`
+    /// table; on a 784px tablet screen it was 85% wide and the min-width was dropped.
+    #[test]
+    fn min_and_max_width_clamp_a_table() {
+        let html = r#"<html><body style="margin: 0"><div style="width: 784px">
+          <table id="hn" style="width: 85%; min-width: 796px"><tr><td>x</td></tr></table>
+          <table id="auto" style="min-width: 500px"><tr><td>x</td></tr></table>
+          <table id="max" style="width: 85%; max-width: 300px"><tr><td>x</td></tr></table>
+          <table id="content" style="max-width: 50px"><tr><td><div style="width: 200px">x</div></td></tr></table>
+          <table id="empty" style="min-width: 100px"></table>
+        </div></body></html>"#;
+        let [hn, auto, max, content, empty] = border_boxes(html, &["hn", "auto", "max", "content", "empty"])[..] else {
+            unreachable!()
+        };
+        assert_eq!(hn.width, 796.0, "min-width wins over a narrower percentage");
+        assert_eq!(auto.width, 500.0, "min-width floors an auto table");
+        assert_eq!(max.width, 300.0, "max-width caps a wider percentage");
+        assert!(
+            content.width >= 200.0,
+            "content wider than max-width keeps it, got {content:?}"
+        );
+        assert_eq!(empty.width, 100.0, "min-width floors a table with no rows too");
+    }
+
     /// A form control made `display: block` keeps its intrinsic width, as a replaced element does
     /// (CSS 2.1 §10.3.4), instead of filling its container: a block-level text field is as wide
     /// as an inline one. A width the page gives it, and a flex container's stretch, still apply.
