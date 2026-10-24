@@ -2433,6 +2433,45 @@ mod rendertree_from_engine {
         );
     }
 
+    /// A range input is 129x21 on its own, and a flex container stretches it like any other
+    /// item, so its thumb is painted in the middle of the row (wpt flexitem-stretch-range).
+    #[test]
+    fn a_range_input_is_stretched_by_its_flex_container() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+        use gosub_fontmanager::ParleyFontSystem;
+        use parking_lot::Mutex;
+
+        let html = r#"<html><head><style>body { margin: 0 }</style></head><body>
+            <input id="plain" type="range">
+            <div style="display: flex; height: 200px"><input id="stretched" type="range" style="flex: 1; margin: 0"></div>
+        </body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let plain = find_node_by_id_attr(&adapter.doc, root, "plain").expect("plain");
+        let stretched = find_node_by_id_attr(&adapter.doc, root, "stretched").expect("stretched");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let mut layouter = TaffyLayouter::with_font_system(Arc::new(Mutex::new(ParleyFontSystem::new())));
+        let layout_tree = layouter.layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let size = |dom| {
+            let el = layout_tree.arena.values().find(|el| el.dom_node_id == dom);
+            let b = el.expect("the range is laid out").box_model.border_box;
+            (b.width.round(), b.height.round())
+        };
+        assert_eq!(size(plain), (129.0, 21.0), "a range on its own keeps its natural size");
+        assert_eq!(
+            size(stretched),
+            (800.0, 200.0),
+            "flex: 1 and the default stretch fill the row"
+        );
+    }
+
     /// `object-fit` and `object-position` place an 80x40 image in a 100x100 box. The image is
     /// painted over the content box as one non-repeating tile positioned in it (backends paint a
     /// tile only where it lies): `contain` letterboxes it, `cover` crops it, `none` keeps its size

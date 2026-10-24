@@ -1352,9 +1352,10 @@ input[type="checkbox" i], input[type="radio" i] {
     border: none;
     background-color: transparent;
 }
+/* No width or height: the layouter measures a range at its natural 129x21, and a size pinned
+   here would stop a flex or grid container from stretching it (the thumb then sat at the top
+   of a tall row instead of in its middle). */
 input[type="range" i] {
-    width: 129px;
-    height: 21px;
     padding: 0;
     border: none;
     background-color: transparent;
