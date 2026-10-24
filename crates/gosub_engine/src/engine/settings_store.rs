@@ -125,6 +125,21 @@ mod test {
     }
 
     #[test]
+    fn every_unsigned_default_fits_a_32_bit_usize() {
+        // `u:` values parse as `usize`; one past `u32::MAX` fails on a 32-bit target, and
+        // `schema_from` then drops the whole schema, every built-in setting with it.
+        let cfg = default_config();
+        for key in cfg.find("*") {
+            if let Setting::UInt(value) = cfg.get_info(&key).unwrap().default {
+                assert!(
+                    u32::try_from(value).is_ok(),
+                    "default for `{key}` ({value}) overflows a 32-bit usize"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn every_default_satisfies_its_own_constraint() {
         // Guards against typos in the JSON, e.g. a default value not in its own `values` list.
         let cfg = default_config();
