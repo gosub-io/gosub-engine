@@ -2433,6 +2433,93 @@ mod rendertree_from_engine {
         );
     }
 
+    /// A replaced element or form control made `display: block` keeps its own width, as it
+    /// has inline (CSS 2 §10.3.4); only a non-replaced block is stretched to its container.
+    /// An explicit width still wins.
+    #[test]
+    fn a_block_level_image_or_control_keeps_its_own_width() {
+        use crate::common::geo::Dimension;
+        use crate::common::MediaStore;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+        use base64::Engine;
+        use gosub_fontmanager::ParleyFontSystem;
+        use parking_lot::Mutex;
+
+        let png = {
+            use image::ImageEncoder;
+            let mut bytes = Vec::new();
+            image::codecs::png::PngEncoder::new(&mut bytes)
+                .write_image(&[255; 80 * 40 * 4], 80, 40, image::ExtendedColorType::Rgba8)
+                .expect("encode");
+            format!(
+                "data:image/png;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(bytes)
+            )
+        };
+        let controls = ["input", "select", "textarea", "progress", "meter"];
+        let mut body =
+            format!(r#"<img id="img-inline" src="{png}"><img id="img-block" style="display: block" src="{png}">"#);
+        for tag in controls {
+            let close = if tag == "input" {
+                String::new()
+            } else {
+                format!("</{tag}>")
+            };
+            body.push_str(&format!(
+                r#"<div><{tag} id="{tag}-inline">{close}</div><{tag} id="{tag}-block" style="display: block">{close}"#
+            ));
+        }
+        body.push_str(r#"<input id="input-full" style="display: block; width: 100%">"#);
+        let html = format!(r#"<html><head><style>body {{ margin: 0 }}</style></head><body>{body}</body></html>"#);
+
+        gosub_css3::media_query::set_media_environment(gosub_css3::media_query::MediaEnvironment {
+            width: 800.0,
+            height: 600.0,
+            device_pixel_ratio: 1.0,
+            ..Default::default()
+        });
+        let mut doc = html_compile::<Config>(&html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let id = |id: &str| find_node_by_id_attr(&adapter.doc, root, id).expect("element in the test page");
+        let mut ids = vec![("img", id("img-inline"), id("img-block"))];
+        for tag in controls {
+            ids.push((tag, id(&format!("{tag}-inline")), id(&format!("{tag}-block"))));
+        }
+        let full = id("input-full");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let store = Arc::new(MediaStore::new());
+        store.set_synchronous_fetch(true);
+        let mut layouter =
+            TaffyLayouter::with_font_system_and_media_store(Arc::new(Mutex::new(ParleyFontSystem::new())), store);
+        let layout_tree = layouter.layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let width = |dom| {
+            layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == dom)
+                .expect("the element is laid out")
+                .box_model
+                .border_box
+                .width
+                .round()
+        };
+        for (tag, inline, block) in ids {
+            assert!(width(inline) < 400.0, "{tag} inline is narrow ({})", width(inline));
+            assert_eq!(width(block), width(inline), "{tag} as a block keeps its inline width");
+        }
+        let content = |dom| {
+            let el = layout_tree.arena.values().find(|el| el.dom_node_id == dom);
+            el.expect("the element is laid out").box_model.content_box.width.round()
+        };
+        assert_eq!(content(full), 800.0, "width: 100% still fills the line");
+    }
+
     /// `object-fit` and `object-position` place an 80x40 image in a 100x100 box. The image is
     /// painted over the content box as one non-repeating tile positioned in it (backends paint a
     /// tile only where it lies): `contain` letterboxes it, `cover` crops it, `none` keeps its size

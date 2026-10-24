@@ -3163,6 +3163,15 @@ impl TaffyLayouter {
                         }
                     }
                 }
+
+                // A replaced element or form control keeps its own width as a block, where a
+                // non-replaced block is stretched to its container (CSS 2 §10.3.4): without
+                // this, `display: block` on an input or an image made it full width. An `<img>`
+                // still loading has no context yet, but is replaced all the same. An inline
+                // `<svg>` is left out for now: its CSS width does not always reach this style (a
+                // `width: 100%` reads as auto), and the stretch is what gives it that width.
+                taffy_style.item_is_replaced = data.tag_name.eq_ignore_ascii_case("img")
+                    || matches!(taffy_context, Some(TaffyContext::FormControl(_)));
             }
             NodeType::Text(text) => {
                 let parent_node = match dom_node.parent_id {
