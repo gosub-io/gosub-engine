@@ -4310,6 +4310,23 @@ mod rendertree_from_engine {
             .collect()
     }
 
+    /// A range input stretched by its flex container takes the container's height, so its thumb
+    /// is centred on the stretched box (WPT css-flexbox/flexitem-stretch-range). The UA sheet
+    /// pinned its 129x21 as `width`/`height`, a definite size that `align-items: stretch` cannot
+    /// change; that is its intrinsic size, not a used one.
+    #[test]
+    fn a_range_input_stretches_in_a_flex_container() {
+        let html = r#"<html><body style="margin: 0">
+          <div style="display: flex; height: 200px"><input id="f" type="range" style="flex: 1; margin: 0"></div>
+          <div><input id="p" type="range"></div>
+        </body></html>"#;
+        let [f, p] = border_boxes(html, &["f", "p"])[..] else {
+            unreachable!()
+        };
+        assert_eq!((f.width, f.height), (800.0, 200.0), "stretched to the flex line");
+        assert_eq!((p.width, p.height), (129.0, 21.0), "unstretched, its intrinsic size");
+    }
+
     /// An inline box is broken around a block inside it (CSS 2.1 §9.2.1.1): the block starts on a
     /// line of its own at the containing block's left edge, and what follows it goes below. It
     /// was laid out as a flex item of the inline box, beside the text before it, so an input

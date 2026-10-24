@@ -1352,9 +1352,9 @@ input[type="checkbox" i], input[type="radio" i] {
     border: none;
     background-color: transparent;
 }
+/* No width or height: a range's 129x21 is its intrinsic size (the layouter's measure), so
+   stretch and percentages still size it, as in browsers. */
 input[type="range" i] {
-    width: 129px;
-    height: 21px;
     padding: 0;
     border: none;
     background-color: transparent;
