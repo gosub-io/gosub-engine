@@ -3117,6 +3117,11 @@ impl TaffyLayouter {
                 if taffy_context.is_none() {
                     if let Some(fc) = self.extract_form_control(layout_tree, dom_node, data) {
                         taffy_context = Some(TaffyContext::FormControl(fc));
+                        // A widget sizes like a replaced element: `display: block` with an auto
+                        // width keeps its intrinsic width instead of filling the line (CSS 2
+                        // §10.3.4), and a flex or grid item may shrink below its min-content
+                        // (css-sizing-3 §5.2.2, compressible replaced elements).
+                        taffy_style.item_is_replaced = true;
                         // A drag-resized control keeps the size the user gave it (border box).
                         if let Some((w, h)) = layout_tree.render_tree.doc.control_size(dom_node.node_id) {
                             taffy_style.box_sizing = taffy::BoxSizing::BorderBox;

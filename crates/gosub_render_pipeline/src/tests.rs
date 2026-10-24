@@ -4327,6 +4327,40 @@ mod rendertree_from_engine {
         assert_eq!((p.width, p.height), (129.0, 21.0), "unstretched, its intrinsic size");
     }
 
+    /// A form control made `display: block` keeps its intrinsic width, as a replaced element does
+    /// (CSS 2.1 §10.3.4), instead of filling its container: a block-level text field is as wide
+    /// as an inline one. A width the page gives it, and a flex container's stretch, still apply.
+    #[test]
+    fn a_block_level_form_control_keeps_its_intrinsic_width() {
+        let html = r#"<html><body style="margin: 0">
+          <div><input id="inline"></div>
+          <div><input id="input" style="display: block"></div>
+          <div><select id="select" style="display: block"><option>aa</option></select></div>
+          <div><textarea id="textarea" style="display: block"></textarea></div>
+          <div><input id="full" style="display: block; width: 100%; box-sizing: border-box"></div>
+          <div style="display: flex; flex-direction: column"><input id="column"></div>
+        </body></html>"#;
+        let [inline, input, select, textarea, full, column] =
+            border_boxes(html, &["inline", "input", "select", "textarea", "full", "column"])[..]
+        else {
+            unreachable!()
+        };
+        assert_eq!(
+            input.width, inline.width,
+            "a block-level input is as wide as an inline one"
+        );
+        assert!(
+            select.width < 200.0,
+            "a block-level select fits its options, got {select:?}"
+        );
+        assert!(
+            textarea.width < 400.0,
+            "a block-level textarea is `cols` wide, got {textarea:?}"
+        );
+        assert_eq!(full.width, 800.0, "`width: 100%` still fills the container");
+        assert_eq!(column.width, 800.0, "a column flex container still stretches it");
+    }
+
     /// An inline box is broken around a block inside it (CSS 2.1 §9.2.1.1): the block starts on a
     /// line of its own at the containing block's left edge, and what follows it goes below. It
     /// was laid out as a flex item of the inline box, beside the text before it, so an input
