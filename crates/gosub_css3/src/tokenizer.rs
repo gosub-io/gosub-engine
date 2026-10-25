@@ -8,6 +8,13 @@ use gosub_shared::byte_stream::{Location, Stream};
 
 use crate::unicode::{get_unicode_char, UnicodeChar};
 
+/// CSS whitespace (CSS Syntax 3 §4.2): newline, tab or space, plus the carriage return and form
+/// feed that input preprocessing turns into newlines. Narrower than Unicode's, so a no-break
+/// space (U+00A0) or an em space is part of an identifier, not a separator.
+fn is_css_whitespace(c: Character) -> bool {
+    matches!(c, Ch('\n' | '\t' | ' ' | '\r' | '\u{c}'))
+}
+
 pub type Number = f64;
 
 /// The type flag css-syntax-3 gives every `<number-token>`: "integer" when it is written as
@@ -359,7 +366,7 @@ impl<'stream> Tokenizer<'stream> {
                 Token::new(TokenType::Delim('\u{FFFD}'), loc)
             }
             Character::StreamEnd => Token::new(TokenType::Eof, loc),
-            Ch(c) if c.is_whitespace() => {
+            Ch(c) if is_css_whitespace(current) => {
                 self.consume_whitespace();
                 Token::new(TokenType::Whitespace(c.to_string()), loc)
             }
@@ -727,7 +734,7 @@ impl<'stream> Tokenizer<'stream> {
                 break;
             }
 
-            if self.current_char().is_whitespace() {
+            if is_css_whitespace(self.current_char()) {
                 self.consume_whitespace();
                 continue;
             }
@@ -785,7 +792,7 @@ impl<'stream> Tokenizer<'stream> {
             value.push(self.next_char().into());
         }
 
-        if self.current_char().is_whitespace() {
+        if is_css_whitespace(self.current_char()) {
             self.next_char();
         }
 
@@ -889,7 +896,7 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     fn consume_whitespace(&mut self) {
-        while self.current_char().is_whitespace() {
+        while is_css_whitespace(self.current_char()) {
             self.next_char();
         }
     }
@@ -1026,6 +1033,18 @@ mod test {
         tokenizer.consume_comment();
 
         assert!(stream.eof());
+    }
+
+    /// Only newline, tab, space, CR and FF are CSS whitespace: a no-break space or an em space
+    /// is an identifier code point, so `a\u{a0}b` is one identifier.
+    #[test]
+    fn unicode_spaces_are_not_css_whitespace() {
+        let mut stream = ByteStream::from_str("a\u{a0}b\u{2003} \t\r\u{c}\nc", Encoding::UTF8);
+        let mut tokenizer = Tokenizer::new(&mut stream, Location::default());
+
+        assert_token_eq!(tokenizer.consume(), Token::new_ident("a\u{a0}b\u{2003}", Location::default()));
+        assert!(tokenizer.consume().is_whitespace());
+        assert_token_eq!(tokenizer.consume(), Token::new_ident("c", Location::default()));
     }
 
     #[test]
