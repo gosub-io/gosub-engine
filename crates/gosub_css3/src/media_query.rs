@@ -124,8 +124,8 @@ pub fn media_environment() -> MediaEnvironment {
 
 /// A comma-separated list of media queries: it matches when *any* query does.
 ///
-/// An empty list matches everything, which keeps `@media { ... }` with an unparseable prelude
-/// from silently hiding its rules.
+/// An empty list (`@media { ... }`) matches everything. A query in it that could not be read is
+/// `not all`, which drops that query and keeps the others.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MediaQueryList {
     pub queries: Vec<MediaQuery>,
@@ -140,7 +140,7 @@ impl MediaQueryList {
             return Self::default();
         };
         Self {
-            queries: media_queries.iter().filter_map(MediaQuery::from_ast).collect(),
+            queries: media_queries.iter().map(MediaQuery::from_ast_or_not_all).collect(),
         }
     }
 
@@ -149,8 +149,9 @@ impl MediaQueryList {
         self.queries.is_empty() || self.queries.iter().any(|query| query.matches(env))
     }
 
-    /// A media query list written outside a stylesheet: a `<source media>` attribute. `None`
-    /// when the text does not parse as one, which Media Queries reads as `not all`.
+    /// A media query list written outside a stylesheet: a `<source media>` attribute. A query
+    /// in it that does not parse is `not all` on its own; `None` only when something other than
+    /// a list follows it, which Media Queries reads as `not all` for the whole list.
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
         use gosub_interface::css3::CssOrigin;
@@ -168,11 +169,9 @@ impl MediaQueryList {
         let NodeType::MediaQueryList { media_queries } = &node.node_type else {
             return None;
         };
-        let queries = media_queries
-            .iter()
-            .map(MediaQuery::from_ast)
-            .collect::<Option<Vec<_>>>()?;
-        Some(Self { queries })
+        Some(Self {
+            queries: media_queries.iter().map(MediaQuery::from_ast_or_not_all).collect(),
+        })
     }
 
     /// A `<media-condition>` written outside a stylesheet: the condition in front of a `sizes`
@@ -204,6 +203,22 @@ pub struct MediaQuery {
 }
 
 impl MediaQuery {
+    /// `not all`, which never matches: what a query the engine cannot read stands for, so the
+    /// rest of its list still counts (Media Queries 4 §3.2).
+    #[must_use]
+    pub fn not_all() -> Self {
+        Self {
+            negated: true,
+            media_type: None,
+            unknown_type: false,
+            condition: None,
+        }
+    }
+
+    fn from_ast_or_not_all(node: &Node) -> Self {
+        Self::from_ast(node).unwrap_or_else(Self::not_all)
+    }
+
     fn from_ast(node: &Node) -> Option<Self> {
         let NodeType::MediaQuery {
             modifier,
@@ -766,6 +781,36 @@ mod tests {
 
     fn matches(query: &str, env: &MediaEnvironment) -> bool {
         query_list(query).matches(env)
+    }
+
+    /// One query the engine cannot read is `not all` on its own; the rest of the list counts.
+    #[test]
+    fn an_unreadable_query_does_not_take_the_list_with_it() {
+        let screen = env(1200.0, 800.0);
+        assert!(matches("1px, screen", &screen));
+        assert!(matches(
+            "screen and (min-width: 1px) junk, print, (max-width: 2000px)",
+            &screen
+        ));
+        assert!(matches(", screen", &screen));
+        assert!(!matches("1px, print", &screen));
+        assert!(!matches("screen and (min-width: 1px) junk", &screen));
+
+        let list = MediaQueryList::parse("junk junk, (max-width: 600px)").expect("a list");
+        assert!(list.matches(&env(500.0, 800.0)));
+        assert!(!list.matches(&screen));
+    }
+
+    /// A query that fails is fenced in at its own end: it cannot eat the rule's block, and the
+    /// rules after it are untouched.
+    #[test]
+    fn an_unreadable_query_leaves_the_block_and_the_next_rules_alone() {
+        let css = "@media screen and (min-width: 1px) junk { a { color: red; } } \
+                   @media 1px, screen { b { color: red; } } c { color: blue; }";
+        let sheet = Css3::parse_str(css, ParserConfig::default(), CssOrigin::Author, "test.css").expect("parses");
+        let screen = env(1200.0, 800.0);
+        let applied: Vec<bool> = sheet.rules.iter().map(|rule| rule.media_matches(&screen)).collect();
+        assert_eq!(applied, [false, true, true]);
     }
 
     #[test]
