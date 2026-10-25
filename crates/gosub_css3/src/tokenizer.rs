@@ -332,6 +332,14 @@ impl<'stream> Tokenizer<'stream> {
         self.consumed
     }
 
+    /// Hides the token `offset` places ahead behind an end of input and hands it back, so a
+    /// parse that must stop before it cannot run past it. Once the parse has consumed that end
+    /// of input, return the token with [`Tokenizer::reconsume`].
+    pub(crate) fn fence(&mut self, offset: usize) -> Token {
+        let location = self.lookahead(offset).location;
+        std::mem::replace(&mut self.pending[offset], Token::new(TokenType::Eof, location))
+    }
+
     /// 4.3.1. [Consume a token](https://www.w3.org/TR/css-syntax-3/#consume-token)
     fn consume_token(&mut self) -> Token {
         // Strip a leading UTF-8 BOM (U+FEFF) at the very start of the stream, per CSS Syntax
