@@ -1452,6 +1452,66 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A gopher menu goes through the whole tab pipeline - protocol, routing, parsing - and
+    /// lands as a document like any web page.
+    #[cfg(feature = "gopher")]
+    #[tokio::test]
+    async fn a_gopher_menu_loads_as_a_page() {
+        use crate::events::NavigationEvent;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 1024];
+                    let _ = stream.read(&mut buf).await;
+                    let _ = stream
+                        .write_all(b"iWelcome\t\t\t\r\n0Read me\t/readme\t127.0.0.1\t70\r\n.\r\n")
+                        .await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        tab.navigate(format!("gopher://127.0.0.1:{port}/1/"))
+            .await
+            .expect("navigate");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    }) => return,
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Failed { error, .. },
+                        ..
+                    }) => panic!("gopher navigation failed: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for the gopher page");
+
+        assert_eq!(tab.title(), format!("127.0.0.1:{port}/1/"));
+        assert_eq!(
+            tab.url().map(|u| u.to_string()),
+            Some(format!("gopher://127.0.0.1:{port}/1/"))
+        );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// `net.*` settings are read when a zone first fetches, so an override made after
     /// `start()` must reach the wire for a zone created afterwards.
     #[tokio::test(flavor = "current_thread")]

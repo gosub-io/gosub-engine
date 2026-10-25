@@ -54,7 +54,10 @@ pub trait Protocol: Send + Sync {
 }
 
 /// Every protocol compiled into this build.
-static PROTOCOLS: &[&dyn Protocol] = &[];
+static PROTOCOLS: &[&dyn Protocol] = &[
+    #[cfg(feature = "gopher")]
+    &crate::net::gopher::Gopher,
+];
 
 /// The protocol serving `scheme`, if this build has one.
 pub fn lookup(scheme: &str) -> Option<&'static dyn Protocol> {
@@ -242,6 +245,13 @@ mod tests {
     fn unknown_schemes_have_no_protocol() {
         assert!(lookup("http").is_none());
         assert!(lookup("echo").is_none());
+    }
+
+    #[cfg(feature = "gopher")]
+    #[test]
+    fn gopher_is_a_protocol() {
+        let gopher = lookup("gopher").expect("gopher compiled in");
+        assert_eq!(gopher.setting(), "net.gopher.enabled");
     }
 
     #[tokio::test]

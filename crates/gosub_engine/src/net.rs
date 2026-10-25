@@ -68,6 +68,8 @@ pub mod brokered_loader;
 pub mod events;
 mod fetcher;
 mod file_loader;
+#[cfg(feature = "gopher")]
+pub mod gopher;
 mod io_runtime;
 pub mod orb;
 /// The network stack running as a separate, sandboxed process.
