@@ -628,6 +628,32 @@ mod tests {
         );
     }
 
+    /// A web font can arrive after text has been laid out: one kept back under an `@media`
+    /// condition is registered when a resize makes it apply. A lookup of the family made before
+    /// then, which fell back, must not stick.
+    #[test]
+    fn a_family_registered_after_a_lookup_resolves_from_then_on() {
+        let mut fs = SkiaFontSystem;
+        let name = "Gosub Skia Late Test";
+        let list = format!("\"{name}\", serif");
+        let before = resolve_family_list(&list);
+        assert_ne!(
+            before.first().map(String::as_str),
+            Some(name),
+            "not registered yet: {before:?}"
+        );
+        let _ = fs.measure("late", &gosub_interface::font_system::TextStyle::new(name, 16.0));
+
+        fs.register_font(gosub_shared::ROBOTO_FONT.to_vec(), Some(name))
+            .expect("bundled Roboto must register");
+        let after = resolve_family_list(&list);
+        assert_eq!(
+            after.first().map(String::as_str),
+            Some(name),
+            "the late registration must be found: {after:?}"
+        );
+    }
+
     #[test]
     fn splits_and_trims_family_list() {
         assert_eq!(

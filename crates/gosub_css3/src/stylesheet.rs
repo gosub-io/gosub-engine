@@ -493,6 +493,13 @@ impl gosub_interface::css3::CssStylesheet for CssStylesheet {
             .collect()
     }
 
+    fn all_font_faces(&self) -> Vec<(String, Vec<String>, Option<String>)> {
+        self.font_faces
+            .iter()
+            .map(|f| (f.family.clone(), f.sources.clone(), f.unicode_range.clone()))
+            .collect()
+    }
+
     /// What parsing dropped, then every declaration whose value its grammar rejected, for
     /// the rules an element has used so far. An unknown property is reported by the parse and
     /// skipped here.

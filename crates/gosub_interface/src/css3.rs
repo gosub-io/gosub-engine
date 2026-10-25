@@ -165,6 +165,13 @@ pub trait CssStylesheet: PartialEq + Debug {
         Vec::new()
     }
 
+    /// Every `@font-face` in this stylesheet, in the shape of [`CssStylesheet::font_faces`],
+    /// whether or not its media conditions hold now: what a host fetches ahead, so a resize
+    /// that brings a face in has its bytes at hand. The default is the faces that apply now.
+    fn all_font_faces(&self) -> Vec<(String, Vec<String>, Option<String>)> {
+        self.font_faces()
+    }
+
     /// What in this stylesheet the engine did not apply, and why, in source order of discovery.
     /// A declaration whose value is checked only when an element first uses its rule appears
     /// once some element has: the rest are found when the sheet is parsed.
