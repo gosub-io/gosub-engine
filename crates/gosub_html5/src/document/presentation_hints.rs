@@ -216,6 +216,29 @@ fn valign(tag: &str, raw: &str) -> Option<&'static str> {
     }
 }
 
+/// §15.3.8: a list's `type`, as a `list-style-type`. The numbering letters are case-sensitive -
+/// `a` and `A` are two styles - and belong to `<ol>`; the bullet names are not, and belong to
+/// `<ul>`. An `<li>` takes either.
+fn list_type(tag: &str, raw: &str) -> Option<&'static str> {
+    let numbered = matches!(tag, "ol" | "li");
+    let bulleted = matches!(tag, "ul" | "li");
+    match raw {
+        "1" if numbered => Some("decimal"),
+        "a" if numbered => Some("lower-alpha"),
+        "A" if numbered => Some("upper-alpha"),
+        "i" if numbered => Some("lower-roman"),
+        "I" if numbered => Some("upper-roman"),
+        _ if bulleted => match raw.cow_to_ascii_lowercase().as_ref() {
+            "none" => Some("none"),
+            "disc" => Some("disc"),
+            "circle" => Some("circle"),
+            "square" => Some("square"),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// What an element's attributes say about it in CSS, as the body of a declaration block.
 ///
 /// `lookup` reads an attribute of the element itself. A cell's padding comes from the `<table>`
@@ -273,6 +296,9 @@ pub fn hints_for<'a>(
     if let Some(value) = lookup("valign").and_then(|raw| valign(tag, raw)) {
         push(&mut out, "vertical-align", value);
     }
+    if let Some(value) = lookup("type").and_then(|raw| list_type(tag, raw)) {
+        push(&mut out, "list-style-type", value);
+    }
 
     // §15.3.9, the dimension attributes: a replaced element's `width` is a CSS width.
     let dimension_attr = match tag {
@@ -301,6 +327,22 @@ mod tests {
 
     fn none(_: &str) -> Option<&'static str> {
         None
+    }
+
+    #[test]
+    fn a_list_type_attribute_picks_the_marker() {
+        let hint = |tag: &str, value: &'static str| {
+            hints_for(tag, false, |name| (name == "type").then_some(value), none, false)
+        };
+        assert_eq!(hint("ol", "a").as_deref(), Some("list-style-type:lower-alpha"));
+        assert_eq!(hint("ol", "A").as_deref(), Some("list-style-type:upper-alpha"));
+        assert_eq!(hint("li", "I").as_deref(), Some("list-style-type:upper-roman"));
+        assert_eq!(hint("ul", "SQUARE").as_deref(), Some("list-style-type:square"));
+        assert_eq!(hint("li", "none").as_deref(), Some("list-style-type:none"));
+        // Numbering on a `<ul>`, bullets on an `<ol>`, and a `type` on anything else mean nothing.
+        assert_eq!(hint("ul", "a"), None);
+        assert_eq!(hint("ol", "disc"), None);
+        assert_eq!(hint("input", "1"), None);
     }
 
     #[test]
