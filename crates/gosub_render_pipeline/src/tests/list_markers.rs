@@ -214,7 +214,7 @@ fn a_summary_shows_its_disclosure_triangle() {
 }
 
 /// Lay `html` out in an 800x600 viewport and return the border box of the marker of the element
-/// with `id`, and of the first piece of text in the element with `text_in`.
+/// with `id`, and of the first piece of text (top line, leftmost) in the element with `text_in`.
 fn marker_and_text_boxes(html: &str, id: &str, text_in: &str) -> (crate::common::geo::Rect, crate::common::geo::Rect) {
     use crate::common::document::pipeline_doc::pseudo_owner;
     use crate::common::geo::Dimension;
@@ -241,7 +241,11 @@ fn marker_and_text_boxes(html: &str, id: &str, text_in: &str) -> (crate::common:
                 && pseudo_owner(el.dom_node_id).is_none()
                 && tree.render_tree.doc.parent(el.dom_node_id) == Some(text_parent)
         })
-        .min_by(|a, b| a.box_model.border_box.x.total_cmp(&b.box_model.border_box.x))
+        // The first piece in reading order: the layout arena is a map, so its own order is not.
+        .min_by(|a, b| {
+            let (a, b) = (a.box_model.border_box, b.box_model.border_box);
+            a.y.total_cmp(&b.y).then(a.x.total_cmp(&b.x))
+        })
         .expect("the item's text is laid out");
     (marker.box_model.border_box, text.box_model.border_box)
 }
