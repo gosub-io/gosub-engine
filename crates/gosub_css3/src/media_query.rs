@@ -817,6 +817,22 @@ mod tests {
         assert!(!MediaQueryList::parse("screen and (").expect("a list").matches(&screen));
     }
 
+    /// A `)` or `]` that closes nothing is part of its query, which is then unreadable; the
+    /// comma after it still starts the next query.
+    #[test]
+    fn a_stray_closing_bracket_spoils_only_its_query() {
+        let screen = env(1200.0, 800.0);
+        let parse = |text| MediaQueryList::parse(text).expect("a list");
+        assert!(parse("], screen").matches(&screen));
+        assert!(parse("screen, )").matches(&screen));
+        assert!(!parse("screen and ) junk, print").matches(&screen));
+
+        let css = "@media ], screen { a { color: red; } } @media ) { b { color: red; } } c { color: blue; }";
+        let sheet = Css3::parse_str(css, ParserConfig::default(), CssOrigin::Author, "test.css").expect("parses");
+        let applied: Vec<bool> = sheet.rules.iter().map(|rule| rule.media_matches(&screen)).collect();
+        assert_eq!(applied, [true, false, true]);
+    }
+
     /// A query that fails is fenced in at its own end: it cannot eat the rule's block, and the
     /// rules after it are untouched.
     #[test]

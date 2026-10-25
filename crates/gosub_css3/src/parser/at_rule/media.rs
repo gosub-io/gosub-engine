@@ -119,10 +119,12 @@ impl Css3<'_> {
     }
 
     /// How many tokens the next media query spans: everything up to a comma, `{` or `;` outside
-    /// any block, a closing bracket of a block opened before the query, or the end of input.
+    /// any block, the `}` of a block the rule sits in, or the end of input.
     ///
     /// A block ends only at its own closing bracket, so in `print and (], screen` the comma is
-    /// still inside the `(` and `screen` is not a query of its own.
+    /// still inside the `(` and `screen` is not a query of its own. A `)` or `]` with no block to
+    /// close is just a token of the query (CSS Syntax), which makes that query unreadable and
+    /// leaves the next one alone: `], screen` still matches on screen.
     fn media_query_extent(&mut self) -> usize {
         let mut open: Vec<TokenType> = Vec::new();
         let mut len = 0;
@@ -131,7 +133,7 @@ impl Css3<'_> {
             match token_type {
                 TokenType::Eof => return len,
                 TokenType::Comma | TokenType::LCurly | TokenType::Semicolon if open.is_empty() => return len,
-                TokenType::RParen | TokenType::RBracket | TokenType::RCurly if open.is_empty() => return len,
+                TokenType::RCurly if open.is_empty() => return len,
                 TokenType::LParen | TokenType::Function(_) => open.push(TokenType::RParen),
                 TokenType::LBracket => open.push(TokenType::RBracket),
                 TokenType::LCurly => open.push(TokenType::RCurly),
