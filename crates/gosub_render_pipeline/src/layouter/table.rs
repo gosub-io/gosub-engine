@@ -187,6 +187,7 @@ impl<'a> PipelineTableTree<'a> {
             &self.relaid,
             border_corrected,
             self.dom_to_layout,
+            self.layouter,
             &mut self.layout_tree.arena,
         );
     }
@@ -208,6 +209,8 @@ fn apply_recursive(
     // shift; the correction is a one-time conversion, not a per-pass translation.
     border_corrected: &mut HashSet<DomNodeId>,
     dom_to_layout: &HashMap<DomNodeId, LayoutElementId>,
+    // For the word boxes of text split into words, which `dom_to_layout` does not hold.
+    layouter: &TaffyLayouter,
     arena: &mut HashMap<LayoutElementId, LayoutElementNode>,
 ) {
     // Iterative, because this walks the DOM rather than the layout tree and so is not bounded by
@@ -225,8 +228,9 @@ fn apply_recursive(
                 None => {
                     // Non-table-structure node: shift it by the accumulated translation
                     // so it stays correctly positioned relative to its parent cell.
-                    if let Some(&layout_id) = dom_to_layout.get(&child_id) {
-                        if let Some(element) = arena.get_mut(&layout_id) {
+                    let mapped = dom_to_layout.get(&child_id).copied();
+                    for layout_id in mapped.iter().chain(layouter.text_words(child_id)) {
+                        if let Some(element) = arena.get_mut(layout_id) {
                             translate_box_model(&mut element.box_model, offset);
                         }
                     }

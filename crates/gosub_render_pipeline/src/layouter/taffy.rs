@@ -405,6 +405,10 @@ pub struct TaffyLayouter {
     /// their own (see [`TaffyLayouter::push_flattened_inline`]). Each keeps an arena entry, whose
     /// box is settled from its content once layout is done.
     flattened_inlines: Vec<LayoutElementId>,
+    /// The word boxes of each text node split into words (see [`TaffyLayouter::push_text_words`]).
+    /// They have no entry in `dom_to_layout_mapping`, which holds one box per DOM node, so a pass
+    /// that moves boxes by DOM node finds them here.
+    text_words: HashMap<DomNodeId, Vec<LayoutElementId>>,
     /// Text items that touch with no space between them, and the non-wrapping box holding them
     /// inside their line box (see [`TaffyLayouter::emit_line`]). Their taffy position is relative
     /// to that box.
@@ -568,6 +572,7 @@ impl TaffyLayouter {
             percent_line_items: HashMap::new(),
             inline_level: std::collections::HashSet::new(),
             flattened_inlines: Vec::new(),
+            text_words: HashMap::new(),
             glue_map: HashMap::new(),
         }
     }
@@ -1204,6 +1209,12 @@ impl TaffyLayouter {
         &self.dom_to_layout_mapping
     }
 
+    /// The word boxes of a text node that was split into words, which `dom_to_layout_mapping`
+    /// does not hold.
+    pub(super) fn text_words(&self, text: DomNodeId) -> &[LayoutElementId] {
+        self.text_words.get(&text).map_or(&[], Vec::as_slice)
+    }
+
     /// Measure a cell subtree's max-content border-box width: one taffy compute
     /// with MaxContent available space. Box models in the LayoutTree are
     /// untouched (the subsequent `relayout_cell` at the final width rewrites
@@ -1437,6 +1448,7 @@ impl TaffyLayouter {
         self.anon_container_map.clear();
         self.dom_to_layout_mapping.clear();
         self.flattened_inlines.clear();
+        self.text_words.clear();
         self.glue_map.clear();
         self.baseline_shifts.clear();
         self.collapsed_spaces.clear();
@@ -2029,8 +2041,9 @@ impl TaffyLayouter {
     }
 
     /// Build a single-word inline text box, reusing `extract_taffy_data` so font/whitespace
-    /// resolution matches the whole-node path. `dom_to_layout_mapping` is intentionally not written
-    /// - one text node maps to many word boxes and the single-slot map cannot represent that.
+    /// resolution matches the whole-node path. `dom_to_layout_mapping` is intentionally not written:
+    /// one text node maps to many word boxes and the single-slot map cannot represent that. They are
+    /// listed in `text_words` instead.
     fn build_text_word_leaf(
         &mut self,
         layout_tree: &mut LayoutTree,
@@ -2057,6 +2070,10 @@ impl TaffyLayouter {
         let layout_element_id = element_node.id;
         layout_tree.arena.insert(layout_element_id, element_node);
         self.layout_taffy_mapping.insert(layout_element_id, taffy_id);
+        self.text_words
+            .entry(word_node.node_id)
+            .or_default()
+            .push(layout_element_id);
         Some((layout_element_id, taffy_id))
     }
 
