@@ -805,6 +805,18 @@ mod tests {
         assert!(!list.matches(&screen));
     }
 
+    /// A bracket left open at the end of the text closes there (CSS Syntax): the query in it
+    /// is unreadable, and the queries before it still count.
+    #[test]
+    fn an_unclosed_bracket_at_the_end_spoils_only_its_query() {
+        let screen = env(1200.0, 800.0);
+        for text in ["screen, (foo", "screen, (width >", "screen, (100px < width"] {
+            let list = MediaQueryList::parse(text).expect("a list");
+            assert!(list.matches(&screen), "{text:?} should match on screen");
+        }
+        assert!(!MediaQueryList::parse("screen and (").expect("a list").matches(&screen));
+    }
+
     /// A query that fails is fenced in at its own end: it cannot eat the rule's block, and the
     /// rules after it are untouched.
     #[test]

@@ -83,8 +83,9 @@ impl Css3<'_> {
                 self.consume_whitespace_comments();
             }
             let used = self.tokenizer.consumed() - start;
-            if used > len + 1 {
-                // Past the fence: the tokens the query read beyond it are gone.
+            if used > len + 1 && !matches!(boundary.token_type, TokenType::Eof) {
+                // Past the fence: the tokens the query read beyond it are gone. At the end of
+                // input there is nothing beyond it, so the query is only unreadable.
                 return Err(CssError::with_location("media query ran past its end", query_loc));
             }
             let complete = used == len;
