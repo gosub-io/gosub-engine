@@ -401,6 +401,31 @@ impl CssStylesheet {
         insert_at + count
     }
 
+    /// Put the whole sheet under the `media` attribute of the `<link>` or `<style>` it came
+    /// from, so `<link rel=stylesheet media=print>` stays out of screen rendering.
+    ///
+    /// The condition goes onto every rule and registration, outermost, the way an `@import`'s
+    /// does: kept unevaluated, so a resize can still bring the sheet in or take it out. An
+    /// empty attribute means `all` and changes nothing; one that does not parse means
+    /// `not all`, so the sheet never applies.
+    pub fn set_owner_media(&mut self, text: &str) {
+        if text.trim().is_empty() {
+            return;
+        }
+        let media = Arc::new(MediaQueryList::parse(text).unwrap_or_else(|| {
+            log::debug!(
+                "unreadable media attribute {text:?} on {}: the sheet never applies",
+                self.url
+            );
+            MediaQueryList::not_all()
+        }));
+        let rules = self.rules.iter_mut().map(|rule| &mut rule.media);
+        let registrations = self.property_rules.iter_mut().map(|rule| &mut rule.media);
+        for conditions in rules.chain(registrations) {
+            conditions.get_or_insert_with(Vec::new).insert(0, Arc::clone(&media));
+        }
+    }
+
     /// Drop the rule index so the next lookup rebuilds it. Call after editing `rules` in a
     /// way that keeps their number (reordering, replacing a rule); pushes and removals are
     /// detected by themselves.
@@ -2614,5 +2639,56 @@ mod test {
         // A color function collapses to CssValue::Color at AST conversion time.
         assert!(crate::functions::registry::is_color_notation("rgba"));
         assert!(!crate::functions::registry::is_color_notation("calc"));
+    }
+
+    fn owned_sheet(media: &str) -> CssStylesheet {
+        use gosub_shared::config::ParserConfig;
+        let css = "a { color: red; } @media (min-width: 1px) { b { color: blue; } } \
+                   @property --x { syntax: '*'; inherits: false; }";
+        let mut sheet = crate::Css3::parse_str(css, ParserConfig::default(), CssOrigin::Author, "test.css")
+            .expect("the sheet parses");
+        sheet.set_owner_media(media);
+        sheet
+    }
+
+    #[test]
+    fn a_print_sheet_does_not_apply_on_screen() {
+        let screen = MediaEnvironment::default();
+        let print = MediaEnvironment {
+            media_type: crate::media_query::MediaType::Print,
+            ..MediaEnvironment::default()
+        };
+        let sheet = owned_sheet("print");
+        assert!(sheet.rules.iter().all(|rule| !rule.media_matches(&screen)));
+        assert!(sheet.rules.iter().all(|rule| rule.media_matches(&print)));
+        // The sheet's own `@media` stays inside the attribute's condition, not instead of it.
+        assert_eq!(sheet.rules[1].media.as_ref().map(Vec::len), Some(2));
+        let registration = sheet.property_rules[0].media.as_ref().expect("gated too");
+        assert!(!registration[0].matches(&screen));
+    }
+
+    #[test]
+    fn an_empty_media_attribute_means_all() {
+        let sheet = owned_sheet("  ");
+        assert!(sheet.rules[0].media.is_none());
+        assert!(sheet.property_rules[0].media.is_none());
+    }
+
+    #[test]
+    fn an_unreadable_media_attribute_means_not_all() {
+        let screen = MediaEnvironment::default();
+        let sheet = owned_sheet("screen and (");
+        assert!(sheet.rules.iter().all(|rule| !rule.media_matches(&screen)));
+    }
+
+    #[test]
+    fn a_media_attribute_follows_the_viewport() {
+        let narrow = MediaEnvironment {
+            width: 500.0,
+            ..MediaEnvironment::default()
+        };
+        let sheet = owned_sheet("screen and (max-width: 600px)");
+        assert!(sheet.rules[0].media_matches(&narrow));
+        assert!(!sheet.rules[0].media_matches(&MediaEnvironment::default()));
     }
 }

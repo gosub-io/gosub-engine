@@ -102,6 +102,11 @@ pub trait CssSystem: Clone + Debug + 'static {
     /// nothing, which means no scoping - every sheet applies to the whole document.
     fn set_stylesheet_scope(_sheet: &mut Self::Stylesheet, _scope: Option<NodeId>) {}
 
+    /// Puts a whole stylesheet under the `media` attribute of the `<link>` or `<style>` it
+    /// came from, so a `media=print` sheet does not apply on screen. The default does nothing,
+    /// which means every sheet applies whatever its attribute says.
+    fn set_stylesheet_media(_sheet: &mut Self::Stylesheet, _media: &str) {}
+
     /// A hash of everything *outside* the DOM that the cascade reads, under the environment
     /// currently in force: which `@media` conditions hold, and the viewport when any sheet
     /// uses viewport-relative units.

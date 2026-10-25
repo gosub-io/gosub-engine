@@ -198,6 +198,10 @@ impl CssSystem for Css3System {
         sheet.scope = scope;
     }
 
+    fn set_stylesheet_media(sheet: &mut Self::Stylesheet, media: &str) {
+        sheet.set_owner_media(media);
+    }
+
     fn style_environment_fingerprint(sheets: &[Self::Stylesheet]) -> Option<u64> {
         Some(style_environment_fingerprint_impl(sheets))
     }

@@ -550,17 +550,17 @@ async fn resolve_pending_stylesheets<C: RenderConfiguration>(
     bodies: &SheetBodies,
     fetch: &SubFetch<'_>,
 ) {
-    use gosub_interface::document::Document as _;
+    use gosub_interface::document::{Document as _, PendingStylesheet};
 
     let mut pending = doc.take_pending_stylesheets();
     if pending.is_empty() {
         return;
     }
     // Ascending, so the running offset below is correct.
-    pending.sort_by_key(|(position, _)| *position);
+    pending.sort_by_key(|sheet| sheet.position);
 
     let mut inserted = 0usize;
-    for (position, url) in pending {
+    for PendingStylesheet { position, url, media } in pending {
         // Taken before the await: holding the guard across it would make this future
         // non-Send, and the whole pipeline with it.
         let waiting = bodies.lock().remove(&url);
@@ -574,7 +574,7 @@ async fn resolve_pending_stylesheets<C: RenderConfiguration>(
         };
         // Everything already slotted in sat at or before this position, so each one
         // shifts this sheet one place further along.
-        if insert_fetched_sheet::<C>(doc, position + inserted, &url, body) {
+        if insert_fetched_sheet::<C>(doc, position + inserted, &url, media.as_deref(), body) {
             inserted += 1;
         }
     }
@@ -587,21 +587,21 @@ pub(crate) fn resolve_pending_stylesheets_blocking<C: RenderConfiguration>(
     doc: &mut EngineDocument<C>,
     fetch: &dyn Fn(&str) -> SheetBody,
 ) {
-    use gosub_interface::document::Document as _;
+    use gosub_interface::document::{Document as _, PendingStylesheet};
 
     let mut pending = doc.take_pending_stylesheets();
-    pending.sort_by_key(|(position, _)| *position);
+    pending.sort_by_key(|sheet| sheet.position);
 
     let mut inserted = 0usize;
-    for (position, url) in pending {
-        if insert_fetched_sheet::<C>(doc, position + inserted, &url, fetch(&url)) {
+    for PendingStylesheet { position, url, media } in pending {
+        if insert_fetched_sheet::<C>(doc, position + inserted, &url, media.as_deref(), fetch(&url)) {
             inserted += 1;
         }
     }
 }
 
-/// Parse a fetched stylesheet and put it at `position` in the cascade. `false` when there was
-/// nothing usable to put there.
+/// Parse a fetched stylesheet and put it at `position` in the cascade, under the `media`
+/// attribute of the link that asked for it. `false` when there was nothing usable to put there.
 ///
 /// A sheet that fails to load leaves no gap and no error: the document renders without it,
 /// which is what a browser does and what this code did when the parser fetched them itself.
@@ -609,6 +609,7 @@ fn insert_fetched_sheet<C: RenderConfiguration>(
     doc: &mut EngineDocument<C>,
     position: usize,
     url: &str,
+    media: Option<&str>,
     body: SheetBody,
 ) -> bool {
     use gosub_interface::css3::{CssOrigin, CssSystem};
@@ -636,7 +637,10 @@ fn insert_fetched_sheet<C: RenderConfiguration>(
         ..Default::default()
     };
     match <C::CssSystem as CssSystem>::parse_str(&css, config, CssOrigin::Author, url) {
-        Ok(sheet) => {
+        Ok(mut sheet) => {
+            if let Some(media) = media {
+                <C::CssSystem as CssSystem>::set_stylesheet_media(&mut sheet, media);
+            }
             doc.insert_stylesheet(position, sheet);
             true
         }
@@ -726,6 +730,25 @@ mod tests {
           </body>
         </html>
     "#;
+
+    /// A `<link media=print>` sheet arrives under its link's condition, not as a plain sheet.
+    #[test]
+    fn a_fetched_sheet_is_put_under_its_link_media() {
+        use gosub_css3::media_query::MediaEnvironment;
+        use gosub_interface::document::Document as _;
+
+        let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>("<p>x</p>");
+        let body = Some((Some("text/css".to_string()), b"p { color: red; }".to_vec()));
+        assert!(insert_fetched_sheet::<DefaultRenderConfig>(
+            &mut doc,
+            0,
+            "https://example.org/p.css",
+            Some("print"),
+            body
+        ));
+        let rule = &doc.stylesheets()[0].rules[0];
+        assert!(!rule.media_matches(&MediaEnvironment::default()));
+    }
 
     fn test_meta(base: &str) -> FetchResultMeta {
         let mut meta = FetchResultMeta::synthetic(Url::parse(base).expect("valid url"));
