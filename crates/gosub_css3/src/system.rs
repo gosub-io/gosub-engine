@@ -259,9 +259,17 @@ fn style_environment_fingerprint_impl(sheets: &[CssStylesheet]) -> u64 {
 
     for sheet in sheets {
         uses_viewport_units |= sheet.uses_viewport_units;
-        // An `@property` under `@media` registers or not by the same conditions.
+        // An `@property` under `@media` registers or not by the same conditions, and so does
+        // an `@font-face`: a face whose condition flips changes which font text is set in.
         let registrations = sheet.property_rules.iter().map(|rule| &rule.media);
-        for media in sheet.rules.iter().map(|rule| &rule.media).chain(registrations) {
+        let faces = sheet.font_faces.iter().map(|face| &face.media);
+        for media in sheet
+            .rules
+            .iter()
+            .map(|rule| &rule.media)
+            .chain(registrations)
+            .chain(faces)
+        {
             let Some(conditions) = media else {
                 continue;
             };
@@ -1580,5 +1588,27 @@ mod tests {
         // `:has()` restyles the anchor when something inside it is hovered.
         assert!(fingerprints(".card:has(.btn:hover) { color: red }").has_universal);
         assert!(!fingerprints(".card:has(.btn) { color: red }").has_universal);
+    }
+
+    /// A resize that flips only an `@font-face`'s condition still changes the fingerprint, or
+    /// the page would not restyle into the face that now applies.
+    #[test]
+    fn a_font_face_condition_is_part_of_the_environment() {
+        use crate::media_query::{set_media_environment, MediaEnvironment};
+
+        let css = "@media (min-width: 700px) { @font-face { font-family: Wide; src: url(w.woff2); } } \
+                   p { color: red; }";
+        let sheet = Css3::parse_str(css, ParserConfig::default(), CssOrigin::Author, "test.css").expect("parses");
+        let sheets = [sheet];
+        let at = |width| {
+            set_media_environment(MediaEnvironment {
+                width,
+                ..MediaEnvironment::default()
+            });
+            style_environment_fingerprint_impl(&sheets)
+        };
+        let (narrow, wide) = (at(500.0), at(900.0));
+        set_media_environment(MediaEnvironment::default());
+        assert_ne!(narrow, wide);
     }
 }
