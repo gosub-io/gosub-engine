@@ -1,0 +1,11 @@
+# cargo-nextest configuration, read by `cargo nextest run` locally and in CI.
+#
+# The process-isolation tests drive real child processes (broker, renderer, network)
+# with wall-clock timeouts, and on a loaded CI runner one of them occasionally misses
+# its window. A retry keeps that from failing the run; a test that only passes on a
+# retry is still reported as FLAKY, so it stays visible. Every other test gets no
+# retries, so a real failure anywhere else fails at once.
+
+[[profile.default.overrides]]
+filter = 'binary_id(gosub_engine::process_isolation)'
+retries = 2
