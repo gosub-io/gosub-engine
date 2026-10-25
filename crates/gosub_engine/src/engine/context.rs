@@ -61,6 +61,9 @@ use url::Url;
 // tests, but there is no `allow-unreachable-in-tests` to match.
 #[allow(clippy::unreachable)]
 mod forms_tests;
+#[cfg(test)]
+#[allow(clippy::unreachable)]
+mod webfont_tests;
 mod zoom_tiles;
 
 /// GPU-scene cache: the layer list (for hit-testing) plus the whole-page paint command list
@@ -224,6 +227,9 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// (see `CssSystem::style_environment_fingerprint`). A resize that leaves this unchanged
     /// needs layout but no restyle. `None` before the first frame.
     style_fingerprint: Option<u64>,
+    /// The current document's web fonts that were fetched but not registered, their media
+    /// conditions not holding when it loaded. Registered by `build_layer_list` as they come to.
+    deferred_fonts: crate::engine::resource_pipeline::webfonts::DeferredFonts,
     /// True when the last hover chain contained a fingerprint-sensitive node.
     hover_chain_sensitive: bool,
     /// The href of the link currently under the pointer, if any.
@@ -440,6 +446,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             document_adapter: None,
             retained_layout: None,
             style_fingerprint: None,
+            deferred_fonts: Default::default(),
             hover_chain_sensitive: false,
             hover_link_url: None,
             hover_link_policy: None,
@@ -615,6 +622,32 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.replace_document(None, Some(url), Some(source));
     }
 
+    /// Hand over the web fonts the document's load fetched but kept back (see
+    /// [`DeferredFonts`](crate::engine::resource_pipeline::webfonts::DeferredFonts)). Follows
+    /// `set_document`, which drops the last document's. The first frame registers the ones that
+    /// apply then, under the viewport the page is really laid out at.
+    pub fn set_deferred_fonts(&mut self, fonts: crate::engine::resource_pipeline::webfonts::DeferredFonts) {
+        self.deferred_fonts = fonts;
+    }
+
+    /// Register the deferred web fonts that apply under the environment installed on this
+    /// thread. A face that does changes which font text is set in, so the layout tree and the
+    /// styles are built again rather than reused.
+    fn register_deferred_fonts(&mut self) {
+        if self.deferred_fonts.is_empty() {
+            return;
+        }
+        let (Some(doc), Some(base_url)) = (self.document.clone(), self.document_url.clone()) else {
+            return;
+        };
+        let registered = self
+            .deferred_fonts
+            .register_applicable_where_loaded::<C>(&doc, &base_url);
+        if registered {
+            self.damage.rebuild();
+        }
+    }
+
     pub fn document_url(&self) -> Option<&Url> {
         self.document_url.as_ref()
     }
@@ -698,6 +731,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.document_adapter = None;
         self.retained_layout = None;
         self.style_fingerprint = None;
+        self.deferred_fonts = Default::default();
         self.hover_chain_sensitive = false;
         self.hover_link_url = None;
         self.hover_link_policy = None;
@@ -1039,6 +1073,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         // (vw/vh/vmin/vmax, incl. inside clamp()) resolve against. Must precede parse(), which
         // computes styles for display:none filtering.
         gosub_css3::media_query::set_media_environment(media_env);
+        // Before anything is measured: a web font whose condition now holds is set in from here.
+        self.register_deferred_fonts();
         self.invalidate_damaged_styles();
 
         let vp_dim = if self.viewport.width > 0 && self.viewport.height > 0 {

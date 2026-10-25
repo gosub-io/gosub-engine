@@ -167,6 +167,9 @@ pub struct RetainedPage<C: RenderConfiguration> {
     /// `@media` conditions held, the viewport if a sheet reads it): equal
     /// after a resize means every computed style still stands.
     style_fingerprint: Option<u64>,
+    /// Web fonts fetched for the page but not registered, their media conditions not holding
+    /// when it was built; a re-layout under a changed environment registers the ones that do.
+    deferred_fonts: crate::engine::resource_pipeline::webfonts::DeferredFonts,
     fonts: Arc<Mutex<dyn FontSystem>>,
     media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
     rasterizer: Option<Box<dyn Rasterable + Send + Sync>>,
@@ -353,8 +356,9 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         // `@font-face` web fonts: the same walk the tab worker runs, fetching
         // through this renderer's loader and registering into the inherited font
         // system - so text set in a web font lays out here exactly as in-process.
+        let mut deferred_fonts = Default::default();
         if let Some(base) = &base_url {
-            crate::engine::resource_pipeline::webfonts::load_web_fonts_blocking::<C>(
+            deferred_fonts = crate::engine::resource_pipeline::webfonts::load_web_fonts_blocking::<C>(
                 &doc,
                 base,
                 &|url| loader.fetch(url, ResourceKind::Font),
@@ -395,6 +399,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             layer_ids,
             layouter,
             style_fingerprint,
+            deferred_fonts,
             rasterizer: C::forked_tile_rasterizer(Arc::clone(&fonts)),
             fonts,
             media_store,
@@ -691,6 +696,14 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             && fingerprint == self.style_fingerprint
             && self.relayout_geometry();
         if !geometry_only {
+            // A web font whose condition now holds is set in from this layout on.
+            if let Some(base) = &self.base_url {
+                let fonts = Arc::clone(&self.fonts);
+                self.deferred_fonts
+                    .register_applicable::<C, _>(&self.doc, base, &mut |bytes, family| {
+                        fonts.lock().register_font(bytes, Some(family))
+                    });
+            }
             self.adapter.clear_style_cache();
             let (layer_list, layer_ids, page_width, page_height, _, _, layouter) = lay_out::<C>(
                 &self.adapter,

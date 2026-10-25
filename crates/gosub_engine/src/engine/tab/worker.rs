@@ -208,6 +208,9 @@ pub enum NavigationResult<C: RenderConfiguration> {
         source: Option<Arc<str>>,
         /// The document's referrer policy: how much of its URL its requests send as `Referer`.
         referrer_policy: gosub_sonar::ReferrerPolicy,
+        /// Web fonts fetched for the document but not registered, their media conditions not
+        /// holding when it loaded; the context registers them once they do.
+        deferred_fonts: crate::engine::resource_pipeline::webfonts::DeferredFonts,
     },
     Err {
         nav_id: NavigationId,
@@ -774,6 +777,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 doc,
                 source,
                 referrer_policy,
+                deferred_fonts,
             } => {
                 // The I/O side judges this document's loads by where this
                 // navigation's response came from - before a renderer is handed
@@ -808,6 +812,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     (Some(doc), source) => {
                         self.context.set_document(Arc::clone(&doc), source);
                         self.context.set_document_referrer_policy(referrer_policy);
+                        self.context.set_deferred_fonts(deferred_fonts);
                         if let Some(cancel) = &nav_cancel {
                             if let Some(icon) = crate::html::favicon_url::<C>(&doc, &final_url) {
                                 self.fetch_favicon(icon, cancel);
@@ -2369,6 +2374,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         doc,
                         source,
                         referrer_policy,
+                        deferred_fonts: hooks.html.take_deferred_fonts(),
                     });
                 }
                 Ok(RoutedOutcome::DownloadOffer { meta, spool }) => {
@@ -2696,6 +2702,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         doc,
                         source,
                         referrer_policy,
+                        deferred_fonts: hooks.html.take_deferred_fonts(),
                     });
                 }
                 Err(e) => {

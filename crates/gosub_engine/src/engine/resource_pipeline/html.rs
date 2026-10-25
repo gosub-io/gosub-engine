@@ -109,6 +109,13 @@ pub trait HtmlPipeline<C: RenderConfiguration> {
         meta: FetchResultMeta,
         body: &[u8],
     ) -> anyhow::Result<ParsedDocument<C>>;
+
+    /// The web fonts the last parse fetched but kept back, their media conditions not holding
+    /// under the environment it loaded them in. Taken, so the tab that installs the document
+    /// can register them once they apply.
+    fn take_deferred_fonts(&mut self) -> super::webfonts::DeferredFonts {
+        super::webfonts::DeferredFonts::default()
+    }
 }
 
 pub struct HtmlPipelineImpl<C: RenderConfiguration> {
@@ -133,6 +140,8 @@ pub struct HtmlPipelineImpl<C: RenderConfiguration> {
     /// Keep only the source: the renderer process parses, this process never
     /// runs the HTML parser on page content.
     source_only: bool,
+    /// What the last parse's web font load kept back; see [`HtmlPipeline::take_deferred_fonts`].
+    deferred_fonts: super::webfonts::DeferredFonts,
 }
 
 impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
@@ -167,6 +176,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             media_environment: gosub_css3::media_query::media_environment(),
             capture_source,
             source_only: false,
+            deferred_fonts: super::webfonts::DeferredFonts::default(),
         }
     }
 
@@ -408,7 +418,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
                 // Fonts are declared in CSS, so they can only be known once the sheets are.
                 // Registered before the document is handed on, which is what keeps the first
                 // layout from measuring text in a fallback face and having to do it again.
-                super::webfonts::load_web_fonts::<C>(
+                self.deferred_fonts = super::webfonts::load_web_fonts::<C>(
                     &doc,
                     &doc_url,
                     &self.font_system,
@@ -480,6 +490,10 @@ impl<C: RenderConfiguration> HtmlPipeline<C> for HtmlPipelineImpl<C> {
         let stream = stream::iter(vec![Ok::<Bytes, std::io::Error>(Bytes::copy_from_slice(body))]);
         let reader = StreamReader::new(stream);
         self.parse_with_reader(request, handle, meta, reader).await
+    }
+
+    fn take_deferred_fonts(&mut self) -> super::webfonts::DeferredFonts {
+        std::mem::take(&mut self.deferred_fonts)
     }
 }
 
