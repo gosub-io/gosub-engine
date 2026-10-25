@@ -886,7 +886,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// the right answer for a maximised window and a harmless one otherwise. With mobile viewport
     /// handling the two differ, as on a phone: a page laid out at 980px still sees the screen's
     /// 360 as its `device-width`.
-    fn media_environment(&self) -> MediaEnvironment {
+    pub(crate) fn media_environment(&self) -> MediaEnvironment {
         let color_scheme = match self.config_store.get_string("renderer.prefers_color_scheme").as_str() {
             "dark" => ColorScheme::Dark,
             _ => ColorScheme::Light,

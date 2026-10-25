@@ -123,6 +123,9 @@ pub struct HtmlPipelineImpl<C: RenderConfiguration> {
     max_document_bytes: usize,
     /// Where `@font-face` fonts are registered, once fetched.
     font_system: Arc<Mutex<C::FontSystem>>,
+    /// The tab's viewport and preferences, which decide the `@font-face` rules whose
+    /// conditions (`@media`, `media=`) hold.
+    media_environment: gosub_css3::media_query::MediaEnvironment,
     /// Also return the parsed document's source text (see
     /// `HtmlParseConfig::capture_source`) - on when the engine renders
     /// out-of-process and its renderer will need to re-parse.
@@ -136,6 +139,12 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
     /// Skip parsing here and keep the source for a renderer process.
     pub fn source_only(mut self, on: bool) -> Self {
         self.source_only = on;
+        self
+    }
+
+    /// Load web fonts for this environment rather than the default one.
+    pub fn media_environment(mut self, env: gosub_css3::media_query::MediaEnvironment) -> Self {
+        self.media_environment = env;
         self
     }
 
@@ -155,6 +164,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             accept_language,
             max_document_bytes,
             font_system,
+            media_environment: gosub_css3::media_query::media_environment(),
             capture_source,
             source_only: false,
         }
@@ -398,7 +408,15 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
                 // Fonts are declared in CSS, so they can only be known once the sheets are.
                 // Registered before the document is handed on, which is what keeps the first
                 // layout from measuring text in a fallback face and having to do it again.
-                super::webfonts::load_web_fonts::<C>(&doc, &doc_url, &self.font_system, &sheets, timing_scope).await;
+                super::webfonts::load_web_fonts::<C>(
+                    &doc,
+                    &doc_url,
+                    &self.font_system,
+                    self.media_environment,
+                    &sheets,
+                    timing_scope,
+                )
+                .await;
                 Ok((doc, source, referrer_policy))
             }
             Err(e) => Err(e),

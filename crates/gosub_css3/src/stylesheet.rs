@@ -155,6 +155,20 @@ pub struct FontFace {
     /// The raw `unicode-range` descriptor, if any (e.g. `"U+0000-00FF, U+0131"`). Used to
     /// pick the subset that covers the content; `None` means the face covers all code points.
     pub unicode_range: Option<String>,
+    /// The conditions around the rule, outermost first: `@media` blocks, an `@import`'s
+    /// media list and the owning `<link>`/`<style>`'s `media` attribute. A face whose
+    /// conditions fail is not part of the document's font set.
+    pub media: Option<Vec<Arc<MediaQueryList>>>,
+}
+
+impl FontFace {
+    /// Whether every condition around the face holds in `env`.
+    #[must_use]
+    pub fn media_matches(&self, env: &MediaEnvironment) -> bool {
+        self.media
+            .as_ref()
+            .is_none_or(|conditions| conditions.iter().all(|list| list.matches(env)))
+    }
 }
 
 /// A valid `@property` rule (css-properties-values-api-1 §3): it registers a custom property,
@@ -384,7 +398,12 @@ impl CssStylesheet {
             rule
         });
         self.rules.splice(insert_at..insert_at, rules);
-        self.font_faces.extend(font_faces);
+        self.font_faces.extend(font_faces.into_iter().map(|mut face| {
+            if let Some(media) = media {
+                face.media.get_or_insert_with(Vec::new).insert(0, Arc::clone(media));
+            }
+            face
+        }));
         // Registrations go where the rules went: after the sheets imported before this one,
         // ahead of the importing sheet's own, and under the import's media condition.
         let at = self.property_rules.iter().take_while(|rule| rule.imported).count();
@@ -404,7 +423,7 @@ impl CssStylesheet {
     /// Put the whole sheet under the `media` attribute of the `<link>` or `<style>` it came
     /// from, so `<link rel=stylesheet media=print>` stays out of screen rendering.
     ///
-    /// The condition goes onto every rule and registration, outermost, the way an `@import`'s
+    /// The condition goes onto every rule, registration and font face, outermost, the way an `@import`'s
     /// does: kept unevaluated, so a resize can still bring the sheet in or take it out. An
     /// empty attribute means `all` and changes nothing; one that does not parse means
     /// `not all`, so the sheet never applies.
@@ -421,7 +440,8 @@ impl CssStylesheet {
         }));
         let rules = self.rules.iter_mut().map(|rule| &mut rule.media);
         let registrations = self.property_rules.iter_mut().map(|rule| &mut rule.media);
-        for conditions in rules.chain(registrations) {
+        let faces = self.font_faces.iter_mut().map(|face| &mut face.media);
+        for conditions in rules.chain(registrations).chain(faces) {
             conditions.get_or_insert_with(Vec::new).insert(0, Arc::clone(&media));
         }
     }
@@ -461,9 +481,13 @@ impl gosub_interface::css3::CssStylesheet for CssStylesheet {
         &self.url
     }
 
+    /// Only the faces whose conditions hold in the environment installed on this thread, so a
+    /// print sheet's `@font-face` does not change what screen text is set in.
     fn font_faces(&self) -> Vec<(String, Vec<String>, Option<String>)> {
+        let env = media_environment();
         self.font_faces
             .iter()
+            .filter(|f| f.media_matches(&env))
             .map(|f| (f.family.clone(), f.sources.clone(), f.unicode_range.clone()))
             .collect()
     }
@@ -2690,5 +2714,55 @@ mod test {
         let sheet = owned_sheet("screen and (max-width: 600px)");
         assert!(sheet.rules[0].media_matches(&narrow));
         assert!(!sheet.rules[0].media_matches(&MediaEnvironment::default()));
+    }
+
+    /// The families [`CssStylesheet::font_faces`] hands the webfont loader under `env`.
+    fn loaded_families(sheet: &CssStylesheet, env: MediaEnvironment) -> Vec<String> {
+        use gosub_interface::css3::CssStylesheet as _;
+        let saved = crate::media_query::media_environment();
+        crate::media_query::set_media_environment(env);
+        let families = sheet.font_faces().into_iter().map(|(family, ..)| family).collect();
+        crate::media_query::set_media_environment(saved);
+        families
+    }
+
+    fn parsed(css: &str) -> CssStylesheet {
+        use gosub_shared::config::ParserConfig;
+        crate::Css3::parse_str(css, ParserConfig::default(), CssOrigin::Author, "test.css").expect("the sheet parses")
+    }
+
+    #[test]
+    fn a_print_sheet_brings_no_font_faces_to_the_screen() {
+        let print = MediaEnvironment {
+            media_type: crate::media_query::MediaType::Print,
+            ..MediaEnvironment::default()
+        };
+        let mut sheet = parsed("@font-face { font-family: Ink; src: url(ink.woff2); }");
+        sheet.set_owner_media("print");
+        assert!(loaded_families(&sheet, MediaEnvironment::default()).is_empty());
+        assert_eq!(loaded_families(&sheet, print), ["Ink"]);
+    }
+
+    #[test]
+    fn a_font_face_under_media_follows_its_condition() {
+        let sheet = parsed(
+            "@font-face { font-family: Any; src: url(any.woff2); } \
+             @media (max-width: 600px) { @font-face { font-family: Narrow; src: url(n.woff2); } }",
+        );
+        let narrow = MediaEnvironment {
+            width: 500.0,
+            ..MediaEnvironment::default()
+        };
+        assert_eq!(loaded_families(&sheet, narrow), ["Any", "Narrow"]);
+        assert_eq!(loaded_families(&sheet, MediaEnvironment::default()), ["Any"]);
+    }
+
+    #[test]
+    fn an_imported_font_face_keeps_the_import_media() {
+        let mut sheet = parsed("a { color: red; }");
+        let imported = parsed("@font-face { font-family: Ink; src: url(ink.woff2); }");
+        let print = MediaQueryList::parse("print").expect("parses");
+        sheet.splice_import(imported, Some(&Arc::new(print)), 0);
+        assert!(loaded_families(&sheet, MediaEnvironment::default()).is_empty());
     }
 }

@@ -51,6 +51,7 @@ impl<C: RenderConfiguration> ResourcePipelines<C> {
         max_document_bytes: usize,
         download_spool: crate::net::SpoolLimits,
         font_system: Arc<Mutex<C::FontSystem>>,
+        media_environment: gosub_css3::media_query::MediaEnvironment,
         capture_source: bool,
         source_only: bool,
     ) -> Self {
@@ -70,7 +71,8 @@ impl<C: RenderConfiguration> ResourcePipelines<C> {
                     font_system,
                     capture_source,
                 )
-                .source_only(source_only),
+                .source_only(source_only)
+                .media_environment(media_environment),
             ),
             css: Box::new(CssPipelineImpl {}),
             js: Box::new(JsPipelineImpl {}),

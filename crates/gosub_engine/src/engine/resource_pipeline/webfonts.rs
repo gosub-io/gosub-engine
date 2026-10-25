@@ -35,10 +35,16 @@ pub(crate) async fn load_web_fonts<C: RenderConfiguration>(
     doc: &EngineDocument<C>,
     base_url: &Url,
     font_system: &Arc<Mutex<C::FontSystem>>,
+    media_environment: gosub_css3::media_query::MediaEnvironment,
     fetch: &SubFetch<'_>,
     timing_scope: Option<gosub_shared::timing::ScopeId>,
 ) {
+    // Which faces apply is decided under the tab's environment, installed on this worker thread
+    // only for the synchronous walk and put back after: other tasks share the thread.
+    let previous = gosub_css3::media_query::media_environment();
+    gosub_css3::media_query::set_media_environment(media_environment);
     let faces = collect_faces::<C>(doc, base_url);
+    gosub_css3::media_query::set_media_environment(previous);
     if faces.is_empty() {
         return;
     }

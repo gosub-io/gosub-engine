@@ -2254,6 +2254,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
         let download_spool = self.download_spool_limits();
         let font_system = self.zone_context.font_system.clone();
+        let media_environment = self.context.media_environment();
         // Capture the document source only when a renderer process may need it
         // (it re-parses there); otherwise skip the copy.
         let capture_source = self.remote_render_available();
@@ -2329,6 +2330,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 max_document_bytes,
                 download_spool.clone(),
                 font_system.clone(),
+                media_environment,
                 capture_source,
                 capture_source,
             );
@@ -2586,6 +2588,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
         let download_spool = self.download_spool_limits();
         let font_system = self.zone_context.font_system.clone();
+        let media_environment = self.context.media_environment();
         // Same rule as navigate(): keep the source only when a renderer process may re-parse it.
         let capture_source = self.remote_render_available();
         // The engine's own pages are parsed here too: they are the ones allowed to
@@ -2674,6 +2677,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 max_document_bytes,
                 download_spool.clone(),
                 font_system.clone(),
+                media_environment,
                 capture_source,
                 source_only,
             );
