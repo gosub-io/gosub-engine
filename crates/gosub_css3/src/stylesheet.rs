@@ -426,9 +426,10 @@ impl CssStylesheet {
     /// The condition goes onto every rule, registration and font face, outermost, the way an `@import`'s
     /// does: kept unevaluated, so a resize can still bring the sheet in or take it out. An
     /// empty attribute means `all` and changes nothing; one that does not parse means
-    /// `not all`, so the sheet never applies.
+    /// `not all`, so the sheet never applies. Empty is CSS's whitespace only: a no-break space
+    /// is not blank, it is a query that does not parse.
     pub fn set_owner_media(&mut self, text: &str) {
-        if text.trim().is_empty() {
+        if text.trim_matches([' ', '\t', '\n', '\u{c}', '\r']).is_empty() {
             return;
         }
         let media = Arc::new(MediaQueryList::parse(text).unwrap_or_else(|| {
@@ -2693,9 +2694,13 @@ mod test {
 
     #[test]
     fn an_empty_media_attribute_means_all() {
-        let sheet = owned_sheet("  ");
+        let sheet = owned_sheet(" \t\n\u{c}\r ");
         assert!(sheet.rules[0].media.is_none());
         assert!(sheet.property_rules[0].media.is_none());
+
+        // A no-break space is not CSS whitespace: the attribute holds a query that does not parse.
+        let sheet = owned_sheet("\u{a0}");
+        assert!(!sheet.rules[0].media_matches(&MediaEnvironment::default()));
     }
 
     #[test]
