@@ -5102,6 +5102,26 @@ mod rendertree_from_engine {
         );
         assert!(link.y > 10.0, "the box is on the line its words are on, got {link:?}");
     }
+
+    /// A link's words are boxes of their own, with no entry in the DOM-to-layout map. When lattice
+    /// moves a table cell after the first pass they have to move with it: Hacker News comment
+    /// headers stayed at their first-pass position and were drawn over the comment above.
+    #[test]
+    fn a_flattened_link_moves_with_its_table_cell() {
+        let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
+          <table>
+            <tr><td><table><tr><td>a<br>tall<br>first<br>row</td></tr></table></td></tr>
+            <tr><td><table><tr><td id="cell"><a id="link" href="/x">link</a> text</td></tr></table></td></tr>
+          </table>
+        </body></html>"#;
+        let [cell, link] = border_boxes(html, &["cell", "link"])[..] else {
+            unreachable!()
+        };
+        assert!(
+            link.y >= cell.y && link.y + link.height <= cell.y + cell.height,
+            "the link is inside its cell: cell {cell:?}, link {link:?}"
+        );
+    }
 }
 
 #[cfg(test)]
