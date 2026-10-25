@@ -622,30 +622,45 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.replace_document(None, Some(url), Some(source));
     }
 
-    /// Hand over the web fonts the document's load fetched but kept back (see
-    /// [`DeferredFonts`](crate::engine::resource_pipeline::webfonts::DeferredFonts)). Follows
-    /// `set_document`, which drops the last document's. The first frame registers the ones that
-    /// apply then, under the viewport the page is really laid out at.
+    /// Hand over the web fonts the document's load kept back (see
+    /// [`DeferredFonts`](crate::engine::resource_pipeline::webfonts::DeferredFonts)), still
+    /// being fetched. Follows `set_document`, which drops the last document's. The first frame
+    /// registers the ones that apply then, under the viewport the page is really laid out at,
+    /// and [`Self::poll_deferred_fonts`] the ones that land after.
     pub fn set_deferred_fonts(&mut self, fonts: crate::engine::resource_pipeline::webfonts::DeferredFonts) {
         self.deferred_fonts = fonts;
     }
 
+    /// A kept-back web font landing must wake the render loop if it applies already: the first
+    /// frame, or a resize, found it still on its way. Whether one did, and the page is to be
+    /// laid out again in it. The page went out in a fallback face meanwhile, as it would have
+    /// for any font slower than the document.
+    pub fn poll_deferred_fonts(&mut self) -> bool {
+        if !self.deferred_fonts.take_landed() {
+            return false;
+        }
+        gosub_css3::media_query::set_media_environment(self.media_environment());
+        self.register_deferred_fonts()
+    }
+
     /// Register the deferred web fonts that apply under the environment installed on this
     /// thread. A face that does changes which font text is set in, so the layout tree and the
-    /// styles are built again rather than reused.
-    fn register_deferred_fonts(&mut self) {
+    /// styles are built again rather than reused. Whether one did.
+    fn register_deferred_fonts(&mut self) -> bool {
         if self.deferred_fonts.is_empty() {
-            return;
+            return false;
         }
         let (Some(doc), Some(base_url)) = (self.document.clone(), self.document_url.clone()) else {
-            return;
+            return false;
         };
         let registered = self
             .deferred_fonts
             .register_applicable_where_loaded::<C>(&doc, &base_url);
         if registered {
+            self.note_invalidate("webfont");
             self.damage.rebuild();
         }
+        registered
     }
 
     pub fn document_url(&self) -> Option<&Url> {
@@ -1074,7 +1089,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         // computes styles for display:none filtering.
         gosub_css3::media_query::set_media_environment(media_env);
         // Before anything is measured: a web font whose condition now holds is set in from here.
-        self.register_deferred_fonts();
+        let _ = self.register_deferred_fonts();
         self.invalidate_damaged_styles();
 
         let vp_dim = if self.viewport.width > 0 && self.viewport.height > 0 {

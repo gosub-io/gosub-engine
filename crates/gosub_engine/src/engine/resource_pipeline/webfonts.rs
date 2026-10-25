@@ -13,12 +13,15 @@ use gosub_interface::document::Document as _;
 use gosub_interface::font_system::FontSystem as _;
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Weak};
 use url::Url;
 
-use super::html::{fetch_subresource, SubFetch};
+use super::html::{fetch_subresource_at, OwnedSubFetch, SubFetch};
+use crate::net::types::Priority;
 
 /// One `@font-face` to load: the CSS family it names, and the sources to try in order.
+#[derive(Clone)]
 struct Face {
     family: String,
     sources: Vec<Url>,
@@ -35,50 +38,122 @@ impl Face {
 /// Hands a face to one particular font system: `(bytes, css_family)`.
 type RegisterInto = Box<dyn FnMut(Vec<u8>, &str) -> Result<(), gosub_interface::font::FontError> + Send>;
 
+/// Where a kept-back face's bytes are.
+enum Held {
+    /// Not asked for: fetched when the face comes to apply. What a renderer process keeps, as
+    /// it has no runtime to fetch behind the load with.
+    #[cfg_attr(not(all(feature = "process-isolation", target_os = "linux")), allow(dead_code))]
+    Unfetched,
+    /// On its way, from the fetch the load started behind it.
+    Fetching,
+    /// The first source that fetched and decoded.
+    Ready(Url, Vec<u8>),
+    /// No source did.
+    Failed,
+}
+
+/// A kept-back face and its bytes, as far as they have come.
+struct Slot {
+    face: Face,
+    held: Held,
+}
+
+/// The kept-back faces by [`Face::key`].
+type Slots = HashMap<String, Slot>;
+
 /// The web fonts a document declares under media conditions that did not hold when it loaded.
-/// They are fetched with the rest, and registered once a condition comes to hold - a resize, a
-/// colour-scheme change - so a page that restyles into one has it at hand, with no fetch.
+/// The load does not wait for them: they are fetched behind it, and registered once a condition
+/// comes to hold - a resize, a colour-scheme change - and their bytes are in.
 ///
 /// Registration goes one way: a font system cannot drop a font, so a face whose condition stops
 /// holding stays registered. A print-only face still never reaches the screen.
 #[derive(Default)]
 pub struct DeferredFonts {
-    /// By [`Face::key`]: the family and the first source that fetched and decoded.
-    faces: HashMap<String, (String, Url, Vec<u8>)>,
+    /// Shared with the fetch filling them in, which holds it weakly: a set the tab has dropped
+    /// along with its document is not filled.
+    slots: Arc<Mutex<Slots>>,
+    /// Set when a fetch lands, so the tab looks again: a face that already applies may have
+    /// been waiting on it.
+    landed: Arc<AtomicBool>,
     /// Registers into the font system the rest of the document's fonts went to, for
     /// [`DeferredFonts::register_applicable_where_loaded`]. That one is the zone's, which is not
     /// what every backend lays text out with from the context's side.
     register: Option<RegisterInto>,
 }
 
-/// The faces by family and source, without their bytes.
+/// The faces by family and first source, without their bytes.
 impl std::fmt::Debug for DeferredFonts {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let slots = self.slots.lock();
         f.debug_list()
-            .entries(self.faces.values().map(|(family, url, _)| (family, url.as_str())))
+            .entries(
+                slots
+                    .values()
+                    .map(|slot| (slot.face.family.as_str(), slot.face.sources[0].as_str())),
+            )
             .finish()
     }
 }
 
 impl DeferredFonts {
-    pub(crate) fn is_empty(&self) -> bool {
-        self.faces.is_empty()
-    }
-
-    /// A set as a load would leave it: each `(family, first source)` holding `bytes`, registered
-    /// through `register`.
-    #[cfg(test)]
-    pub(crate) fn for_test(faces: &[(&str, &str)], register: RegisterInto) -> Self {
-        let faces = faces
-            .iter()
-            .map(|&(family, url)| {
-                let url = Url::parse(url).expect("a test URL");
-                (format!("{family}\n{url}"), (family.to_string(), url, b"font".to_vec()))
-            })
+    /// `faces`, each held as `held` says.
+    fn holding(faces: Vec<Face>, held: impl Fn() -> Held) -> Self {
+        let slots = faces
+            .into_iter()
+            .map(|face| (face.key(), Slot { face, held: held() }))
             .collect();
         Self {
-            faces,
+            slots: Arc::new(Mutex::new(slots)),
+            landed: Arc::default(),
+            register: None,
+        }
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.slots.lock().is_empty()
+    }
+
+    /// Whether a fetch has landed since the last call.
+    pub(crate) fn take_landed(&self) -> bool {
+        self.landed.swap(false, Ordering::Relaxed)
+    }
+
+    /// A set as a load would leave it: each `(family, first source)` on its way, or with
+    /// `ready` already holding its bytes, registered through `register`.
+    #[cfg(test)]
+    pub(crate) fn for_test(faces: &[(&str, &str)], ready: bool, register: RegisterInto) -> Self {
+        let faces = faces
+            .iter()
+            .map(|&(family, url)| Face {
+                family: family.to_string(),
+                sources: vec![Url::parse(url).expect("a test URL")],
+            })
+            .collect();
+        let set = Self::holding(faces, || Held::Fetching);
+        if ready {
+            set.land_for_test();
+            set.take_landed();
+        }
+        Self {
             register: Some(register),
+            ..set
+        }
+    }
+
+    /// What the fetch behind the load does as its faces come in: each still on its way lands,
+    /// holding a stand-in font.
+    #[cfg(test)]
+    pub(crate) fn land_for_test(&self) {
+        let waiting: Vec<(String, Url)> = self
+            .slots
+            .lock()
+            .iter()
+            .filter(|(_, slot)| matches!(slot.held, Held::Fetching))
+            .map(|(key, slot)| (key.clone(), slot.face.sources[0].clone()))
+            .collect();
+        let slots = Arc::downgrade(&self.slots);
+        for (key, url) in waiting {
+            land(&slots, &self.landed, &key, Some((0, url, b"font".to_vec())));
         }
     }
 
@@ -98,10 +173,8 @@ impl DeferredFonts {
     }
 
     /// Register each face kept here that applies under the media environment installed on this
-    /// thread. Whether any did, which means text may now be set in a different font.
-    ///
-    /// Only the source fetched at load is kept, so a font the font system refuses here does not
-    /// fall through to the face's next source the way it does at load; it is logged and dropped.
+    /// thread and whose bytes are in. Whether any did, which means text may now be set in a
+    /// different font. A face still on its way is left for when it lands.
     pub(crate) fn register_applicable<C, R>(
         &mut self,
         doc: &EngineDocument<C>,
@@ -112,28 +185,97 @@ impl DeferredFonts {
         C: RenderConfiguration,
         R: FnMut(Vec<u8>, &str) -> Result<(), gosub_interface::font::FontError>,
     {
-        if self.faces.is_empty() {
+        self.register_with(doc, base_url, register, &mut |_| None)
+    }
+
+    /// [`DeferredFonts::register_applicable`] for a set the load did not fetch: a face that
+    /// applies now is fetched through `fetch` first.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub(crate) fn register_applicable_fetching<C: RenderConfiguration>(
+        &mut self,
+        doc: &EngineDocument<C>,
+        base_url: &Url,
+        fetch: FetchBlocking<'_>,
+        register: RegisterFont<'_>,
+    ) -> bool {
+        self.register_with(doc, base_url, register, &mut |face| load_face_blocking(face, fetch))
+    }
+
+    /// Only the source fetched is kept, so a font the font system refuses here does not fall
+    /// through to the face's next source the way it does at load; it is logged and dropped.
+    fn register_with<C, R, F>(
+        &mut self,
+        doc: &EngineDocument<C>,
+        base_url: &Url,
+        register: &mut R,
+        fetch_now: &mut F,
+    ) -> bool
+    where
+        C: RenderConfiguration,
+        R: FnMut(Vec<u8>, &str) -> Result<(), gosub_interface::font::FontError> + ?Sized,
+        F: FnMut(&Face) -> Option<(Url, Vec<u8>)>,
+    {
+        let mut slots = self.slots.lock();
+        if slots.is_empty() {
             return false;
         }
         let mut registered = false;
         for face in collect_faces::<C>(doc, base_url, false) {
-            let Some((family, url, bytes)) = self.faces.remove(&face.key()) else {
+            let key = face.key();
+            let Some(slot) = slots.get_mut(&key) else {
                 continue;
             };
-            match register(bytes, &family) {
+            match slot.held {
+                // Registered once it lands, if it still applies then.
+                Held::Fetching => continue,
+                Held::Unfetched => {
+                    slot.held = match fetch_now(&slot.face) {
+                        Some((url, bytes)) => Held::Ready(url, bytes),
+                        None => Held::Failed,
+                    }
+                }
+                Held::Ready(..) | Held::Failed => {}
+            }
+            let Some(Slot {
+                face,
+                held: Held::Ready(url, bytes),
+            }) = slots.remove(&key)
+            else {
+                continue;
+            };
+            match register(bytes, &face.family) {
                 Ok(()) => {
-                    log::debug!("Registered web font '{family}' from {url} as its media came to hold");
+                    log::debug!(
+                        "Registered web font '{}' from {url} as its media came to hold",
+                        face.family
+                    );
                     registered = true;
                 }
-                Err(e) => log::warn!("Failed to register web font '{family}' from {url}: {e:?}"),
+                Err(e) => log::warn!("Failed to register web font '{}' from {url}: {e:?}", face.family),
             }
         }
         registered
     }
 }
 
-/// Fetch and register every web font the document's stylesheets declare, and fetch, but keep
-/// back, the ones whose media conditions do not hold under `media_environment`.
+/// Put what the fetch behind the load found for the face under `key` in its slot, unless the
+/// set has been dropped since.
+fn land(slots: &Weak<Mutex<Slots>>, landed: &AtomicBool, key: &str, found: Option<(usize, Url, Vec<u8>)>) {
+    let Some(slots) = slots.upgrade() else {
+        return;
+    };
+    if let Some(slot) = slots.lock().get_mut(key) {
+        slot.held = match found {
+            Some((_, url, bytes)) => Held::Ready(url, bytes),
+            None => Held::Failed,
+        };
+    }
+    landed.store(true, Ordering::Relaxed);
+}
+
+/// Fetch and register every web font the document's stylesheets declare whose media
+/// conditions hold under `media_environment`, and start fetching the rest behind the load,
+/// kept back in what this returns.
 ///
 /// Faces load concurrently; the sources within a face are tried in order and stop at the
 /// first that registers, because they are alternatives to each other (`src: url(a), url(b)`)
@@ -159,44 +301,23 @@ pub(crate) async fn load_web_fonts<C: RenderConfiguration>(
         return DeferredFonts::default();
     }
 
-    let fetch_font = |url: Url| async move {
-        let started = std::time::Instant::now();
-        let body = fetch_subresource(url.as_str(), crate::net::types::ResourceKind::Font, fetch).await;
-        let elapsed = started.elapsed().as_micros() as u64;
-        // Recorded against the navigation explicitly: this runs across awaits, where a
-        // thread-local scope does not hold.
-        match timing_scope {
-            Some(scope) => gosub_shared::timing::record_in(
-                scope,
-                gosub_shared::timing::Timing::NetFetchFont,
-                elapsed,
-                Some(url.to_string()),
-            ),
-            None => gosub_shared::timing::record(
-                gosub_shared::timing::Timing::NetFetchFont,
-                elapsed,
-                Some(url.to_string()),
-            ),
-        }
-        body.map(|(_, bytes)| bytes)
-    };
-
-    let (loaded, kept) = futures_util::future::join(
-        futures_util::future::join_all(faces.iter().map(|face| load_face(face, 0, &fetch_font))),
-        futures_util::future::join_all(deferred.iter().map(|face| load_face(face, 0, &fetch_font))),
-    )
-    .await;
+    let fetch_one = |url: Url| fetch_font(url, Priority::High, fetch, timing_scope);
+    let loaded = futures_util::future::join_all(faces.iter().map(|face| load_face(face, 0, &fetch_one))).await;
 
     // Registration is serialised behind the font system's lock anyway, and doing it here --
     // in the order the document declared the faces -- keeps the result independent of which
     // fetch happened to finish first.
     for (face, first) in faces.iter().zip(loaded) {
-        register_face(face, first, &fetch_font, &mut |bytes, family| {
+        register_face(face, first, &fetch_one, &mut |bytes, family| {
             font_system.lock().register_font(bytes, Some(family))
         })
         .await;
     }
-    let mut kept = keep(deferred, kept);
+
+    let mut kept = DeferredFonts::holding(deferred, || Held::Fetching);
+    if !kept.is_empty() {
+        fetch_behind(&kept, fetch.to_owned(), timing_scope);
+    }
     let font_system = Arc::clone(font_system);
     kept.register = Some(Box::new(move |bytes, family| {
         font_system.lock().register_font(bytes, Some(family))
@@ -204,24 +325,60 @@ pub(crate) async fn load_web_fonts<C: RenderConfiguration>(
     kept
 }
 
+/// Fetch the faces `kept` holds on a task of their own, each landing in its slot as it comes.
+/// The next navigation cancels them, as it does the document's other subresource fetches.
+fn fetch_behind(kept: &DeferredFonts, fetch: OwnedSubFetch, timing_scope: Option<gosub_shared::timing::ScopeId>) {
+    let faces: Vec<Face> = kept.slots.lock().values().map(|slot| slot.face.clone()).collect();
+    let slots = Arc::downgrade(&kept.slots);
+    let landed = Arc::clone(&kept.landed);
+    crate::util::spawn_named("web-font-deferred", async move {
+        let fetch = fetch.as_sub_fetch();
+        // Behind the page's own images: nothing on screen is set in these yet.
+        let fetch_one = |url: Url| fetch_font(url, Priority::Low, &fetch, timing_scope);
+        futures_util::future::join_all(faces.iter().map(|face| {
+            let (slots, landed, fetch_one) = (&slots, &landed, &fetch_one);
+            async move {
+                let found = load_face(face, 0, fetch_one).await;
+                land(slots, landed, &face.key(), found);
+            }
+        }))
+        .await;
+    });
+}
+
+/// One font source through the fetcher, its time recorded against the navigation.
+async fn fetch_font(
+    url: Url,
+    priority: Priority,
+    fetch: &SubFetch<'_>,
+    timing_scope: Option<gosub_shared::timing::ScopeId>,
+) -> Option<Vec<u8>> {
+    let started = std::time::Instant::now();
+    let body = fetch_subresource_at(url.as_str(), crate::net::types::ResourceKind::Font, priority, fetch).await;
+    let elapsed = started.elapsed().as_micros() as u64;
+    // Recorded against the navigation explicitly: this runs across awaits, where a
+    // thread-local scope does not hold.
+    match timing_scope {
+        Some(scope) => gosub_shared::timing::record_in(
+            scope,
+            gosub_shared::timing::Timing::NetFetchFont,
+            elapsed,
+            Some(url.to_string()),
+        ),
+        None => gosub_shared::timing::record(
+            gosub_shared::timing::Timing::NetFetchFont,
+            elapsed,
+            Some(url.to_string()),
+        ),
+    }
+    body.map(|(_, bytes)| bytes)
+}
+
 /// The faces of `all` that are not in `applying`: what a document declares under media
 /// conditions that do not hold now.
 fn not_applying(all: Vec<Face>, applying: &[Face]) -> Vec<Face> {
     let applying: HashSet<String> = applying.iter().map(Face::key).collect();
     all.into_iter().filter(|face| !applying.contains(&face.key())).collect()
-}
-
-/// What [`load_face`] found for each deferred face, kept for [`DeferredFonts::register_applicable`].
-fn keep(faces: Vec<Face>, loaded: Vec<Option<(usize, Url, Vec<u8>)>>) -> DeferredFonts {
-    let faces = faces
-        .into_iter()
-        .zip(loaded)
-        .filter_map(|(face, found)| {
-            let (_, url, bytes) = found?;
-            Some((face.key(), (face.family, url, bytes)))
-        })
-        .collect();
-    DeferredFonts { faces, register: None }
 }
 
 /// Register `face` from `candidate` (what [`load_face`] found), going on to the face's next
@@ -261,7 +418,8 @@ type RegisterFont<'a> = &'a mut dyn FnMut(Vec<u8>, &str) -> Result<(), gosub_int
 
 /// [`load_web_fonts`] for a caller with no runtime to await on: a renderer process, whose
 /// every fetch is a blocking round trip to the broker. `register` hands each face to the font
-/// system under its CSS family.
+/// system under its CSS family. The faces kept back are not fetched here: with nothing to
+/// fetch them behind the load, they are fetched when they come to apply.
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
 pub(crate) fn load_web_fonts_blocking<C: RenderConfiguration>(
     doc: &EngineDocument<C>,
@@ -293,26 +451,19 @@ pub(crate) fn load_web_fonts_blocking<C: RenderConfiguration>(
             }
         }
     }
+    DeferredFonts::holding(deferred, || Held::Unfetched)
+}
 
-    // The faces kept back: the first source that fetches and decodes, as `load_face` does.
-    let kept = deferred
-        .iter()
-        .map(|face| {
-            face.sources
-                .iter()
-                .enumerate()
-                .find_map(|(index, url)| match fetch(url.as_str()) {
-                    Some((_, bytes)) if !bytes.is_empty() => {
-                        decode_web_font(bytes, url).map(|font| (index, url.clone(), font))
-                    }
-                    _ => {
-                        log::warn!("Web font fetch {url} produced nothing");
-                        None
-                    }
-                })
-        })
-        .collect();
-    keep(deferred, kept)
+/// The first of `face`'s sources that fetches and decodes, as [`load_face`] finds it.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+fn load_face_blocking(face: &Face, fetch: FetchBlocking<'_>) -> Option<(Url, Vec<u8>)> {
+    face.sources.iter().find_map(|url| match fetch(url.as_str()) {
+        Some((_, bytes)) if !bytes.is_empty() => decode_web_font(bytes, url).map(|font| (url.clone(), font)),
+        _ => {
+            log::warn!("Web font fetch {url} produced nothing");
+            None
+        }
+    })
 }
 
 /// Every face worth loading, in document order, deduplicated by source URL: the ones whose
@@ -833,35 +984,36 @@ mod tests {
         assert!(!register_face(&face, first, &fetch, &mut register).await);
     }
 
-    /// A face kept back at load registers once its condition holds, and only once.
-    #[test]
-    fn a_deferred_face_registers_when_its_media_comes_to_hold() {
-        use crate::html::DefaultRenderConfig;
-        use gosub_css3::media_query::{set_media_environment, MediaEnvironment};
-
-        let doc = gosub_html5::html_compile::<DefaultRenderConfig>(
+    /// A page with a face under `(min-width: 700px)` and one that always applies.
+    fn wide_and_always() -> (EngineDocument<crate::html::DefaultRenderConfig>, Url) {
+        let doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>(
             "<style>@media (min-width: 700px) { @font-face { font-family: Wide; src: url(https://fonts.test/w.ttf); } }\
              @font-face { font-family: Always; src: url(https://fonts.test/a.ttf); }</style>",
         );
-        let base = Url::parse("https://page.test/").unwrap();
-        let at = |width| {
-            set_media_environment(MediaEnvironment {
-                width,
-                ..MediaEnvironment::default()
-            })
-        };
+        (doc, Url::parse("https://page.test/").unwrap())
+    }
 
-        at(500.0);
+    fn at_width(width: f32) {
+        gosub_css3::media_query::set_media_environment(gosub_css3::media_query::MediaEnvironment {
+            width,
+            ..gosub_css3::media_query::MediaEnvironment::default()
+        });
+    }
+
+    /// A face kept back at load registers once its condition holds and its bytes are in, and
+    /// only once. Until they land it is left waiting, however often it is asked.
+    #[test]
+    fn a_deferred_face_registers_when_its_media_comes_to_hold_and_its_bytes_land() {
+        use crate::html::DefaultRenderConfig;
+
+        let (doc, base) = wide_and_always();
+        at_width(500.0);
         let applying = collect_faces::<DefaultRenderConfig>(&doc, &base, false);
         let deferred = not_applying(collect_faces::<DefaultRenderConfig>(&doc, &base, true), &applying);
         let families = |faces: &[Face]| faces.iter().map(|f| f.family.clone()).collect::<Vec<_>>();
         assert_eq!(families(&applying), ["Always"]);
         assert_eq!(families(&deferred), ["Wide"]);
-        let found = deferred
-            .iter()
-            .map(|face| Some((0, face.sources[0].clone(), b"font".to_vec())))
-            .collect();
-        let mut kept = keep(deferred, found);
+        let mut kept = DeferredFonts::holding(deferred, || Held::Fetching);
 
         let mut registered = Vec::new();
         let mut register = |_: Vec<u8>, family: &str| {
@@ -869,11 +1021,78 @@ mod tests {
             Ok(())
         };
         assert!(!kept.register_applicable(&doc, &base, &mut register));
-        at(900.0);
+        at_width(900.0);
+        assert!(
+            !kept.register_applicable(&doc, &base, &mut register),
+            "still on its way"
+        );
+        assert!(!kept.take_landed());
+
+        kept.land_for_test();
+        assert!(kept.take_landed(), "a landing is told");
+        assert!(!kept.take_landed(), "once");
         assert!(kept.register_applicable(&doc, &base, &mut register));
         assert!(!kept.register_applicable(&doc, &base, &mut register));
-        set_media_environment(MediaEnvironment::default());
+        gosub_css3::media_query::set_media_environment(gosub_css3::media_query::MediaEnvironment::default());
         assert_eq!(registered, ["Wide"]);
         assert!(kept.is_empty());
+    }
+
+    /// A set dropped with its document is not filled: what lands after is let go.
+    #[test]
+    fn a_landing_after_the_set_is_dropped_goes_nowhere() {
+        let kept = DeferredFonts::holding(
+            vec![Face {
+                family: "Wide".into(),
+                sources: vec![Url::parse("https://fonts.test/w.ttf").unwrap()],
+            }],
+            || Held::Fetching,
+        );
+        let slots = Arc::downgrade(&kept.slots);
+        let landed = Arc::clone(&kept.landed);
+        let key = kept.slots.lock().keys().next().cloned().unwrap();
+        drop(kept);
+        land(&slots, &landed, &key, None);
+        assert!(!landed.load(Ordering::Relaxed));
+    }
+
+    /// A renderer process fetches nothing kept back at load, and a face only when it comes to
+    /// apply, once.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    #[test]
+    fn a_renderer_fetches_a_kept_back_face_only_when_it_applies() {
+        use crate::html::DefaultRenderConfig;
+
+        let (doc, base) = wide_and_always();
+        let fetched = std::cell::RefCell::new(Vec::new());
+        let fetch = |url: &str| {
+            fetched.borrow_mut().push(url.to_string());
+            Some((None, gosub_shared::ROBOTO_FONT.to_vec()))
+        };
+        let mut registered = Vec::new();
+        let mut register = |_: Vec<u8>, family: &str| {
+            registered.push(family.to_string());
+            Ok(())
+        };
+
+        at_width(500.0);
+        let mut kept = load_web_fonts_blocking::<DefaultRenderConfig>(&doc, &base, &fetch, &mut register);
+        assert_eq!(
+            *fetched.borrow(),
+            ["https://fonts.test/a.ttf"],
+            "only the face that applies"
+        );
+        assert!(!kept.register_applicable_fetching(&doc, &base, &fetch, &mut register));
+        assert_eq!(fetched.borrow().len(), 1);
+
+        at_width(900.0);
+        assert!(kept.register_applicable_fetching(&doc, &base, &fetch, &mut register));
+        assert!(!kept.register_applicable_fetching(&doc, &base, &fetch, &mut register));
+        gosub_css3::media_query::set_media_environment(gosub_css3::media_query::MediaEnvironment::default());
+        assert_eq!(
+            *fetched.borrow(),
+            ["https://fonts.test/a.ttf", "https://fonts.test/w.ttf"]
+        );
+        assert_eq!(registered, ["Always", "Wide"]);
     }
 }

@@ -2833,6 +2833,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
         if self.context.poll_media_completed() {
             self.runtime.dirty = true;
         }
+        // Likewise a web font kept back under an `@media` condition that holds by the time its
+        // fetch lands: the page is laid out again in it.
+        if self.context.poll_deferred_fonts() {
+            self.runtime.dirty = true;
+        }
 
         // Out-of-process work landing - an image the renderer went without, a
         // scroll or hover pass, a renderer that died - must wake the loop too.

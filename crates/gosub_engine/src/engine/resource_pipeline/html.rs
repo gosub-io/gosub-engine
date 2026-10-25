@@ -417,7 +417,8 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
                 resolve_pending_stylesheets::<C>(&mut doc, &sheet_bodies, &sheets).await;
                 // Fonts are declared in CSS, so they can only be known once the sheets are.
                 // Registered before the document is handed on, which is what keeps the first
-                // layout from measuring text in a fallback face and having to do it again.
+                // layout from measuring text in a fallback face and having to do it again. The
+                // ones kept back under a media condition are not waited for.
                 self.deferred_fonts = super::webfonts::load_web_fonts::<C>(
                     &doc,
                     &doc_url,
@@ -568,6 +569,49 @@ pub(crate) struct SubFetch<'a> {
     pub(crate) referrer_policy: gosub_sonar::ReferrerPolicy,
 }
 
+impl SubFetch<'_> {
+    /// The same, owning what it borrows, for a fetch that outlives the parse.
+    pub(crate) fn to_owned(&self) -> OwnedSubFetch {
+        OwnedSubFetch {
+            zone_id: self.zone_id,
+            tab_id: self.tab_id,
+            io_tx: self.io_tx.clone(),
+            parent_ref: self.parent_ref,
+            parent_cancel: self.parent_cancel.clone(),
+            headers: self.headers.clone(),
+            referrer: self.referrer.clone(),
+            referrer_policy: self.referrer_policy,
+        }
+    }
+}
+
+/// A [`SubFetch`] that owns its parts, so a spawned task can hold it.
+pub(crate) struct OwnedSubFetch {
+    zone_id: ZoneId,
+    tab_id: TabId,
+    io_tx: IoChannel,
+    parent_ref: gosub_sonar::RequestReference,
+    parent_cancel: tokio_util::sync::CancellationToken,
+    headers: http::HeaderMap,
+    referrer: url::Url,
+    referrer_policy: gosub_sonar::ReferrerPolicy,
+}
+
+impl OwnedSubFetch {
+    pub(crate) fn as_sub_fetch(&self) -> SubFetch<'_> {
+        SubFetch {
+            zone_id: self.zone_id,
+            tab_id: self.tab_id,
+            io_tx: &self.io_tx,
+            parent_ref: self.parent_ref,
+            parent_cancel: &self.parent_cancel,
+            headers: &self.headers,
+            referrer: &self.referrer,
+            referrer_policy: self.referrer_policy,
+        }
+    }
+}
+
 /// Fetch and parse the stylesheets the parser recorded, and slot them into the cascade.
 ///
 /// The parser records a `<link rel=stylesheet>` and moves on; this is where the sheet
@@ -689,6 +733,16 @@ pub(crate) async fn fetch_subresource(
     kind: crate::net::types::ResourceKind,
     fetch: &SubFetch<'_>,
 ) -> SheetBody {
+    fetch_subresource_at(url, kind, crate::net::types::Priority::High, fetch).await
+}
+
+/// [`fetch_subresource`] at `priority`: lower for what the page does not need yet.
+pub(crate) async fn fetch_subresource_at(
+    url: &str,
+    kind: crate::net::types::ResourceKind,
+    priority: crate::net::types::Priority,
+    fetch: &SubFetch<'_>,
+) -> SheetBody {
     let parsed = url::Url::parse(url).ok()?;
     // The same refusal the document scan applies: a page from the network does not get to
     // read the disk because it named the file somewhere the scanner could not see.
@@ -705,7 +759,7 @@ pub(crate) async fn fetch_subresource(
     let req = FetchRequest::builder(Method::GET, parsed)
         .with_req_id(req_id)
         .with_reference(fetch.parent_ref)
-        .with_priority(crate::net::types::Priority::High)
+        .with_priority(priority)
         .with_initiator(Initiator::Parser.to_net())
         .with_kind(kind.to_net())
         .with_headers(fetch.headers.clone())

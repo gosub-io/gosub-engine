@@ -20,8 +20,9 @@ fn viewport(width: u32) -> Viewport {
 }
 
 /// A context showing a page with a face under `(min-width: 700px)` that its load kept back,
-/// at `width`, and the families registered since.
-fn page_at(width: u32) -> (Ctx, Arc<Mutex<Vec<String>>>) {
+/// at `width`, and the families registered since. With `ready` the face's bytes are in, or
+/// else still on their way.
+fn page_at(width: u32, ready: bool) -> (Ctx, Arc<Mutex<Vec<String>>>) {
     let mut ctx: Ctx = BrowsingContext::new(settings_store::default_config());
     ctx.set_viewport(viewport(width));
     let html = "<!DOCTYPE html><html><head><style>\
@@ -36,6 +37,7 @@ fn page_at(width: u32) -> (Ctx, Arc<Mutex<Vec<String>>>) {
     let seen = Arc::clone(&registered);
     ctx.set_deferred_fonts(DeferredFonts::for_test(
         &[("Wide", "https://fonts.test/w.ttf")],
+        ready,
         Box::new(move |_, family| {
             seen.lock().push(family.to_string());
             Ok(())
@@ -46,7 +48,7 @@ fn page_at(width: u32) -> (Ctx, Arc<Mutex<Vec<String>>>) {
 
 #[test]
 fn a_deferred_face_is_registered_when_a_resize_brings_it_in() {
-    let (mut ctx, registered) = page_at(500);
+    let (mut ctx, registered) = page_at(500, true);
     ctx.rebuild_pipeline_cache_if_needed();
     assert!(registered.lock().is_empty(), "a 500px page does not take the face");
 
@@ -64,7 +66,38 @@ fn a_deferred_face_is_registered_when_a_resize_brings_it_in() {
 /// the first frame, with no resize to prompt it.
 #[test]
 fn a_face_kept_back_at_load_is_registered_for_the_first_frame_if_it_applies() {
-    let (mut ctx, registered) = page_at(900);
+    let (mut ctx, registered) = page_at(900, true);
+    ctx.rebuild_pipeline_cache_if_needed();
+    assert_eq!(*registered.lock(), ["Wide"]);
+}
+
+/// The load does not wait for a face it kept back, so its bytes can land after the frame that
+/// wanted them. The landing wakes the render loop and the page is laid out again in it.
+#[test]
+fn a_face_that_lands_after_the_frame_that_wanted_it_is_registered_on_landing() {
+    let (mut ctx, registered) = page_at(900, false);
+    ctx.rebuild_pipeline_cache_if_needed();
+    assert!(registered.lock().is_empty(), "not in yet");
+    assert!(!ctx.poll_deferred_fonts(), "nothing landed");
+
+    ctx.deferred_fonts.land_for_test();
+    assert!(ctx.poll_deferred_fonts(), "the landing wakes the frame loop");
+    assert_eq!(*registered.lock(), ["Wide"]);
+    assert!(!ctx.damage.is_none(), "and the page is to be laid out again");
+    assert!(!ctx.poll_deferred_fonts(), "once");
+}
+
+/// A face that lands while its condition does not hold waits for a resize, as it would have
+/// had it come in with the document.
+#[test]
+fn a_face_that_lands_while_it_does_not_apply_waits() {
+    let (mut ctx, registered) = page_at(500, false);
+    ctx.rebuild_pipeline_cache_if_needed();
+    ctx.deferred_fonts.land_for_test();
+    assert!(!ctx.poll_deferred_fonts(), "nothing to lay out again for");
+    assert!(registered.lock().is_empty());
+
+    ctx.set_viewport(viewport(900));
     ctx.rebuild_pipeline_cache_if_needed();
     assert_eq!(*registered.lock(), ["Wide"]);
 }
