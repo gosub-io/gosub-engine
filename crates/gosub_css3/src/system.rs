@@ -179,14 +179,17 @@ impl CssSystem for Css3System {
         pseudo: &str,
         owner: Option<&Self::PropertyMap>,
     ) -> Option<Self::PropertyMap> {
-        // Only `::before` / `::after` generate boxes; ignore other pseudo-elements.
-        if !matches!(pseudo, "before" | "after") {
+        // Only `::before`, `::after` and `::marker` generate boxes; ignore other pseudo-elements.
+        if !matches!(pseudo, "before" | "after" | "marker") {
             return None;
         }
         let map = compute_properties::<C>(doc, id, sheets, Some(pseudo), owner)?;
-        // A pseudo-element only generates a box when a matching rule sets `content`. With no
-        // `content` declaration there is nothing to render, so report "no pseudo-element".
-        <CssProperties as CssPropertyMap<Css3System>>::get(&map, "content")?;
+        // `::before` and `::after` only generate a box when a matching rule sets `content`. With
+        // no `content` declaration there is nothing to render, so report "no pseudo-element".
+        // A list item's `::marker` exists without one: its text comes from `list-style-type`.
+        if pseudo != "marker" {
+            <CssProperties as CssPropertyMap<Css3System>>::get(&map, "content")?;
+        }
         Some(map)
     }
 
@@ -334,7 +337,11 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     // cascade entirely. Anything else asking the cascade what an element computes to - which is
     // to say `getComputedStyle` - therefore could not see a single thing set through
     // `element.style`.
-    let inline_sheet = matches_rules
+    //
+    // It is the element's own: a pseudo-element of it is not styled by it, any more than by its
+    // presentational hints. What it sets that inherits still reaches the pseudo-element, through
+    // the owner's map.
+    let inline_sheet = (matches_rules && pseudo.is_none())
         .then(|| doc.attribute(id, "style"))
         .flatten()
         .filter(|style| !style.trim().is_empty())
