@@ -353,6 +353,37 @@ pub enum CaptionSide {
     Bottom,
 }
 
+/// `list-style-type`: what a list item's marker shows.
+///
+/// The counter styles here are the predefined ones pages use; any other name computes to
+/// `decimal`, which is what css-counter-styles-3 §3 makes of a name that refers to no style.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ListStyleType {
+    None,
+    Disc,
+    Circle,
+    Square,
+    Decimal,
+    DecimalLeadingZero,
+    LowerRoman,
+    UpperRoman,
+    LowerAlpha,
+    UpperAlpha,
+    LowerGreek,
+    DisclosureOpen,
+    DisclosureClosed,
+    /// A `<string>`: the marker is that text, with no counter in it.
+    String(Arc<str>),
+}
+
+/// `list-style-position`: whether the marker sits outside the item's box or starts its first
+/// line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ListStylePosition {
+    Inside,
+    Outside,
+}
+
 /// `visibility`: whether the box paints. A hidden box still takes its place in layout, and a
 /// descendant that says `visible` paints inside it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -545,6 +576,8 @@ declare_props! {
     WhiteSpace,
     LetterSpacing,
     CaptionSide,
+    ListStyleType,
+    ListStylePosition,
     BorderSpacingX,
     BorderSpacingY,
     BorderCollapse,
@@ -711,6 +744,8 @@ pub struct InheritedGroup {
     pub white_space: WhiteSpace,
     pub letter_spacing: LetterSpacing,
     pub caption_side: CaptionSide,
+    pub list_style_type: ListStyleType,
+    pub list_style_position: ListStylePosition,
     /// Horizontal component of `border-spacing`, in px.
     pub border_spacing_x: f32,
     /// Vertical component of `border-spacing`, in px.
@@ -735,6 +770,9 @@ pub struct InheritedGroup {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BoxGroup {
     pub display: Display,
+    /// Whether `display` names `list-item`: the box gets a `::marker` as well as being what the
+    /// rest of the value makes it (css-display-3 §2.3).
+    pub list_item: bool,
     pub position: Position,
     pub float: Float,
     pub clear: Clear,
@@ -1247,6 +1285,8 @@ impl ComputedStyle {
                 white_space: WhiteSpace::Normal,
                 letter_spacing: LetterSpacing::Normal,
                 caption_side: CaptionSide::Top,
+                list_style_type: ListStyleType::Disc,
+                list_style_position: ListStylePosition::Outside,
                 border_spacing_x: 0.0,
                 border_spacing_y: 0.0,
                 border_collapse: BorderCollapse::Separate,
@@ -1256,6 +1296,7 @@ impl ComputedStyle {
             }),
             box_group: Arc::new(BoxGroup {
                 display: Display::Inline,
+                list_item: false,
                 position: Position::Static,
                 float: Float::None,
                 clear: Clear::None,
@@ -1398,6 +1439,9 @@ flat_group!(
 impl HeapSize for InheritedGroup {
     fn heap_size(&self, walk: &mut Walk) {
         self.font_family.heap_size(walk);
+        if let ListStyleType::String(text) = &self.list_style_type {
+            text.heap_size(walk);
+        }
     }
 }
 

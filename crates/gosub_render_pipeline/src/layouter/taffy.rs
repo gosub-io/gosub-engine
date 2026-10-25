@@ -1,7 +1,7 @@
 use cow_utils::CowUtils;
 
 use crate::common::document::node::{Node, NodeId as DomNodeId, NodeType};
-use crate::common::document::pipeline_doc::PipelineDocument;
+use crate::common::document::pipeline_doc::{is_marker_box, pseudo_owner, PipelineDocument};
 use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::geo;
 use crate::common::geo::Coordinate;
@@ -27,7 +27,7 @@ use gosub_fontmanager::ParleyFontSystem;
 use gosub_interface::font_system::FontSystem;
 use gosub_interface::style::{
     BackgroundImage, BackgroundSize, BorderStyle, ComputedStyle, Display as CssDisplay, Float as CssFloat,
-    LengthPercentage as CssLp, LengthPercentageAuto as CssLpa, LineHeight, Overflow as CssOverflow,
+    LengthPercentage as CssLp, LengthPercentageAuto as CssLpa, LineHeight, ListStylePosition, Overflow as CssOverflow,
     Position as CssPosition, TextAlign, TextTransform as CssTextTransform, VerticalAlign as CssVerticalAlign,
     WhiteSpace,
 };
@@ -2375,6 +2375,28 @@ impl TaffyLayouter {
 
     // Process node and turn it into a taffy node. It will recursively process any children and takes care to wrap any multiple inline elements
     // into an anonymous taffy block element. This way we can sort of emulate inline elements within taffy.
+    /// Take an outside marker out of flow and end it where the item's content box starts
+    /// (css-lists-3 §3.1). Taffy places an absolutely positioned child against its parent, which
+    /// is the list item here, whatever the CSS containing block would be; a marker's position is
+    /// the item's to give, so that is the box it belongs against. With no vertical inset it keeps
+    /// the static position, at the top of the content box, which is where the first line starts.
+    fn hang_outside_marker(&mut self, marker: TaffyNodeId) {
+        let Ok(style) = self.tree.style(marker) else {
+            return;
+        };
+        let mut style = style.clone();
+        style.position = Position::Absolute;
+        style.inset = taffy::Rect {
+            left: LengthPercentageAuto::auto(),
+            right: LengthPercentageAuto::percent(1.0),
+            top: LengthPercentageAuto::auto(),
+            bottom: LengthPercentageAuto::auto(),
+        };
+        if let Err(e) = self.tree.set_style(marker, style) {
+            log::warn!("Failed to set the marker's style: {:?}", e);
+        }
+    }
+
     fn generate_taffy_element(
         &mut self,
         layout_tree: &mut LayoutTree,
@@ -2545,6 +2567,7 @@ impl TaffyLayouter {
                     .is_some_and(|n| {
                         matches!(n.node_type, NodeType::Element(_))
                             && (n.is_inline_element() || n.is_inline_block_element())
+                            && !is_outside_marker(&*layout_tree.render_tree.doc, n.node_id)
                     })
             });
 
@@ -2559,7 +2582,7 @@ impl TaffyLayouter {
                         .get_document_node_by_render_id(**cid)
                         .is_some_and(|n| match &n.node_type {
                             NodeType::Text(text) => !is_collapsible_whitespace(text),
-                            NodeType::Element(_) => true,
+                            NodeType::Element(_) => !is_outside_marker(&*layout_tree.render_tree.doc, n.node_id),
                             NodeType::Comment(_) => false,
                         })
                 })
@@ -2570,6 +2593,20 @@ impl TaffyLayouter {
             let Some(child_node) = layout_tree.render_tree.get_document_node_by_render_id(*child_id) else {
                 continue;
             };
+
+            // An outside marker is no part of the item's lines: it hangs in front of the first.
+            if is_outside_marker(&*layout_tree.render_tree.doc, child_node.node_id) {
+                if let Some((marker_id, marker_taffy_id)) =
+                    self.generate_taffy_element(layout_tree, *child_id, depth + 1)
+                {
+                    self.hang_outside_marker(marker_taffy_id);
+                    if let Err(e) = self.tree.add_child(leaf_id, marker_taffy_id) {
+                        log::warn!("Failed to add child to taffy tree: {:?}", e);
+                    }
+                    element_node.children.push(marker_id);
+                }
+                continue;
+            }
 
             // One with a block inside is broken around it, on its own in its parent or not.
             if (shares_lines || (!parent_is_flex_or_grid && Self::holds_a_block(layout_tree, &child_node, depth)))
@@ -3875,6 +3912,17 @@ fn clamp_replaced_to_max_height(
         width: (limit * iw / ih).min(measured.width),
         height: limit,
     }
+}
+
+/// Whether `id` is a list item's `::marker` that hangs outside the item's box
+/// (`list-style-position: outside`) instead of starting its first line.
+///
+/// An inline list item has no box side to hang it from, so its marker is the first thing on its
+/// line, as `inside` would put it.
+fn is_outside_marker(doc: &dyn PipelineDocument, id: DomNodeId) -> bool {
+    is_marker_box(id)
+        && doc.computed_style(id).inherited.list_style_position == ListStylePosition::Outside
+        && pseudo_owner(id).is_some_and(|owner| doc.computed_style(owner).box_group.display != CssDisplay::Inline)
 }
 
 /// Whether a percentage `height` on a line item resolves against the block the line is in:

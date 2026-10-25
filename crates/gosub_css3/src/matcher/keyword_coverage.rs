@@ -35,7 +35,10 @@ use crate::Css3;
 type Field = fn(&ComputedStyle) -> String;
 
 const PROPERTIES: &[(&str, Prop, Field)] = &[
-    ("display", Prop::Display, |s| format!("{:?}", s.box_group.display)),
+    ("display", Prop::Display, |s| {
+        let marker = if s.box_group.list_item { " list-item" } else { "" };
+        format!("{:?}{marker}", s.box_group.display)
+    }),
     ("position", Prop::Position, |s| format!("{:?}", s.box_group.position)),
     ("float", Prop::Float, |s| format!("{:?}", s.box_group.float)),
     ("clear", Prop::Clear, |s| format!("{:?}", s.box_group.clear)),
@@ -76,6 +79,12 @@ const PROPERTIES: &[(&str, Prop, Field)] = &[
         format!("{:?}", s.inherited.white_space)
     }),
     ("text-wrap", Prop::TextWrap, |s| format!("{:?}", s.box_group.text_wrap)),
+    ("list-style-type", Prop::ListStyleType, |s| {
+        format!("{:?}", s.inherited.list_style_type)
+    }),
+    ("list-style-position", Prop::ListStylePosition, |s| {
+        format!("{:?}", s.inherited.list_style_position)
+    }),
     ("caption-side", Prop::CaptionSide, |s| {
         format!("{:?}", s.inherited.caption_side)
     }),
@@ -141,7 +150,6 @@ const KNOWN_GAPS: &[(&str, &str, Gap)] = &[
     ("clear", "bottom", Gap::Merged),
     ("clear", "top", Gap::Merged),
     // display: no Display variant, so each becomes a block (css-display-3 gives each its own box).
-    ("display", "list-item", Gap::Merged),
     ("display", "math", Gap::Merged),
     ("display", "ruby", Gap::Merged),
     ("display", "ruby-base", Gap::Merged),

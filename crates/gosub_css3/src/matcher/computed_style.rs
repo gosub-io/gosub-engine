@@ -18,17 +18,19 @@ use gosub_interface::style::{
     AlignValue, Anchor, BackgroundImage, BackgroundLayer, BackgroundRepeat, BackgroundSize, BackgroundTile,
     BorderCollapse, BorderStyle, BoxShadow, BoxSizing, CaptionSide, Clear, Color, ComputedStyle, Display,
     FlexDirection, FlexWrap, Float, FontStyle, FontWeight, GradientStop, GridAreas, GridAutoFlow, GridLine,
-    LengthPercentage, LengthPercentageAuto, LetterSpacing, LineHeight, LinearGradient, ObjectFit, Overflow, Position,
-    Prop, RepeatCount, TableLayout, TextAlign, TextDecorationLine, TextTransform, TextWrap, TrackBreadth, TrackList,
-    TrackListItem, TrackSize, VerticalAlign, Visibility, WhiteSpace, ZIndex,
+    LengthPercentage, LengthPercentageAuto, LetterSpacing, LineHeight, LinearGradient, ListStylePosition,
+    ListStyleType, ObjectFit, Overflow, Position, Prop, RepeatCount, TableLayout, TextAlign, TextDecorationLine,
+    TextTransform, TextWrap, TrackBreadth, TrackList, TrackListItem, TrackSize, VerticalAlign, Visibility, WhiteSpace,
+    ZIndex,
 };
 
 use crate::colors::resolve::{resolve_color, ColorContext};
 use crate::colors::{CssColor, RgbColor};
 use crate::matcher::keywords::{
     BorderCollapseKeyword, BorderTopStyleKeyword, BoxSizingKeyword, CaptionSideKeyword, ClearKeyword,
-    FlexDirectionKeyword, Keyword, ObjectFitKeyword, OutlineStyleKeyword, OverflowXKeyword, TableLayoutKeyword,
-    TextAlignKeyword, TextWrapModeKeyword, TextWrapStyleKeyword, VisibilityKeyword, WhiteSpaceKeyword,
+    FlexDirectionKeyword, Keyword, ListStylePositionKeyword, ObjectFitKeyword, OutlineStyleKeyword, OverflowXKeyword,
+    TableLayoutKeyword, TextAlignKeyword, TextWrapModeKeyword, TextWrapStyleKeyword, VisibilityKeyword,
+    WhiteSpaceKeyword,
 };
 use crate::matcher::property_ids::{LonghandId, PropertyId, LONGHAND_COUNT, PROPERTY_COUNT};
 use crate::matcher::shorthands::bg_position_axes;
@@ -794,6 +796,42 @@ fn display(value: &CssValue) -> Option<Display> {
     })
 }
 
+/// Whether a `display` value names `list-item`, alone or with an outer and inner type.
+fn names_list_item(value: &CssValue) -> bool {
+    keyword_tokens(value).is_some_and(|tokens| tokens.iter().any(|token| is_keyword(token, "list-item")))
+}
+
+/// A `list-style-type`: a name picks a counter style, a `<string>` is the marker text itself.
+///
+/// The parsed value no longer says which of the two was written (see [`CssValue::String`]), so
+/// the text's shape decides: what could not be an identifier - `"-> "`, `"★"` - was a string.
+fn list_style_type(text: &str) -> ListStyleType {
+    let mut chars = text.chars();
+    let ident_like = chars
+        .next()
+        .is_some_and(|first| first == '-' || first == '_' || first.is_alphabetic())
+        && chars.all(|c| c == '-' || c == '_' || c.is_alphanumeric());
+    if !ident_like {
+        return ListStyleType::String(Arc::from(text));
+    }
+    match &*text.cow_to_ascii_lowercase() {
+        "none" => ListStyleType::None,
+        "disc" => ListStyleType::Disc,
+        "circle" => ListStyleType::Circle,
+        "square" => ListStyleType::Square,
+        "decimal-leading-zero" => ListStyleType::DecimalLeadingZero,
+        "lower-roman" => ListStyleType::LowerRoman,
+        "upper-roman" => ListStyleType::UpperRoman,
+        "lower-alpha" | "lower-latin" => ListStyleType::LowerAlpha,
+        "upper-alpha" | "upper-latin" => ListStyleType::UpperAlpha,
+        "lower-greek" => ListStyleType::LowerGreek,
+        "disclosure-open" => ListStyleType::DisclosureOpen,
+        "disclosure-closed" => ListStyleType::DisclosureClosed,
+        // `decimal` itself, and every counter style this engine does not define.
+        _ => ListStyleType::Decimal,
+    }
+}
+
 /// A `<line-style>`. The four `border-*-style` longhands share that grammar, so the top side's
 /// generated enum reads all four; a test holds the four keyword lists equal.
 fn border_style_of(keyword: BorderTopStyleKeyword) -> BorderStyle {
@@ -945,6 +983,8 @@ static ENGINE_LONGHANDS: &[(LonghandId, Prop, u16)] = &[
     (LonghandId::WhiteSpace, Prop::WhiteSpace, G_INHERITED),
     (LonghandId::LetterSpacing, Prop::LetterSpacing, G_INHERITED),
     (LonghandId::CaptionSide, Prop::CaptionSide, G_INHERITED),
+    (LonghandId::ListStyleType, Prop::ListStyleType, G_INHERITED),
+    (LonghandId::ListStylePosition, Prop::ListStylePosition, G_INHERITED),
     (LonghandId::BorderCollapse, Prop::BorderCollapse, G_INHERITED),
     (LonghandId::Visibility, Prop::Visibility, G_INHERITED),
     (LonghandId::TextDecorationLine, Prop::TextDecorationLine, G_INHERITED),
@@ -1381,6 +1421,24 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
         CaptionSideKeyword::Bottom => CaptionSide::Bottom,
     }));
 
+    read!(map, style, ListStyleType, inherited_mut, list_style_type, |value| {
+        as_string(value).map(list_style_type)
+    });
+
+    read!(
+        map,
+        style,
+        ListStylePosition,
+        inherited_mut,
+        list_style_position,
+        |value| {
+            keyword(value).map(|keyword| match keyword {
+                ListStylePositionKeyword::Inside => ListStylePosition::Inside,
+                ListStylePositionKeyword::Outside => ListStylePosition::Outside,
+            })
+        }
+    );
+
     read!(map, style, BorderCollapse, inherited_mut, border_collapse, |value| {
         keyword(value).map(|keyword| match keyword {
             BorderCollapseKeyword::Collapse => BorderCollapse::Collapse,
@@ -1458,6 +1516,14 @@ fn resolve_border_spacing(map: &CssProperties, style: &mut ComputedStyle, font_s
 
 fn resolve_box(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
     read!(map, style, Display, box_mut, display, display);
+    // `list-item` is one more keyword of the same value, which `display` reads past; a box can
+    // only lose it to a later `display`, so it is written only where it differs.
+    if let Some(value) = value(map, longhand(LonghandId::Display)) {
+        let list_item = names_list_item(value);
+        if style.box_group.list_item != list_item {
+            style.box_mut().list_item = list_item;
+        }
+    }
 
     read!(map, style, Position, box_mut, position, |value| as_string(value).map(
         |keyword| match keyword {
@@ -2118,6 +2184,55 @@ mod tests {
 
     fn style_of(css: &str) -> ComputedStyle {
         computed_style(&map_of(css), None)
+    }
+
+    /// `list-item` gives the box a marker on top of the box the rest of `display` names.
+    #[test]
+    fn list_item_is_read_beside_the_box_type() {
+        let of = |css| {
+            let style = style_of(css);
+            (style.box_group.display, style.box_group.list_item)
+        };
+        assert_eq!(of("display: list-item"), (Display::Block, true));
+        assert_eq!(of("display: inline list-item"), (Display::Inline, true));
+        assert_eq!(of("display: list-item flow-root"), (Display::FlowRoot, true));
+        assert_eq!(of("display: block"), (Display::Block, false));
+        assert_eq!(of("display: list-item; display: flex"), (Display::Flex, false));
+    }
+
+    #[test]
+    fn list_style_reads_type_and_position() {
+        let of = |css| {
+            let style = style_of(css);
+            (
+                style.inherited.list_style_type.clone(),
+                style.inherited.list_style_position,
+            )
+        };
+        assert_eq!(of(""), (ListStyleType::Disc, ListStylePosition::Outside));
+        assert_eq!(
+            of("list-style-type: upper-roman; list-style-position: inside"),
+            (ListStyleType::UpperRoman, ListStylePosition::Inside)
+        );
+        assert_eq!(of("list-style: square inside").0, ListStyleType::Square);
+        assert_eq!(of("list-style: none").0, ListStyleType::None);
+        assert_eq!(of("list-style-type: lower-latin").0, ListStyleType::LowerAlpha);
+        assert_eq!(
+            of("list-style-type: \"-> \"").0,
+            ListStyleType::String(Arc::from("-> "))
+        );
+        assert_eq!(
+            of("list-style-type: \"\u{2605}\"").0,
+            ListStyleType::String(Arc::from("\u{2605}"))
+        );
+        // A counter style the engine does not define counts in decimal.
+        assert_eq!(of("list-style-type: hiragana").0, ListStyleType::Decimal);
+
+        // Both inherit, so a nested list keeps the outer list's marker until it says otherwise.
+        let parent = style_of("list-style: lower-alpha inside");
+        let child = computed_style(&map_of("color: red"), Some(&parent));
+        assert_eq!(child.inherited.list_style_type, ListStyleType::LowerAlpha);
+        assert_eq!(child.inherited.list_style_position, ListStylePosition::Inside);
     }
 
     /// The typed style reads the longhands a shorthand expands to, so the later declaration wins
