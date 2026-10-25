@@ -883,6 +883,18 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                             };
                             let tab_identities = Arc::clone(&router.engine_ctx.tab_identities);
                             let reference = REF_REGISTRY.from_net(req.reference);
+                            // A scheme the engine speaks itself (`net::protocols`) is served
+                            // in place of the zone fetcher. Its setting and observer are
+                            // taken here, where the router is.
+                            let protocol = crate::net::protocols::for_request(&req).map(|protocol| {
+                                use gosub_sonar::net::fetcher_context::FetcherContext;
+                                let enabled = router.engine_ctx.config_store.get_bool(protocol.setting());
+                                let observer =
+                                    router
+                                        .local_ctx
+                                        .observer_for(req.reference, req.req_id, req.kind, req.initiator);
+                                (protocol, enabled, observer)
+                            });
                             // The network process has no fetcher of ours to ask for an
                             // observer: built here, as the in-process fetcher would.
                             #[cfg(feature = "process-isolation")]
@@ -974,10 +986,26 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                         #[cfg(not(feature = "process-isolation"))]
                                         None,
                                     ),
-                                    (None, Some(fetchers)) => {
-                                        let fetcher = fetchers.for_reach(reach);
-                                        fetcher.submit(req, handle.cancel.clone(), reply_tx).await;
-                                    }
+                                    (None, Some(fetchers)) => match protocol {
+                                        Some((protocol, enabled, observer)) => {
+                                            let served = crate::net::protocols::serve(
+                                                protocol,
+                                                &req,
+                                                reach,
+                                                enabled,
+                                                &handle.cancel,
+                                                observer,
+                                            )
+                                            .await;
+                                            if let Some(result) = served {
+                                                let _ = reply_tx.send(result);
+                                            }
+                                        }
+                                        None => {
+                                            let fetcher = fetchers.for_reach(reach);
+                                            fetcher.submit(req, handle.cancel.clone(), reply_tx).await;
+                                        }
+                                    },
                                     (None, None) => {}
                                 }
                             });
