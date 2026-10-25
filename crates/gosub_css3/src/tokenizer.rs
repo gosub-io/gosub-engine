@@ -1042,7 +1042,10 @@ mod test {
         let mut stream = ByteStream::from_str("a\u{a0}b\u{2003} \t\r\u{c}\nc", Encoding::UTF8);
         let mut tokenizer = Tokenizer::new(&mut stream, Location::default());
 
-        assert_token_eq!(tokenizer.consume(), Token::new_ident("a\u{a0}b\u{2003}", Location::default()));
+        assert_token_eq!(
+            tokenizer.consume(),
+            Token::new_ident("a\u{a0}b\u{2003}", Location::default())
+        );
         assert!(tokenizer.consume().is_whitespace());
         assert_token_eq!(tokenizer.consume(), Token::new_ident("c", Location::default()));
     }
