@@ -392,6 +392,25 @@ mod tests {
         assert!(!resolved.blob.as_u8().is_empty(), "resolved font must carry bytes");
     }
 
+    /// A web font can arrive after text has been laid out: one kept back under an `@media`
+    /// condition is registered when a resize makes it apply. A lookup of the family made before
+    /// then, which fell back, must not stick.
+    #[test]
+    fn a_family_registered_after_a_lookup_resolves_from_then_on() {
+        let mut fs = CosmicFontSystem::new();
+        let name = "Gosub Cosmic Late Test";
+        let _ = fs.resolve(&FontQuery::new(&[name]));
+        let _ = fs.measure("late", &TextStyle::new(name, 16.0));
+        assert!(!fs.families().iter().any(|f| f == name));
+
+        fs.register_font(gosub_shared::ROBOTO_FONT.to_vec(), Some(name))
+            .expect("registering the bundled font must succeed");
+        assert!(
+            fs.families().iter().any(|f| f == name),
+            "the late registration must be found"
+        );
+    }
+
     /// Real pages set `font-size: 0` and `line-height: 0` on hidden text; cosmic-text
     /// would panic on a zero line height and take the renderer process with it.
     #[test]

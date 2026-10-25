@@ -22,7 +22,7 @@ use crate::tokenizer::{ParserData, Tokenizer, CHAR_REPLACEMENT};
 use cow_utils::CowUtils;
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssOrigin, CssSystem};
-use gosub_interface::document::{Document, DocumentType};
+use gosub_interface::document::{Document, DocumentType, PendingStylesheet};
 use gosub_interface::node::{NodeType, ShadowRootInit, ShadowRootMode, SlotAssignmentMode};
 
 use gosub_interface::html5::ParserOptions;
@@ -1135,7 +1135,11 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                         };
 
                         // Load stylesheet from text node
-                        if let Some(stylesheet) = self.load_inline_stylesheet(CssOrigin::Author, style_text_node_id) {
+                        if let Some(mut stylesheet) = self.load_inline_stylesheet(CssOrigin::Author, style_text_node_id)
+                        {
+                            if let Some(media) = self.document.attribute(style_node_id, "media") {
+                                C::CssSystem::set_stylesheet_media(&mut stylesheet, media);
+                            }
                             self.add_stylesheet_for(style_node_id, stylesheet);
                         }
 
@@ -4251,7 +4255,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             return;
         }
 
-        let urls: Vec<String> = pending.iter().map(|(_, url)| url.clone()).collect();
+        let urls: Vec<String> = pending.iter().map(|sheet| sheet.url.clone()).collect();
         let mut waited = Timer::new(Some(format!("{} stylesheet(s)", urls.len())));
         let bodies = source.fetch_blocking(&urls);
         waited.end();
@@ -4272,7 +4276,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         );
 
         let mut inserted = 0usize;
-        for ((position, url), body) in pending.into_iter().zip(bodies) {
+        for (PendingStylesheet { position, url, media }, body) in pending.into_iter().zip(bodies) {
             let Some(bytes) = body else {
                 warn!("Could not load external stylesheet from {url}");
                 continue;
@@ -4289,7 +4293,10 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             match C::CssSystem::parse_str(&css, config, CssOrigin::Author, &url) {
                 // Each sheet already placed shifts this one along by one; see
                 // `Document::add_pending_stylesheet` for what the position means.
-                Ok(sheet) => {
+                Ok(mut sheet) => {
+                    if let Some(media) = &media {
+                        C::CssSystem::set_stylesheet_media(&mut sheet, media);
+                    }
                     self.document.insert_stylesheet(position + inserted, sheet);
                     inserted += 1;
                 }
@@ -4462,7 +4469,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 // Recorded, not fetched. The parser has no business opening sockets: the
                 // resource pipeline is already fetching this sheet (and everything else the
                 // document links), and it fills the slot in once the bytes are here.
-                self.document.add_pending_stylesheet(css_url.as_str());
+                let media = attributes.get("media").map(String::as_str);
+                self.document.add_pending_stylesheet(css_url.as_str(), media);
             }
             _ => {
                 log::debug!("link element with rel attribute '{rel}' is not supported");
@@ -5004,5 +5012,51 @@ mod test {
         );
         assert_eq!(stream.encoding(), Encoding::UTF8);
         assert!(tree.contains('é'), "expected utf-8 decoding, got {tree}");
+    }
+}
+
+#[cfg(test)]
+mod owner_media_tests {
+    use crate::document::document_impl::DocumentImpl;
+    use crate::parser::Html5Parser;
+    use gosub_css3::media_query::MediaEnvironment;
+    use gosub_css3::system::Css3System;
+    use gosub_interface::config::ModuleConfiguration;
+    use gosub_interface::document::{Document, PendingStylesheet};
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct Config;
+    impl ModuleConfiguration for Config {
+        type CssSystem = Css3System;
+        type Document = DocumentImpl<Self>;
+        type HtmlParser = Html5Parser<'static, Self>;
+    }
+
+    #[test]
+    fn a_style_element_keeps_its_media_attribute() {
+        let doc = crate::html_compile::<Config>(
+            "<head><style media=print>p { color: red; }</style><style>p { color: blue; }</style></head>",
+        );
+        let screen = MediaEnvironment::default();
+        let [print, plain] = doc.stylesheets() else {
+            panic!("two sheets");
+        };
+        assert!(!print.rules[0].media_matches(&screen));
+        assert!(plain.rules[0].media.is_none());
+    }
+
+    #[test]
+    fn a_link_hands_its_media_attribute_to_whoever_fetches_it() {
+        let mut doc = crate::html_compile::<Config>(
+            r#"<head><base href="https://example.org/">
+               <link rel=stylesheet href="https://example.org/p.css" media="print">
+               <link rel=stylesheet href="https://example.org/a.css"></head>"#,
+        );
+        let pending = doc.take_pending_stylesheets();
+        let media: Vec<_> = pending
+            .iter()
+            .map(|PendingStylesheet { media, .. }| media.as_deref())
+            .collect();
+        assert_eq!(media, [Some("print"), None]);
     }
 }

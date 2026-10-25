@@ -102,6 +102,11 @@ pub trait CssSystem: Clone + Debug + 'static {
     /// nothing, which means no scoping - every sheet applies to the whole document.
     fn set_stylesheet_scope(_sheet: &mut Self::Stylesheet, _scope: Option<NodeId>) {}
 
+    /// Puts a whole stylesheet under the `media` attribute of the `<link>` or `<style>` it
+    /// came from, so a `media=print` sheet does not apply on screen. The default does nothing,
+    /// which means every sheet applies whatever its attribute says.
+    fn set_stylesheet_media(_sheet: &mut Self::Stylesheet, _media: &str) {}
+
     /// A hash of everything *outside* the DOM that the cascade reads, under the environment
     /// currently in force: which `@media` conditions hold, and the viewport when any sheet
     /// uses viewport-relative units.
@@ -158,6 +163,13 @@ pub trait CssStylesheet: PartialEq + Debug {
     /// `None` when the face covers all code points.
     fn font_faces(&self) -> Vec<(String, Vec<String>, Option<String>)> {
         Vec::new()
+    }
+
+    /// Every `@font-face` in this stylesheet, in the shape of [`CssStylesheet::font_faces`],
+    /// whether or not its media conditions hold now: what a host fetches ahead, so a resize
+    /// that brings a face in has its bytes at hand. The default is the faces that apply now.
+    fn all_font_faces(&self) -> Vec<(String, Vec<String>, Option<String>)> {
+        self.font_faces()
     }
 
     /// What in this stylesheet the engine did not apply, and why, in source order of discovery.

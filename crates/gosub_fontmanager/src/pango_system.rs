@@ -833,6 +833,28 @@ mod tests {
         assert!(!resolved.blob.as_u8().is_empty(), "resolved font must carry file bytes");
     }
 
+    /// A web font can arrive after text has been laid out: one kept back under an `@media`
+    /// condition is registered when a resize makes it apply. A lookup of the family made before
+    /// then, which fell back, must not stick.
+    #[test]
+    fn a_family_registered_after_a_lookup_resolves_from_then_on() {
+        let mut fs = PangoFontSystem::new();
+        let name = "Gosub Pango Late Test";
+        let _ = fs.resolve(&FontQuery::new(&[name]));
+        let _ = fs.measure("late", &TextStyle::new(name, 16.0));
+        assert_eq!(webfont_alias(name), None, "nothing is registered under the name yet");
+
+        fs.register_font(gosub_shared::ROBOTO_FONT.to_vec(), Some(name))
+            .expect("registering the bundled font must succeed");
+        assert_eq!(
+            webfont_alias(name).as_deref(),
+            Some("Roboto"),
+            "the late registration must be found"
+        );
+        let resolved = fs.resolve(&FontQuery::new(&[name])).expect("the family must resolve");
+        assert_eq!(resolved.family, "Roboto", "and resolve to the registered face");
+    }
+
     /// `find_available_font` takes `fontconfig_lock`, and `build_layout` holds it for the whole
     /// of its work - including its own family lookup. A plain mutex does not re-enter, so if
     /// `build_layout` ever went through the public entry point instead of the unlocked helper,

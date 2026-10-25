@@ -174,6 +174,20 @@ impl MediaQueryList {
         })
     }
 
+    /// `not all`: a list that never matches. What an unreadable `media` attribute stands for,
+    /// since an empty list would match everything instead.
+    #[must_use]
+    pub fn not_all() -> Self {
+        Self {
+            queries: vec![MediaQuery {
+                negated: true,
+                media_type: None,
+                unknown_type: false,
+                condition: None,
+            }],
+        }
+    }
+
     /// A `<media-condition>` written outside a stylesheet: the condition in front of a `sizes`
     /// entry. Narrower than a query list: one condition, no media type. `None` when the text is
     /// not one, which makes HTML skip the entry.

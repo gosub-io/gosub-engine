@@ -544,6 +544,27 @@ mod tests {
         assert!(!resolved.blob.as_u8().is_empty(), "resolved font must carry bytes");
     }
 
+    /// A web font can arrive after text has been laid out: one kept back under an `@media`
+    /// condition is registered when a resize makes it apply. A lookup of the family made before
+    /// then, which fell back, must not stick.
+    #[test]
+    fn a_family_registered_after_a_lookup_resolves_from_then_on() {
+        let mut fs = ParleyFontSystem::new();
+        let name = "Gosub Parley Late Test";
+        let before = fs.resolve(&FontQuery::new(&[name])).map(|font| font.family);
+        assert_ne!(
+            before.ok().as_deref(),
+            Some(name),
+            "nothing is registered under the name yet"
+        );
+        let _ = fs.measure("late", &TextStyle::new(name, 16.0));
+
+        fs.register_font(gosub_shared::ROBOTO_FONT.to_vec(), Some(name))
+            .expect("registering the bundled font must succeed");
+        let after = fs.resolve(&FontQuery::new(&[name])).expect("the family must resolve");
+        assert_eq!(after.family, name, "the late registration must be found");
+    }
+
     #[test]
     fn shape_agrees_with_measure_and_applies_letter_spacing() {
         let mut fs = ParleyFontSystem::new();

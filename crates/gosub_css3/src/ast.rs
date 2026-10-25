@@ -942,7 +942,7 @@ fn collect_rules(
                 ..
             } if name.eq_ignore_ascii_case("font-face") => {
                 if let NodeType::Block { children } = block.node_type {
-                    if let Some(face) = collect_font_face(children) {
+                    if let Some(face) = collect_font_face(children, media) {
                         sheet.font_faces.push(face);
                     }
                 }
@@ -1058,7 +1058,7 @@ fn collect_property(prelude: Option<CssNode>, block: CssNode, media: &[Arc<Media
 
 /// Build a [`FontFace`] from the declarations inside an `@font-face` block. Requires a
 /// `font-family` and at least one `src: url(...)`; returns `None` otherwise.
-fn collect_font_face(nodes: Vec<CssNode>) -> Option<FontFace> {
+fn collect_font_face(nodes: Vec<CssNode>, media: &[Arc<MediaQueryList>]) -> Option<FontFace> {
     let mut family: Option<String> = None;
     let mut sources: Vec<String> = Vec::new();
     let mut unicode_range: Option<String> = None;
@@ -1140,6 +1140,7 @@ fn collect_font_face(nodes: Vec<CssNode>) -> Option<FontFace> {
         family,
         sources,
         unicode_range,
+        media: (!media.is_empty()).then(|| media.to_vec()),
     })
 }
 
