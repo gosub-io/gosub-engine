@@ -3804,6 +3804,70 @@ mod rendertree_from_engine {
         }
     }
 
+    /// A promoted layer that lies entirely below the page box must get no tiles, not a panic.
+    ///
+    /// The layer's tile range was clamped to the page grid at its end only, so a layer whose
+    /// top sat past the last row started after its clamped end. `end - start` then wrapped in
+    /// release builds and `Vec::with_capacity` aborted the tab worker with `capacity overflow`
+    /// (theregister.com, GOS-135). The page extent follows clipping, so content pushed down
+    /// inside an `overflow: hidden` box stays out of it while its own box keeps its offset.
+    #[test]
+    fn a_layer_below_the_page_box_gets_no_tiles() {
+        use crate::common::geo::Dimension;
+        use crate::layering::layer::LayerList;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+        use crate::tiler::TileList;
+
+        let html = r#"
+            <html><head><style>
+                #clip { overflow: hidden; height: 100px; }
+                #sunk { opacity: 0.5; position: relative; top: 5000px; height: 100px; background-color: #ff0000; }
+            </style></head>
+            <body style="margin:0"><div id="clip"><div id="sunk"></div></div></body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let sunk_dom = find_node_by_id_attr(&adapter.doc, root, "sunk").expect("#sunk");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        // Confirm the setup really does put the element past the page's last tile row - if a
+        // layout change ever stops reproducing that, this test should say so rather than pass
+        // hollowly.
+        let sunk = layout_tree
+            .arena
+            .iter()
+            .find(|(_, el)| el.dom_node_id == sunk_dom)
+            .map(|(id, el)| (*id, el.box_model))
+            .expect("#sunk in the layout tree");
+        let page_h = layout_tree.root_dimension.height;
+        assert!(
+            sunk.1.border_box.y > (page_h / 256.0).ceil() * 256.0,
+            "#sunk should start below the page's last tile row (page height {page_h}, #sunk at {})",
+            sunk.1.border_box.y
+        );
+
+        let layer_list = LayerList::new(Arc::new(layout_tree));
+        assert!(
+            layer_list.layer_ids.read().len() > 1,
+            "the div should have been promoted to its own layer"
+        );
+
+        let mut tile_list = TileList::new(layer_list, Dimension::new(256.0, 256.0));
+        tile_list.generate();
+
+        assert!(
+            tile_list.get_tiles_for_element(sunk.0).is_empty(),
+            "#sunk lies outside the page box, so no tile should cover it"
+        );
+    }
+
     /// A promoted layer whose element has a collapsed margin box must still get tiles.
     ///
     /// Element-to-tile assignment unions the margin and border boxes, but the layer's tile grid
@@ -5037,6 +5101,26 @@ mod rendertree_from_engine {
             "the link has a box, got {link:?}"
         );
         assert!(link.y > 10.0, "the box is on the line its words are on, got {link:?}");
+    }
+
+    /// A link's words are boxes of their own, with no entry in the DOM-to-layout map. When lattice
+    /// moves a table cell after the first pass they have to move with it: Hacker News comment
+    /// headers stayed at their first-pass position and were drawn over the comment above.
+    #[test]
+    fn a_flattened_link_moves_with_its_table_cell() {
+        let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
+          <table>
+            <tr><td><table><tr><td>a<br>tall<br>first<br>row</td></tr></table></td></tr>
+            <tr><td><table><tr><td id="cell"><a id="link" href="/x">link</a> text</td></tr></table></td></tr>
+          </table>
+        </body></html>"#;
+        let [cell, link] = border_boxes(html, &["cell", "link"])[..] else {
+            unreachable!()
+        };
+        assert!(
+            link.y >= cell.y && link.y + link.height <= cell.y + cell.height,
+            "the link is inside its cell: cell {cell:?}, link {link:?}"
+        );
     }
 }
 

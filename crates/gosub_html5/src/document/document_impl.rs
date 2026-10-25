@@ -1,6 +1,6 @@
 use core::fmt::Debug;
 use gosub_interface::css3::CssSystem;
-use gosub_interface::document::{ControlEditState, Document, DocumentType, OpenSelect};
+use gosub_interface::document::{ControlEditState, Document, DocumentType, OpenSelect, PendingStylesheet};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
@@ -36,9 +36,9 @@ pub struct DocumentImpl<C: HasDocument> {
     /// The parser's scripting flag determines whether `noscript` text is serialized literally.
     scripting_enabled: bool,
     pub stylesheets: Vec<<C::CssSystem as CssSystem>::Stylesheet>,
-    /// Links whose bytes have not arrived, as `(position in `stylesheets`, url)`. Filled in
-    /// after the parse; see [`Document::add_pending_stylesheet`].
-    pending_stylesheets: Vec<(usize, String)>,
+    /// Links whose bytes have not arrived. Filled in after the parse; see
+    /// [`Document::add_pending_stylesheet`].
+    pending_stylesheets: Vec<PendingStylesheet>,
     hovered_nodes: parking_lot::RwLock<std::collections::HashSet<NodeId>>,
     focus: parking_lot::RwLock<FocusState>,
     /// Text controls the user has typed into; absent = still showing the markup value.
@@ -469,14 +469,18 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         self.stylesheets.push(sheet);
     }
 
-    fn add_pending_stylesheet(&mut self, url: &str) {
+    fn add_pending_stylesheet(&mut self, url: &str, media: Option<&str>) {
         // Where it would have gone had the bytes been here. Inline `<style>` blocks keep
         // landing in `stylesheets` while this one is in flight, so the position is recorded
         // now and the sheet slotted in later rather than appended.
-        self.pending_stylesheets.push((self.stylesheets.len(), url.to_string()));
+        self.pending_stylesheets.push(PendingStylesheet {
+            position: self.stylesheets.len(),
+            url: url.to_string(),
+            media: media.map(str::to_string),
+        });
     }
 
-    fn take_pending_stylesheets(&mut self) -> Vec<(usize, String)> {
+    fn take_pending_stylesheets(&mut self) -> Vec<PendingStylesheet> {
         std::mem::take(&mut self.pending_stylesheets)
     }
 

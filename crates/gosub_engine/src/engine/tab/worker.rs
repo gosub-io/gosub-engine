@@ -208,6 +208,9 @@ pub enum NavigationResult<C: RenderConfiguration> {
         source: Option<Arc<str>>,
         /// The document's referrer policy: how much of its URL its requests send as `Referer`.
         referrer_policy: gosub_sonar::ReferrerPolicy,
+        /// Web fonts fetched for the document but not registered, their media conditions not
+        /// holding when it loaded; the context registers them once they do.
+        deferred_fonts: crate::engine::resource_pipeline::webfonts::DeferredFonts,
     },
     Err {
         nav_id: NavigationId,
@@ -774,6 +777,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 doc,
                 source,
                 referrer_policy,
+                deferred_fonts,
             } => {
                 // The I/O side judges this document's loads by where this
                 // navigation's response came from - before a renderer is handed
@@ -808,6 +812,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     (Some(doc), source) => {
                         self.context.set_document(Arc::clone(&doc), source);
                         self.context.set_document_referrer_policy(referrer_policy);
+                        self.context.set_deferred_fonts(deferred_fonts);
                         if let Some(cancel) = &nav_cancel {
                             if let Some(icon) = crate::html::favicon_url::<C>(&doc, &final_url) {
                                 self.fetch_favicon(icon, cancel);
@@ -1088,6 +1093,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
     /// Mirror the pending offers onto the sink so a shell that missed a
     /// `DownloadRequested` can still find them.
+    /// The bounds on a download spooled for this tab, from the settings as they are now.
+    fn download_spool_limits(&self) -> crate::net::SpoolLimits {
+        let config = &self.zone_context.config_store;
+        crate::net::SpoolLimits {
+            per_download: config.get_uint("net.download.max_spool_bytes") as u64,
+            total: config.get_uint("net.download.max_total_spool_bytes") as u64,
+            budget: Arc::clone(&self.zone_context.engine_context.download_spool),
+        }
+    }
+
     fn publish_pending_downloads(&self) {
         self.sink
             .set_pending_downloads(self.pending_offers.iter().map(|p| p.info.clone()).collect());
@@ -1204,7 +1219,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     }
                 };
                 let dest = target_path.clone();
-                let placed = tokio::task::spawn_blocking(move || place_spooled_download(body, &dest)).await;
+                // The bytes stay counted until the file has left the temp directory.
+                let (body, lease) = body.into_parts();
+                let placed = tokio::task::spawn_blocking(move || {
+                    let placed = place_spooled_download(body, &dest);
+                    drop(lease);
+                    placed
+                })
+                .await;
                 let event = match placed {
                     Ok(Ok(received_bytes)) => EngineEvent::DownloadFinished {
                         tab_id,
@@ -2235,8 +2257,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let event_tx = self.zone_context.event_tx.clone();
         let accept_language = self.services.accept_language.clone();
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
-        let max_download_spool_bytes = self.zone_context.config_store.get_uint("net.download.max_spool_bytes") as u64;
+        let download_spool = self.download_spool_limits();
         let font_system = self.zone_context.font_system.clone();
+        let media_environment = self.context.media_environment();
         // Capture the document source only when a renderer process may need it
         // (it re-parses there); otherwise skip the copy.
         let capture_source = self.remote_render_available();
@@ -2310,8 +2333,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 io_tx.clone(),
                 accept_language.clone(),
                 max_document_bytes,
-                max_download_spool_bytes,
+                download_spool.clone(),
                 font_system.clone(),
+                media_environment,
                 capture_source,
                 capture_source,
             );
@@ -2350,6 +2374,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         doc,
                         source,
                         referrer_policy,
+                        deferred_fonts: hooks.html.take_deferred_fonts(),
                     });
                 }
                 Ok(RoutedOutcome::DownloadOffer { meta, spool }) => {
@@ -2567,8 +2592,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let io_tx = self.zone_context.io_tx.clone();
         let accept_language = self.services.accept_language.clone();
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
-        let max_download_spool_bytes = self.zone_context.config_store.get_uint("net.download.max_spool_bytes") as u64;
+        let download_spool = self.download_spool_limits();
         let font_system = self.zone_context.font_system.clone();
+        let media_environment = self.context.media_environment();
         // Same rule as navigate(): keep the source only when a renderer process may re-parse it.
         let capture_source = self.remote_render_available();
         // The engine's own pages are parsed here too: they are the ones allowed to
@@ -2655,8 +2681,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 io_tx.clone(),
                 accept_language.clone(),
                 max_document_bytes,
-                max_download_spool_bytes,
+                download_spool.clone(),
                 font_system.clone(),
+                media_environment,
                 capture_source,
                 source_only,
             );
@@ -2675,6 +2702,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         doc,
                         source,
                         referrer_policy,
+                        deferred_fonts: hooks.html.take_deferred_fonts(),
                     });
                 }
                 Err(e) => {
@@ -2803,6 +2831,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // must wake the render loop even when nothing else changed, so the now-available image is
         // laid out and painted. This marks the render dirty under the hood.
         if self.context.poll_media_completed() {
+            self.runtime.dirty = true;
+        }
+        // Likewise a web font kept back under an `@media` condition that holds by the time its
+        // fetch lands: the page is laid out again in it.
+        if self.context.poll_deferred_fonts() {
             self.runtime.dirty = true;
         }
 

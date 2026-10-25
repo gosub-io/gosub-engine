@@ -137,9 +137,8 @@ pub struct ZoneContext<C: RenderConfiguration = crate::html::DefaultRenderConfig
     pub(crate) config_store: Config,
     /// `gosub://` page registry, shared from the engine context.
     pub(crate) internal_pages: crate::engine::internal_pages::InternalPages,
-    /// The engine-wide shared context, so tabs can reach engine-scoped state
-    /// installed after zone creation (e.g. the renderer fork server).
-    #[cfg_attr(not(all(feature = "process-isolation", target_os = "linux")), allow(dead_code))]
+    /// The engine-wide shared context, so tabs can reach engine-scoped state: the renderer
+    /// fork server (installed after zone creation), the download spool budget.
     pub(crate) engine_context: Arc<EngineContext>,
 }
 

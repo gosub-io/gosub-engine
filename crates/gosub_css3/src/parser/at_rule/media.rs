@@ -50,6 +50,13 @@ impl Css3<'_> {
         Err(CssError::with_location("Expected comparison operator", loc))
     }
 
+    /// A comma-separated `<media-query-list>`.
+    ///
+    /// A query that does not parse turns into `not all` on its own, and the list goes on with
+    /// the next one (Media Queries 4 §3.2): `@media junk, screen` still applies on screen. Each
+    /// query is fenced in at the comma, `{` or `;` that ends it, so a failed one cannot read
+    /// into the next query or the rule's block. An empty list (`@media {`) stays empty, which
+    /// matches everything.
     pub fn parse_media_query_list(&mut self) -> CssResult<Node> {
         log::trace!("parse_media_query_list");
 
@@ -57,20 +64,87 @@ impl Css3<'_> {
 
         let mut queries = vec![];
 
-        while !self.tokenizer.eof() {
-            let query = self.parse_media_query()?;
-            queries.push(query);
-
+        loop {
             self.consume_whitespace_comments();
-
-            let t = self.consume_any()?;
-            if !t.is_comma() {
-                self.tokenizer.reconsume(t);
+            let len = self.media_query_extent();
+            let boundary = self.tokenizer.fence(len);
+            let is_comma = boundary.is_comma();
+            if len == 0 && !is_comma && queries.is_empty() {
+                self.tokenizer.consume();
+                self.tokenizer.reconsume(boundary);
                 break;
             }
+
+            let query_loc = self.tokenizer.current_location();
+            let start = self.tokenizer.consumed();
+            let query = self.parse_media_query();
+            if self.tokenizer.consumed() - start <= len {
+                // Only while the fence is still ahead: past it lies the next query.
+                self.consume_whitespace_comments();
+            }
+            let used = self.tokenizer.consumed() - start;
+            if used > len + 1 && !matches!(boundary.token_type, TokenType::Eof) {
+                // Past the fence: the tokens the query read beyond it are gone. At the end of
+                // input there is nothing beyond it, so the query is only unreadable.
+                return Err(CssError::with_location("media query ran past its end", query_loc));
+            }
+            let complete = used == len;
+            for _ in used..=len {
+                self.tokenizer.consume();
+            }
+            self.tokenizer.reconsume(boundary);
+
+            queries.push(match query {
+                Ok(query) if complete => query,
+                _ => {
+                    log::debug!("unreadable media query at {query_loc:?}: not all");
+                    Node::new(
+                        NodeType::MediaQuery {
+                            modifier: "not".into(),
+                            media_type: "all".into(),
+                            condition: None,
+                        },
+                        query_loc,
+                    )
+                }
+            });
+
+            if !is_comma {
+                break;
+            }
+            self.tokenizer.consume();
         }
 
         Ok(Node::new(NodeType::MediaQueryList { media_queries: queries }, loc))
+    }
+
+    /// How many tokens the next media query spans: everything up to a comma, `{` or `;` outside
+    /// any block, the `}` of a block the rule sits in, or the end of input.
+    ///
+    /// A block ends only at its own closing bracket, so in `print and (], screen` the comma is
+    /// still inside the `(` and `screen` is not a query of its own. A `)` or `]` with no block to
+    /// close is just a token of the query (CSS Syntax), which makes that query unreadable and
+    /// leaves the next one alone: `], screen` still matches on screen.
+    fn media_query_extent(&mut self) -> usize {
+        let mut open: Vec<TokenType> = Vec::new();
+        let mut len = 0;
+        loop {
+            let token_type = &self.tokenizer.lookahead(len).token_type;
+            match token_type {
+                TokenType::Eof => return len,
+                TokenType::Comma | TokenType::LCurly | TokenType::Semicolon if open.is_empty() => return len,
+                TokenType::RCurly if open.is_empty() => return len,
+                TokenType::LParen | TokenType::Function(_) => open.push(TokenType::RParen),
+                TokenType::LBracket => open.push(TokenType::RBracket),
+                TokenType::LCurly => open.push(TokenType::RCurly),
+                // A closing bracket of another kind is just a token inside the block.
+                TokenType::RParen | TokenType::RBracket | TokenType::RCurly if open.last() == Some(token_type) => {
+                    open.pop();
+                }
+                _ => {}
+            }
+            len += 1;
+        }
     }
 
     fn parse_media_feature_feature(&mut self, kind: FeatureKind) -> CssResult<Node> {

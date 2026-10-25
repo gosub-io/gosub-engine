@@ -109,6 +109,13 @@ pub trait HtmlPipeline<C: RenderConfiguration> {
         meta: FetchResultMeta,
         body: &[u8],
     ) -> anyhow::Result<ParsedDocument<C>>;
+
+    /// The web fonts the last parse fetched but kept back, their media conditions not holding
+    /// under the environment it loaded them in. Taken, so the tab that installs the document
+    /// can register them once they apply.
+    fn take_deferred_fonts(&mut self) -> super::webfonts::DeferredFonts {
+        super::webfonts::DeferredFonts::default()
+    }
 }
 
 pub struct HtmlPipelineImpl<C: RenderConfiguration> {
@@ -123,6 +130,9 @@ pub struct HtmlPipelineImpl<C: RenderConfiguration> {
     max_document_bytes: usize,
     /// Where `@font-face` fonts are registered, once fetched.
     font_system: Arc<Mutex<C::FontSystem>>,
+    /// The tab's viewport and preferences, which decide the `@font-face` rules whose
+    /// conditions (`@media`, `media=`) hold.
+    media_environment: gosub_css3::media_query::MediaEnvironment,
     /// Also return the parsed document's source text (see
     /// `HtmlParseConfig::capture_source`) - on when the engine renders
     /// out-of-process and its renderer will need to re-parse.
@@ -130,12 +140,20 @@ pub struct HtmlPipelineImpl<C: RenderConfiguration> {
     /// Keep only the source: the renderer process parses, this process never
     /// runs the HTML parser on page content.
     source_only: bool,
+    /// What the last parse's web font load kept back; see [`HtmlPipeline::take_deferred_fonts`].
+    deferred_fonts: super::webfonts::DeferredFonts,
 }
 
 impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
     /// Skip parsing here and keep the source for a renderer process.
     pub fn source_only(mut self, on: bool) -> Self {
         self.source_only = on;
+        self
+    }
+
+    /// Load web fonts for this environment rather than the default one.
+    pub fn media_environment(mut self, env: gosub_css3::media_query::MediaEnvironment) -> Self {
+        self.media_environment = env;
         self
     }
 
@@ -155,8 +173,10 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             accept_language,
             max_document_bytes,
             font_system,
+            media_environment: gosub_css3::media_query::media_environment(),
             capture_source,
             source_only: false,
+            deferred_fonts: super::webfonts::DeferredFonts::default(),
         }
     }
 
@@ -397,8 +417,17 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
                 resolve_pending_stylesheets::<C>(&mut doc, &sheet_bodies, &sheets).await;
                 // Fonts are declared in CSS, so they can only be known once the sheets are.
                 // Registered before the document is handed on, which is what keeps the first
-                // layout from measuring text in a fallback face and having to do it again.
-                super::webfonts::load_web_fonts::<C>(&doc, &doc_url, &self.font_system, &sheets, timing_scope).await;
+                // layout from measuring text in a fallback face and having to do it again. The
+                // ones kept back under a media condition are not waited for.
+                self.deferred_fonts = super::webfonts::load_web_fonts::<C>(
+                    &doc,
+                    &doc_url,
+                    &self.font_system,
+                    self.media_environment,
+                    &sheets,
+                    timing_scope,
+                )
+                .await;
                 Ok((doc, source, referrer_policy))
             }
             Err(e) => Err(e),
@@ -462,6 +491,10 @@ impl<C: RenderConfiguration> HtmlPipeline<C> for HtmlPipelineImpl<C> {
         let stream = stream::iter(vec![Ok::<Bytes, std::io::Error>(Bytes::copy_from_slice(body))]);
         let reader = StreamReader::new(stream);
         self.parse_with_reader(request, handle, meta, reader).await
+    }
+
+    fn take_deferred_fonts(&mut self) -> super::webfonts::DeferredFonts {
+        std::mem::take(&mut self.deferred_fonts)
     }
 }
 
@@ -536,6 +569,49 @@ pub(crate) struct SubFetch<'a> {
     pub(crate) referrer_policy: gosub_sonar::ReferrerPolicy,
 }
 
+impl SubFetch<'_> {
+    /// The same, owning what it borrows, for a fetch that outlives the parse.
+    pub(crate) fn to_owned(&self) -> OwnedSubFetch {
+        OwnedSubFetch {
+            zone_id: self.zone_id,
+            tab_id: self.tab_id,
+            io_tx: self.io_tx.clone(),
+            parent_ref: self.parent_ref,
+            parent_cancel: self.parent_cancel.clone(),
+            headers: self.headers.clone(),
+            referrer: self.referrer.clone(),
+            referrer_policy: self.referrer_policy,
+        }
+    }
+}
+
+/// A [`SubFetch`] that owns its parts, so a spawned task can hold it.
+pub(crate) struct OwnedSubFetch {
+    zone_id: ZoneId,
+    tab_id: TabId,
+    io_tx: IoChannel,
+    parent_ref: gosub_sonar::RequestReference,
+    parent_cancel: tokio_util::sync::CancellationToken,
+    headers: http::HeaderMap,
+    referrer: url::Url,
+    referrer_policy: gosub_sonar::ReferrerPolicy,
+}
+
+impl OwnedSubFetch {
+    pub(crate) fn as_sub_fetch(&self) -> SubFetch<'_> {
+        SubFetch {
+            zone_id: self.zone_id,
+            tab_id: self.tab_id,
+            io_tx: &self.io_tx,
+            parent_ref: self.parent_ref,
+            parent_cancel: &self.parent_cancel,
+            headers: &self.headers,
+            referrer: &self.referrer,
+            referrer_policy: self.referrer_policy,
+        }
+    }
+}
+
 /// Fetch and parse the stylesheets the parser recorded, and slot them into the cascade.
 ///
 /// The parser records a `<link rel=stylesheet>` and moves on; this is where the sheet
@@ -550,17 +626,17 @@ async fn resolve_pending_stylesheets<C: RenderConfiguration>(
     bodies: &SheetBodies,
     fetch: &SubFetch<'_>,
 ) {
-    use gosub_interface::document::Document as _;
+    use gosub_interface::document::{Document as _, PendingStylesheet};
 
     let mut pending = doc.take_pending_stylesheets();
     if pending.is_empty() {
         return;
     }
     // Ascending, so the running offset below is correct.
-    pending.sort_by_key(|(position, _)| *position);
+    pending.sort_by_key(|sheet| sheet.position);
 
     let mut inserted = 0usize;
-    for (position, url) in pending {
+    for PendingStylesheet { position, url, media } in pending {
         // Taken before the await: holding the guard across it would make this future
         // non-Send, and the whole pipeline with it.
         let waiting = bodies.lock().remove(&url);
@@ -574,7 +650,7 @@ async fn resolve_pending_stylesheets<C: RenderConfiguration>(
         };
         // Everything already slotted in sat at or before this position, so each one
         // shifts this sheet one place further along.
-        if insert_fetched_sheet::<C>(doc, position + inserted, &url, body) {
+        if insert_fetched_sheet::<C>(doc, position + inserted, &url, media.as_deref(), body) {
             inserted += 1;
         }
     }
@@ -587,21 +663,21 @@ pub(crate) fn resolve_pending_stylesheets_blocking<C: RenderConfiguration>(
     doc: &mut EngineDocument<C>,
     fetch: &dyn Fn(&str) -> SheetBody,
 ) {
-    use gosub_interface::document::Document as _;
+    use gosub_interface::document::{Document as _, PendingStylesheet};
 
     let mut pending = doc.take_pending_stylesheets();
-    pending.sort_by_key(|(position, _)| *position);
+    pending.sort_by_key(|sheet| sheet.position);
 
     let mut inserted = 0usize;
-    for (position, url) in pending {
-        if insert_fetched_sheet::<C>(doc, position + inserted, &url, fetch(&url)) {
+    for PendingStylesheet { position, url, media } in pending {
+        if insert_fetched_sheet::<C>(doc, position + inserted, &url, media.as_deref(), fetch(&url)) {
             inserted += 1;
         }
     }
 }
 
-/// Parse a fetched stylesheet and put it at `position` in the cascade. `false` when there was
-/// nothing usable to put there.
+/// Parse a fetched stylesheet and put it at `position` in the cascade, under the `media`
+/// attribute of the link that asked for it. `false` when there was nothing usable to put there.
 ///
 /// A sheet that fails to load leaves no gap and no error: the document renders without it,
 /// which is what a browser does and what this code did when the parser fetched them itself.
@@ -609,6 +685,7 @@ fn insert_fetched_sheet<C: RenderConfiguration>(
     doc: &mut EngineDocument<C>,
     position: usize,
     url: &str,
+    media: Option<&str>,
     body: SheetBody,
 ) -> bool {
     use gosub_interface::css3::{CssOrigin, CssSystem};
@@ -636,7 +713,10 @@ fn insert_fetched_sheet<C: RenderConfiguration>(
         ..Default::default()
     };
     match <C::CssSystem as CssSystem>::parse_str(&css, config, CssOrigin::Author, url) {
-        Ok(sheet) => {
+        Ok(mut sheet) => {
+            if let Some(media) = media {
+                <C::CssSystem as CssSystem>::set_stylesheet_media(&mut sheet, media);
+            }
             doc.insert_stylesheet(position, sheet);
             true
         }
@@ -651,6 +731,16 @@ fn insert_fetched_sheet<C: RenderConfiguration>(
 pub(crate) async fn fetch_subresource(
     url: &str,
     kind: crate::net::types::ResourceKind,
+    fetch: &SubFetch<'_>,
+) -> SheetBody {
+    fetch_subresource_at(url, kind, crate::net::types::Priority::High, fetch).await
+}
+
+/// [`fetch_subresource`] at `priority`: lower for what the page does not need yet.
+pub(crate) async fn fetch_subresource_at(
+    url: &str,
+    kind: crate::net::types::ResourceKind,
+    priority: crate::net::types::Priority,
     fetch: &SubFetch<'_>,
 ) -> SheetBody {
     let parsed = url::Url::parse(url).ok()?;
@@ -669,7 +759,7 @@ pub(crate) async fn fetch_subresource(
     let req = FetchRequest::builder(Method::GET, parsed)
         .with_req_id(req_id)
         .with_reference(fetch.parent_ref)
-        .with_priority(crate::net::types::Priority::High)
+        .with_priority(priority)
         .with_initiator(Initiator::Parser.to_net())
         .with_kind(kind.to_net())
         .with_headers(fetch.headers.clone())
@@ -726,6 +816,25 @@ mod tests {
           </body>
         </html>
     "#;
+
+    /// A `<link media=print>` sheet arrives under its link's condition, not as a plain sheet.
+    #[test]
+    fn a_fetched_sheet_is_put_under_its_link_media() {
+        use gosub_css3::media_query::MediaEnvironment;
+        use gosub_interface::document::Document as _;
+
+        let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>("<p>x</p>");
+        let body = Some((Some("text/css".to_string()), b"p { color: red; }".to_vec()));
+        assert!(insert_fetched_sheet::<DefaultRenderConfig>(
+            &mut doc,
+            0,
+            "https://example.org/p.css",
+            Some("print"),
+            body
+        ));
+        let rule = &doc.stylesheets()[0].rules[0];
+        assert!(!rule.media_matches(&MediaEnvironment::default()));
+    }
 
     fn test_meta(base: &str) -> FetchResultMeta {
         let mut meta = FetchResultMeta::synthetic(Url::parse(base).expect("valid url"));

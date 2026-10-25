@@ -57,6 +57,127 @@ pub enum RoutedOutcome<C: RenderConfiguration> {
     },
 }
 
+/// The disk held by download spools across every tab of an engine.
+///
+/// A spool's temp file lives as long as its offer: an embedder that never answers keeps it,
+/// and each tab keeps up to 8. `net.download.max_spool_bytes` bounds one file and the 8
+/// bound a tab, but nothing bounded the tabs together, so a page could fill the temp
+/// filesystem by opening more of them. Every spool now takes its bytes from this budget,
+/// and gives them back when its file goes.
+#[derive(Debug, Default)]
+pub(crate) struct SpoolBudget {
+    used: std::sync::atomic::AtomicU64,
+}
+
+impl SpoolBudget {
+    /// Bytes the spools hold now.
+    pub(crate) fn used(&self) -> u64 {
+        self.used.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Whether `bytes` more would go over `limit` (0 = no limit).
+    fn would_exceed(&self, bytes: u64, limit: u64) -> bool {
+        limit > 0 && self.used().saturating_add(bytes) > limit
+    }
+}
+
+/// What one spool holds of a [`SpoolBudget`]. Grows as the body is written and gives
+/// everything back when dropped, so it has to stay with the temp file.
+#[derive(Debug)]
+pub(crate) struct SpoolLease {
+    budget: Arc<SpoolBudget>,
+    held: u64,
+}
+
+impl SpoolLease {
+    fn new(budget: Arc<SpoolBudget>) -> Self {
+        Self { budget, held: 0 }
+    }
+
+    /// Take `bytes` more, unless that goes over `limit` (0 = no limit).
+    fn grow(&mut self, bytes: u64, limit: u64) -> bool {
+        use std::sync::atomic::Ordering;
+        let mut used = self.budget.used.load(Ordering::Acquire);
+        loop {
+            let next = used.saturating_add(bytes);
+            if limit > 0 && next > limit {
+                return false;
+            }
+            match self
+                .budget
+                .used
+                .compare_exchange_weak(used, next, Ordering::AcqRel, Ordering::Acquire)
+            {
+                Ok(_) => {
+                    self.held += bytes;
+                    return true;
+                }
+                Err(now) => used = now,
+            }
+        }
+    }
+}
+
+impl Drop for SpoolLease {
+    fn drop(&mut self) {
+        self.budget
+            .used
+            .fetch_sub(self.held, std::sync::atomic::Ordering::AcqRel);
+    }
+}
+
+/// The bounds on a download spool, read per navigation.
+#[derive(Debug, Clone)]
+pub(crate) struct SpoolLimits {
+    /// `net.download.max_spool_bytes`: one body. 0 = no limit.
+    pub(crate) per_download: u64,
+    /// `net.download.max_total_spool_bytes`: every spool of the engine together. 0 = no limit.
+    pub(crate) total: u64,
+    /// The engine's spools, which `total` bounds.
+    pub(crate) budget: Arc<SpoolBudget>,
+}
+
+impl SpoolLimits {
+    /// No bounds, and a budget of its own.
+    #[cfg(test)]
+    pub(crate) fn unlimited() -> Self {
+        Self {
+            per_download: 0,
+            total: 0,
+            budget: Arc::default(),
+        }
+    }
+}
+
+/// A download body on disk, and its share of the [`SpoolBudget`]: the bytes are given back
+/// when this is dropped, or once [`into_path`](Self::into_path)'s path goes.
+#[derive(Debug)]
+pub(crate) struct SpooledFile {
+    path: tempfile::TempPath,
+    lease: SpoolLease,
+}
+
+impl SpooledFile {
+    /// The file, and what keeps it counted: hold the lease for as long as the file is in the
+    /// temp directory.
+    pub(crate) fn into_parts(self) -> (tempfile::TempPath, SpoolLease) {
+        (self.path, self.lease)
+    }
+}
+
+impl AsRef<std::path::Path> for SpooledFile {
+    fn as_ref(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
+impl std::ops::Deref for SpooledFile {
+    type Target = std::path::Path;
+    fn deref(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
 /// How far a [`Spool`] has got.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SpoolProgress {
@@ -75,7 +196,7 @@ pub(crate) enum SpoolProgress {
 /// an offer that is evicted, or a tab that closes, leaves nothing behind.
 pub(crate) struct Spool {
     progress: tokio::sync::watch::Receiver<SpoolProgress>,
-    result: tokio::sync::oneshot::Receiver<anyhow::Result<tempfile::TempPath>>,
+    result: tokio::sync::oneshot::Receiver<anyhow::Result<SpooledFile>>,
     stop: tokio_util::sync::DropGuard,
 }
 
@@ -89,7 +210,7 @@ impl std::fmt::Debug for Spool {
 
 impl Spool {
     /// Start writing `peek_buf` and then `body` to a new temp file, on a task of its own.
-    fn start(body: BodyContent, peek_buf: PeekBuf, max_bytes: u64) -> Self {
+    fn start(body: BodyContent, peek_buf: PeekBuf, limits: SpoolLimits) -> Self {
         let (progress_tx, progress) = tokio::sync::watch::channel(SpoolProgress::Writing(0));
         let (result_tx, result) = tokio::sync::oneshot::channel();
         let stop = tokio_util::sync::CancellationToken::new();
@@ -99,7 +220,7 @@ impl Spool {
                 progress_tx.send_replace(SpoolProgress::Writing(n));
             };
             let written = tokio::select! {
-                r = spool_body_to_temp(body, peek_buf, max_bytes, &on_written) => r,
+                r = spool_body_to_temp(body, peek_buf, &limits, &on_written) => r,
                 _ = stopped.cancelled() => return,
             };
             progress_tx.send_replace(match &written {
@@ -122,7 +243,7 @@ impl Spool {
 
     /// Wait for the whole body and take its temp file. Dropping this future before it
     /// completes stops the writing, as dropping the `Spool` would.
-    pub(crate) async fn finish(self) -> anyhow::Result<tempfile::TempPath> {
+    pub(crate) async fn finish(self) -> anyhow::Result<SpooledFile> {
         let Self { result, stop, .. } = self;
         let written = result
             .await
@@ -132,22 +253,32 @@ impl Spool {
     }
 }
 
-/// Write a response body to a temp file and return its path and length, calling
+/// Write a response body to a temp file and return it and its length, calling
 /// `on_written` with the running total as it goes.
 ///
 /// Streamed, not buffered: an offer can be gigabytes and the embedder may never answer.
-/// Returns a [`tempfile::TempPath`] so the file is removed if the offer is dropped.
+/// The file is a [`tempfile::TempPath`], removed if the offer is dropped, and every byte of
+/// it is taken from the engine's [`SpoolBudget`] before it is written.
 async fn spool_body_to_temp(
     body: BodyContent,
     peek_buf: PeekBuf,
-    max_bytes: u64,
+    limits: &SpoolLimits,
     on_written: &(dyn Fn(u64) + Send + Sync),
-) -> anyhow::Result<(tempfile::TempPath, u64)> {
+) -> anyhow::Result<(SpooledFile, u64)> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    // An unaccepted offer occupies the temp filesystem; refuse to spool past the cap.
+    // An unaccepted offer occupies the temp filesystem; refuse to spool past the caps.
+    let max_bytes = limits.per_download;
     let over = |n: u64| max_bytes > 0 && n > max_bytes;
     let too_large = || anyhow!("download exceeds net.download.max_spool_bytes ({max_bytes} bytes)");
+    let mut lease = SpoolLease::new(Arc::clone(&limits.budget));
+    let mut take = |n: u64| {
+        if lease.grow(n, limits.total) {
+            Ok(())
+        } else {
+            Err(over_total(limits.total))
+        }
+    };
 
     let path = tempfile::Builder::new()
         .prefix("gosub-download-")
@@ -164,6 +295,7 @@ async fn spool_body_to_temp(
             if over(body.len() as u64) {
                 return Err(too_large());
             }
+            take(body.len() as u64)?;
             file.write_all(&body).await.context("write download temp file")?;
             body.len() as u64
         }
@@ -182,6 +314,7 @@ async fn spool_body_to_temp(
                 if over(total) {
                     return Err(too_large());
                 }
+                take(n as u64)?;
                 file.write_all(&buf[..n]).await.context("write download temp file")?;
                 on_written(total);
             }
@@ -189,7 +322,12 @@ async fn spool_body_to_temp(
         }
     };
     file.flush().await.context("flush download temp file")?;
-    Ok((path, written))
+    Ok((SpooledFile { path, lease }, written))
+}
+
+/// The error for a download that would take the engine's spools past `total` bytes.
+fn over_total(total: u64) -> anyhow::Error {
+    anyhow!("downloads waiting for an answer would hold more than net.download.max_total_spool_bytes ({total} bytes)")
 }
 
 fn html_escape(text: &str) -> String {
@@ -405,15 +543,22 @@ pub async fn route_response_for<C: RenderConfiguration>(
             // `DownloadOffer`. A body that says it will not fit fails the navigation here:
             // an offer without its body would have to re-request the URL on accept, which is
             // exactly what spooling exists to avoid.
-            let max = hooks.max_download_spool_bytes;
+            let limits = hooks.download_spool.clone();
+            let max = limits.per_download;
             if let Some(len) = meta.content_length.filter(|&len| max > 0 && len > max) {
                 return Err(anyhow!(
                     "download of {len} bytes exceeds net.download.max_spool_bytes ({max} bytes)"
                 ));
             }
+            if meta
+                .content_length
+                .is_some_and(|len| limits.budget.would_exceed(len, limits.total))
+            {
+                return Err(over_total(limits.total));
+            }
             Ok(RoutedOutcome::DownloadOffer {
                 meta: Box::new(meta),
-                spool: Spool::start(body_content, peek_buf, max),
+                spool: Spool::start(body_content, peek_buf, limits),
             })
         }
 
@@ -464,15 +609,72 @@ mod tests {
         let spool = Spool::start(
             BodyContent::Stream { shared: shared.clone() },
             PeekBuf::from_slice(b"head-"),
-            0,
+            SpoolLimits::unlimited(),
         );
         shared.push(Bytes::from_static(b"body"));
         shared.finish();
         let mut progress = spool.progress();
         let path = spool.finish().await.expect("spooled");
-        assert_eq!(std::fs::read(&path).unwrap(), b"head-body");
+        assert_eq!(std::fs::read(&*path).unwrap(), b"head-body");
         let _ = progress.changed().await;
         assert_eq!(*progress.borrow(), SpoolProgress::Done(9));
+    }
+
+    /// A lease takes from the budget up to its limit, and gives back all it took when dropped.
+    #[test]
+    fn a_spool_lease_is_bounded_and_given_back() {
+        let budget = Arc::new(SpoolBudget::default());
+        let mut a = SpoolLease::new(Arc::clone(&budget));
+        let mut b = SpoolLease::new(Arc::clone(&budget));
+        assert!(a.grow(60, 100));
+        assert!(!b.grow(50, 100), "60 + 50 is over the limit");
+        assert!(b.grow(40, 100));
+        assert_eq!(budget.used(), 100);
+        assert!(budget.would_exceed(1, 100));
+        drop(a);
+        assert_eq!(budget.used(), 40);
+        assert!(b.grow(1_000, 0), "0 is no limit");
+        drop(b);
+        assert_eq!(budget.used(), 0);
+    }
+
+    /// A spooled file keeps its bytes counted until it is dropped, after the writing is done.
+    #[tokio::test]
+    async fn a_spooled_file_holds_its_bytes_until_dropped() {
+        let limits = SpoolLimits::unlimited();
+        let spool = Spool::start(
+            BodyContent::Buffered {
+                body: Bytes::from_static(b"twelve bytes"),
+            },
+            PeekBuf::empty(),
+            limits.clone(),
+        );
+        let file = spool.finish().await.expect("spooled");
+        assert_eq!(limits.budget.used(), 12);
+        drop(file);
+        assert_eq!(limits.budget.used(), 0);
+    }
+
+    /// A body that would take the spools past the total fails, and leaves nothing counted.
+    #[tokio::test]
+    async fn a_spool_past_the_total_fails() {
+        let limits = SpoolLimits {
+            total: 8,
+            ..SpoolLimits::unlimited()
+        };
+        let spool = Spool::start(
+            BodyContent::Buffered {
+                body: Bytes::from_static(b"twelve bytes"),
+            },
+            PeekBuf::empty(),
+            limits.clone(),
+        );
+        let error = spool.finish().await.expect_err("over the total");
+        assert!(
+            format!("{error:#}").contains("net.download.max_total_spool_bytes"),
+            "got {error:#}"
+        );
+        assert_eq!(limits.budget.used(), 0);
     }
 
     /// Dropping a spool whose body is still arriving stops the writing: an offer that is
@@ -480,7 +682,11 @@ mod tests {
     #[tokio::test]
     async fn dropping_a_spool_stops_its_writing() {
         let shared = Arc::new(SharedBody::new(8));
-        let spool = Spool::start(BodyContent::Stream { shared: shared.clone() }, PeekBuf::empty(), 0);
+        let spool = Spool::start(
+            BodyContent::Stream { shared: shared.clone() },
+            PeekBuf::empty(),
+            SpoolLimits::unlimited(),
+        );
         shared.push(Bytes::from_static(b"part"));
         let mut progress = spool.progress();
         drop(spool);

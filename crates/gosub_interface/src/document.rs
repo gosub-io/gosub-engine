@@ -14,6 +14,18 @@ pub enum DocumentType {
     IframeSrcDoc,
 }
 
+/// A `<link rel=stylesheet>` the parser has seen but whose bytes are not here yet; see
+/// [`Document::add_pending_stylesheet`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingStylesheet {
+    /// Where in [`Document::stylesheets`] the sheet belongs.
+    pub position: usize,
+    pub url: String,
+    /// The link's `media` attribute, as written. Hand it to
+    /// [`CssSystem::set_stylesheet_media`] once the sheet is parsed.
+    pub media: Option<String>,
+}
+
 /// Storage-agnostic document interface.
 ///
 /// All node data is accessed through `NodeId` handles. The concrete storage
@@ -176,10 +188,11 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     /// The parser records the link and moves on; whoever drives the parse fetches the sheet
     /// and puts it in place afterwards. The position it would have taken is remembered with
     /// it, because the cascade is document order and a sheet that arrives late still belongs
-    /// where it was written.
-    fn add_pending_stylesheet(&mut self, url: &str);
+    /// where it was written. So is the link's `media` attribute, which the sheet is put under
+    /// once it arrives.
+    fn add_pending_stylesheet(&mut self, url: &str, media: Option<&str>);
 
-    /// Take the list of links still waiting for their bytes, as `(position, url)`.
+    /// Take the list of links still waiting for their bytes.
     ///
     /// Draining, because there is exactly one consumer: the pipeline that fetches them.
     ///
@@ -187,7 +200,7 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     /// need: a classic `<script>` may not run until the sheets *before it* have applied,
     /// and those are the entries positioned at or below the current end of
     /// [`Document::stylesheets`].
-    fn take_pending_stylesheets(&mut self) -> Vec<(usize, String)>;
+    fn take_pending_stylesheets(&mut self) -> Vec<PendingStylesheet>;
 
     /// Put a fetched stylesheet at `position` in the cascade.
     ///
