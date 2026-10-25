@@ -5125,4 +5125,6 @@ mod rendertree_from_engine {
 }
 
 #[cfg(test)]
+mod list_markers;
+#[cfg(test)]
 mod shadow_dom;

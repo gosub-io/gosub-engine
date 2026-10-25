@@ -301,6 +301,13 @@ li {
     display: list-item;
     text-align: -webkit-match-parent;
 }
+/* css-lists-3 §3.1, HTML §15.3.8. `white-space: pre` keeps the space that ends a marker. */
+::marker {
+    unicode-bidi: isolate;
+    font-variant-numeric: tabular-nums;
+    white-space: pre;
+    text-transform: none;
+}
 ul ul, ol ul {
     list-style-type: circle
 }
