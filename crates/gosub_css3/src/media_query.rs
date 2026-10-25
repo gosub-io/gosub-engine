@@ -796,6 +796,10 @@ mod tests {
         assert!(!matches("1px, print", &screen));
         assert!(!matches("screen and (min-width: 1px) junk", &screen));
 
+        // A `]` does not close a `(`: the comma is inside the block, so there is one query.
+        let list = MediaQueryList::parse("print and (], screen").expect("a list");
+        assert!(!list.matches(&screen));
+
         let list = MediaQueryList::parse("junk junk, (max-width: 600px)").expect("a list");
         assert!(list.matches(&env(500.0, 800.0)));
         assert!(!list.matches(&screen));

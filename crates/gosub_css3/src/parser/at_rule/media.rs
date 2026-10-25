@@ -118,17 +118,26 @@ impl Css3<'_> {
     }
 
     /// How many tokens the next media query spans: everything up to a comma, `{` or `;` outside
-    /// any brackets, a closing bracket that was not opened in the query, or the end of input.
+    /// any block, a closing bracket of a block opened before the query, or the end of input.
+    ///
+    /// A block ends only at its own closing bracket, so in `print and (], screen` the comma is
+    /// still inside the `(` and `screen` is not a query of its own.
     fn media_query_extent(&mut self) -> usize {
-        let mut depth = 0usize;
+        let mut open: Vec<TokenType> = Vec::new();
         let mut len = 0;
         loop {
-            match self.tokenizer.lookahead(len).token_type {
+            let token_type = &self.tokenizer.lookahead(len).token_type;
+            match token_type {
                 TokenType::Eof => return len,
-                TokenType::Comma | TokenType::LCurly | TokenType::Semicolon if depth == 0 => return len,
-                TokenType::RParen | TokenType::RBracket | TokenType::RCurly if depth == 0 => return len,
-                TokenType::LParen | TokenType::LBracket | TokenType::LCurly | TokenType::Function(_) => depth += 1,
-                TokenType::RParen | TokenType::RBracket | TokenType::RCurly => depth -= 1,
+                TokenType::Comma | TokenType::LCurly | TokenType::Semicolon if open.is_empty() => return len,
+                TokenType::RParen | TokenType::RBracket | TokenType::RCurly if open.is_empty() => return len,
+                TokenType::LParen | TokenType::Function(_) => open.push(TokenType::RParen),
+                TokenType::LBracket => open.push(TokenType::RBracket),
+                TokenType::LCurly => open.push(TokenType::RCurly),
+                // A closing bracket of another kind is just a token inside the block.
+                TokenType::RParen | TokenType::RBracket | TokenType::RCurly if open.last() == Some(token_type) => {
+                    open.pop();
+                }
                 _ => {}
             }
             len += 1;
