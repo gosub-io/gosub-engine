@@ -582,11 +582,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
         // Publish this tab's jar to the I/O side, which attaches cookies on its
         // behalf from now on - the tab itself never handles a cookie value. The
-        // zone's certificate pins go with it, for the same reason.
+        // zone's certificate pins and client identities go with it, for the same reason.
         self.zone_context.tab_identities.register(
             self.tab_id,
             self.services.cookie_jar.clone(),
-            self.services.known_hosts.clone(),
+            self.services.certificates.clone(),
         );
 
         // Announce creation

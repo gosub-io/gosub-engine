@@ -164,6 +164,21 @@ pub enum LoadError {
         /// What went wrong.
         message: String,
     },
+    /// The server wants a client certificate (gemini `60`), or did not take the one it got
+    /// (`61`, `62`). The engine never makes one up: an embedder that asks the user creates
+    /// one for `url` (`ClientIdentity::generate`, `IdentityScope::for_url`), adds it to the
+    /// zone's store and loads `url` again.
+    ClientCertificate {
+        /// Where the answer came from: the end of any redirects, and the URL an identity is
+        /// made for.
+        url: String,
+        /// The status the server answered with.
+        status: u8,
+        /// The server's message, to show.
+        message: String,
+        /// Whether the request presented an identity.
+        presented: bool,
+    },
     /// Anything the engine cannot classify.
     Other {
         /// What went wrong.
@@ -189,6 +204,23 @@ impl std::fmt::Display for LoadError {
             LoadError::Io { message } => write!(f, "I/O error: {message}"),
             LoadError::Cancelled { message } => write!(f, "cancelled: {message}"),
             LoadError::Content { message } => write!(f, "content error: {message}"),
+            LoadError::ClientCertificate {
+                url,
+                status,
+                message,
+                presented,
+            } => {
+                let asked = if *presented {
+                    "did not accept the client certificate"
+                } else {
+                    "asks for a client certificate"
+                };
+                write!(f, "{url} {asked} ({status})")?;
+                if !message.is_empty() {
+                    write!(f, ": {message}")?;
+                }
+                Ok(())
+            }
             LoadError::Other { message } => write!(f, "{message}"),
         }
     }
@@ -198,7 +230,7 @@ impl std::error::Error for LoadError {}
 
 impl LoadError {
     /// The same error with `f` applied to its message. `Blocked` and `ProxyAuthRequired`
-    /// carry none.
+    /// carry none, and `ClientCertificate` keeps the server's own, which is shown as it is.
     pub(crate) fn map_message(self, f: impl FnOnce(String) -> String) -> Self {
         use LoadError::*;
         match self {
@@ -217,6 +249,7 @@ impl LoadError {
                 message: f(message),
             },
             ProxyAuthRequired { proxy } => ProxyAuthRequired { proxy },
+            asked @ ClientCertificate { .. } => asked,
             Timeout { message } => Timeout { message: f(message) },
             Transfer { message } => Transfer { message: f(message) },
             Redirect { message } => Redirect { message: f(message) },
@@ -283,8 +316,16 @@ impl From<&NetError> for LoadError {
             NetError::Read(err) => LoadError::Transfer {
                 message: format!("{err:#}"),
             },
-            NetError::Other(err) => LoadError::Other {
-                message: format!("{err:#}"),
+            NetError::Other(err) => match crate::net::protocols::identities::IdentityAsked::of(e) {
+                Some(asked) => LoadError::ClientCertificate {
+                    url: asked.url.to_string(),
+                    status: asked.status,
+                    message: asked.message.clone(),
+                    presented: asked.presented,
+                },
+                None => LoadError::Other {
+                    message: format!("{err:#}"),
+                },
             },
         }
     }

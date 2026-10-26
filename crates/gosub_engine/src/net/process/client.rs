@@ -43,6 +43,8 @@ pub struct Outbound {
     /// Where the pin of each other server the request is redirected to is looked up, when
     /// the network process asks ([`FromNet::AskPin`]); `None` refuses every ask.
     pub pins: Option<Arc<RequestPins>>,
+    /// The client certificate the request presents; see `NetFetch::identity`.
+    pub identity: Option<crate::net::process::protocol::IdentityWire>,
 }
 
 impl Outbound {
@@ -61,6 +63,7 @@ impl Outbound {
             no_total_body_timeout: false,
             pin: None,
             pins: None,
+            identity: None,
         }
     }
 }
@@ -310,7 +313,9 @@ impl ReportedRequest {
                     });
                 }
             }
-            FetchOutcome::Error(message) | FetchOutcome::CertificateChanged { message, .. } => self.fail(message),
+            FetchOutcome::Error(message)
+            | FetchOutcome::CertificateChanged { message, .. }
+            | FetchOutcome::IdentityAsked { message, .. } => self.fail(message),
         }
     }
 
@@ -1087,6 +1092,7 @@ impl NetProcess {
             no_total_body_timeout,
             pin,
             pins,
+            identity,
         } = out;
         let permit = tokio::select! {
             _ = cancel.cancelled() => return NetReply::error("cancelled"),
@@ -1120,6 +1126,7 @@ impl NetProcess {
             context,
             no_total_body_timeout,
             pin,
+            identity,
         }));
         // The link write can block on a full pipe (bodies can be large), so it
         // runs on a blocking thread rather than a runtime worker.
@@ -1199,6 +1206,24 @@ impl NetProcess {
                 ..
             } => (status_text, final_url, headers),
             FetchOutcome::Error(message) => {
+                *message = cut_string(std::mem::take(message), MAX_EVENT_STRING);
+                return reply;
+            }
+            // An answer from a server the request reached over its own scheme, which pins and
+            // so presents identities: what the user is asked to make one for.
+            FetchOutcome::IdentityAsked {
+                url, status, message, ..
+            } => {
+                let reached = url.len() <= MAX_REPLY_URL
+                    && url::Url::parse(url).is_ok_and(|url| {
+                        crate::net::protocols::lookup(url.scheme()).is_some_and(|p| p.pins_certificates())
+                            && url::Url::parse(requested).is_ok_and(|requested| requested.scheme() == url.scheme())
+                    });
+                if !(60..=69).contains(status) || !reached {
+                    return NetReply::error(format!(
+                        "the network process reported an implausible certificate request for {requested}"
+                    ));
+                }
                 *message = cut_string(std::mem::take(message), MAX_EVENT_STRING);
                 return reply;
             }
@@ -1333,6 +1358,24 @@ pub fn outcome_to_result(reply: NetReply) -> Result<crate::net::types::FetchResu
         // The broker turns a changed certificate into a TLS error before this, for a request
         // that pins; for any other it is a failure like the rest.
         FetchOutcome::Error(e) | FetchOutcome::CertificateChanged { message: e, .. } => return Err(net_error(e)),
+        // Checked where the reply was received (`plausible_reply`).
+        FetchOutcome::IdentityAsked {
+            url,
+            status,
+            message,
+            presented,
+        } => {
+            return Err(match url::Url::parse(&url) {
+                Ok(url) => crate::net::protocols::identities::IdentityAsked {
+                    url,
+                    status,
+                    message,
+                    presented,
+                }
+                .into_net_error(),
+                Err(_) => net_error(message),
+            })
+        }
     };
 
     let final_url = url::Url::parse(&final_url).map_err(|e| net_error(format!("bad final url: {e}")))?;

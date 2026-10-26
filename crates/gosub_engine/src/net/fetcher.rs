@@ -471,7 +471,7 @@ mod fetcher_context_tests {
         identities.register(
             tab,
             CookieJarHandle::from(jar),
-            crate::net::protocols::known_hosts::InMemoryKnownHosts::handle(),
+            crate::net::protocols::identities::ZoneCertificates::default(),
         );
         identities.set_top_level(tab, top_level.clone());
         let navigation = NavigationId::new();

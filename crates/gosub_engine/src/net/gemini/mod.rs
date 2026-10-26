@@ -12,9 +12,13 @@
 //! - `3x` is a redirect. One to a gemini URL is followed, up to [`MAX_REDIRECTS`] times in
 //!   all, and the page commits under where it ended. One to another scheme is shown as a
 //!   page linking there,
-//! - `4x` and `5x` are failures, and `6x` asks for a client certificate the engine does not
-//!   have: each is a page with the server's message. After a `44`, slow down, the server
-//!   is left alone for a while that doubles each time it says so again ([`slow_down`]).
+//! - `4x` and `5x` are failures: each is a page with the server's message. After a `44`,
+//!   slow down, the server is left alone for a while that doubles each time it says so again
+//!   ([`slow_down`]),
+//! - `6x` asks for a client certificate, or another one: the navigation fails with what the
+//!   server said (`IdentityAsked`), for the embedder to ask the user. A request presents
+//!   the zone's identity for its URL on every hop inside that identity's scope
+//!   (`net::protocols::identities`).
 //!
 //! Servers mostly sign their own certificates, so the connection trusts a certificate on
 //! first use ([`tls`]): the first visit to a host and port reports the certificate, which the
@@ -37,6 +41,7 @@ mod slow_down;
 pub(crate) mod testing;
 mod tls;
 
+use crate::net::protocols::identities::{ClientIdentity, IdentityAsked};
 use crate::net::protocols::known_hosts::{key, CertPin, ServerPin};
 use crate::net::protocols::page::{self, escape, title_for};
 use crate::net::protocols::socket::{self, invalid, Close};
@@ -133,8 +138,12 @@ impl Protocol for Gemini {
                 (None, None) => None,
             };
             let zone_pin = pin.as_ref().is_some_and(|(_, zone)| *zone);
+            // Never above the path the identity was made for, nor on another server.
+            let identity = request
+                .identity
+                .filter(|identity| identity.scope.covers(&url, DEFAULT_PORT));
             let exchanged = self
-                .exchange(&url, request.reach, pin.as_ref().map(|(pin, _)| pin))
+                .exchange(&url, request.reach, pin.as_ref().map(|(pin, _)| pin), identity)
                 .await;
             let (response, peer, certificate) = match exchanged {
                 // Only the zone's pin for the server the page was asked for is the user's to
@@ -169,6 +178,15 @@ pinned for it; visit it to decide about it",
             }
             let status = header(&response).map(|(status, ..)| status).ok();
             let delay = slow_down::answered(&server, status == Some(44));
+            if let Ok((status @ 60..=69, meta, _)) = header(&response) {
+                return Err(IdentityAsked {
+                    url,
+                    status,
+                    message: meta.to_string(),
+                    presented: identity.is_some(),
+                }
+                .into_net_error());
+            }
             let target = followed(&url, &response).map_err(|e| invalid(format!("{url} answered: {e}")))?;
             let target = match target {
                 Some(mut target) if hops < MAX_REDIRECTS => {
@@ -209,19 +227,21 @@ pinned for it; visit it to decide about it",
 
 impl Gemini {
     /// One request and its whole response: connect to `url`'s server, hold its certificate
-    /// to `pin`, send the request line and read until the server closes. Returns the
-    /// response, the peer and the certificate the server showed.
+    /// to `pin`, present `identity` if it asks for one, send the request line and read until
+    /// the server closes. Returns the response, the peer and the certificate the server
+    /// showed.
     async fn exchange(
         &self,
         url: &Url,
         reach: crate::net::ssrf::AddressSpace,
         pin: Option<&CertPin>,
+        identity: Option<&ClientIdentity>,
     ) -> Result<(Vec<u8>, Option<std::net::SocketAddr>, CertPin), NetError> {
         let gemini = Request::from_url(url).map_err(invalid)?;
         let addrs = socket::resolve(self, url, &gemini.host, gemini.port, reach).await?;
         let tcp = socket::connect(url, &gemini.host, &addrs, reach).await?;
         let peer = tcp.peer_addr().ok();
-        let (mut stream, certificate) = tls::handshake(&gemini.host, gemini.port, tcp, pin).await?;
+        let (mut stream, certificate) = tls::handshake(&gemini.host, gemini.port, tcp, pin, identity).await?;
         let response = socket::talk(&mut stream, &gemini.host, &gemini.line, Close::Unclean).await?;
         Ok((response, peer, certificate))
     }
@@ -330,15 +350,6 @@ fn present(url: &Url, response: &[u8], delay: Option<std::time::Duration>) -> Re
         2 => content(url, meta, body),
         1 => html(status_page(url, status, &input_form(url, status, meta))),
         3 => html(status_page(url, status, &redirect(url, meta))),
-        6 => html(status_page(
-            url,
-            status,
-            &format!(
-                "<p>{}</p><p class=\"u\">The server asks for a client certificate, which this browser \
-cannot present yet.</p>",
-                escape(meta)
-            ),
-        )),
         _ => html(status_page(url, status, &format!("<p>{}</p>", escape(meta)))),
     })
 }
@@ -469,14 +480,12 @@ fn status_name(status: u8) -> &'static str {
         52 => "Gone",
         53 => "Proxy request refused",
         59 => "Bad request",
-        61 => "Certificate not authorised",
-        62 => "Certificate not valid",
+        // A success is the page itself and a `6x` a failed navigation, so neither has one.
         _ => match status / 10 {
             1 => "Input requested",
             3 => "Redirect",
             4 => "Temporary failure",
-            5 => "Permanent failure",
-            _ => "Client certificate required",
+            _ => "Permanent failure",
         },
     }
 }
@@ -488,11 +497,12 @@ fn html(page: String) -> (String, Vec<u8>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::net::protocols::identities::IdentityScope;
     use crate::net::protocols::known_hosts::{CertPin, Pins};
     use crate::net::ssrf::AddressSpace;
     use gosub_sonar::net::tls::TlsErrorKind;
     use gosub_sonar::net::types::BlockReason;
-    use testing::{serve, serve_each, A, A_CERT, B, B_CERT, FORGED};
+    use testing::{serve, serve_each, serve_tls, Tls, A, A_CERT, B, B_CERT, FORGED};
 
     fn url(s: &str) -> Url {
         Url::parse(s).unwrap()
@@ -542,6 +552,7 @@ mod tests {
                 url,
                 reach: AddressSpace::Loopback,
                 pins: Some(pins),
+                identity: None,
             })
             .await
     }
@@ -669,7 +680,6 @@ mod tests {
         assert!(shown(b"51 <nope>\r\n").contains("<h1>Not found (51)</h1><p>&lt;nope&gt;</p>"));
         assert!(shown(b"42 x\r\n").contains("<h1>CGI error (42)</h1>"));
         assert!(shown(b"48 x\r\n").contains("<h1>Temporary failure (48)</h1>"));
-        assert!(shown(b"60 who?\r\n").contains("client certificate"));
         assert!(shown(b"31 ../new\r\n").contains("<a href=\"gemini://h.test/new\">gemini://h.test/new</a>"));
         assert!(shown(b"30 file:///etc/passwd\r\n").contains("file:///etc/passwd, which this browser does not go to"));
     }
@@ -923,6 +933,103 @@ mod tests {
         assert_eq!(response.peer_addr, None);
     }
 
+    fn identity_for(at: &str) -> ClientIdentity {
+        ClientIdentity::generate(IdentityScope::for_url(&url(at)).unwrap(), "Visitor").unwrap()
+    }
+
+    async fn fetch_presenting(at: &str, identity: &ClientIdentity) -> Result<ProtocolResponse, NetError> {
+        Gemini
+            .fetch(ProtocolRequest {
+                url: &url(at),
+                reach: AddressSpace::Loopback,
+                pins: None,
+                identity: Some(identity),
+            })
+            .await
+    }
+
+    #[tokio::test]
+    async fn a_server_asking_for_a_certificate_fails_the_navigation_with_its_message() {
+        let (port, _server) = serve(&[A], b"60 Who are you?\r\n", true).await;
+        let at = format!("gemini://127.0.0.1:{port}/private/x?q");
+        let err = fetch(&at, None).await.unwrap_err();
+        assert_eq!(
+            IdentityAsked::of(&err),
+            Some(&IdentityAsked {
+                url: url(&at),
+                status: 60,
+                message: "Who are you?".into(),
+                presented: false,
+            }),
+            "{err:?}"
+        );
+        assert!(matches!(
+            crate::LoadError::from(&err),
+            crate::LoadError::ClientCertificate {
+                status: 60,
+                presented: false,
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn an_identity_is_presented_inside_its_scope_only() {
+        let (port, server) = serve_tls(
+            &[
+                (A, b"31 /app/b\r\n"),
+                (A, b"30 /other\r\n"),
+                (A, b"20 text/gemini\r\nfine"),
+            ],
+            Tls::AskingClients,
+            true,
+        )
+        .await;
+        let identity = identity_for(&format!("gemini://127.0.0.1:{port}/app/"));
+        let response = fetch_presenting(&format!("gemini://127.0.0.1:{port}/app/a"), &identity)
+            .await
+            .unwrap();
+        assert!(body(&response).contains("<p>fine</p>"), "{}", body(&response));
+        let seen: Vec<_> = server.await.unwrap().into_iter().map(Option::unwrap).collect();
+        let line = |path: &str| format!("gemini://127.0.0.1:{port}{path}\r\n").into_bytes();
+        assert_eq!(
+            seen,
+            [
+                (line("/app/a"), Some(identity.certificate.clone())),
+                (line("/app/b"), Some(identity.certificate.clone())),
+                // Above the path the identity was made for: not presented.
+                (line("/other"), None),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_server_refusing_the_presented_certificate_says_so() {
+        let (port, _server) = serve_tls(&[(A, b"61 Not you\r\n")], Tls::AskingClients, true).await;
+        let at = format!("gemini://127.0.0.1:{port}/");
+        let err = fetch_presenting(&at, &identity_for(&at)).await.unwrap_err();
+        assert!(
+            IdentityAsked::of(&err).is_some_and(|asked| asked.status == 61 && asked.presented),
+            "{err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_identity_never_goes_out_over_tls_1_2() {
+        let (port, server) = serve_tls(&[(A, b"20 text/gemini\r\nfine")], Tls::AskingClientsOver12, true).await;
+        let at = format!("gemini://127.0.0.1:{port}/");
+        let err = fetch_presenting(&at, &identity_for(&at)).await.unwrap_err();
+        assert!(
+            matches!(&err, NetError::Tls(tls) if tls.message.contains("TLS 1.3 only")),
+            "{err:?}"
+        );
+        assert_eq!(server.await.unwrap(), [None], "the handshake went through");
+        // Without one, the same server is reached over 1.2.
+        let (port, _server) = serve_tls(&[(A, b"20 text/gemini\r\nfine")], Tls::AskingClientsOver12, true).await;
+        let response = fetch(&format!("gemini://127.0.0.1:{port}/"), None).await.unwrap();
+        assert!(body(&response).contains("<p>fine</p>"));
+    }
+
     #[tokio::test]
     async fn a_server_closing_without_close_notify_still_answers() {
         let (port, _server) = serve(&[A], b"20 text/plain\r\nbye", false).await;
@@ -938,6 +1045,7 @@ mod tests {
                 url: &url,
                 reach: AddressSpace::Public,
                 pins: None,
+                identity: None,
             })
             .await
             .unwrap_err();

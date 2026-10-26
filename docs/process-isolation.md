@@ -595,7 +595,11 @@ vault) is tracked separately; see [Known limits](#known-limits-and-roadmap).
   the broker to record, only for the servers the request asked about, and a
   reply ending on another scheme is refused. A changed certificate crosses
   back as the one failure with a field the broker acts on, the new
-  certificate's pin, checked for form. `net.gemini.enabled` turns it off. See
+  certificate's pin, checked for form. A client certificate the zone holds
+  for the URL goes into the network process with the request, key included
+  (`NetFetch.identity`), and a server asking for one crosses back as
+  `FetchOutcome::IdentityAsked`, checked for a `6x` status at the asked
+  server. `net.gemini.enabled` turns it off. See
   [security-assessment.md](security-assessment.md).
 - The vault's `document.cookie` view (`visible_only`) has no consumer yet; it
   starts to matter when scripts can read cookies. A zone using an

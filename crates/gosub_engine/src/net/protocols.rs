@@ -27,6 +27,7 @@
 //! server it reaches ([`ProtocolRequest::pins`]) and reports the certificates first visits
 //! showed ([`ProtocolResponse::certificates`]); the broker records them ([`known_hosts`]).
 
+pub mod identities;
 pub mod known_hosts;
 pub mod page;
 pub mod socket;
@@ -54,6 +55,9 @@ pub struct ProtocolRequest<'a> {
     /// Where the certificates the zone has seen are learned, for each server the fetch
     /// reaches. `None` for a protocol that pins nothing; every visit is a first one then.
     pub pins: Option<&'a dyn Pins>,
+    /// The client certificate the request presents, where its scope covers the URL
+    /// (`identities`): on a redirect only while it stays inside that scope.
+    pub identity: Option<&'a crate::net::protocols::identities::ClientIdentity>,
 }
 
 impl std::fmt::Debug for ProtocolRequest<'_> {
@@ -62,6 +66,7 @@ impl std::fmt::Debug for ProtocolRequest<'_> {
             .field("url", &self.url.as_str())
             .field("reach", &self.reach)
             .field("pins", &self.pins.is_some())
+            .field("identity", &self.identity.map(|identity| &identity.scope))
             .finish()
     }
 }
@@ -380,6 +385,7 @@ mod tests {
             url: &req.url,
             reach: AddressSpace::Loopback,
             pins: None,
+            identity: None,
         };
         let result = match refuse(protocol, req, enabled, &*recorder) {
             Some(refused) => Some(refused),
@@ -468,6 +474,7 @@ mod tests {
             url: &url,
             reach: AddressSpace::Loopback,
             pins: None,
+            identity: None,
         };
         let served = run(&Echo, request, &CancellationToken::new(), Arc::new(Recorder::default()))
             .await

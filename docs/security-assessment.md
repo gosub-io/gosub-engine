@@ -185,7 +185,20 @@ a renderer.
   slow down, is left alone for a delay that starts at a second and doubles
   each time it says so again; the delays are kept per process, for all
   zones together, so one zone can tell another was told to slow down by the
-  same server. Input a server asks for goes
+  same server. A server may ask for a client certificate (`6x`); the
+  navigation then fails with `LoadError::ClientCertificate`, and the engine
+  never makes one by itself. An identity the embedder adds to the zone
+  (`ZoneBuilder::client_identities`, `SqliteClientIdentities`) goes out on
+  every request to its host and port at or below its path, including hops
+  a redirect leads to, and to no other server. Its key is stored as given:
+  `SqliteClientIdentities` writes it in the clear, so a profile that should
+  protect it needs an encrypted store. With the network process on, the key
+  of the identity for the URL travels into the network process with the
+  request, which a compromised network process can keep and use elsewhere;
+  it gets only the identity the request needs. A handshake presenting an
+  identity is TLS 1.3 only, so the certificate never goes out unencrypted;
+  a server speaking only TLS 1.2 fails with a message saying so. Input a
+  server asks for goes
   into the URL's query, so a status `11` (sensitive) answer such as a
   password lands in history and in the server's logs, as with any gemini
   client. Many servers close without TLS `close_notify`, so a response cut

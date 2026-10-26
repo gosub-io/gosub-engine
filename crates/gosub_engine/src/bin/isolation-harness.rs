@@ -333,7 +333,9 @@ fn resolve() -> i32 {
             net.shutdown();
             return 1;
         }
-        FetchOutcome::Error(e) | FetchOutcome::CertificateChanged { message: e, .. } => {
+        FetchOutcome::Error(e)
+        | FetchOutcome::CertificateChanged { message: e, .. }
+        | FetchOutcome::IdentityAsked { message: e, .. } => {
             println!("resolution failed as it should: {e}")
         }
     }
@@ -350,7 +352,9 @@ fn resolve() -> i32 {
             FetchOutcome::Error(e) if e.contains("blocked") || e.contains("policy") => {
                 println!("{reach:?} fetcher refused loopback: {e}");
             }
-            FetchOutcome::Error(e) | FetchOutcome::CertificateChanged { message: e, .. } => {
+            FetchOutcome::Error(e)
+            | FetchOutcome::CertificateChanged { message: e, .. }
+            | FetchOutcome::IdentityAsked { message: e, .. } => {
                 eprintln!("{reach:?} fetcher failed for the wrong reason: {e}");
                 net.shutdown();
                 return 1;
@@ -6657,9 +6661,9 @@ fn stream() -> i32 {
             }
         }
         FetchOutcome::Ok { .. } => Err("expected a streamed reply, got a buffered one".into()),
-        FetchOutcome::Error(e) | FetchOutcome::CertificateChanged { message: e, .. } => {
-            Err(format!("fetch failed: {e}"))
-        }
+        FetchOutcome::Error(e)
+        | FetchOutcome::CertificateChanged { message: e, .. }
+        | FetchOutcome::IdentityAsked { message: e, .. } => Err(format!("fetch failed: {e}")),
     };
     net.shutdown();
     drop(server);
@@ -8058,7 +8062,9 @@ fn direct() -> i32 {
             eprintln!("a buffered request came back streamed");
             1
         }
-        FetchOutcome::Error(e) | FetchOutcome::CertificateChanged { message: e, .. } => {
+        FetchOutcome::Error(e)
+        | FetchOutcome::CertificateChanged { message: e, .. }
+        | FetchOutcome::IdentityAsked { message: e, .. } => {
             eprintln!("fetch through the network process failed: {e}");
             1
         }
@@ -8384,7 +8390,9 @@ fn oversized() -> i32 {
         FetchOutcome::Error(e) if !cfg!(target_os = "linux") && e.contains("too large") => {
             println!("oversized body refused in {elapsed:?}: {e}");
         }
-        FetchOutcome::Error(e) | FetchOutcome::CertificateChanged { message: e, .. } => {
+        FetchOutcome::Error(e)
+        | FetchOutcome::CertificateChanged { message: e, .. }
+        | FetchOutcome::IdentityAsked { message: e, .. } => {
             eprintln!("the oversized body failed: {e}");
             net.shutdown();
             return 1;
@@ -8422,7 +8430,9 @@ fn oversized() -> i32 {
             eprintln!("second fetch: status {status}");
             1
         }
-        FetchOutcome::Error(e) | FetchOutcome::CertificateChanged { message: e, .. } => {
+        FetchOutcome::Error(e)
+        | FetchOutcome::CertificateChanged { message: e, .. }
+        | FetchOutcome::IdentityAsked { message: e, .. } => {
             eprintln!("the link did not survive the oversized body: {e}");
             1
         }
@@ -8870,20 +8880,30 @@ fn engine_gopher() -> i32 {
 /// request is sent, with the new certificate's fingerprint crossing back too. Trusting that
 /// one lets the next visit through, and the redirect it follows commits under its target. A
 /// redirect to another server is followed with that server's pin, which the network process
-/// asks the broker for: a first visit there is pinned, and a later one held to the pin.
+/// asks the broker for: a first visit there is pinned, and a later one held to the pin. A
+/// third server asks for a client certificate: the request crosses back as a typed error,
+/// and once the zone holds an identity for the place, its key goes into the network process
+/// and the next visit there presents it.
 #[cfg(feature = "gemini")]
 fn engine_gemini() -> i32 {
     use gosub_config::settings::Setting;
     use gosub_engine::events::{EngineEvent, NavigationEvent};
+    use gosub_engine::net::protocols::identities::{
+        ClientIdentities, ClientIdentity, IdentityScope, InMemoryClientIdentities,
+    };
     use gosub_engine::net::protocols::known_hosts::{CertPin, InMemoryKnownHosts, KnownHosts};
     use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
     use gosub_engine::zone::ZoneServices;
     use gosub_engine::GosubEngine;
     use gosub_render_pipeline::render::backends::null::NullBackend;
     use gosub_render_pipeline::render::DefaultCompositor;
-    use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+    use rustls::client::danger::HandshakeSignatureValid;
+    use rustls::crypto::{verify_tls12_signature, verify_tls13_signature, WebPkiSupportedAlgorithms};
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, UnixTime};
+    use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
     use rustls::server::{ClientHello, ResolvesServerCert};
     use rustls::sign::CertifiedKey;
+    use rustls::{DigitallySignedStruct, DistinguishedName, SignatureScheme};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     const A_CERT: &[u8] = include_bytes!("../net/gemini/testdata/a.crt.der");
@@ -8898,18 +8918,61 @@ fn engine_gemini() -> i32 {
             Some(self.0.clone())
         }
     }
-    fn acceptor(cert: &'static [u8], key: &'static [u8]) -> Option<tokio_rustls::TlsAcceptor> {
+    /// Asks for a client certificate, takes any, and checks only that the client holds its key.
+    #[derive(Debug)]
+    struct AnyClient(WebPkiSupportedAlgorithms);
+    impl ClientCertVerifier for AnyClient {
+        fn client_auth_mandatory(&self) -> bool {
+            false
+        }
+        fn root_hint_subjects(&self) -> &[DistinguishedName] {
+            &[]
+        }
+        fn verify_client_cert(
+            &self,
+            _end_entity: &CertificateDer<'_>,
+            _intermediates: &[CertificateDer<'_>],
+            _now: UnixTime,
+        ) -> Result<ClientCertVerified, rustls::Error> {
+            Ok(ClientCertVerified::assertion())
+        }
+        fn verify_tls12_signature(
+            &self,
+            message: &[u8],
+            cert: &CertificateDer<'_>,
+            dss: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, rustls::Error> {
+            verify_tls12_signature(message, cert, dss, &self.0)
+        }
+        fn verify_tls13_signature(
+            &self,
+            message: &[u8],
+            cert: &CertificateDer<'_>,
+            dss: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, rustls::Error> {
+            verify_tls13_signature(message, cert, dss, &self.0)
+        }
+        fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+            self.0.supported_schemes()
+        }
+    }
+    fn acceptor(cert: &'static [u8], key: &'static [u8], asking: bool) -> Option<tokio_rustls::TlsAcceptor> {
         let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+        let algorithms = provider.signature_verification_algorithms;
         let key = provider
             .key_provider
             .load_private_key(PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key)))
             .ok()?;
         let certified = CertifiedKey::new(vec![CertificateDer::from(cert)], key);
-        let config = rustls::ServerConfig::builder_with_provider(provider)
+        let builder = rustls::ServerConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
-            .ok()?
-            .with_no_client_auth()
-            .with_cert_resolver(Arc::new(Fixed(Arc::new(certified))));
+            .ok()?;
+        let builder = if asking {
+            builder.with_client_cert_verifier(Arc::new(AnyClient(algorithms)))
+        } else {
+            builder.with_no_client_auth()
+        };
+        let config = builder.with_cert_resolver(Arc::new(Fixed(Arc::new(certified))));
         Some(tokio_rustls::TlsAcceptor::from(Arc::new(config)))
     }
 
@@ -8923,7 +8986,11 @@ fn engine_gemini() -> i32 {
     runtime.block_on(async move {
         // A gemini server showing certificate A to the first connection and B to the rest, on
         // the same port, handing back each request line (`None` for a failed handshake).
-        let (Some(a), Some(b)) = (acceptor(A_CERT, A_KEY), acceptor(B_CERT, B_KEY)) else {
+        let (Some(a), Some(b), Some(asking)) = (
+            acceptor(A_CERT, A_KEY, false),
+            acceptor(B_CERT, B_KEY, false),
+            acceptor(A_CERT, A_KEY, true),
+        ) else {
             eprintln!("could not set up the test server's TLS");
             return 1;
         };
@@ -8942,10 +9009,20 @@ fn engine_gemini() -> i32 {
         let Ok(there_port) = elsewhere.local_addr().map(|a| a.port()) else {
             return 1;
         };
+        // A third, which knows its visitors by their certificates.
+        let Ok(members) = tokio::net::TcpListener::bind("127.0.0.1:0").await else {
+            eprintln!("could not start the third test server");
+            return 1;
+        };
+        let Ok(members_port) = members.local_addr().map(|a| a.port()) else {
+            return 1;
+        };
+        // Each request line, with the client certificate its connection presented, if any.
+        type Turn = Option<(Vec<u8>, Option<Vec<u8>>)>;
         fn serve(
             listener: tokio::net::TcpListener,
             turns: Vec<(tokio_rustls::TlsAcceptor, &'static [u8])>,
-        ) -> tokio::task::JoinHandle<Vec<Option<Vec<u8>>>> {
+        ) -> tokio::task::JoinHandle<Vec<Turn>> {
             tokio::spawn(async move {
                 let mut lines = Vec::new();
                 for (acceptor, response) in turns {
@@ -8954,6 +9031,12 @@ fn engine_gemini() -> i32 {
                         lines.push(None);
                         continue;
                     };
+                    let presented = tls
+                        .get_ref()
+                        .1
+                        .peer_certificates()
+                        .and_then(|chain| chain.first())
+                        .map(|der| der.to_vec());
                     let mut line = Vec::new();
                     let mut byte = [0u8; 1];
                     while tls.read_exact(&mut byte).await.is_ok() {
@@ -8964,7 +9047,7 @@ fn engine_gemini() -> i32 {
                     }
                     let _ = tls.write_all(response).await;
                     let _ = tls.shutdown().await;
-                    lines.push(Some(line));
+                    lines.push(Some((line, presented)));
                 }
                 lines
             })
@@ -8986,6 +9069,14 @@ fn engine_gemini() -> i32 {
         );
         let there: &'static [u8] = b"20 text/gemini\r\n# Over there\r\n";
         let second_server = serve(elsewhere, vec![(a.clone(), there), (a, there)]);
+        let third_server = serve(
+            members,
+            vec![
+                (asking.clone(), b"60 Members only\r\n"),
+                (asking.clone(), b"20 text/gemini\r\n# Welcome back\r\n"),
+                (asking, b"61 Not a member\r\n"),
+            ],
+        );
 
         let mut engine: GosubEngine = GosubEngine::new(
             None,
@@ -9021,10 +9112,12 @@ fn engine_gemini() -> i32 {
             places: None,
         };
         let known_hosts = Arc::new(InMemoryKnownHosts::new());
+        let identities = Arc::new(InMemoryClientIdentities::new());
         let Ok(mut zone) = engine
             .zone_builder()
             .services(services)
             .known_hosts(known_hosts.clone())
+            .client_identities(identities.clone())
             .create()
         else {
             eprintln!("could not create a zone");
@@ -9214,8 +9307,79 @@ fn engine_gemini() -> i32 {
             }
         }
 
+        // A server asking for a certificate: the navigation fails with what it asked.
+        let private = format!("gemini://127.0.0.1:{members_port}/private/");
+        if tab.navigate(private.clone()).await.is_err() {
+            eprintln!("navigate failed");
+            return 1;
+        }
+        let asked_at = match outcome(&mut events).await {
+            Ok(Err(gosub_engine::LoadError::ClientCertificate {
+                url,
+                status: 60,
+                message,
+                presented: false,
+            })) if message == "Members only" => url,
+            other => {
+                eprintln!("a request for a certificate did not cross back as one: {other:?}");
+                return 1;
+            }
+        };
+        if asked_at != private {
+            eprintln!("the certificate was asked for at {asked_at}, not {private}");
+            return 1;
+        }
+
+        // The user makes an identity for the place: the next visit inside it presents it.
+        let Some(scope) = url::Url::parse(&asked_at)
+            .ok()
+            .and_then(|url| IdentityScope::for_url(&url))
+        else {
+            eprintln!("a gemini page has no identity scope");
+            return 1;
+        };
+        let identity = match ClientIdentity::generate(scope, "Visitor") {
+            Ok(identity) => identity,
+            Err(e) => {
+                eprintln!("could not make an identity: {e}");
+                return 1;
+            }
+        };
+        let certificate = identity.certificate.clone();
+        identities.add(identity);
+        if tab.navigate(format!("{private}page")).await.is_err() {
+            eprintln!("navigate failed");
+            return 1;
+        }
+        match outcome(&mut events).await {
+            Ok(Ok(())) if tab.title() == "Welcome back" => {}
+            other => {
+                eprintln!("the visit with an identity did not load: {other:?} {:?}", tab.title());
+                return 1;
+            }
+        }
+        // A server refusing the identity: the error says one was presented.
+        if tab.navigate(format!("{private}other")).await.is_err() {
+            eprintln!("navigate failed");
+            return 1;
+        }
+        match outcome(&mut events).await {
+            Ok(Err(gosub_engine::LoadError::ClientCertificate {
+                status: 61,
+                presented: true,
+                ..
+            })) => {}
+            other => {
+                eprintln!("a refused identity did not cross back as one: {other:?}");
+                return 1;
+            }
+        }
+
         let line = |port: u16, path: &str| Some(format!("gemini://127.0.0.1:{port}{path}\r\n").into_bytes());
-        match server.await {
+        let lines_of = |turns: Vec<Turn>| -> Vec<Option<Vec<u8>>> {
+            turns.into_iter().map(|turn| turn.map(|(line, _)| line)).collect()
+        };
+        match server.await.map(lines_of) {
             Ok(lines)
                 if lines
                     == [
@@ -9235,7 +9399,7 @@ fn engine_gemini() -> i32 {
                 return 1;
             }
         }
-        match second_server.await {
+        match second_server.await.map(lines_of) {
             Ok(lines) if lines == [line(there_port, "/there"), None] => {}
             Ok(lines) => {
                 eprintln!("the second server saw {lines:?}: the visit held to a pin it fails must send nothing");
@@ -9246,12 +9410,32 @@ fn engine_gemini() -> i32 {
                 return 1;
             }
         }
+        let presented =
+            |path: &str, certificate: Option<&Vec<u8>>| Some((line(members_port, path)?, certificate.cloned()));
+        match third_server.await {
+            Ok(turns)
+                if turns
+                    == [
+                        presented("/private/", None),
+                        presented("/private/page", Some(&certificate)),
+                        presented("/private/other", Some(&certificate)),
+                    ] => {}
+            Ok(turns) => {
+                eprintln!("the third server saw {turns:?}: the identity must go out once the zone holds it");
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("the third test server failed: {e}");
+                return 1;
+            }
+        }
 
         engine.close_zone(zone).await;
         let _ = engine.shutdown().await;
         println!(
             "gemini served from the network process, pinned, a changed certificate refused and \
-trusted, and redirects followed on the same server and to another, held to its own pin"
+trusted, redirects followed on the same server and to another, held to its own pin, and \
+a client certificate asked for and presented"
         );
         0
     })

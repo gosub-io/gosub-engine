@@ -827,6 +827,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             id: None,
             services: ZoneServices::default(),
             known_hosts: None,
+            client_identities: None,
         }
     }
 
@@ -1108,6 +1109,7 @@ pub struct ZoneBuilder<'a, C: RenderConfiguration> {
     id: Option<ZoneId>,
     services: ZoneServices,
     known_hosts: Option<crate::net::protocols::known_hosts::KnownHostsHandle>,
+    client_identities: Option<crate::net::protocols::identities::ClientIdentitiesHandle>,
 }
 
 impl<C: RenderConfiguration> ZoneBuilder<'_, C> {
@@ -1170,15 +1172,27 @@ impl<C: RenderConfiguration> ZoneBuilder<'_, C> {
         self
     }
 
+    /// Where the zone keeps the client certificates it presents to servers that ask for one
+    /// (`gemini://`, `net::protocols::identities`). The default keeps them in memory for the
+    /// zone's life; pass a persistent store for a profile, encrypted, since it holds private
+    /// keys. Never share one between a private zone and others.
+    pub fn client_identities(mut self, identities: crate::net::protocols::identities::ClientIdentitiesHandle) -> Self {
+        self.client_identities = Some(identities);
+        self
+    }
+
     /// Create the zone. Fails with [`EngineError::ZoneLimitExceeded`] past `max_zones`, with
     /// [`EngineError::ZoneAlreadyExists`] for the [`id`](Self::id) of a zone the engine still
     /// holds, and with [`EngineError::CookieStore`] when the
     /// [`cookie_store`](Self::cookie_store) cannot provision the zone's jar.
     pub fn create(self) -> Result<Zone<C>, EngineError> {
-        let known_hosts = self.known_hosts;
+        let (known_hosts, identities) = (self.known_hosts, self.client_identities);
         let mut zone = self.engine.create_zone(self.config, self.services, self.id)?;
         if let Some(known_hosts) = known_hosts {
-            zone.known_hosts = known_hosts;
+            zone.certificates.known_hosts = known_hosts;
+        }
+        if let Some(identities) = identities {
+            zone.certificates.identities = identities;
         }
         Ok(zone)
     }
@@ -1676,6 +1690,99 @@ mod tests {
         );
         let line = |path: &str| Some(format!("gemini://127.0.0.1:{port}{path}\r\n").into_bytes());
         assert_eq!(server.await.unwrap(), [line("/"), None, line("/old"), line("/moved")]);
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A gemini server asking for a client certificate fails the navigation with what it
+    /// asked; once the embedder adds an identity for that place to the zone's store, the
+    /// next visit presents it, and a visit outside its scope does not.
+    #[cfg(feature = "gemini")]
+    #[tokio::test]
+    async fn a_gemini_identity_is_presented_once_the_zone_holds_one() {
+        use crate::events::NavigationEvent;
+        use crate::net::gemini::testing::{serve_tls, Tls, A};
+        use crate::net::protocols::identities::{
+            ClientIdentities, ClientIdentity, IdentityScope, InMemoryClientIdentities,
+        };
+
+        let (port, server) = serve_tls(
+            &[
+                (A, b"60 Who are you?\r\n"),
+                (A, b"20 text/gemini\r\n# Welcome back\r\n"),
+                (A, b"20 text/gemini\r\n# Public\r\n"),
+            ],
+            Tls::AskingClients,
+            true,
+        )
+        .await;
+        let identities = Arc::new(InMemoryClientIdentities::new());
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine
+            .zone_builder()
+            .services(services())
+            .client_identities(identities.clone())
+            .create()
+            .expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        let mut outcome = async |url: String| {
+            tab.navigate(url).await.expect("navigate");
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    match events.recv().await {
+                        Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::Finished { .. },
+                            ..
+                        }) => return None,
+                        Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::Failed { error, .. },
+                            ..
+                        }) => return Some(error),
+                        Ok(_) => continue,
+                        Err(e) => panic!("event stream closed: {e}"),
+                    }
+                }
+            })
+            .await
+            .expect("timed out waiting for the gemini page")
+        };
+
+        let private = format!("gemini://127.0.0.1:{port}/private/");
+        let error = outcome(private.clone()).await;
+        let Some(crate::LoadError::ClientCertificate {
+            url,
+            status: 60,
+            message,
+            presented: false,
+        }) = &error
+        else {
+            panic!("not a certificate request: {error:?}");
+        };
+        assert_eq!(url.as_str(), private);
+        assert_eq!(message, "Who are you?");
+
+        // What an embedder does when the user makes an identity for the place.
+        let identity = ClientIdentity::generate(
+            IdentityScope::for_url(&url::Url::parse(url).unwrap()).unwrap(),
+            "Visitor",
+        )
+        .unwrap();
+        let certificate = identity.certificate.clone();
+        identities.add(identity);
+        assert!(
+            outcome(format!("{private}page")).await.is_none(),
+            "the identity was refused"
+        );
+        assert_eq!(tab.title(), "Welcome back");
+        assert!(outcome(format!("gemini://127.0.0.1:{port}/")).await.is_none());
+
+        let presented: Vec<_> = server.await.unwrap().into_iter().map(|turn| turn.unwrap().1).collect();
+        assert_eq!(presented, [None, Some(certificate), None]);
 
         engine.close_zone(zone).await;
         engine.shutdown().await.expect("shutdown");

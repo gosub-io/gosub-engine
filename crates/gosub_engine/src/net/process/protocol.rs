@@ -162,6 +162,60 @@ pub struct NetFetch {
     /// the pin of each other server a redirect leads to ([`FromNet::AskPin`]).
     #[serde(default)]
     pub pin: Option<String>,
+    /// The client certificate the request presents, private key and all: this process makes
+    /// the TLS connection, so it signs with the key. Only ever the one identity whose scope
+    /// covers the request (`net::protocols::identities`).
+    #[serde(default)]
+    pub identity: Option<IdentityWire>,
+}
+
+/// A client identity as it travels: its scope, name, certificate and PKCS#8 key, in DER.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdentityWire {
+    pub host: String,
+    pub port: u16,
+    pub path: String,
+    pub name: String,
+    pub certificate: Vec<u8>,
+    pub key: Vec<u8>,
+}
+
+impl std::fmt::Debug for IdentityWire {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IdentityWire")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("path", &self.path)
+            .finish_non_exhaustive()
+    }
+}
+
+impl From<&crate::net::protocols::identities::ClientIdentity> for IdentityWire {
+    fn from(identity: &crate::net::protocols::identities::ClientIdentity) -> Self {
+        Self {
+            host: identity.scope.host.clone(),
+            port: identity.scope.port,
+            path: identity.scope.path.clone(),
+            name: identity.name.clone(),
+            certificate: identity.certificate.clone(),
+            key: identity.key.to_vec(),
+        }
+    }
+}
+
+impl From<IdentityWire> for crate::net::protocols::identities::ClientIdentity {
+    fn from(wire: IdentityWire) -> Self {
+        Self {
+            scope: crate::net::protocols::identities::IdentityScope {
+                host: wire.host,
+                port: wire.port,
+                path: wire.path,
+            },
+            name: wire.name,
+            certificate: wire.certificate,
+            key: zeroize::Zeroizing::new(wire.key),
+        }
+    }
 }
 
 /// The parts of a `FetchRequest` that say who is asking, as they travel. Without
@@ -938,6 +992,15 @@ pub enum FetchOutcome {
     /// one failure with a field the broker acts on: `seen` (`CertPin` text) is what the
     /// user may choose to trust, checked for form where the reply is received.
     CertificateChanged { message: String, seen: String },
+    /// An engine protocol's server wants a client certificate, or another one
+    /// (`net::protocols::identities::IdentityAsked`): what the navigation fails with, for the
+    /// embedder to ask the user. `url` is checked to stay on the request's scheme.
+    IdentityAsked {
+        url: String,
+        status: u8,
+        message: String,
+        presented: bool,
+    },
 }
 
 #[cfg(test)]

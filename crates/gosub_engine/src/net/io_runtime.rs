@@ -3,6 +3,7 @@ use crate::engine::events::IoCommand;
 use crate::engine::types::IoChannel;
 use crate::engine::EngineContext;
 use crate::net::fetcher::{fetcher_config_from, reach_config, EngineNetContext, Fetcher};
+use crate::net::protocols::identities::ClientIdentity;
 use crate::net::protocols::known_hosts::RequestPins;
 use crate::net::req_ref_tracker::{RequestRefTracker, RequestReference, REF_REGISTRY};
 use crate::net::ssrf::AddressSpace;
@@ -391,6 +392,7 @@ fn dispatch_to_net_process(
     reach: AddressSpace,
     grant: Option<Grant>,
     pins: Option<Arc<RequestPins>>,
+    client_identity: Option<ClientIdentity>,
     cancel: tokio_util::sync::CancellationToken,
     reply_tx: oneshot::Sender<FetchResult>,
     observer: Option<Arc<dyn crate::net::emitter::NetObserver + Send + Sync>>,
@@ -455,6 +457,7 @@ fn dispatch_to_net_process(
             no_total_body_timeout,
             pin: pins.as_ref().and_then(|p| p.pin.as_ref()).map(|pin| pin.to_string()),
             pins: pins.clone(),
+            identity: client_identity.as_ref().map(Into::into),
         };
         // A process that died is respawned before the request goes out;
         // blocking, so off the runtime's workers.
@@ -531,6 +534,7 @@ fn dispatch_to_net_process(
     _reach: AddressSpace,
     _grant: Option<Grant>,
     _pins: Option<Arc<RequestPins>>,
+    _client_identity: Option<ClientIdentity>,
     _cancel: tokio_util::sync::CancellationToken,
     _reply_tx: oneshot::Sender<FetchResult>,
     _observer: Option<Arc<dyn crate::net::emitter::NetObserver + Send + Sync>>,
@@ -1015,9 +1019,18 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                 // remembered nowhere.
                                 let pins = match (&protocol, identity.as_ref()) {
                                     (Some((protocol, _)), Some(id)) if protocol.pins_certificates() => {
-                                        RequestPins::for_url(&id.known_hosts, &req.url, protocol.default_port())
+                                        RequestPins::for_url(&id.certificates.known_hosts, &req.url, protocol.default_port())
                                             .map(Arc::new)
                                     }
+                                    _ => None,
+                                };
+                                // Such a protocol presents the zone's client certificate for
+                                // the URL, if it has one; never one made up here.
+                                let client_identity = match (&protocol, identity.as_ref()) {
+                                    (Some((protocol, _)), Some(id)) if protocol.pins_certificates() => id
+                                        .certificates
+                                        .identities
+                                        .for_url(&req.url, protocol.default_port()),
                                     _ => None,
                                 };
 
@@ -1052,6 +1065,7 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                         reach,
                                         grant,
                                         pins,
+                                        client_identity,
                                         handle.cancel.clone(),
                                         reply_tx,
                                         #[cfg(feature = "process-isolation")]
@@ -1067,6 +1081,7 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                                 pins: pins
                                                     .as_deref()
                                                     .map(|pins| pins as &dyn crate::net::protocols::known_hosts::Pins),
+                                                identity: client_identity.as_ref(),
                                             };
                                             let served =
                                                 crate::net::protocols::run(protocol, request, &handle.cancel, observer)
@@ -1162,7 +1177,7 @@ mod tests {
         let nav = NavigationId::new();
         let mut identity = TabIdentity::new(
             crate::cookies::DefaultCookieJar::new().into(),
-            crate::net::protocols::known_hosts::InMemoryKnownHosts::handle(),
+            crate::net::protocols::identities::ZoneCertificates::default(),
         );
         identity.top_level = Some(destination.clone());
         identity.initiators.push_back((nav, Some(page)));
@@ -1188,7 +1203,7 @@ mod tests {
             top_level: Some(private.clone()),
             ..TabIdentity::new(
                 crate::cookies::DefaultCookieJar::new().into(),
-                crate::net::protocols::known_hosts::InMemoryKnownHosts::handle(),
+                crate::net::protocols::identities::ZoneCertificates::default(),
             )
         };
         let for_public = FetchRequest::builder(http::Method::GET, Url::parse("http://192.168.1.1/img.png").unwrap())
@@ -1239,7 +1254,7 @@ mod tests {
                 top_level: Some(Url::parse("https://bank.test/").unwrap()),
                 ..TabIdentity::new(
                     jar_with("https://bank.test/", "lax=1; SameSite=Lax; Path=/"),
-                    crate::net::protocols::known_hosts::InMemoryKnownHosts::handle(),
+                    crate::net::protocols::identities::ZoneCertificates::default(),
                 )
             };
             let mut req = FetchRequest::builder(Method::GET, Url::parse("https://bank.test/img.png").unwrap())
@@ -1299,11 +1314,7 @@ mod tests {
                 },
                 None,
             );
-            reg.register(
-                tab,
-                jar,
-                crate::net::protocols::known_hosts::InMemoryKnownHosts::handle(),
-            );
+            reg.register(tab, jar, crate::net::protocols::identities::ZoneCertificates::default());
             reg.set_top_level(tab, Url::parse("https://bank.test/").unwrap());
             reg.start_navigation(tab, nav, Some(Url::parse("https://evil.test/page").unwrap()));
             let identity = reg.get(tab).unwrap();
@@ -1331,7 +1342,7 @@ mod tests {
                 top_level: Some(Url::parse("https://example.com/page").unwrap()),
                 ..TabIdentity::new(
                     jar_with("https://example.com/", "sid=abc; Path=/"),
-                    crate::net::protocols::known_hosts::InMemoryKnownHosts::handle(),
+                    crate::net::protocols::identities::ZoneCertificates::default(),
                 )
             };
             let mut req = request_to("https://example.com/api");
@@ -1357,7 +1368,7 @@ mod tests {
                 top_level: Some(Url::parse("https://example.com/page").unwrap()),
                 ..TabIdentity::new(
                     jar_with("https://example.com/", "sid=real; Path=/"),
-                    crate::net::protocols::known_hosts::InMemoryKnownHosts::handle(),
+                    crate::net::protocols::identities::ZoneCertificates::default(),
                 )
             };
             let mut req = request_to("https://example.com/api");

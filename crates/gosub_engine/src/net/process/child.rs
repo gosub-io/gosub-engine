@@ -665,12 +665,17 @@ async fn perform_protocol(
         link_tx: Arc::clone(link_tx),
         answers: Arc::clone(answers),
     };
+    let identity = fetch
+        .identity
+        .clone()
+        .map(crate::net::protocols::identities::ClientIdentity::from);
     let request = crate::net::protocols::ProtocolRequest {
         url: &url,
         reach: fetch.reach,
         pins: protocol
             .pins_certificates()
             .then_some(&pins as &dyn crate::net::protocols::known_hosts::Pins),
+        identity: identity.as_ref(),
     };
     let served = crate::net::protocols::run(protocol, request, &cancel, observer).await;
     answers.lock().remove(&fetch.tag);
@@ -703,7 +708,15 @@ async fn perform_protocol(
             message,
             seen: CertPin::from_digest(&seen).to_string(),
         },
-        FetchResult::Error(e) => FetchOutcome::Error(e.to_string()),
+        FetchResult::Error(e) => match crate::net::protocols::identities::IdentityAsked::of(&e) {
+            Some(asked) => FetchOutcome::IdentityAsked {
+                url: asked.url.to_string(),
+                status: asked.status,
+                message: asked.message.clone(),
+                presented: asked.presented,
+            },
+            None => FetchOutcome::Error(e.to_string()),
+        },
         FetchResult::Stream { .. } => FetchOutcome::Error(format!("{} answered with a stream", protocol.scheme())),
     }
 }
