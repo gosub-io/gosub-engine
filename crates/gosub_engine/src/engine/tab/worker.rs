@@ -888,6 +888,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     }
                 }
 
+                // The handle shows the new page before anyone woken by `Finished` reads it.
+                self.publish_tab_state();
                 self.send_event(EngineEvent::Navigation {
                     tab_id: self.tab_id,
                     event: NavigationEvent::Finished { nav_id, url: final_url },
@@ -2054,6 +2056,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             self.apply_scroll(x, y);
         }
 
+        self.publish_tab_state();
         self.send_event(EngineEvent::Navigation {
             tab_id: self.tab_id,
             event: NavigationEvent::Finished { nav_id, url },
