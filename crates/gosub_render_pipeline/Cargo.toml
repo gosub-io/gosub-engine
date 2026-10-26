@@ -25,6 +25,8 @@ resvg = { workspace = true }
 stacker = { workspace = true }
 # Bounded SVGZ inflate. Already in the tree through usvg's `svgz` feature.
 flate2 = "1"
+# Grapheme boundaries for cutting text at an ellipsis. Already in the tree through convert_case.
+unicode-segmentation = "1.13"
 bytes = { workspace = true }
 bytemuck = { workspace = true }
 base64 = { workspace = true }

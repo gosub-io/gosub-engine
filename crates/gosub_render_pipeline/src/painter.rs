@@ -1,13 +1,14 @@
 pub mod commands;
 pub mod shape_cache;
 pub mod text_field;
+pub mod text_overflow;
 
 use crate::common::browser_state::{BrowserState, WireframeState};
 use crate::common::document::node::NodeId;
 use gosub_interface::style::{
     Anchor, BackgroundImage, BackgroundRepeat, BackgroundSize, BackgroundTile, BorderCollapse,
     BorderStyle as CssBorderStyle, Color as CssColor, ComputedStyle, Display, LinearGradient as CssLinearGradient,
-    ObjectFit,
+    ObjectFit, OverflowWrap, WordBreak,
 };
 
 /// Which colour of a [`ComputedStyle`] a brush is made from. A function pointer rather than a
@@ -83,6 +84,8 @@ fn paint_text_style(font_info: &FontInfo, rect_width: f64, available_width: f64)
         letter_spacing: font_info.letter_spacing as f32,
         max_width: Some(max_width),
         align,
+        word_break: font_info.word_break,
+        overflow_wrap: font_info.overflow_wrap,
         // Paint commands are in CSS pixels; DPI scaling is applied later in the pipeline.
         display_scale: 1.0,
     }
@@ -140,6 +143,15 @@ impl Painter {
             Some(ref cache) => cache.get_or_shape(text, &style, || fs.lock().shape(text, &style)),
             None => Arc::new(fs.lock().shape(text, &style)),
         }
+    }
+
+    /// The advance of `text` on one unbroken line, measured as the layouter measures.
+    fn advance(&self, text: &str, font_info: &FontInfo) -> f64 {
+        let Some(ref fs) = self.font_system else {
+            return 0.0;
+        };
+        crate::layouter::text::get_text_layout(text, font_info, 1_000_000_000.0, &mut *fs.lock())
+            .map_or(0.0, |dimension| dimension.width)
     }
 
     pub fn paint(&self, element: &TiledLayoutElement, state: &BrowserState) -> Vec<PaintCommand> {
@@ -334,6 +346,8 @@ impl Painter {
             alignment: FontAlignment::Start,
             underline: false,
             line_through: false,
+            word_break: WordBreak::Normal,
+            overflow_wrap: OverflowWrap::Normal,
         }
     }
 
@@ -476,8 +490,27 @@ impl Painter {
                     1_000_000_000.0
                 };
                 let shaped = self.shape_text(&ctx.text, &ctx.font_info, r.width, avail_w);
-                let t = Text::new(r, &ctx.text, &ctx.font_info, brush, avail_w, shaped);
-                commands.push(PaintCommand::text(t));
+                // The ellipsis marks a line cut at the edge. A run that wrapped onto several lines
+                // and is still too wide has a word that overflows one of them; cutting it as if it
+                // were one line would drop every line after the first.
+                let one_line = shaped.height <= shaped.line_height * 1.5;
+                let cut = text_overflow::ellipsis_edge(&self.layer_list.layout_tree, layout_element)
+                    .filter(|_| one_line)
+                    .map_or(text_overflow::Cut::Whole, |edge| {
+                        text_overflow::cut(&ctx.text, r.x, r.width, edge, |text| self.advance(text, &ctx.font_info))
+                    });
+                match cut {
+                    text_overflow::Cut::Whole => {
+                        let t = Text::new(r, &ctx.text, &ctx.font_info, brush, avail_w, shaped);
+                        commands.push(PaintCommand::text(t));
+                    }
+                    text_overflow::Cut::Hidden => {}
+                    text_overflow::Cut::Ellipsis(text) => {
+                        let shaped = self.shape_text(&text, &ctx.font_info, r.width, avail_w);
+                        let t = Text::new(r, &text, &ctx.font_info, brush, avail_w, shaped);
+                        commands.push(PaintCommand::text(t));
+                    }
+                }
             }
             ElementContext::Svg(svg_ctx) => {
                 let border_box = layout_element.box_model.border_box;

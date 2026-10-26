@@ -41,6 +41,8 @@ pub fn text_style(font_info: &FontInfo, max_width: f64) -> TextStyle {
         letter_spacing: font_info.letter_spacing as f32,
         max_width: Some(max_width.max(1.0) as f32),
         align,
+        word_break: font_info.word_break,
+        overflow_wrap: font_info.overflow_wrap,
         display_scale: 1.0,
     }
 }

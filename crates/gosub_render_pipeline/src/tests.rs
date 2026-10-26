@@ -5128,3 +5128,5 @@ mod rendertree_from_engine {
 mod list_markers;
 #[cfg(test)]
 mod shadow_dom;
+#[cfg(test)]
+mod text_wrapping;

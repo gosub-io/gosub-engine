@@ -4,6 +4,7 @@ use gosub_interface::font_system::{
     Confinement, FontQuery, FontStretch, FontSystem, FontWeight, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun,
     ShapedText, TextAlign, TextStyle,
 };
+use gosub_interface::style::{OverflowWrap, WordBreak};
 use parley::fontique::{
     Attributes, Blob, Collection, FontInfoOverride, FontWidth, GenericFamily, QueryFamily, QueryStatus, SourceCache,
 };
@@ -214,6 +215,7 @@ impl FontSystem for ParleyFontSystem {
             builder.push_default(parley::StyleProperty::LetterSpacing(style.letter_spacing));
             builder.push_default(parley::StyleProperty::FontFeatures(NO_OPTIONAL_LIGATURES.into()));
         }
+        push_word_breaking(&mut builder, style);
         builder.push_default(parley::StyleProperty::Brush(()));
 
         let mut layout = builder.build(text);
@@ -239,6 +241,20 @@ impl FontSystem for ParleyFontSystem {
 /// ligature when breaking lines but once per glyph in the width it reports, so a run measured
 /// at its own width would not fit it.
 const NO_OPTIONAL_LIGATURES: &str = r#""liga" 0, "clig" 0, "dlig" 0"#;
+
+/// CSS `word-break` and `overflow-wrap`, which Parley takes as they are.
+fn push_word_breaking(builder: &mut parley::RangedBuilder<'_, ()>, style: &TextStyle) {
+    builder.push_default(parley::StyleProperty::WordBreak(match style.word_break {
+        WordBreak::BreakAll => parley::WordBreak::BreakAll,
+        WordBreak::KeepAll => parley::WordBreak::KeepAll,
+        WordBreak::Normal | WordBreak::BreakWord => parley::WordBreak::Normal,
+    }));
+    builder.push_default(parley::StyleProperty::OverflowWrap(match style.overflow_wrap {
+        OverflowWrap::Normal => parley::OverflowWrap::Normal,
+        OverflowWrap::BreakWord => parley::OverflowWrap::BreakWord,
+        OverflowWrap::Anywhere => parley::OverflowWrap::Anywhere,
+    }));
+}
 
 impl ParleyFontSystem {
     /// Shape `text` with an already-resolved font, so measurement and drawing agree on the
@@ -267,6 +283,7 @@ impl ParleyFontSystem {
             builder.push_default(parley::StyleProperty::LetterSpacing(style.letter_spacing));
             builder.push_default(parley::StyleProperty::FontFeatures(NO_OPTIONAL_LIGATURES.into()));
         }
+        push_word_breaking(&mut builder, style);
         builder.push_default(parley::StyleProperty::Brush(()));
 
         let mut layout = builder.build(text);

@@ -23,6 +23,8 @@ pub fn get_text_layout(
         // Alignment shifts lines within max_width but never changes the bounding box, so
         // measurement always shapes start-aligned.
         align: TextAlign::Start,
+        word_break: font_info.word_break,
+        overflow_wrap: font_info.overflow_wrap,
         // The layouter works in CSS pixels; DPI scaling is applied later in the pipeline.
         display_scale: 1.0,
     };
