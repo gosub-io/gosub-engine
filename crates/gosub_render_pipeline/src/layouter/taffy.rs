@@ -1621,6 +1621,31 @@ impl TaffyLayouter {
         let line_height = self.inline_line_height(layout_tree, items);
         // Taken up front so an early return cannot leak it into the next run.
         let closing_extra = std::mem::take(&mut cursor.closing_extra);
+        // `nowrap` and `pre` leave a run no soft wrap opportunity, so it is one line and is not
+        // split between bands. A line too wide for the room beside a float goes below it, as a
+        // line box too small for any of its content does (CSS 2 §9.5).
+        if line_style.no_wrap {
+            let width: Option<f64> = items
+                .iter()
+                .map(|(id, _)| self.inline_item_width(layout_tree, id))
+                .sum();
+            while (cursor.lines_left(line_height) == 0
+                || width.is_none_or(|width| width > cursor.current().line_width as f64))
+                && cursor.advance()
+            {}
+            let placement = cursor.placement();
+            self.emit_line(
+                layout_tree,
+                items,
+                None,
+                element_node,
+                leaf_id,
+                line_style,
+                Some(placement),
+            );
+            cursor.take_lines_tall_last(1, line_height, closing_extra);
+            return;
+        }
         let mut rest = items;
         while !rest.is_empty() {
             let band = cursor.current();
@@ -1948,26 +1973,30 @@ impl TaffyLayouter {
                 matches!(&el.context, ElementContext::Text(t) if !t.text.is_empty() && !t.text.chars().any(char::is_whitespace))
             })
         };
+        // A flex item is never narrower than its min-content width unless told otherwise, and
+        // under `overflow-wrap: break-word` that is the longest word: the line box would hand the
+        // text that much room and the shaper would never break the word. A word that may break
+        // inside can be as narrow as its widest grapheme. Only in a line box: text that is an
+        // author flex or grid item keeps its automatic minimum.
+        let breaks_inside_words = |id: &LayoutElementId| {
+            layout_tree
+                .arena
+                .get(id)
+                .is_some_and(|el| matches!(&el.context, ElementContext::Text(t) if t.font_info.breaks_inside_words()))
+        };
         let mut rest = items;
         while !rest.is_empty() {
             let run = rest.iter().take_while(|(id, _)| touches(id)).count().max(1);
             let parent = if run > 1 {
-                self.glue_box(taffy_container_id)
+                let shrinks = rest[..run].iter().any(|(id, _)| breaks_inside_words(id));
+                self.glue_box(taffy_container_id, shrinks)
             } else {
                 None
             };
             for (inline_layout_element_id, inline_taffy_node_id) in &rest[..run] {
-                // A flex item is never narrower than its min-content width unless told otherwise,
-                // and under `overflow-wrap: break-word` that is the longest word: the line box
-                // would hand the text that much room and the shaper would never break the word.
-                // A word that may break inside can be as narrow as the line it is on. Only in a
-                // line box: text that is an author flex or grid item keeps its automatic minimum.
-                let breaks_inside_words = layout_tree.arena.get(inline_layout_element_id).is_some_and(
-                    |el| matches!(&el.context, ElementContext::Text(t) if t.font_info.breaks_inside_words()),
-                );
-                if breaks_inside_words {
+                if let Some(narrowest) = self.narrowest_line(layout_tree, inline_layout_element_id) {
                     if let Ok(mut item) = self.tree.style(*inline_taffy_node_id).cloned() {
-                        item.min_size.width = LengthPercentageAuto::length(0.0);
+                        item.min_size.width = LengthPercentageAuto::length(narrowest);
                         let _ = self.tree.set_style(*inline_taffy_node_id, item);
                     }
                 }
@@ -1990,10 +2019,33 @@ impl TaffyLayouter {
         }
     }
 
+    /// The width of the narrowest line a text item that may break inside its words can be set in:
+    /// its widest grapheme. `None` for any other item.
+    fn narrowest_line(&mut self, layout_tree: &LayoutTree, id: &LayoutElementId) -> Option<f32> {
+        let ElementContext::Text(text) = &layout_tree.arena.get(id)?.context else {
+            return None;
+        };
+        if !text.font_info.breaks_inside_words() {
+            return None;
+        }
+        Some(
+            measure_str_cached(
+                &text.text,
+                &text.font_info,
+                1.0,
+                &self.font_system,
+                &mut self.measure_cache,
+            )
+            .width,
+        )
+    }
+
     /// A box in `line` for text items that must stay together: a row that does not wrap, its
-    /// items at its top for baseline alignment to move down, as in the line box itself.
-    fn glue_box(&mut self, line: TaffyNodeId) -> Option<TaffyNodeId> {
-        let style = Style {
+    /// items at its top for baseline alignment to move down, as in the line box itself. It
+    /// `shrinks` when one of its items may break inside a word: the line still does not break
+    /// between the items, but that item can then take the break the line needs.
+    fn glue_box(&mut self, line: TaffyNodeId, shrinks: bool) -> Option<TaffyNodeId> {
+        let mut style = Style {
             display: Display::Flex,
             flex_direction: FlexDirection::Row,
             flex_wrap: FlexWrap::NoWrap,
@@ -2001,6 +2053,10 @@ impl TaffyLayouter {
             align_items: Some(AlignItems::FLEX_START),
             ..Default::default()
         };
+        if shrinks {
+            style.flex_shrink = 1.0;
+            style.min_size.width = LengthPercentageAuto::length(0.0);
+        }
         let glue = self.tree.new_leaf(style).ok()?;
         if let Err(e) = self.tree.add_child(line, glue) {
             log::warn!("Failed to add glue box to taffy tree: {:?}", e);

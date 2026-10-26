@@ -316,3 +316,44 @@ fn a_long_word_breaks_among_inline_boxes() {
         );
     }
 }
+
+/// A `nowrap` line is not split between the bands beside a float and below it: too wide for the
+/// room beside the float, the whole line goes below it.
+#[test]
+fn a_nowrap_line_beside_a_float_stays_whole() {
+    let (tree, _, [block]) = lay_out(
+        r#"<body style="margin: 0"><div id="block" style="width: 300px; white-space: nowrap"><div style="float: left; width: 150px; height: 60px"></div>With <b>bold part</b> and <i>italic part</i> after that and more</div></body>"#,
+        ["block"],
+    );
+    let text = text_boxes(&tree, block);
+    assert!(text.len() > 1, "{text:?}");
+    for piece in &text {
+        assert_eq!(piece.y, text[0].y, "one line: {text:?}");
+    }
+    assert!(text[0].y >= 60.0, "below the float: {:?}", text[0]);
+}
+
+/// Text items that touch are kept on one line together, but one of them that may break inside
+/// its words still breaks: the parentheses around a long link stay whole beside it.
+#[test]
+fn a_long_word_breaks_beside_the_text_it_touches() {
+    let (tree, _, [block]) = lay_out(
+        &format!(
+            r#"<body style="margin: 0"><div id="block" style="width: 100px; overflow-wrap: anywhere">(<a>{LONG_WORD}</a>)</div></body>"#
+        ),
+        ["block"],
+    );
+    let block_box = border_box(&tree, block);
+    let text = text_boxes(&tree, block);
+    assert_eq!(text.len(), 3, "{text:?}");
+    for piece in &text {
+        assert!(
+            piece.x + piece.width <= block_box.x + block_box.width + 0.5,
+            "the text stays in its box: {piece:?} in {block_box:?}"
+        );
+    }
+    assert!(text[1].height > 40.0, "the word takes several lines: {:?}", text[1]);
+    // A parenthesis is one grapheme: it cannot be squeezed.
+    assert_eq!(text[0].width, text[2].width, "{text:?}");
+    assert!(text[0].width > 4.0, "{:?}", text[0]);
+}
