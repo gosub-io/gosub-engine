@@ -17,6 +17,14 @@
 //! such a navigation reaches no further than that page's space
 //! (`TabIdentity::protocol_navigation_reach`). What passes is served by [`run`], in this
 //! process or in the network process.
+//!
+//! A protocol's fetch builds on [`socket`] for its connection, which holds every address to
+//! the reach and every port to [`socket::port_refused`], and on [`page`] for the HTML it
+//! shows. [`is_network_place`] and [`transport`] answer, for any URL, what an embedder asks
+//! of a scheme (bookmarks, the address bar's padlock), so an embedder names no schemes.
+
+pub mod page;
+pub mod socket;
 
 use crate::net::ssrf::AddressSpace;
 use crate::net::types::{FetchRequest, FetchResult, FetchResultMeta, NetError};
@@ -52,6 +60,13 @@ pub trait Protocol: Send + Sync {
     /// network process has no settings of its own.
     fn setting(&self) -> &'static str;
 
+    /// The port a URL without one connects to. Open to this protocol even when the Fetch
+    /// standard blocks it ([`socket::port_refused`]).
+    fn default_port(&self) -> u16;
+
+    /// Whether the connection is encrypted, as an address bar shows it.
+    fn encrypted(&self) -> bool;
+
     /// Fetch `url`, reaching no address space more private than `reach`. Resolves when the
     /// whole body is in; dropping the future abandons the fetch.
     async fn fetch(&self, url: &Url, reach: AddressSpace) -> Result<ProtocolResponse, NetError>;
@@ -66,6 +81,35 @@ static PROTOCOLS: &[&dyn Protocol] = &[
 /// The protocol serving `scheme`, if this build has one.
 pub fn lookup(scheme: &str) -> Option<&'static dyn Protocol> {
     PROTOCOLS.iter().copied().find(|p| p.scheme() == scheme)
+}
+
+/// How a page at a URL came over the network.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Transport {
+    Encrypted,
+    Cleartext,
+}
+
+/// How `url` is fetched: https and encrypted engine protocols are [`Transport::Encrypted`],
+/// http and the rest of the engine protocols [`Transport::Cleartext`]. `None` for what does
+/// not come over the network (`file:`, `data:`, `about:`, internal pages).
+pub fn transport(url: &Url) -> Option<Transport> {
+    let encrypted = match url.scheme() {
+        "https" => true,
+        "http" => false,
+        scheme => lookup(scheme)?.encrypted(),
+    };
+    Some(if encrypted {
+        Transport::Encrypted
+    } else {
+        Transport::Cleartext
+    })
+}
+
+/// Whether `url` is a place on the network: http(s), or a scheme an engine protocol in this
+/// build serves. What history records a visit to and an embedder may bookmark.
+pub fn is_network_place(url: &Url) -> bool {
+    transport(url).is_some()
 }
 
 /// The protocol serving this request, if this build has one.
@@ -202,6 +246,12 @@ mod tests {
         fn setting(&self) -> &'static str {
             "net.echo.enabled"
         }
+        fn default_port(&self) -> u16 {
+            7
+        }
+        fn encrypted(&self) -> bool {
+            false
+        }
         async fn fetch(&self, url: &Url, _reach: AddressSpace) -> Result<ProtocolResponse, NetError> {
             Ok(ProtocolResponse {
                 content_type: "text/plain".into(),
@@ -221,6 +271,12 @@ mod tests {
         }
         fn setting(&self) -> &'static str {
             "net.stall.enabled"
+        }
+        fn default_port(&self) -> u16 {
+            7
+        }
+        fn encrypted(&self) -> bool {
+            false
         }
         async fn fetch(&self, _url: &Url, _reach: AddressSpace) -> Result<ProtocolResponse, NetError> {
             std::future::pending().await
@@ -271,6 +327,31 @@ mod tests {
     fn gopher_is_a_protocol() {
         let gopher = lookup("gopher").expect("gopher compiled in");
         assert_eq!(gopher.setting(), "net.gopher.enabled");
+    }
+
+    #[test]
+    fn the_web_is_a_network_place_and_local_pages_are_not() {
+        let url = |s: &str| Url::parse(s).unwrap();
+        assert_eq!(transport(&url("https://a.test/")), Some(Transport::Encrypted));
+        assert_eq!(transport(&url("http://a.test/")), Some(Transport::Cleartext));
+        for local in [
+            "file:///etc/passwd",
+            "about:blank",
+            "data:text/plain,x",
+            "gosub://settings",
+        ] {
+            assert_eq!(transport(&url(local)), None, "{local}");
+            assert!(!is_network_place(&url(local)), "{local}");
+        }
+        assert!(is_network_place(&url("http://a.test/")));
+    }
+
+    #[cfg(feature = "gopher")]
+    #[test]
+    fn a_gopher_page_is_a_cleartext_network_place() {
+        let url = Url::parse("gopher://a.test/1/").unwrap();
+        assert_eq!(transport(&url), Some(Transport::Cleartext));
+        assert!(is_network_place(&url));
     }
 
     #[tokio::test]
