@@ -22,7 +22,8 @@
 //! Every hop of a redirect is held to the request's pin, or on a first visit to the
 //! certificate its first hop showed.
 //!
-//! Text in a charset other than UTF-8 is read as UTF-8 all the same.
+//! Text comes in the charset its media type names, UTF-8 when it names none, and is decoded
+//! before it is shown.
 //!
 //! The connection is [`socket`]'s, with its reach and port rules.
 //!
@@ -116,8 +117,13 @@ impl Protocol for Gemini {
             let pin = pin.get_or_insert_with(|| certificate.clone());
             let target = followed(&url, &response).map_err(|e| invalid(format!("{url} answered: {e}")))?;
             let target = match target {
-                Some(target) if hops < MAX_REDIRECTS => {
+                Some(mut target) if hops < MAX_REDIRECTS => {
                     hops += 1;
+                    // A target without a fragment keeps the one the page was asked with, as
+                    // a redirect on the web does.
+                    if target.fragment().is_none() {
+                        target.set_fragment(url.fragment());
+                    }
                     url = target;
                     continue;
                 }
@@ -168,10 +174,11 @@ impl Gemini {
 }
 
 /// Where a response sends the request on to: a redirect's target, when it is on the same
-/// host and port as `url`. `None` for any other response, which is shown.
+/// host and port as `url`. `None` for any other response, which is shown, and for a redirect
+/// to nowhere: an empty target is no URI the specification lets a redirect name.
 fn followed(url: &Url, response: &[u8]) -> Result<Option<Url>, String> {
     let (status, meta, _) = header(response)?;
-    if status / 10 != 3 {
+    if status / 10 != 3 || meta.is_empty() {
         return Ok(None);
     }
     Ok(url
@@ -291,26 +298,43 @@ fn input_form(url: &Url, status: u8, meta: &str) -> String {
 }
 
 /// A success: the body under the media type in `meta`, which is gemtext in UTF-8 when empty.
+/// Text is decoded from its `charset` first, so every page goes on in UTF-8.
 fn content(url: &Url, meta: &str, body: &[u8]) -> (String, Vec<u8>) {
     let mut parts = meta.split(';');
     let essence = parts.next().unwrap_or_default().trim().cow_to_ascii_lowercase();
-    let lang = parts.find_map(|param| {
-        let (name, value) = param.split_once('=')?;
-        name.trim()
-            .eq_ignore_ascii_case("lang")
-            .then(|| value.trim().trim_matches('"'))
-    });
+    let (mut lang, mut charset) = (None, None);
+    for param in parts {
+        let Some((name, value)) = param.split_once('=') else {
+            continue;
+        };
+        let value = value.trim().trim_matches('"');
+        match &*name.trim().cow_to_ascii_lowercase() {
+            "lang" => lang = lang.or(Some(value)),
+            "charset" => charset = charset.or(Some(value)),
+            _ => {}
+        }
+    }
     match &*essence {
-        "" | "text/gemini" => html(gemtext::page(url, &String::from_utf8_lossy(body), lang)),
-        "text/html" => ("text/html; charset=utf-8".into(), body.to_vec()),
-        text if text.starts_with("text/") => html(page::document(
+        "" | "text/gemini" => html(gemtext::page(url, &text(body, charset), lang)),
+        "text/html" => html(text(body, charset).into_owned()),
+        text_type if text_type.starts_with("text/") => html(page::document(
             &title_for(url),
             gemtext::STYLE,
-            &format!("<pre>{}</pre>", escape(&String::from_utf8_lossy(body))),
+            &format!("<pre>{}</pre>", escape(&text(body, charset))),
         )),
         other if is_media_type(other) => (other.to_string(), body.to_vec()),
         _ => ("application/octet-stream".into(), body.to_vec()),
     }
+}
+
+/// A text body decoded from `charset`, the encoding the WHATWG Encoding standard gives the
+/// label: UTF-8 when there is none, as the specification has a client assume, and when the
+/// label names no encoding. A byte order mark for that encoding is not part of the text.
+fn text<'a>(body: &'a [u8], charset: Option<&str>) -> std::borrow::Cow<'a, str> {
+    let encoding = charset
+        .and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes()))
+        .unwrap_or(encoding_rs::UTF_8);
+    encoding.decode_with_bom_removal(body).0
 }
 
 /// Whether `s` is a `type/subtype` of token characters, which the rest of the pipeline may
@@ -326,6 +350,9 @@ fn is_media_type(s: &str) -> bool {
 
 /// A redirect's body: where it points, linked when a gemini page may go there.
 fn redirect(url: &Url, meta: &str) -> String {
+    if meta.is_empty() {
+        return "<p>The server redirected the page without saying where to.</p>".into();
+    }
     match url.join(meta) {
         Ok(to) if matches!(to.scheme(), "gemini" | "http" | "https") => format!(
             "<p>The page is at <a href=\"{}\">{}</a>.</p>",
@@ -480,6 +507,47 @@ mod tests {
     }
 
     #[test]
+    fn text_is_decoded_from_its_charset() {
+        let at = url("gemini://h.test/");
+        let shown = |r: &[u8]| String::from_utf8(present(&at, r).unwrap().1).unwrap();
+        assert!(shown(b"20 text/gemini; charset=ISO-8859-1\r\n# caf\xe9").contains("<h1>caf\u{e9}</h1>"));
+        assert!(shown(b"20 text/gemini;charset=\"windows-1252\"; lang=fr\r\n\x93q\x94").contains("\u{201c}q\u{201d}"));
+        assert!(shown(b"20 text/plain; charset=koi8-r\r\n\xf0\xd2\xc9").contains("<pre>\u{41f}\u{440}\u{438}</pre>"));
+        let (ty, page) = present(&at, b"20 text/html; charset=shift_jis\r\n<p>\x93\xfa</p>").unwrap();
+        assert_eq!(
+            (ty.as_str(), String::from_utf8(page).unwrap().as_str()),
+            ("text/html; charset=utf-8", "<p>\u{65e5}</p>")
+        );
+        // No charset, or one that names no encoding, is UTF-8.
+        assert!(shown(b"20 text/gemini\r\n# caf\xc3\xa9").contains("<h1>caf\u{e9}</h1>"));
+        assert!(shown(b"20 text/plain; charset=nonsense\r\ncaf\xc3\xa9").contains("caf\u{e9}"));
+        // A charset parameter on other media is left alone.
+        assert_eq!(
+            present(&at, b"20 image/png; charset=koi8-r\r\n\xf0").unwrap(),
+            ("image/png".into(), b"\xf0".to_vec())
+        );
+    }
+
+    #[test]
+    fn a_byte_order_mark_is_not_part_of_the_text() {
+        let at = url("gemini://h.test/");
+        let shown = |r: &[u8]| String::from_utf8(present(&at, r).unwrap().1).unwrap();
+        let page = shown(b"20 text/gemini\r\n\xef\xbb\xbf# Title");
+        assert!(page.contains("<h1>Title</h1>") && !page.contains('\u{feff}'), "{page}");
+        let page = shown(b"20 text/gemini; charset=utf-16le\r\n\xff\xfe#\x00 \x00x\x00");
+        assert!(page.contains("<h1>x</h1>"), "{page}");
+    }
+
+    #[test]
+    fn a_redirect_to_nowhere_is_not_followed() {
+        let at = url("gemini://h.test/a");
+        assert_eq!(followed(&at, b"30\r\n"), Ok(None));
+        assert_eq!(followed(&at, b"31 \r\n"), Ok(None));
+        let page = String::from_utf8(present(&at, b"30\r\n").unwrap().1).unwrap();
+        assert!(page.contains("without saying where to"), "{page}");
+    }
+
+    #[test]
     fn other_statuses_are_pages_with_the_server_s_message() {
         let at = url("gemini://h.test/dir/");
         let shown = |r: &[u8]| String::from_utf8(present(&at, r).unwrap().1).unwrap();
@@ -594,7 +662,7 @@ mod tests {
             true,
         )
         .await;
-        let response = fetch(&format!("gemini://127.0.0.1:{port}/a"), None).await.unwrap();
+        let response = fetch(&format!("gemini://127.0.0.1:{port}/a#top"), None).await.unwrap();
         let requests: Vec<_> = server
             .await
             .unwrap()
@@ -609,7 +677,8 @@ mod tests {
                 format!("gemini://127.0.0.1:{port}/c?x\r\n"),
             ]
         );
-        let at = format!("gemini://127.0.0.1:{port}/c?x");
+        // The fragment the page was asked with stays, and is never sent.
+        let at = format!("gemini://127.0.0.1:{port}/c?x#top");
         assert_eq!(response.final_url.as_ref().map(Url::as_str), Some(at.as_str()));
         // Links resolve against where the page ended up.
         assert!(

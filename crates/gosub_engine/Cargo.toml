@@ -59,6 +59,8 @@ sha2 = "0.11.0"
 # TLS for gemini://, with the aws-lc-rs provider gosub-sonar uses, so there is one provider.
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "aws-lc-rs"], optional = true }
 tokio-rustls = { version = "0.26", default-features = false, optional = true }
+# Text gemini serves in a charset other than UTF-8.
+encoding_rs = { version = "0.8.35", optional = true }
 parking_lot = { workspace = true }
 mime = "0.3.17"
 chrono = { workspace = true }
@@ -113,7 +115,7 @@ gopher = []
 finger = []
 # The gemini:// protocol (`net::gemini`): TLS, certificates trusted on first use. Served the
 # same way; `net.gemini.enabled` turns it off at run time.
-gemini = ["dep:rustls", "dep:tokio-rustls"]
+gemini = ["dep:rustls", "dep:tokio-rustls", "dep:encoding_rs"]
 # Compile the feature-gated font systems into the isolation harness, so its
 # font scenarios can be pointed at every backend the engine supports - the
 # confinement contract has to hold per font stack, not just for the default.
