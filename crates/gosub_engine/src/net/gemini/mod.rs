@@ -9,10 +9,9 @@
 //! - `2x` is the body, under the media type in the meta: gemtext ([`gemtext`]) becomes a page,
 //!   other text a `<pre>` page, HTML is served as it is and anything else raw, so images
 //!   display and the rest goes to the download offer,
-//! - `3x` is a redirect. One to the same host and port is followed, up to
-//!   [`MAX_REDIRECTS`] times, and the page commits under where it ended. One anywhere else
-//!   is shown as a page linking there: the pin a hop to another server would be held to is
-//!   the broker's, which this side of the request does not have,
+//! - `3x` is a redirect. One to a gemini URL is followed, up to [`MAX_REDIRECTS`] times in
+//!   all, and the page commits under where it ended. One to another scheme is shown as a
+//!   page linking there,
 //! - `4x` and `5x` are failures, and `6x` asks for a client certificate the engine does not
 //!   have: each is a page with the server's message. After a `44`, slow down, the server
 //!   is left alone for a while that doubles each time it says so again ([`slow_down`]).
@@ -20,8 +19,10 @@
 //! Servers mostly sign their own certificates, so the connection trusts a certificate on
 //! first use ([`tls`]): the first visit to a host and port reports the certificate, which the
 //! broker pins, and a later visit showing another is refused before the request is sent.
-//! Every hop of a redirect is held to the request's pin, or on a first visit to the
-//! certificate its first hop showed.
+//! Each server a request reaches is held to the zone's pin for it
+//! ([`ProtocolRequest::pins`]), or on a first visit to the certificate it showed first in
+//! that request. A changed certificate is offered for trusting only at the server the page
+//! was asked for: one a redirect led to is decided about by visiting it.
 //!
 //! Text comes in the charset its media type names, UTF-8 when it names none, and is decoded
 //! before it is shown.
@@ -36,7 +37,7 @@ mod slow_down;
 pub(crate) mod testing;
 mod tls;
 
-use crate::net::protocols::known_hosts::{key, CertPin};
+use crate::net::protocols::known_hosts::{key, CertPin, ServerPin};
 use crate::net::protocols::page::{self, escape, title_for};
 use crate::net::protocols::socket::{self, invalid, Close};
 use crate::net::protocols::{Protocol, ProtocolRequest, ProtocolResponse};
@@ -44,6 +45,7 @@ use crate::net::types::NetError;
 use async_trait::async_trait;
 use bytes::Bytes;
 use cow_utils::CowUtils;
+use std::collections::HashMap;
 use url::{Host, Url};
 
 /// Gemini's port when the URL names none.
@@ -101,39 +103,72 @@ impl Protocol for Gemini {
 
     async fn fetch(&self, request: ProtocolRequest<'_>) -> Result<ProtocolResponse, NetError> {
         let mut url = request.url.clone();
-        let mut pin = request.pin.cloned();
+        let asked_for = key(&url, DEFAULT_PORT);
+        // The certificate each server reached so far is held to: the zone's pin (`true`), or
+        // what it showed first in this request on a first visit.
+        let mut held: HashMap<(String, u16), (CertPin, bool)> = HashMap::new();
+        let mut seen = Vec::new();
         let mut hops = 0;
         loop {
-            let server = key(&url, DEFAULT_PORT);
-            if let Some(wait) = server.as_ref().and_then(slow_down::waiting) {
+            let server = key(&url, DEFAULT_PORT).ok_or_else(|| invalid(format!("gemini URL without a host: {url}")))?;
+            if let Some(wait) = slow_down::waiting(&server) {
                 if wait > slow_down::LONGEST_WAIT {
                     return Ok(ProtocolResponse {
                         content_type: "text/html; charset=utf-8".into(),
                         body: Bytes::from(held_back(&url, wait)),
                         peer_addr: None,
-                        certificate: pin,
+                        certificates: seen,
                         final_url: (hops > 0).then_some(url),
                     });
                 }
                 tokio::time::sleep(wait).await;
             }
-            let (response, peer, certificate) = match self.exchange(&url, request.reach, pin.as_ref()).await {
-                // A first visit that meets another certificate on a later hop has no pin to
-                // replace, so it is no changed certificate to offer for trusting.
-                Err(NetError::Tls(mut tls)) if request.pin.is_none() && tls.fingerprint.is_some() => {
+            let pin = match (held.get(&server), request.pins) {
+                (Some(held), _) => Some(held.clone()),
+                (None, Some(pins)) => pins
+                    .pin(&server.0, server.1)
+                    .await
+                    .map_err(|e| invalid(format!("no pin to hold {url} to: {e}")))?
+                    .map(|pin| (pin, true)),
+                (None, None) => None,
+            };
+            let zone_pin = pin.as_ref().is_some_and(|(_, zone)| *zone);
+            let exchanged = self
+                .exchange(&url, request.reach, pin.as_ref().map(|(pin, _)| pin))
+                .await;
+            let (response, peer, certificate) = match exchanged {
+                // Only the zone's pin for the server the page was asked for is the user's to
+                // replace: a first visit has no pin yet, and a server a redirect led to is
+                // decided about by visiting it.
+                Err(NetError::Tls(mut tls))
+                    if tls.fingerprint.is_some() && !(zone_pin && Some(&server) == asked_for.as_ref()) =>
+                {
                     tls.fingerprint = None;
-                    tls.message =
-                        format!("{url} showed another certificate than the redirect to it did on a first visit");
+                    tls.message = if zone_pin {
+                        format!(
+                            "{url}, which {} redirected to, showed another certificate than the one \
+pinned for it; visit it to decide about it",
+                            request.url
+                        )
+                    } else {
+                        format!("{url} showed another certificate than earlier in this request's redirects, on a first visit")
+                    };
                     return Err(NetError::Tls(tls));
                 }
                 exchanged => exchanged?,
             };
-            // A first visit's later hops are held to the certificate its first one showed.
-            let pin = pin.get_or_insert_with(|| certificate.clone());
+            if !held.contains_key(&server) {
+                if pin.is_none() {
+                    seen.push(ServerPin {
+                        host: server.0.clone(),
+                        port: server.1,
+                        pin: certificate.clone(),
+                    });
+                }
+                held.insert(server.clone(), pin.unwrap_or((certificate, false)));
+            }
             let status = header(&response).map(|(status, ..)| status).ok();
-            let delay = server
-                .as_ref()
-                .and_then(|server| slow_down::answered(server, status == Some(44)));
+            let delay = slow_down::answered(&server, status == Some(44));
             let target = followed(&url, &response).map_err(|e| invalid(format!("{url} answered: {e}")))?;
             let target = match target {
                 Some(mut target) if hops < MAX_REDIRECTS => {
@@ -165,7 +200,7 @@ impl Protocol for Gemini {
                 content_type,
                 body: Bytes::from(body),
                 peer_addr: peer,
-                certificate: Some(pin.clone()),
+                certificates: seen,
                 final_url: (hops > 0).then_some(url),
             });
         }
@@ -192,18 +227,16 @@ impl Gemini {
     }
 }
 
-/// Where a response sends the request on to: a redirect's target, when it is on the same
-/// host and port as `url`. `None` for any other response, which is shown, and for a redirect
-/// to nowhere: an empty target is no URI the specification lets a redirect name.
+/// Where a response sends the request on to: a redirect's target, when it is a gemini URL.
+/// `None` for any other response, which is shown, for a redirect to another scheme, which is
+/// shown as a link, and for a redirect to nowhere: an empty target is no URI the
+/// specification lets a redirect name.
 fn followed(url: &Url, response: &[u8]) -> Result<Option<Url>, String> {
     let (status, meta, _) = header(response)?;
     if status / 10 != 3 || meta.is_empty() {
         return Ok(None);
     }
-    Ok(url
-        .join(meta)
-        .ok()
-        .filter(|to| to.scheme() == "gemini" && key(to, DEFAULT_PORT) == key(url, DEFAULT_PORT)))
+    Ok(url.join(meta).ok().filter(|to| to.scheme() == "gemini"))
 }
 
 /// One gemini request.
@@ -455,7 +488,7 @@ fn html(page: String) -> (String, Vec<u8>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::net::protocols::known_hosts::CertPin;
+    use crate::net::protocols::known_hosts::{CertPin, Pins};
     use crate::net::ssrf::AddressSpace;
     use gosub_sonar::net::tls::TlsErrorKind;
     use gosub_sonar::net::types::BlockReason;
@@ -469,13 +502,46 @@ mod tests {
         Request::from_url(&url(s)).map(|r| String::from_utf8(r.line).unwrap())
     }
 
+    /// The zone's pins in a test: these servers', and none for the rest.
+    struct ZonePins(Vec<ServerPin>);
+
+    #[async_trait]
+    impl Pins for ZonePins {
+        async fn pin(&self, host: &str, port: u16) -> Result<Option<CertPin>, String> {
+            Ok(self
+                .0
+                .iter()
+                .find(|s| s.host == host && s.port == port)
+                .map(|s| s.pin.clone()))
+        }
+    }
+
+    fn pinned(host: &str, port: u16, cert: &[u8]) -> ServerPin {
+        ServerPin {
+            host: host.into(),
+            port,
+            pin: CertPin::of(cert),
+        }
+    }
+
+    /// Fetch `url` with `pin` as the zone's pin for its server, if any.
     async fn fetch(url: &str, pin: Option<&CertPin>) -> Result<ProtocolResponse, NetError> {
         let url = Url::parse(url).unwrap();
+        let (host, port) = key(&url, DEFAULT_PORT).unwrap();
+        let pins = pin.map(|pin| ServerPin {
+            host,
+            port,
+            pin: pin.clone(),
+        });
+        fetch_with(&url, &ZonePins(pins.into_iter().collect())).await
+    }
+
+    async fn fetch_with(url: &Url, pins: &ZonePins) -> Result<ProtocolResponse, NetError> {
         Gemini
             .fetch(ProtocolRequest {
-                url: &url,
+                url,
                 reach: AddressSpace::Loopback,
-                pin,
+                pins: Some(pins),
             })
             .await
     }
@@ -616,7 +682,7 @@ mod tests {
             server.await.unwrap()[0].as_deref().unwrap(),
             format!("gemini://127.0.0.1:{port}/x\r\n").as_bytes()
         );
-        assert_eq!(first.certificate, Some(CertPin::of(A_CERT)));
+        assert_eq!(first.certificates, [pinned("127.0.0.1", port, A_CERT)]);
         assert_eq!(first.peer_addr.map(|a| a.port()), Some(port));
         assert!(body(&first).contains("<h1>Hello</h1>"), "{}", body(&first));
 
@@ -624,6 +690,8 @@ mod tests {
         let pin = CertPin::of(A_CERT);
         let again = fetch(&format!("gemini://127.0.0.1:{port}/"), Some(&pin)).await.unwrap();
         assert!(body(&again).contains("<p>again</p>"));
+        // A pinned server's certificate is nothing new to record.
+        assert_eq!(again.certificates, []);
     }
 
     #[tokio::test]
@@ -734,7 +802,7 @@ mod tests {
             "{}",
             body(&response)
         );
-        assert_eq!(response.certificate, Some(CertPin::of(A_CERT)));
+        assert_eq!(response.certificates, [pinned("127.0.0.1", port, A_CERT)]);
     }
 
     #[tokio::test]
@@ -760,13 +828,51 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_redirect_to_another_server_is_a_link() {
-        let (port, server) = serve(&[A], b"30 gemini://127.0.0.1:1/elsewhere\r\n", true).await;
+    async fn a_redirect_to_another_server_is_followed_and_both_are_reported() {
+        let (there, second) = serve(&[B], b"20 text/gemini\r\n# There\r\n", true).await;
+        let redirect = format!("30 gemini://127.0.0.1:{there}/there\r\n");
+        let (here, first) = serve(&[A], redirect.into_bytes().leak(), true).await;
+        let response = fetch(&format!("gemini://127.0.0.1:{here}/"), None).await.unwrap();
+        assert_eq!(first.await.unwrap().len(), 1);
+        assert_eq!(
+            second.await.unwrap()[0].as_deref().unwrap(),
+            format!("gemini://127.0.0.1:{there}/there\r\n").as_bytes()
+        );
+        assert_eq!(
+            response.final_url.as_ref().map(Url::as_str),
+            Some(format!("gemini://127.0.0.1:{there}/there").as_str())
+        );
+        assert!(body(&response).contains("<h1>There</h1>"), "{}", body(&response));
+        assert_eq!(
+            response.certificates,
+            [pinned("127.0.0.1", here, A_CERT), pinned("127.0.0.1", there, B_CERT)]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_server_a_redirect_leads_to_is_held_to_its_own_pin() {
+        let (there, second) = serve(&[B], b"20 text/gemini\r\nsecret", true).await;
+        let redirect = format!("30 gemini://127.0.0.1:{there}/\r\n");
+        let (here, _first) = serve(&[A], redirect.into_bytes().leak(), true).await;
+        let url = Url::parse(&format!("gemini://127.0.0.1:{here}/")).unwrap();
+        let pins = ZonePins(vec![pinned("127.0.0.1", there, A_CERT)]);
+        let err = fetch_with(&url, &pins).await.unwrap_err();
+        // Not the server the page was asked for: nothing is offered for trusting there.
+        assert!(
+            matches!(&err, NetError::Tls(tls) if tls.fingerprint.is_none() && tls.message.contains("visit it")),
+            "{err:?}"
+        );
+        assert_eq!(second.await.unwrap(), [None], "the request was sent");
+    }
+
+    #[tokio::test]
+    async fn a_redirect_to_another_scheme_is_a_link() {
+        let (port, server) = serve(&[A], b"30 https://example.test/elsewhere\r\n", true).await;
         let response = fetch(&format!("gemini://127.0.0.1:{port}/"), None).await.unwrap();
         assert_eq!(server.await.unwrap().len(), 1);
         assert_eq!(response.final_url, None);
         assert!(
-            body(&response).contains("<a href=\"gemini://127.0.0.1:1/elsewhere\">"),
+            body(&response).contains("<a href=\"https://example.test/elsewhere\">"),
             "{}",
             body(&response)
         );
@@ -831,7 +937,7 @@ mod tests {
             .fetch(ProtocolRequest {
                 url: &url,
                 reach: AddressSpace::Public,
-                pin: None,
+                pins: None,
             })
             .await
             .unwrap_err();

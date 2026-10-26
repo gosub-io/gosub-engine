@@ -77,14 +77,14 @@ fn present(request: &Request, url: &Url, body: Vec<u8>, peer: Option<SocketAddr>
             content_type: "text/html".into(),
             body: Bytes::from(body),
             peer_addr: peer,
-            certificate: None,
+            certificates: Vec::new(),
             final_url: None,
         },
         _ => ProtocolResponse {
             content_type: sniff(&body).into(),
             body: Bytes::from(body),
             peer_addr: peer,
-            certificate: None,
+            certificates: Vec::new(),
             final_url: None,
         },
     }
@@ -137,7 +137,7 @@ fn html(page: String, peer: Option<SocketAddr>) -> ProtocolResponse {
         content_type: "text/html; charset=utf-8".into(),
         body: Bytes::from(page),
         peer_addr: peer,
-        certificate: None,
+        certificates: Vec::new(),
         final_url: None,
     }
 }
@@ -179,7 +179,7 @@ mod tests {
             .fetch(ProtocolRequest {
                 url: &url,
                 reach,
-                pin: None,
+                pins: None,
             })
             .await
     }

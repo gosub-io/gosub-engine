@@ -61,7 +61,7 @@ impl Protocol for Finger {
             content_type: "text/html; charset=utf-8".into(),
             body: Bytes::from(text_page(url, &body)),
             peer_addr: peer,
-            certificate: None,
+            certificates: Vec::new(),
             final_url: None,
         })
     }
@@ -213,7 +213,7 @@ mod tests {
             .fetch(ProtocolRequest {
                 url: &url,
                 reach,
-                pin: None,
+                pins: None,
             })
             .await
     }

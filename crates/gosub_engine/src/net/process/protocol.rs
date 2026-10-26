@@ -87,6 +87,31 @@ pub enum ToNet {
     /// Run the escape audit under the net lockdown and report it; the reply
     /// echoes `tag`, so a late answer is never taken for a later request's.
     Audit { tag: RequestTag },
+    /// The answer to [`FromNet::AskPin`] for the request with this tag.
+    Pin { tag: RequestTag, answer: PinAnswer },
+}
+
+/// What the broker answers when a request asks for a server's pin.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PinAnswer {
+    /// The certificate the zone has seen there (`CertPin` text).
+    Pinned(String),
+    /// Nothing is pinned there: a first visit.
+    None,
+    /// The broker does not say, for a request that may not ask (one that pins nothing, or
+    /// one past the servers a request may reach): the request must fail, never take this
+    /// for a first visit.
+    Refused,
+}
+
+/// A certificate a server showed on a first visit, by its host and port: what the broker
+/// records for the zone ([`crate::net::protocols::known_hosts::ServerPin`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeenCertificate {
+    pub host: String,
+    pub port: u16,
+    /// `CertPin` text, checked for form where the reply is received.
+    pub pin: String,
 }
 
 /// One request, flattened to what actually has to travel.
@@ -133,7 +158,8 @@ pub struct NetFetch {
     pub no_total_body_timeout: bool,
     /// For an engine protocol that trusts certificates on first use: the certificate the
     /// zone has seen at this host and port (`CertPin` text), which the server must show
-    /// again. The broker keeps the pins; this process only checks against one.
+    /// again. The broker keeps the pins; this process checks against them, and asks for
+    /// the pin of each other server a redirect leads to ([`FromNet::AskPin`]).
     #[serde(default)]
     pub pin: Option<String>,
 }
@@ -360,14 +386,21 @@ pub enum FromNet {
         headers: HeaderList,
         peer_addr: Option<std::net::SocketAddr>,
         len: u64,
-        /// As `FetchOutcome::Ok::certificate`.
+        /// As `FetchOutcome::Ok::certificates`.
         #[serde(default)]
-        certificate: Option<String>,
+        certificates: Vec<SeenCertificate>,
     },
     /// Answer to [`ToNet::Audit`]; `None` where the audit cannot run.
     Audit {
         tag: RequestTag,
         report: Option<gosub_sandbox::audit::AuditReport>,
+    },
+    /// The request with this tag, for an engine protocol that pins certificates, was
+    /// redirected to another server and needs its pin; answered with [`ToNet::Pin`].
+    AskPin {
+        tag: RequestTag,
+        host: String,
+        port: u16,
     },
     /// Something happened to the request with this tag - a name resolved, a
     /// connection opened, headers in, bytes received, the end. What the
@@ -880,10 +913,10 @@ pub enum FetchOutcome {
         /// Where the response came from (`FetchResultMeta::peer_addr`): what the
         /// broker places the document by on the private-network policy.
         peer_addr: Option<std::net::SocketAddr>,
-        /// The certificate an engine protocol's server showed (`CertPin` text), for the
-        /// broker to pin on a first visit.
+        /// The certificates an engine protocol's servers showed on first visits, for the
+        /// broker to pin.
         #[serde(default)]
-        certificate: Option<String>,
+        certificates: Vec<SeenCertificate>,
     },
     /// The response head; the body streams through a shared-memory ring
     /// (`gosub_ipc::ring`) whose fd follows this message on the link, right

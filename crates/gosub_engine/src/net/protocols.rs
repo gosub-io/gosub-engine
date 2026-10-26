@@ -23,15 +23,15 @@
 //! shows. [`is_network_place`] and [`transport`] answer, for any URL, what an embedder asks
 //! of a scheme (bookmarks, the address bar's padlock), so an embedder names no schemes.
 //!
-//! A protocol that trusts certificates on first use is handed the pin the zone keeps for its
-//! host ([`ProtocolRequest::pin`]) and reports the certificate it saw
-//! ([`ProtocolResponse::certificate`]); the broker records it ([`known_hosts`]).
+//! A protocol that trusts certificates on first use learns the pin the zone keeps for each
+//! server it reaches ([`ProtocolRequest::pins`]) and reports the certificates first visits
+//! showed ([`ProtocolResponse::certificates`]); the broker records them ([`known_hosts`]).
 
 pub mod known_hosts;
 pub mod page;
 pub mod socket;
 
-use crate::net::protocols::known_hosts::CertPin;
+use crate::net::protocols::known_hosts::{Pins, ServerPin};
 use crate::net::ssrf::AddressSpace;
 use crate::net::types::{FetchRequest, FetchResult, FetchResultMeta, NetError};
 use async_trait::async_trait;
@@ -46,14 +46,24 @@ use tokio_util::sync::CancellationToken;
 use url::Url;
 
 /// What a protocol is asked to fetch.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct ProtocolRequest<'a> {
     pub url: &'a Url,
     /// The most private address space the fetch may reach.
     pub reach: AddressSpace,
-    /// The certificate the zone has seen at this host and port, which the server must show
-    /// again. `None` on a first visit, and for a protocol that pins nothing.
-    pub pin: Option<&'a CertPin>,
+    /// Where the certificates the zone has seen are learned, for each server the fetch
+    /// reaches. `None` for a protocol that pins nothing; every visit is a first one then.
+    pub pins: Option<&'a dyn Pins>,
+}
+
+impl std::fmt::Debug for ProtocolRequest<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProtocolRequest")
+            .field("url", &self.url.as_str())
+            .field("reach", &self.reach)
+            .field("pins", &self.pins.is_some())
+            .finish()
+    }
 }
 
 /// What a protocol answered with.
@@ -65,18 +75,18 @@ pub struct ProtocolResponse {
     /// The peer the body was read from: what the document is placed by on the
     /// private-network policy, as for an http response.
     pub peer_addr: Option<SocketAddr>,
-    /// The certificate the server showed, for the broker to pin on a first visit.
-    pub certificate: Option<CertPin>,
+    /// The certificates servers showed on a first visit, one for each, for the broker to pin.
+    pub certificates: Vec<ServerPin>,
     /// Where `body` came from, when a redirect the protocol followed led elsewhere than the
     /// request's URL: what the page commits under and resolves its links against.
     pub final_url: Option<Url>,
 }
 
-/// What [`run`] served: the reply for the requester, and the certificate a response showed.
+/// What [`run`] served: the reply for the requester, and the certificates first visits showed.
 #[derive(Debug)]
 pub struct Served {
     pub result: FetchResult,
-    pub certificate: Option<CertPin>,
+    pub certificates: Vec<ServerPin>,
 }
 
 /// A scheme the engine fetches with its own client.
@@ -96,8 +106,9 @@ pub trait Protocol: Send + Sync {
     /// Whether the connection is encrypted, as an address bar shows it.
     fn encrypted(&self) -> bool;
 
-    /// Whether the protocol trusts certificates on first use: is handed the zone's pin for
-    /// its host and reports the certificate it saw. Only such a protocol's report is pinned.
+    /// Whether the protocol trusts certificates on first use: learns the zone's pins for the
+    /// servers it reaches and reports what first visits saw. Only such a protocol's report
+    /// is pinned.
     fn pins_certificates(&self) -> bool {
         false
     }
@@ -230,7 +241,7 @@ pub async fn run(
             });
             return Some(Served {
                 result: FetchResult::Error(err),
-                certificate: None,
+                certificates: Vec::new(),
             });
         }
     };
@@ -264,7 +275,7 @@ pub async fn run(
             meta,
             body: response.body,
         },
-        certificate: response.certificate,
+        certificates: response.certificates,
     })
 }
 
@@ -283,6 +294,7 @@ pub fn synthesized_headers(content_type: &str, len: u64) -> HeaderMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::net::protocols::known_hosts::CertPin;
     use parking_lot::Mutex;
 
     /// Answers every URL with its own path as plain text.
@@ -307,7 +319,11 @@ mod tests {
                 content_type: "text/plain".into(),
                 body: Bytes::from(request.url.path().to_string()),
                 peer_addr: Some("192.0.2.7:70".parse().unwrap()),
-                certificate: Some(CertPin::of(b"echo")),
+                certificates: vec![ServerPin {
+                    host: "host".into(),
+                    port: 7,
+                    pin: CertPin::of(b"echo"),
+                }],
                 final_url: None,
             })
         }
@@ -363,7 +379,7 @@ mod tests {
         let request = ProtocolRequest {
             url: &req.url,
             reach: AddressSpace::Loopback,
-            pin: None,
+            pins: None,
         };
         let result = match refuse(protocol, req, enabled, &*recorder) {
             Some(refused) => Some(refused),
@@ -451,12 +467,12 @@ mod tests {
         let request = ProtocolRequest {
             url: &url,
             reach: AddressSpace::Loopback,
-            pin: None,
+            pins: None,
         };
         let served = run(&Echo, request, &CancellationToken::new(), Arc::new(Recorder::default()))
             .await
             .expect("served");
-        assert_eq!(served.certificate, Some(CertPin::of(b"echo")));
+        assert_eq!(served.certificates[0].pin, CertPin::of(b"echo"));
     }
 
     #[tokio::test]

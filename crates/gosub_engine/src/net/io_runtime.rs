@@ -3,7 +3,7 @@ use crate::engine::events::IoCommand;
 use crate::engine::types::IoChannel;
 use crate::engine::EngineContext;
 use crate::net::fetcher::{fetcher_config_from, reach_config, EngineNetContext, Fetcher};
-use crate::net::protocols::known_hosts::PinSlot;
+use crate::net::protocols::known_hosts::RequestPins;
 use crate::net::req_ref_tracker::{RequestRefTracker, RequestReference, REF_REGISTRY};
 use crate::net::ssrf::AddressSpace;
 use crate::net::tab_identity::{TabIdentity, TabIdentityRegistry};
@@ -390,7 +390,7 @@ fn dispatch_to_net_process(
     req: FetchRequest,
     reach: AddressSpace,
     grant: Option<Grant>,
-    pins: Option<PinSlot>,
+    pins: Option<Arc<RequestPins>>,
     cancel: tokio_util::sync::CancellationToken,
     reply_tx: oneshot::Sender<FetchResult>,
     observer: Option<Arc<dyn crate::net::emitter::NetObserver + Send + Sync>>,
@@ -454,6 +454,7 @@ fn dispatch_to_net_process(
             context,
             no_total_body_timeout,
             pin: pins.as_ref().and_then(|p| p.pin.as_ref()).map(|pin| pin.to_string()),
+            pins: pins.clone(),
         };
         // A process that died is respawned before the request goes out;
         // blocking, so off the runtime's workers.
@@ -480,16 +481,19 @@ fn dispatch_to_net_process(
                 net.condemn();
             }
         }
-        if let (
-            Some(pins),
-            FetchOutcome::Ok {
-                certificate: Some(certificate),
-                ..
-            },
-        ) = (&pins, &reply.outcome)
-        {
+        if let (Some(pins), FetchOutcome::Ok { certificates, .. }) = (&pins, &reply.outcome) {
             // Checked for form where the reply was received (`plausible_reply`).
-            pins.record(crate::net::protocols::known_hosts::CertPin::parse(certificate).as_ref());
+            let seen: Vec<_> = certificates
+                .iter()
+                .filter_map(|seen| {
+                    Some(crate::net::protocols::known_hosts::ServerPin {
+                        host: seen.host.clone(),
+                        port: seen.port,
+                        pin: crate::net::protocols::known_hosts::CertPin::parse(&seen.pin)?,
+                    })
+                })
+                .collect();
+            pins.record(&seen);
         }
         let _ = reply_tx.send(match reply.outcome {
             FetchOutcome::Error(e) => FetchResult::Error(net_error(e)),
@@ -526,7 +530,7 @@ fn dispatch_to_net_process(
     _req: FetchRequest,
     _reach: AddressSpace,
     _grant: Option<Grant>,
-    _pins: Option<PinSlot>,
+    _pins: Option<Arc<RequestPins>>,
     _cancel: tokio_util::sync::CancellationToken,
     _reply_tx: oneshot::Sender<FetchResult>,
     _observer: Option<Arc<dyn crate::net::emitter::NetObserver + Send + Sync>>,
@@ -1004,13 +1008,15 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                 };
 
                                 // A protocol that trusts certificates on first use is held to
-                                // the zone's pin for the host, and a first visit's certificate
-                                // becomes the pin. Any other protocol's report is dropped, so
-                                // a network process cannot plant a pin through one. No tab
-                                // identity, no store: a first visit then, remembered nowhere.
+                                // the zone's pin for each server it reaches, and a first
+                                // visit's certificate becomes the pin. Any other protocol's
+                                // report is dropped, so a network process cannot plant a pin
+                                // through one. No tab identity, no store: a first visit then,
+                                // remembered nowhere.
                                 let pins = match (&protocol, identity.as_ref()) {
                                     (Some((protocol, _)), Some(id)) if protocol.pins_certificates() => {
-                                        PinSlot::for_url(&id.known_hosts, &req.url, protocol.default_port())
+                                        RequestPins::for_url(&id.known_hosts, &req.url, protocol.default_port())
+                                            .map(Arc::new)
                                     }
                                     _ => None,
                                 };
@@ -1058,14 +1064,16 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                             let request = crate::net::protocols::ProtocolRequest {
                                                 url: &req.url,
                                                 reach,
-                                                pin: pins.as_ref().and_then(|p| p.pin.as_ref()),
+                                                pins: pins
+                                                    .as_deref()
+                                                    .map(|pins| pins as &dyn crate::net::protocols::known_hosts::Pins),
                                             };
                                             let served =
                                                 crate::net::protocols::run(protocol, request, &handle.cancel, observer)
                                                     .await;
                                             if let Some(served) = served {
                                                 if let Some(pins) = &pins {
-                                                    pins.record(served.certificate.as_ref());
+                                                    pins.record(&served.certificates);
                                                 }
                                                 let _ = reply_tx.send(served.result);
                                             }

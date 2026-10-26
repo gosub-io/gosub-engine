@@ -588,11 +588,14 @@ vault) is tracked separately; see [Known limits](#known-limits-and-roadmap).
   `net.finger.enabled` turns it off. A gemini request goes out only after a
   TLS handshake, so a plaintext service never sees the line; the server's
   certificate is trusted on first use and pinned in the zone, in memory unless
-  the embedder passes a store. The network process follows a redirect only on
-  the same server, where the request's pin holds, and the broker refuses a
-  reply that ends on another; a changed certificate crosses back as the one
-  failure with a field the broker acts on, the new certificate's pin, checked
-  for form. `net.gemini.enabled` turns it off. See
+  the embedder passes a store. The network process follows a redirect to
+  another server by asking the broker for that server's pin
+  (`FromNet::AskPin`, answered from the request's own `RequestPins`, at most
+  five other servers); the certificates first visits showed cross back for
+  the broker to record, only for the servers the request asked about, and a
+  reply ending on another scheme is refused. A changed certificate crosses
+  back as the one failure with a field the broker acts on, the new
+  certificate's pin, checked for form. `net.gemini.enabled` turns it off. See
   [security-assessment.md](security-assessment.md).
 - The vault's `document.cookie` view (`visible_only`) has no consumer yet; it
   starts to matter when scripts can read cookies. A zone using an

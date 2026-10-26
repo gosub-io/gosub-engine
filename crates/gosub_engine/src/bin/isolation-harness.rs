@@ -8868,7 +8868,9 @@ fn engine_gopher() -> i32 {
 /// the network process's sandbox, the certificate it showed crosses back and is pinned in the
 /// zone, and a later visit to the same port showing another certificate is refused before the
 /// request is sent, with the new certificate's fingerprint crossing back too. Trusting that
-/// one lets the next visit through, and the redirect it follows commits under its target.
+/// one lets the next visit through, and the redirect it follows commits under its target. A
+/// redirect to another server is followed with that server's pin, which the network process
+/// asks the broker for: a first visit there is pinned, and a later one held to the pin.
 #[cfg(feature = "gemini")]
 fn engine_gemini() -> i32 {
     use gosub_config::settings::Setting;
@@ -8932,35 +8934,58 @@ fn engine_gemini() -> i32 {
         let Ok(port) = listener.local_addr().map(|a| a.port()) else {
             return 1;
         };
-        let page: &[u8] = b"20 text/gemini\r\n# From the network process\r\n";
-        let turns = [
-            (a, page),
-            (b.clone(), page),
-            (b.clone(), &b"31 /moved\r\n"[..]),
-            (b, &b"20 text/gemini\r\n# Moved here\r\n"[..]),
-        ];
-        let server = tokio::spawn(async move {
-            let mut lines = Vec::new();
-            for (acceptor, response) in turns {
-                let Ok((tcp, _)) = listener.accept().await else { break };
-                let Ok(mut tls) = acceptor.accept(tcp).await else {
-                    lines.push(None);
-                    continue;
-                };
-                let mut line = Vec::new();
-                let mut byte = [0u8; 1];
-                while tls.read_exact(&mut byte).await.is_ok() {
-                    line.push(byte[0]);
-                    if line.ends_with(b"\r\n") {
-                        break;
+        // A second server, which the first redirects to.
+        let Ok(elsewhere) = tokio::net::TcpListener::bind("127.0.0.1:0").await else {
+            eprintln!("could not start the second test server");
+            return 1;
+        };
+        let Ok(there_port) = elsewhere.local_addr().map(|a| a.port()) else {
+            return 1;
+        };
+        fn serve(
+            listener: tokio::net::TcpListener,
+            turns: Vec<(tokio_rustls::TlsAcceptor, &'static [u8])>,
+        ) -> tokio::task::JoinHandle<Vec<Option<Vec<u8>>>> {
+            tokio::spawn(async move {
+                let mut lines = Vec::new();
+                for (acceptor, response) in turns {
+                    let Ok((tcp, _)) = listener.accept().await else { break };
+                    let Ok(mut tls) = acceptor.accept(tcp).await else {
+                        lines.push(None);
+                        continue;
+                    };
+                    let mut line = Vec::new();
+                    let mut byte = [0u8; 1];
+                    while tls.read_exact(&mut byte).await.is_ok() {
+                        line.push(byte[0]);
+                        if line.ends_with(b"\r\n") {
+                            break;
+                        }
                     }
+                    let _ = tls.write_all(response).await;
+                    let _ = tls.shutdown().await;
+                    lines.push(Some(line));
                 }
-                let _ = tls.write_all(response).await;
-                let _ = tls.shutdown().await;
-                lines.push(Some(line));
-            }
-            lines
-        });
+                lines
+            })
+        }
+        let page: &'static [u8] = b"20 text/gemini\r\n# From the network process\r\n";
+        let away: &'static [u8] = format!("30 gemini://127.0.0.1:{there_port}/there\r\n")
+            .into_bytes()
+            .leak();
+        let server = serve(
+            listener,
+            vec![
+                (a.clone(), page),
+                (b.clone(), page),
+                (b.clone(), b"31 /moved\r\n"),
+                (b.clone(), b"20 text/gemini\r\n# Moved here\r\n"),
+                (b.clone(), away),
+                (b, away),
+            ],
+        );
+        let there: &'static [u8] = b"20 text/gemini\r\n# Over there\r\n";
+        let second_server = serve(elsewhere, vec![(a.clone(), there), (a, there)]);
 
         let mut engine: GosubEngine = GosubEngine::new(
             None,
@@ -9131,9 +9156,76 @@ fn engine_gemini() -> i32 {
             return 1;
         }
 
-        let line = |path: &str| Some(format!("gemini://127.0.0.1:{port}{path}\r\n").into_bytes());
+        // A redirect to another server, visited for the first time: followed, and that
+        // server's certificate pinned too.
+        let there_url = format!("gemini://127.0.0.1:{there_port}/there");
+        if tab.navigate(format!("gemini://127.0.0.1:{port}/away")).await.is_err() {
+            eprintln!("navigate failed");
+            return 1;
+        }
+        match outcome(&mut events).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                eprintln!("the redirect to another server failed: {error:?}");
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                return 1;
+            }
+        }
+        if tab.url().map(|u| u.to_string()).as_deref() != Some(there_url.as_str()) || tab.title() != "Over there" {
+            eprintln!(
+                "the redirect to another server did not commit under its target: {:?} {:?}",
+                tab.url(),
+                tab.title()
+            );
+            return 1;
+        }
+        if known_hosts.pin("127.0.0.1", there_port) != Some(CertPin::of(A_CERT)) {
+            eprintln!(
+                "the other server's first visit was not pinned: {:?}",
+                known_hosts.pin("127.0.0.1", there_port)
+            );
+            return 1;
+        }
+
+        // That server's pin holds on the next redirect there: it shows A, the zone now
+        // expects B, and since it is not the server the page was asked for, nothing is
+        // offered for trusting.
+        known_hosts.remember("127.0.0.1", there_port, &CertPin::of(B_CERT));
+        if tab.navigate(format!("gemini://127.0.0.1:{port}/away")).await.is_err() {
+            eprintln!("navigate failed");
+            return 1;
+        }
+        // A TLS failure without a fingerprint crosses the link as a message, not a TLS error.
+        match outcome(&mut events).await {
+            Ok(Err(error))
+                if !matches!(
+                    error,
+                    gosub_engine::LoadError::Tls {
+                        fingerprint: Some(_),
+                        ..
+                    }
+                ) && error.to_string().contains("than the one pinned for it") => {}
+            other => {
+                eprintln!("a server a redirect led to was not held to its pin: {other:?}");
+                return 1;
+            }
+        }
+
+        let line = |port: u16, path: &str| Some(format!("gemini://127.0.0.1:{port}{path}\r\n").into_bytes());
         match server.await {
-            Ok(lines) if lines == [line("/"), None, line("/old"), line("/moved")] => {}
+            Ok(lines)
+                if lines
+                    == [
+                        line(port, "/"),
+                        None,
+                        line(port, "/old"),
+                        line(port, "/moved"),
+                        line(port, "/away"),
+                        line(port, "/away"),
+                    ] => {}
             Ok(lines) => {
                 eprintln!("the server saw {lines:?}: the refused visit must send no request");
                 return 1;
@@ -9143,12 +9235,23 @@ fn engine_gemini() -> i32 {
                 return 1;
             }
         }
+        match second_server.await {
+            Ok(lines) if lines == [line(there_port, "/there"), None] => {}
+            Ok(lines) => {
+                eprintln!("the second server saw {lines:?}: the visit held to a pin it fails must send nothing");
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("the second test server failed: {e}");
+                return 1;
+            }
+        }
 
         engine.close_zone(zone).await;
         let _ = engine.shutdown().await;
         println!(
             "gemini served from the network process, pinned, a changed certificate refused and \
-trusted, and a redirect followed"
+trusted, and redirects followed on the same server and to another, held to its own pin"
         );
         0
     })

@@ -7,6 +7,11 @@
 //! wants pins to outlive the process passes a [`KnownHosts`] to the zone builder, such as
 //! [`SqliteKnownHosts`] (feature `sqlite_known_hosts`); the default keeps them in memory.
 //!
+//! A request learns the pin of each server it reaches through [`Pins`]: the broker's
+//! [`RequestPins`] in this process, or the network process asking the broker for it. A
+//! first visit's certificate is recorded only for a server the request was asked for or
+//! asked about ([`RequestPins::record`]).
+//!
 //! A server showing another certificate than the pinned one is refused with a TLS error
 //! carrying the new certificate's fingerprint. An embedder that lets the user trust it
 //! stores exactly that one ([`CertPin::from_digest`], [`KnownHosts::remember`]) under the
@@ -112,19 +117,44 @@ impl KnownHosts for InMemoryKnownHosts {
     }
 }
 
-/// One request's place in a zone's pins: the pin it goes out with, and where the
-/// certificate a first visit reports is recorded.
-#[derive(Debug, Clone)]
-pub struct PinSlot {
+/// The certificate a server showed, by the host and port it is pinned under ([`key`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerPin {
+    pub host: String,
+    pub port: u16,
+    pub pin: CertPin,
+}
+
+/// How many servers besides the one asked for a request may reach by redirects, and so
+/// learn the pin of: as many as the redirects a protocol follows.
+pub const MOST_OTHER_SERVERS: usize = 5;
+
+/// Where a request learns the pin of each server it reaches, the one it was asked for and
+/// any a redirect leads to.
+#[async_trait::async_trait]
+pub trait Pins: Send + Sync {
+    /// The certificate the zone has seen at `host`:`port`, which the server must show again;
+    /// `None` for a first visit. An error when the pin cannot be learned, which is never
+    /// taken for a first visit: that would trust whatever the server shows.
+    async fn pin(&self, host: &str, port: u16) -> Result<Option<CertPin>, String>;
+}
+
+/// One request's view of a zone's pins: the pin of the server it was asked for, looked up
+/// as it goes out, those of up to [`MOST_OTHER_SERVERS`] servers it is redirected to, and
+/// where the certificates first visits showed are recorded.
+#[derive(Debug)]
+pub struct RequestPins {
     store: KnownHostsHandle,
     host: String,
     port: u16,
-    /// The certificate the server must show, if the zone has seen one there.
+    /// The certificate the asked-for server must show, if the zone has seen one there.
     pub pin: Option<CertPin>,
+    /// The other servers the request asked about, in order.
+    others: Mutex<Vec<(String, u16)>>,
 }
 
-impl PinSlot {
-    /// The slot for a request to `url` over a protocol whose port is `default_port`.
+impl RequestPins {
+    /// The view for a request to `url` over a protocol whose port is `default_port`.
     pub fn for_url(store: &KnownHostsHandle, url: &Url, default_port: u16) -> Option<Self> {
         let (host, port) = key(url, default_port)?;
         Some(Self {
@@ -132,17 +162,57 @@ impl PinSlot {
             store: Arc::clone(store),
             host,
             port,
+            others: Mutex::default(),
         })
     }
 
-    /// Record the certificate a response showed, when nothing was pinned here yet. A pin
-    /// that was there stays: the protocol refused a different certificate already.
-    pub fn record(&self, seen: Option<&CertPin>) {
-        if let Some(seen) = seen {
-            if self.store.pin(&self.host, self.port).is_none() {
-                self.store.remember(&self.host, self.port, seen);
+    /// Whether `host`:`port` is the server the request was asked for.
+    pub fn is_asked_for(&self, host: &str, port: u16) -> bool {
+        port == self.port && host.eq_ignore_ascii_case(&self.host)
+    }
+
+    /// The pin for `host`:`port`. Another server than the one asked for counts against
+    /// [`MOST_OTHER_SERVERS`]; past it the answer is an error.
+    pub fn lookup(&self, host: &str, port: u16) -> Result<Option<CertPin>, String> {
+        if self.is_asked_for(host, port) {
+            return Ok(self.pin.clone());
+        }
+        let server = (host.cow_to_ascii_lowercase().into_owned(), port);
+        let mut others = self.others.lock();
+        if !others.contains(&server) {
+            if others.len() == MOST_OTHER_SERVERS {
+                return Err(format!(
+                    "a request to {}:{} asked about more than {MOST_OTHER_SERVERS} other servers",
+                    self.host, self.port
+                ));
+            }
+            others.push(server);
+        }
+        Ok(self.store.pin(host, port))
+    }
+
+    /// Record the certificates first visits showed, each where nothing is pinned yet: a pin
+    /// that was there stays, since the protocol refused a different certificate already.
+    /// Only for the server asked for and the servers the request asked about, so a report
+    /// cannot plant a pin for a server the request never went to.
+    pub fn record(&self, seen: &[ServerPin]) {
+        for ServerPin { host, port, pin } in seen {
+            let reached = self.is_asked_for(host, *port)
+                || self
+                    .others
+                    .lock()
+                    .contains(&(host.cow_to_ascii_lowercase().into_owned(), *port));
+            if reached && self.store.pin(host, *port).is_none() {
+                self.store.remember(host, *port, pin);
             }
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl Pins for RequestPins {
+    async fn pin(&self, host: &str, port: u16) -> Result<Option<CertPin>, String> {
+        self.lookup(host, port)
     }
 }
 
@@ -306,17 +376,61 @@ mod tests {
         assert_eq!(hosts.pin("gemini.test", 1965), None);
     }
 
+    fn seen(host: &str, port: u16, cert: &[u8]) -> ServerPin {
+        ServerPin {
+            host: host.into(),
+            port,
+            pin: CertPin::of(cert),
+        }
+    }
+
     #[test]
     fn a_first_visit_is_recorded_and_a_pin_kept() {
         let store = InMemoryKnownHosts::handle();
         let url = Url::parse("gemini://host.test/").unwrap();
-        let first = PinSlot::for_url(&store, &url, 1965).unwrap();
+        let first = RequestPins::for_url(&store, &url, 1965).unwrap();
         assert_eq!(first.pin, None);
-        first.record(Some(&CertPin::of(b"one")));
-        let second = PinSlot::for_url(&store, &url, 1965).unwrap();
+        first.record(&[seen("host.test", 1965, b"one")]);
+        let second = RequestPins::for_url(&store, &url, 1965).unwrap();
         assert_eq!(second.pin, Some(CertPin::of(b"one")));
-        second.record(Some(&CertPin::of(b"two")));
+        second.record(&[seen("host.test", 1965, b"two")]);
         assert_eq!(store.pin("host.test", 1965), Some(CertPin::of(b"one")));
+    }
+
+    #[test]
+    fn only_servers_the_request_reached_are_recorded() {
+        let store = InMemoryKnownHosts::handle();
+        store.remember("pinned.test", 1965, &CertPin::of(b"old"));
+        let pins = RequestPins::for_url(&store, &Url::parse("gemini://host.test/").unwrap(), 1965).unwrap();
+        assert_eq!(pins.lookup("Other.Test", 1965), Ok(None));
+        assert_eq!(pins.lookup("pinned.test", 1965), Ok(Some(CertPin::of(b"old"))));
+        pins.record(&[
+            seen("host.test", 1965, b"a"),
+            seen("other.test", 1965, b"b"),
+            seen("pinned.test", 1965, b"c"),
+            seen("never.test", 1965, b"d"),
+            seen("other.test", 1966, b"e"),
+        ]);
+        assert_eq!(store.pin("host.test", 1965), Some(CertPin::of(b"a")));
+        assert_eq!(store.pin("other.test", 1965), Some(CertPin::of(b"b")));
+        assert_eq!(store.pin("pinned.test", 1965), Some(CertPin::of(b"old")));
+        assert_eq!(store.pin("never.test", 1965), None);
+        assert_eq!(store.pin("other.test", 1966), None);
+    }
+
+    #[test]
+    fn a_request_learns_the_pins_of_only_so_many_other_servers() {
+        let store = InMemoryKnownHosts::handle();
+        let pins = RequestPins::for_url(&store, &Url::parse("gemini://host.test/").unwrap(), 1965).unwrap();
+        for n in 0..MOST_OTHER_SERVERS {
+            assert_eq!(pins.lookup(&format!("s{n}.test"), 1965), Ok(None));
+        }
+        // Asking again about one already asked about, or about the server asked for, is free.
+        assert_eq!(pins.lookup("s0.test", 1965), Ok(None));
+        assert_eq!(pins.lookup("host.test", 1965), Ok(None));
+        assert!(pins.lookup("one-more.test", 1965).is_err());
+        pins.record(&[seen("one-more.test", 1965, b"x")]);
+        assert_eq!(store.pin("one-more.test", 1965), None);
     }
 
     #[test]
