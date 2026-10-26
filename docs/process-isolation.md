@@ -588,7 +588,11 @@ vault) is tracked separately; see [Known limits](#known-limits-and-roadmap).
   `net.finger.enabled` turns it off. A gemini request goes out only after a
   TLS handshake, so a plaintext service never sees the line; the server's
   certificate is trusted on first use and pinned in the zone, in memory unless
-  the embedder passes a store. `net.gemini.enabled` turns it off. See
+  the embedder passes a store. The network process follows a redirect only on
+  the same server, where the request's pin holds, and the broker refuses a
+  reply that ends on another; a changed certificate crosses back as the one
+  failure with a field the broker acts on, the new certificate's pin, checked
+  for form. `net.gemini.enabled` turns it off. See
   [security-assessment.md](security-assessment.md).
 - The vault's `document.cookie` view (`visible_only`) has no consumer yet; it
   starts to matter when scripts can read cookies. A zone using an

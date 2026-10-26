@@ -67,6 +67,9 @@ pub struct ProtocolResponse {
     pub peer_addr: Option<SocketAddr>,
     /// The certificate the server showed, for the broker to pin on a first visit.
     pub certificate: Option<CertPin>,
+    /// Where `body` came from, when a redirect the protocol followed led elsewhere than the
+    /// request's URL: what the page commits under and resolves its links against.
+    pub final_url: Option<Url>,
 }
 
 /// What [`run`] served: the reply for the requester, and the certificate a response showed.
@@ -97,6 +100,12 @@ pub trait Protocol: Send + Sync {
     /// its host and reports the certificate it saw. Only such a protocol's report is pinned.
     fn pins_certificates(&self) -> bool {
         false
+    }
+
+    /// The query a form submitted with GET to this protocol's URLs carries, from the form's
+    /// data (name and value, in order). `None` keeps the web's `name=value&...` encoding.
+    fn form_query(&self, _data: &[(String, String)]) -> Option<String> {
+        None
     }
 
     /// Fetch `request.url`, reaching no address space more private than `request.reach`.
@@ -244,7 +253,7 @@ pub async fn run(
         url: url.clone(),
     });
 
-    let mut meta = FetchResultMeta::synthetic(url);
+    let mut meta = FetchResultMeta::synthetic(response.final_url.unwrap_or(url));
     meta.headers = headers;
     meta.content_length = Some(len);
     meta.content_type = Some(response.content_type);
@@ -299,6 +308,7 @@ mod tests {
                 body: Bytes::from(request.url.path().to_string()),
                 peer_addr: Some("192.0.2.7:70".parse().unwrap()),
                 certificate: Some(CertPin::of(b"echo")),
+                final_url: None,
             })
         }
     }

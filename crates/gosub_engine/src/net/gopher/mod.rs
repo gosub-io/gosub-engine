@@ -78,12 +78,14 @@ fn present(request: &Request, url: &Url, body: Vec<u8>, peer: Option<SocketAddr>
             body: Bytes::from(body),
             peer_addr: peer,
             certificate: None,
+            final_url: None,
         },
         _ => ProtocolResponse {
             content_type: sniff(&body).into(),
             body: Bytes::from(body),
             peer_addr: peer,
             certificate: None,
+            final_url: None,
         },
     }
 }
@@ -136,6 +138,7 @@ fn html(page: String, peer: Option<SocketAddr>) -> ProtocolResponse {
         body: Bytes::from(page),
         peer_addr: peer,
         certificate: None,
+        final_url: None,
     }
 }
 

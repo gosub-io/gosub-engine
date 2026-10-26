@@ -305,7 +305,7 @@ impl ReportedRequest {
                     });
                 }
             }
-            FetchOutcome::Error(message) => self.fail(message),
+            FetchOutcome::Error(message) | FetchOutcome::CertificateChanged { message, .. } => self.fail(message),
         }
     }
 
@@ -1133,6 +1133,15 @@ impl NetProcess {
                 *message = cut_string(std::mem::take(message), MAX_EVENT_STRING);
                 return reply;
             }
+            FetchOutcome::CertificateChanged { message, seen } => {
+                if crate::net::protocols::known_hosts::CertPin::parse(seen).is_none() {
+                    return NetReply::error(format!(
+                        "the network process reported a malformed certificate pin for {requested}"
+                    ));
+                }
+                *message = cut_string(std::mem::take(message), MAX_EVENT_STRING);
+                return reply;
+            }
         };
         *status_text = cut_string(std::mem::take(status_text), MAX_EVENT_STRING);
         let header_bytes: usize = headers.iter().map(|(n, v)| n.len() + v.len()).sum();
@@ -1153,7 +1162,17 @@ impl NetProcess {
                 "the network process reported an unparsable final url for {requested}"
             ));
         };
-        let own_protocol = crate::net::protocols::lookup(parsed.scheme()).is_some() && final_url.as_str() == requested;
+        // An engine protocol's page comes from the URL asked for, or from where a redirect on
+        // the same server led: that server was held to the request's pin, any other was not.
+        let own_protocol = crate::net::protocols::lookup(parsed.scheme()).is_some_and(|protocol| {
+            final_url.as_str() == requested
+                || url::Url::parse(requested).is_ok_and(|requested| {
+                    use crate::net::protocols::known_hosts::key;
+                    requested.scheme() == parsed.scheme()
+                        && key(&requested, protocol.default_port()).is_some()
+                        && key(&requested, protocol.default_port()) == key(&parsed, protocol.default_port())
+                })
+        });
         if !matches!(parsed.scheme(), "http" | "https") && !own_protocol {
             return NetReply::error(format!(
                 "the network process reported a non-web final url ({}) for {requested}",
@@ -1240,7 +1259,9 @@ pub fn outcome_to_result(reply: NetReply) -> Result<crate::net::types::FetchResu
                 Body::Ring { peek, ring },
             )
         }
-        FetchOutcome::Error(e) => return Err(net_error(e)),
+        // The broker turns a changed certificate into a TLS error before this, for a request
+        // that pins; for any other it is a failure like the rest.
+        FetchOutcome::Error(e) | FetchOutcome::CertificateChanged { message: e, .. } => return Err(net_error(e)),
     };
 
     let final_url = url::Url::parse(&final_url).map_err(|e| net_error(format!("bad final url: {e}")))?;
@@ -1467,9 +1488,9 @@ mod tests {
         assert_eq!(failed(NetProcess::plausible_reply(error, &url)).len(), MAX_EVENT_STRING);
     }
 
-    /// An engine protocol's reply passes only where it was asked: it has no
-    /// redirects, so a request cannot end on another of its URLs, and a web
-    /// request cannot end on one at all.
+    /// An engine protocol's reply passes only on the server it was asked: a
+    /// redirect it follows stays there (gemini), so a request cannot end on
+    /// another server's URL, and a web request cannot end on one at all.
     #[cfg(feature = "gopher")]
     #[test]
     fn an_own_protocol_reply_ends_where_it_was_asked() {
@@ -1494,9 +1515,41 @@ mod tests {
             )
         };
         assert!(passes("gopher://h/1/", "gopher://h/1/"));
+        assert!(passes("gopher://H/0/other", "gopher://h/1/"));
         assert!(!passes("gopher://127.0.0.1:6379/1/", "gopher://h/1/"));
+        assert!(!passes("gopher://h:71/1/", "gopher://h/1/"));
+        #[cfg(feature = "finger")]
+        assert!(!passes("finger://h/bob", "gopher://h/1/"));
         assert!(!passes("gopher://h/1/", "https://site.test/"));
         assert!(!passes("file:///etc/passwd", "file:///etc/passwd"));
+    }
+
+    /// A changed certificate's report passes only with a pin's text form as what was seen:
+    /// it is what the user may be asked to trust.
+    #[test]
+    fn a_changed_certificate_names_a_pin() {
+        let changed = |seen: &str| NetReply {
+            outcome: FetchOutcome::CertificateChanged {
+                message: "x".repeat(MAX_EVENT_STRING * 2),
+                seen: seen.into(),
+            },
+            ring: None,
+            stream_end: None,
+            redirects: None,
+        };
+        let url = "gemini://h.test/";
+        let pin = crate::net::protocols::known_hosts::CertPin::of(b"cert").to_string();
+        match NetProcess::plausible_reply(changed(&pin), url).outcome {
+            FetchOutcome::CertificateChanged { message, seen } => {
+                assert_eq!(seen, pin);
+                assert_eq!(message.len(), MAX_EVENT_STRING);
+            }
+            other => panic!("refused: {other:?}"),
+        }
+        assert!(matches!(
+            NetProcess::plausible_reply(changed("AB:CD"), url).outcome,
+            FetchOutcome::Error(e) if e.contains("malformed certificate pin")
+        ));
     }
 
     /// What a request's observer was told, by kind.

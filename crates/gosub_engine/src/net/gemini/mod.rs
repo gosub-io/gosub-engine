@@ -3,17 +3,24 @@
 //! A request is the URL, CRLF, sent over TLS to port 1965. The response is a header line, a
 //! two-digit status and a meta field, and then, for a success, the body until the server
 //! closes:
-//! - `1x` asks for input, which the engine cannot send yet: the prompt is shown as a page,
+//! - `1x` asks for input: a page with the prompt and a form, `11` with a masked field.
+//!   Submitting it requests the same URL with the input as the whole query
+//!   ([`Protocol::form_query`]),
 //! - `2x` is the body, under the media type in the meta: gemtext ([`gemtext`]) becomes a page,
 //!   other text a `<pre>` page, HTML is served as it is and anything else raw, so images
 //!   display and the rest goes to the download offer,
-//! - `3x` is a redirect, shown as a page linking to where it points rather than followed,
+//! - `3x` is a redirect. One to the same host and port is followed, up to
+//!   [`MAX_REDIRECTS`] times, and the page commits under where it ended. One anywhere else
+//!   is shown as a page linking there: the pin a hop to another server would be held to is
+//!   the broker's, which this side of the request does not have,
 //! - `4x` and `5x` are failures, and `6x` asks for a client certificate the engine does not
 //!   have: each is a page with the server's message.
 //!
 //! Servers mostly sign their own certificates, so the connection trusts a certificate on
 //! first use ([`tls`]): the first visit to a host and port reports the certificate, which the
 //! broker pins, and a later visit showing another is refused before the request is sent.
+//! Every hop of a redirect is held to the request's pin, or on a first visit to the
+//! certificate its first hop showed.
 //!
 //! Text in a charset other than UTF-8 is read as UTF-8 all the same.
 //!
@@ -26,6 +33,7 @@ mod gemtext;
 pub(crate) mod testing;
 mod tls;
 
+use crate::net::protocols::known_hosts::{key, CertPin};
 use crate::net::protocols::page::{self, escape, title_for};
 use crate::net::protocols::socket::{self, invalid, Close};
 use crate::net::protocols::{Protocol, ProtocolRequest, ProtocolResponse};
@@ -43,6 +51,17 @@ const MAX_URL_BYTES: usize = 1024;
 
 /// Longest meta field a header may carry, in bytes.
 const MAX_META_BYTES: usize = 1024;
+
+/// Redirects followed for one request before giving up, as the specification advises.
+pub const MAX_REDIRECTS: usize = 5;
+
+/// What a query's input is percent-encoded against: all but the unreserved characters, so a
+/// space is `%20` and never `+`.
+const INPUT: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'.')
+    .remove(b'_')
+    .remove(b'~');
 
 /// The gemini protocol.
 pub struct Gemini;
@@ -69,23 +88,96 @@ impl Protocol for Gemini {
         true
     }
 
+    /// A form's input is the whole query, percent-encoded, when the form has one field.
+    fn form_query(&self, data: &[(String, String)]) -> Option<String> {
+        match data {
+            [(_, input)] => Some(percent_encoding::utf8_percent_encode(input, INPUT).to_string()),
+            _ => None,
+        }
+    }
+
     async fn fetch(&self, request: ProtocolRequest<'_>) -> Result<ProtocolResponse, NetError> {
-        let (url, reach) = (request.url, request.reach);
+        let mut url = request.url.clone();
+        let mut pin = request.pin.cloned();
+        let mut hops = 0;
+        loop {
+            let (response, peer, certificate) = match self.exchange(&url, request.reach, pin.as_ref()).await {
+                // A first visit that meets another certificate on a later hop has no pin to
+                // replace, so it is no changed certificate to offer for trusting.
+                Err(NetError::Tls(mut tls)) if request.pin.is_none() && tls.fingerprint.is_some() => {
+                    tls.fingerprint = None;
+                    tls.message =
+                        format!("{url} showed another certificate than the redirect to it did on a first visit");
+                    return Err(NetError::Tls(tls));
+                }
+                exchanged => exchanged?,
+            };
+            // A first visit's later hops are held to the certificate its first one showed.
+            let pin = pin.get_or_insert_with(|| certificate.clone());
+            let target = followed(&url, &response).map_err(|e| invalid(format!("{url} answered: {e}")))?;
+            let target = match target {
+                Some(target) if hops < MAX_REDIRECTS => {
+                    hops += 1;
+                    url = target;
+                    continue;
+                }
+                target => target,
+            };
+            let (content_type, body) = match target {
+                Some(target) => html(status_page(
+                    &url,
+                    30,
+                    &format!(
+                        "<p>The page was redirected {MAX_REDIRECTS} times and still points on, to \
+<a href=\"{}\">{}</a>.</p>",
+                        escape(target.as_str()),
+                        escape(target.as_str())
+                    ),
+                )),
+                None => present(&url, &response).map_err(|e| invalid(format!("{url} answered: {e}")))?,
+            };
+            return Ok(ProtocolResponse {
+                content_type,
+                body: Bytes::from(body),
+                peer_addr: peer,
+                certificate: Some(pin.clone()),
+                final_url: (hops > 0).then_some(url),
+            });
+        }
+    }
+}
+
+impl Gemini {
+    /// One request and its whole response: connect to `url`'s server, hold its certificate
+    /// to `pin`, send the request line and read until the server closes. Returns the
+    /// response, the peer and the certificate the server showed.
+    async fn exchange(
+        &self,
+        url: &Url,
+        reach: crate::net::ssrf::AddressSpace,
+        pin: Option<&CertPin>,
+    ) -> Result<(Vec<u8>, Option<std::net::SocketAddr>, CertPin), NetError> {
         let gemini = Request::from_url(url).map_err(invalid)?;
         let addrs = socket::resolve(self, url, &gemini.host, gemini.port, reach).await?;
         let tcp = socket::connect(url, &gemini.host, &addrs, reach).await?;
         let peer = tcp.peer_addr().ok();
-        let (mut stream, certificate) = tls::handshake(&gemini.host, gemini.port, tcp, request.pin).await?;
+        let (mut stream, certificate) = tls::handshake(&gemini.host, gemini.port, tcp, pin).await?;
         let response = socket::talk(&mut stream, &gemini.host, &gemini.line, Close::Unclean).await?;
-        let (content_type, body) =
-            present(url, &response).map_err(|e| invalid(format!("{} answered {url}: {e}", gemini.host)))?;
-        Ok(ProtocolResponse {
-            content_type,
-            body: Bytes::from(body),
-            peer_addr: peer,
-            certificate: Some(certificate),
-        })
+        Ok((response, peer, certificate))
     }
+}
+
+/// Where a response sends the request on to: a redirect's target, when it is on the same
+/// host and port as `url`. `None` for any other response, which is shown.
+fn followed(url: &Url, response: &[u8]) -> Result<Option<Url>, String> {
+    let (status, meta, _) = header(response)?;
+    if status / 10 != 3 {
+        return Ok(None);
+    }
+    Ok(url
+        .join(meta)
+        .ok()
+        .filter(|to| to.scheme() == "gemini" && key(to, DEFAULT_PORT) == key(url, DEFAULT_PORT)))
 }
 
 /// One gemini request.
@@ -163,14 +255,7 @@ fn present(url: &Url, response: &[u8]) -> Result<(String, Vec<u8>), String> {
     let (status, meta, body) = header(response)?;
     Ok(match status / 10 {
         2 => content(url, meta, body),
-        1 => html(status_page(
-            url,
-            status,
-            &format!(
-                "<p>{}</p><p class=\"u\">The server asks for input, which this browser cannot send yet.</p>",
-                escape(meta)
-            ),
-        )),
+        1 => html(status_page(url, status, &input_form(url, status, meta))),
         3 => html(status_page(url, status, &redirect(url, meta))),
         6 => html(status_page(
             url,
@@ -183,6 +268,26 @@ cannot present yet.</p>",
         )),
         _ => html(status_page(url, status, &format!("<p>{}</p>", escape(meta)))),
     })
+}
+
+/// A form asking for what the prompt in `meta` asks, submitted to `url` without its query:
+/// the input replaces it. Sensitive input (`11`) is typed into a masked field.
+fn input_form(url: &Url, status: u8, meta: &str) -> String {
+    let mut action = url.clone();
+    action.set_query(None);
+    action.set_fragment(None);
+    let kind = if status == 11 { "password" } else { "text" };
+    let prompt = if meta.is_empty() {
+        "The server asks for input."
+    } else {
+        meta
+    };
+    format!(
+        "<form method=\"get\" action=\"{}\"><p><label for=\"input\">{}</label></p>\
+<p><input id=\"input\" name=\"input\" type=\"{kind}\" autofocus> <button type=\"submit\">Send</button></p></form>",
+        escape(action.as_str()),
+        escape(prompt)
+    )
 }
 
 /// A success: the body under the media type in `meta`, which is gemtext in UTF-8 when empty.
@@ -279,7 +384,7 @@ mod tests {
     use crate::net::ssrf::AddressSpace;
     use gosub_sonar::net::tls::TlsErrorKind;
     use gosub_sonar::net::types::BlockReason;
-    use testing::{serve, A, A_CERT, B, B_CERT, FORGED};
+    use testing::{serve, serve_each, A, A_CERT, B, B_CERT, FORGED};
 
     fn url(s: &str) -> Url {
         Url::parse(s).unwrap()
@@ -378,11 +483,7 @@ mod tests {
     fn other_statuses_are_pages_with_the_server_s_message() {
         let at = url("gemini://h.test/dir/");
         let shown = |r: &[u8]| String::from_utf8(present(&at, r).unwrap().1).unwrap();
-        let page = shown(b"10 Your name?\r\n");
-        assert!(
-            page.contains("<h1>Input requested (10)</h1><p>Your name?</p>"),
-            "{page}"
-        );
+        assert!(shown(b"10 Your name?\r\n").contains("<h1>Input requested (10)</h1>"));
         assert!(shown(b"51 <nope>\r\n").contains("<h1>Not found (51)</h1><p>&lt;nope&gt;</p>"));
         assert!(shown(b"42 x\r\n").contains("<h1>CGI error (42)</h1>"));
         assert!(shown(b"48 x\r\n").contains("<h1>Temporary failure (48)</h1>"));
@@ -422,7 +523,8 @@ mod tests {
         assert_eq!(tls.kind, TlsErrorKind::InvalidCertificate);
         assert!(tls.message.contains(pin.as_str()), "{}", tls.message);
         assert!(tls.message.contains(CertPin::of(B_CERT).as_str()), "{}", tls.message);
-        assert!(tls.fingerprint.is_none());
+        // What the user may choose to trust instead.
+        assert_eq!(tls.fingerprint, Some(CertPin::of(B_CERT).digest()));
         assert_eq!(server.await.unwrap(), [None], "the request was sent");
     }
 
@@ -430,8 +532,127 @@ mod tests {
     async fn a_certificate_shown_without_its_key_is_refused_on_a_first_visit_too() {
         let (port, server) = serve(&[FORGED], b"20 text/gemini\r\nforged", true).await;
         let err = fetch(&format!("gemini://127.0.0.1:{port}/"), None).await.unwrap_err();
-        assert!(matches!(err, NetError::Tls(_)), "{err:?}");
+        let NetError::Tls(tls) = err else {
+            panic!("not a TLS error: {err:?}")
+        };
+        assert!(
+            tls.fingerprint.is_none(),
+            "a forged certificate is offered for trusting"
+        );
         assert_eq!(server.await.unwrap(), [None], "the request was sent");
+
+        // Nor when it is the pinned one.
+        let (port, _server) = serve(&[FORGED], b"20 text/gemini\r\nforged", true).await;
+        let pin = CertPin::of(A_CERT);
+        let err = fetch(&format!("gemini://127.0.0.1:{port}/"), Some(&pin))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(&err, NetError::Tls(tls) if tls.fingerprint.is_none()),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn input_is_asked_for_with_a_form_that_replaces_the_query() {
+        let at = url("gemini://h.test/search?old#f");
+        let shown = |r: &[u8]| String::from_utf8(present(&at, r).unwrap().1).unwrap();
+        let page = shown(b"10 Search <for>\r\n");
+        assert!(
+            page.contains("<form method=\"get\" action=\"gemini://h.test/search\">"),
+            "{page}"
+        );
+        assert!(
+            page.contains("<label for=\"input\">Search &lt;for&gt;</label>"),
+            "{page}"
+        );
+        assert!(page.contains("type=\"text\""), "{page}");
+        assert!(shown(b"11 Password\r\n").contains("type=\"password\""));
+        assert!(shown(b"10\r\n").contains("The server asks for input."));
+    }
+
+    #[test]
+    fn a_single_field_s_input_is_the_query() {
+        let data = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs.iter().map(|&(k, v)| (k.into(), v.into())).collect()
+        };
+        assert_eq!(
+            Gemini.form_query(&data(&[("input", "a b/?#ü~")])).as_deref(),
+            Some("a%20b%2F%3F%23%C3%BC~")
+        );
+        assert_eq!(Gemini.form_query(&data(&[("a", "1"), ("b", "2")])), None);
+    }
+
+    #[tokio::test]
+    async fn a_redirect_on_the_same_server_is_followed() {
+        let (port, server) = serve_each(
+            &[
+                (A, b"31 /b\r\n"),
+                (A, b"30 c?x\r\n"),
+                (A, b"20 text/gemini\r\n=> d D\r\n"),
+            ],
+            true,
+        )
+        .await;
+        let response = fetch(&format!("gemini://127.0.0.1:{port}/a"), None).await.unwrap();
+        let requests: Vec<_> = server
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|l| String::from_utf8(l.unwrap()).unwrap())
+            .collect();
+        assert_eq!(
+            requests,
+            [
+                format!("gemini://127.0.0.1:{port}/a\r\n"),
+                format!("gemini://127.0.0.1:{port}/b\r\n"),
+                format!("gemini://127.0.0.1:{port}/c?x\r\n"),
+            ]
+        );
+        let at = format!("gemini://127.0.0.1:{port}/c?x");
+        assert_eq!(response.final_url.as_ref().map(Url::as_str), Some(at.as_str()));
+        // Links resolve against where the page ended up.
+        assert!(
+            body(&response).contains(&format!("href=\"gemini://127.0.0.1:{port}/d\"")),
+            "{}",
+            body(&response)
+        );
+        assert_eq!(response.certificate, Some(CertPin::of(A_CERT)));
+    }
+
+    #[tokio::test]
+    async fn a_first_visit_s_redirect_is_held_to_its_first_certificate() {
+        let (port, server) = serve_each(&[(A, b"30 /b\r\n"), (B, b"20 text/gemini\r\nswapped")], true).await;
+        let err = fetch(&format!("gemini://127.0.0.1:{port}/a"), None).await.unwrap_err();
+        // Nothing is pinned yet, so there is no pin to replace and nothing offered to trust.
+        assert!(
+            matches!(&err, NetError::Tls(tls) if tls.fingerprint.is_none() && tls.message.contains("redirect")),
+            "{err:?}"
+        );
+        assert_eq!(server.await.unwrap()[1], None, "the second request was sent");
+    }
+
+    #[tokio::test]
+    async fn redirects_stop_after_five() {
+        let turns = [(A, &b"30 /again\r\n"[..]); MAX_REDIRECTS + 1];
+        let (port, server) = serve_each(&turns, true).await;
+        let response = fetch(&format!("gemini://127.0.0.1:{port}/"), None).await.unwrap();
+        assert_eq!(server.await.unwrap().len(), MAX_REDIRECTS + 1);
+        assert!(body(&response).contains("redirected 5 times"), "{}", body(&response));
+        assert!(body(&response).contains(&format!("gemini://127.0.0.1:{port}/again")));
+    }
+
+    #[tokio::test]
+    async fn a_redirect_to_another_server_is_a_link() {
+        let (port, server) = serve(&[A], b"30 gemini://127.0.0.1:1/elsewhere\r\n", true).await;
+        let response = fetch(&format!("gemini://127.0.0.1:{port}/"), None).await.unwrap();
+        assert_eq!(server.await.unwrap().len(), 1);
+        assert_eq!(response.final_url, None);
+        assert!(
+            body(&response).contains("<a href=\"gemini://127.0.0.1:1/elsewhere\">"),
+            "{}",
+            body(&response)
+        );
     }
 
     #[tokio::test]

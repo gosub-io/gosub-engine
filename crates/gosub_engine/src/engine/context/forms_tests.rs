@@ -621,6 +621,21 @@ fn color_input_submits_what_the_picker_chose() {
     assert_eq!(sub.url.query(), Some("c=%23663399"));
 }
 
+/// Gemini's query is the input itself, percent-encoded with `%20` for a space, and the
+/// action's own query gives way to it.
+#[cfg(feature = "gemini")]
+#[test]
+fn a_form_to_a_gemini_url_sends_its_input_as_the_query() {
+    let mut ctx = page(r#"<form action="gemini://h.test/search?old"><input id="q" name="input"></form>"#);
+    click(&mut ctx, "q");
+    type_text(&mut ctx, "a b&ü");
+    key(&mut ctx, "Enter");
+    let sub = ctx
+        .take_submission()
+        .unwrap_or_else(|| panic!("Enter in the field submits"));
+    assert_eq!(sub.url.as_str(), "gemini://h.test/search?a%20b%26%C3%BC");
+}
+
 // ── submit / reset ────────────────────────────────────────────────────────────
 
 #[test]

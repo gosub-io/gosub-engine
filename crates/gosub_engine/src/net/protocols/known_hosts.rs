@@ -4,8 +4,13 @@
 //! every later one must show the same, or is refused. The store is the zone's: the broker
 //! looks a pin up before a request goes out and records the certificate a first visit
 //! reports, in this process, since the network process keeps nothing. An embedder that
-//! wants pins to outlive the process passes its own [`KnownHosts`] to the zone builder; the
-//! default keeps them in memory.
+//! wants pins to outlive the process passes a [`KnownHosts`] to the zone builder, such as
+//! [`SqliteKnownHosts`] (feature `sqlite_known_hosts`); the default keeps them in memory.
+//!
+//! A server showing another certificate than the pinned one is refused with a TLS error
+//! carrying the new certificate's fingerprint. An embedder that lets the user trust it
+//! stores exactly that one ([`CertPin::from_digest`], [`KnownHosts::remember`]) under the
+//! page's [`key_for`], rather than forgetting the pin and pinning whatever comes next.
 
 use cow_utils::CowUtils;
 use parking_lot::Mutex;
@@ -32,6 +37,22 @@ impl CertPin {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// The SHA-256 itself, as a TLS error's fingerprint carries it.
+    pub fn digest(&self) -> [u8; 32] {
+        let mut digest = [0u8; 32];
+        for (byte, pair) in digest.iter_mut().zip(self.0.as_bytes().chunks(2)) {
+            // Two lowercase hex digits each: `of` and `parse` make no other pin.
+            let hex = |c: u8| if c.is_ascii_digit() { c - b'0' } else { c - b'a' + 10 };
+            *byte = hex(pair[0]) << 4 | hex(pair[1]);
+        }
+        digest
+    }
+
+    /// The pin a fingerprint stands for.
+    pub fn from_digest(digest: &[u8; 32]) -> Self {
+        Self(digest.iter().map(|b| format!("{b:02x}")).collect())
+    }
 }
 
 impl std::fmt::Display for CertPin {
@@ -44,10 +65,11 @@ impl std::fmt::Display for CertPin {
 pub trait KnownHosts: Send + Sync + std::fmt::Debug {
     /// The certificate first seen at `host`:`port`, if any.
     fn pin(&self, host: &str, port: u16) -> Option<CertPin>;
-    /// Record `pin` for `host`:`port`.
+    /// Record `pin` for `host`:`port`, replacing any there: also how an embedder trusts the
+    /// new certificate a refused visit named.
     fn remember(&self, host: &str, port: u16, pin: &CertPin);
-    /// Drop the pin for `host`:`port`, so the next connection is a first visit again: what
-    /// an embedder offers when the user accepts a server's new certificate.
+    /// Drop the pin for `host`:`port`, so the next connection is a first visit again, as
+    /// when the user clears what the profile remembers.
     fn forget(&self, host: &str, port: u16);
 }
 
@@ -140,6 +162,116 @@ pub fn key(url: &Url, default_port: u16) -> Option<(String, u16)> {
     Some((host, url.port().unwrap_or(default_port)))
 }
 
+/// The host and port a pin for `url` is kept under, when a protocol in this build pins
+/// certificates for its scheme: what an embedder passes to [`KnownHosts`] for a page.
+pub fn key_for(url: &Url) -> Option<(String, u16)> {
+    let protocol = crate::net::protocols::lookup(url.scheme()).filter(|p| p.pins_certificates())?;
+    key(url, protocol.default_port())
+}
+
+#[cfg(feature = "sqlite_known_hosts")]
+pub use sqlite::SqliteKnownHosts;
+
+#[cfg(feature = "sqlite_known_hosts")]
+mod sqlite {
+    use super::{CertPin, KnownHosts};
+    use crate::EngineError;
+    use cow_utils::CowUtils;
+    use r2d2::Pool;
+    use r2d2_sqlite::rusqlite::{self, params, Connection, OptionalExtension};
+    use r2d2_sqlite::SqliteConnectionManager;
+    use std::path::PathBuf;
+
+    /// Pins in a SQLite database, so they outlive the process. Access goes through an `r2d2`
+    /// pool, like the cookie store. A database error is logged and the store behaves as
+    /// empty for that call: a pin that cannot be read makes the visit a first one, which
+    /// the user is no worse off for than with the default store.
+    pub struct SqliteKnownHosts {
+        pool: Pool<SqliteConnectionManager>,
+    }
+
+    impl std::fmt::Debug for SqliteKnownHosts {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("SqliteKnownHosts").finish_non_exhaustive()
+        }
+    }
+
+    impl SqliteKnownHosts {
+        /// Opens (or creates) the database at `path`.
+        pub fn new(path: PathBuf) -> Result<Self, EngineError> {
+            let manager = SqliteConnectionManager::file(path);
+            let pool = Pool::new(manager).map_err(|e| EngineError::Internal(anyhow::anyhow!(e)))?;
+            pool.get()
+                .map_err(|e| EngineError::Internal(anyhow::anyhow!(e)))?
+                .execute_batch(
+                    "CREATE TABLE IF NOT EXISTS known_hosts (
+                         host TEXT    NOT NULL,
+                         port INTEGER NOT NULL,
+                         pin  TEXT    NOT NULL,
+                         PRIMARY KEY (host, port)
+                     );",
+                )
+                .map_err(|e| EngineError::Internal(anyhow::anyhow!(e)))?;
+            Ok(Self { pool })
+        }
+
+        /// `f` on a pooled connection; `None`, logged, when either fails.
+        fn run<T>(&self, what: &str, f: impl FnOnce(&Connection) -> rusqlite::Result<T>) -> Option<T> {
+            let conn = match self.pool.get() {
+                Ok(conn) => conn,
+                Err(e) => {
+                    log::error!("known hosts: no database connection to {what}: {e}");
+                    return None;
+                }
+            };
+            f(&conn)
+                .inspect_err(|e| log::error!("known hosts: could not {what}: {e}"))
+                .ok()
+        }
+    }
+
+    impl KnownHosts for SqliteKnownHosts {
+        fn pin(&self, host: &str, port: u16) -> Option<CertPin> {
+            let host = host.cow_to_ascii_lowercase();
+            let text = self.run("read a pin", |conn| {
+                conn.query_row(
+                    "SELECT pin FROM known_hosts WHERE host = ?1 AND port = ?2",
+                    params![&*host, port],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+            })??;
+            // A row that is no pin is treated as none, never as a pin of nothing.
+            let pin = CertPin::parse(&text);
+            if pin.is_none() {
+                log::error!("known hosts: the pin stored for {host}:{port} is malformed");
+            }
+            pin
+        }
+
+        fn remember(&self, host: &str, port: u16, pin: &CertPin) {
+            let host = host.cow_to_ascii_lowercase();
+            self.run("store a pin", |conn| {
+                conn.execute(
+                    "INSERT INTO known_hosts (host, port, pin) VALUES (?1, ?2, ?3)
+                     ON CONFLICT (host, port) DO UPDATE SET pin = excluded.pin",
+                    params![&*host, port, pin.as_str()],
+                )
+            });
+        }
+
+        fn forget(&self, host: &str, port: u16) {
+            let host = host.cow_to_ascii_lowercase();
+            self.run("forget a pin", |conn| {
+                conn.execute(
+                    "DELETE FROM known_hosts WHERE host = ?1 AND port = ?2",
+                    params![&*host, port],
+                )
+            });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,6 +317,66 @@ mod tests {
         assert_eq!(second.pin, Some(CertPin::of(b"one")));
         second.record(Some(&CertPin::of(b"two")));
         assert_eq!(store.pin("host.test", 1965), Some(CertPin::of(b"one")));
+    }
+
+    #[test]
+    fn a_pin_and_its_digest_are_the_same_certificate() {
+        let pin = CertPin::of(b"cert");
+        let digest: [u8; 32] = Sha256::digest(b"cert").into();
+        assert_eq!(pin.digest(), digest);
+        assert_eq!(CertPin::from_digest(&digest), pin);
+    }
+
+    #[cfg(feature = "gemini")]
+    #[test]
+    fn a_page_s_key_uses_its_protocol_s_port() {
+        let url = |s: &str| Url::parse(s).unwrap();
+        assert_eq!(key_for(&url("gemini://Host.Test/x")), Some(("host.test".into(), 1965)));
+        assert_eq!(
+            key_for(&url("gemini://host.test:7000/")),
+            Some(("host.test".into(), 7000))
+        );
+        // Only a protocol that pins has keys.
+        assert_eq!(key_for(&url("https://host.test/")), None);
+        #[cfg(feature = "gopher")]
+        assert_eq!(key_for(&url("gopher://host.test/")), None);
+    }
+
+    #[cfg(feature = "sqlite_known_hosts")]
+    #[test]
+    fn pins_in_sqlite_outlive_the_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("known_hosts.db");
+        let (one, two) = (CertPin::of(b"one"), CertPin::of(b"two"));
+        {
+            let hosts = SqliteKnownHosts::new(path.clone()).unwrap();
+            assert_eq!(hosts.pin("host.test", 1965), None);
+            hosts.remember("Host.Test", 1965, &one);
+            hosts.remember("other.test", 1965, &one);
+            // Trusting a new certificate replaces the pin.
+            hosts.remember("host.test", 1965, &two);
+            hosts.forget("other.test", 1965);
+        }
+        let hosts = SqliteKnownHosts::new(path).unwrap();
+        assert_eq!(hosts.pin("host.test", 1965), Some(two));
+        assert_eq!(hosts.pin("host.test", 1966), None);
+        assert_eq!(hosts.pin("other.test", 1965), None);
+    }
+
+    #[cfg(feature = "sqlite_known_hosts")]
+    #[test]
+    fn a_malformed_stored_pin_is_no_pin() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("known_hosts.db");
+        let hosts = SqliteKnownHosts::new(path.clone()).unwrap();
+        r2d2_sqlite::rusqlite::Connection::open(&path)
+            .unwrap()
+            .execute(
+                "INSERT INTO known_hosts (host, port, pin) VALUES ('host.test', 1965, 'nope')",
+                [],
+            )
+            .unwrap();
+        assert_eq!(hosts.pin("host.test", 1965), None);
     }
 
     #[test]

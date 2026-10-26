@@ -165,14 +165,24 @@ a renderer.
   bar shows the same padlock as for an https page an authority vouched for.
   The certificate's name and dates are not checked; the pin stands in for
   both. Pins live in the zone, in memory unless the embedder passes a store
-  (`ZoneBuilder::known_hosts`), so every restart is a first visit again, and
-  the only way past a changed certificate is the embedder forgetting the pin.
-  Many servers close without TLS `close_notify`, so a response cut short on
-  the path reads as complete. The request line is the URL alone and goes out
-  only after a handshake, so a plaintext service on a port a link can reach
-  gets a TLS hello it rejects, not a command. Links follow the gopher rules:
-  navigations only, to gemini or the web, within the page's space.
-  Mitigation is `net.gemini.enabled` off where gemini is not needed.
+  (`ZoneBuilder::known_hosts`, `SqliteKnownHosts`); with the default every
+  restart is a first visit again. A changed certificate fails with the new
+  one's fingerprint, and the embedder may let the user trust exactly that
+  one; a user who clicks through a real interception has pinned the
+  interceptor. With the network process on, that fingerprint comes from the
+  network process, which a compromised one could choose, but such a process
+  already sees and can change every response. A redirect is followed only to
+  the same host and port, at most five times, and every hop is held to the
+  request's pin, or on a first visit to the certificate the first hop showed;
+  one to another server is shown as a link. Input a server asks for goes
+  into the URL's query, so a status `11` (sensitive) answer such as a
+  password lands in history and in the server's logs, as with any gemini
+  client. Many servers close without TLS `close_notify`, so a response cut
+  short on the path reads as complete. The request line is the URL alone and
+  goes out only after a handshake, so a plaintext service on a port a link
+  can reach gets a TLS hello it rejects, not a command. Links and forms follow
+  the gopher rules: navigations only, to gemini or the web, within the page's
+  space. Mitigation is `net.gemini.enabled` off where gemini is not needed.
 - **Cross-origin authenticated bytes of embeddable types reach the renderer.**
   No-CORS subresource loads carry the zone's cookies for the URL (`SameSite`
   judged against the tab, so `SameSite=None` ones cross sites), and opaque

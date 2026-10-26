@@ -62,6 +62,7 @@ impl Protocol for Finger {
             body: Bytes::from(text_page(url, &body)),
             peer_addr: peer,
             certificate: None,
+            final_url: None,
         })
     }
 }

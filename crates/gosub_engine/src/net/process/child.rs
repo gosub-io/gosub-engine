@@ -11,8 +11,9 @@ use crate::net::process::protocol::{
 };
 use crate::net::protocols::known_hosts::CertPin;
 use crate::net::ssrf::AddressSpace;
-use crate::net::types::{FetchRequest, FetchResult, RequestBody};
+use crate::net::types::{FetchRequest, FetchResult, NetError, RequestBody};
 use gosub_ipc::Endpoint;
+use gosub_sonar::net::tls::TlsError;
 use http::Method;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -613,6 +614,14 @@ async fn perform_protocol(
             body: body.to_vec(),
             peer_addr: meta.peer_addr,
             certificate: served.certificate.map(|pin| pin.to_string()),
+        },
+        FetchResult::Error(NetError::Tls(TlsError {
+            message,
+            fingerprint: Some(seen),
+            ..
+        })) => FetchOutcome::CertificateChanged {
+            message,
+            seen: CertPin::from_digest(&seen).to_string(),
         },
         FetchResult::Error(e) => FetchOutcome::Error(e.to_string()),
         FetchResult::Stream { .. } => FetchOutcome::Error(format!("{} answered with a stream", protocol.scheme())),

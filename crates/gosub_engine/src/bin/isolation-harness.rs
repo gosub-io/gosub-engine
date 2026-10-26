@@ -333,7 +333,9 @@ fn resolve() -> i32 {
             net.shutdown();
             return 1;
         }
-        FetchOutcome::Error(e) => println!("resolution failed as it should: {e}"),
+        FetchOutcome::Error(e) | FetchOutcome::CertificateChanged { message: e, .. } => {
+            println!("resolution failed as it should: {e}")
+        }
     }
 
     // 2. The strict fetchers classify the loopback literal at the hop: neither
@@ -348,7 +350,7 @@ fn resolve() -> i32 {
             FetchOutcome::Error(e) if e.contains("blocked") || e.contains("policy") => {
                 println!("{reach:?} fetcher refused loopback: {e}");
             }
-            FetchOutcome::Error(e) => {
+            FetchOutcome::Error(e) | FetchOutcome::CertificateChanged { message: e, .. } => {
                 eprintln!("{reach:?} fetcher failed for the wrong reason: {e}");
                 net.shutdown();
                 return 1;
@@ -6655,7 +6657,9 @@ fn stream() -> i32 {
             }
         }
         FetchOutcome::Ok { .. } => Err("expected a streamed reply, got a buffered one".into()),
-        FetchOutcome::Error(e) => Err(format!("fetch failed: {e}")),
+        FetchOutcome::Error(e) | FetchOutcome::CertificateChanged { message: e, .. } => {
+            Err(format!("fetch failed: {e}"))
+        }
     };
     net.shutdown();
     drop(server);
@@ -8054,7 +8058,7 @@ fn direct() -> i32 {
             eprintln!("a buffered request came back streamed");
             1
         }
-        FetchOutcome::Error(e) => {
+        FetchOutcome::Error(e) | FetchOutcome::CertificateChanged { message: e, .. } => {
             eprintln!("fetch through the network process failed: {e}");
             1
         }
@@ -8380,7 +8384,7 @@ fn oversized() -> i32 {
         FetchOutcome::Error(e) if !cfg!(target_os = "linux") && e.contains("too large") => {
             println!("oversized body refused in {elapsed:?}: {e}");
         }
-        FetchOutcome::Error(e) => {
+        FetchOutcome::Error(e) | FetchOutcome::CertificateChanged { message: e, .. } => {
             eprintln!("the oversized body failed: {e}");
             net.shutdown();
             return 1;
@@ -8418,7 +8422,7 @@ fn oversized() -> i32 {
             eprintln!("second fetch: status {status}");
             1
         }
-        FetchOutcome::Error(e) => {
+        FetchOutcome::Error(e) | FetchOutcome::CertificateChanged { message: e, .. } => {
             eprintln!("the link did not survive the oversized body: {e}");
             1
         }
@@ -8863,7 +8867,8 @@ fn engine_gopher() -> i32 {
 /// A gemini navigation served from the network process: the page loads over TLS from inside
 /// the network process's sandbox, the certificate it showed crosses back and is pinned in the
 /// zone, and a later visit to the same port showing another certificate is refused before the
-/// request is sent.
+/// request is sent, with the new certificate's fingerprint crossing back too. Trusting that
+/// one lets the next visit through, and the redirect it follows commits under its target.
 #[cfg(feature = "gemini")]
 fn engine_gemini() -> i32 {
     use gosub_config::settings::Setting;
@@ -8914,8 +8919,8 @@ fn engine_gemini() -> i32 {
         }
     };
     runtime.block_on(async move {
-        // A gemini server showing certificate A to the first connection and B to the second,
-        // on the same port, handing back each request line (`None` for a failed handshake).
+        // A gemini server showing certificate A to the first connection and B to the rest, on
+        // the same port, handing back each request line (`None` for a failed handshake).
         let (Some(a), Some(b)) = (acceptor(A_CERT, A_KEY), acceptor(B_CERT, B_KEY)) else {
             eprintln!("could not set up the test server's TLS");
             return 1;
@@ -8927,9 +8932,16 @@ fn engine_gemini() -> i32 {
         let Ok(port) = listener.local_addr().map(|a| a.port()) else {
             return 1;
         };
+        let page: &[u8] = b"20 text/gemini\r\n# From the network process\r\n";
+        let turns = [
+            (a, page),
+            (b.clone(), page),
+            (b.clone(), &b"31 /moved\r\n"[..]),
+            (b, &b"20 text/gemini\r\n# Moved here\r\n"[..]),
+        ];
         let server = tokio::spawn(async move {
             let mut lines = Vec::new();
-            for acceptor in [a, b] {
+            for (acceptor, response) in turns {
                 let Ok((tcp, _)) = listener.accept().await else { break };
                 let Ok(mut tls) = acceptor.accept(tcp).await else {
                     lines.push(None);
@@ -8943,7 +8955,7 @@ fn engine_gemini() -> i32 {
                         break;
                     }
                 }
-                let _ = tls.write_all(b"20 text/gemini\r\n# From the network process\r\n").await;
+                let _ = tls.write_all(response).await;
                 let _ = tls.shutdown().await;
                 lines.push(Some(line));
             }
@@ -9001,7 +9013,7 @@ fn engine_gemini() -> i32 {
         // How the next navigation ends: `Ok` when it finished, the error when it failed.
         async fn outcome(
             events: &mut tokio::sync::broadcast::Receiver<EngineEvent>,
-        ) -> Result<Result<(), String>, &'static str> {
+        ) -> Result<Result<(), gosub_engine::LoadError>, &'static str> {
             let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
             loop {
                 let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -9013,7 +9025,7 @@ fn engine_gemini() -> i32 {
                     Ok(Ok(EngineEvent::Navigation {
                         event: NavigationEvent::Failed { error, .. },
                         ..
-                    })) => return Ok(Err(error.to_string())),
+                    })) => return Ok(Err(error)),
                     Ok(Ok(_)) | Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
                     Ok(Err(_)) => return Err("event channel closed"),
                     Err(_) => return Err("timed out waiting for the navigation"),
@@ -9029,7 +9041,7 @@ fn engine_gemini() -> i32 {
         match outcome(&mut events).await {
             Ok(Ok(())) => {}
             Ok(Err(error)) => {
-                eprintln!("the gemini navigation failed: {error}");
+                eprintln!("the gemini navigation failed: {error:?}");
                 return 1;
             }
             Err(e) => {
@@ -9051,14 +9063,19 @@ fn engine_gemini() -> i32 {
         }
 
         // Another certificate on the same port: refused in the handshake.
-        if tab.navigate(format!("gemini://127.0.0.1:{port}/again")).await.is_err() {
+        let again = format!("gemini://127.0.0.1:{port}/again");
+        if tab.navigate(again.clone()).await.is_err() {
             eprintln!("navigate failed");
             return 1;
         }
-        match outcome(&mut events).await {
-            Ok(Err(error)) if error.contains("changed since the first visit") => {}
+        let fingerprint = match outcome(&mut events).await {
+            Ok(Err(gosub_engine::LoadError::Tls {
+                message,
+                fingerprint: Some(fingerprint),
+                ..
+            })) if message.contains("changed since the first visit") => fingerprint,
             Ok(Err(error)) => {
-                eprintln!("the second visit failed, but not on its certificate: {error}");
+                eprintln!("the second visit failed, but not on a changed certificate: {error:?}");
                 return 1;
             }
             Ok(Ok(())) => {
@@ -9069,9 +9086,54 @@ fn engine_gemini() -> i32 {
                 eprintln!("{e}");
                 return 1;
             }
+        };
+        if fingerprint != CertPin::of(B_CERT).digest() {
+            eprintln!("the refusal names another certificate than the one the server showed");
+            return 1;
         }
+        if known_hosts.pin("127.0.0.1", port) != Some(CertPin::of(A_CERT)) {
+            eprintln!("the refused certificate replaced the pin");
+            return 1;
+        }
+
+        // The user trusts the new certificate: the next visit goes through, and the redirect
+        // it meets is followed on the same server.
+        let Some((host, key_port)) = url::Url::parse(&again)
+            .ok()
+            .and_then(|url| gosub_engine::net::protocols::known_hosts::key_for(&url))
+        else {
+            eprintln!("a gemini page has no known-hosts key");
+            return 1;
+        };
+        known_hosts.remember(&host, key_port, &CertPin::from_digest(&fingerprint));
+        if tab.navigate(format!("gemini://127.0.0.1:{port}/old")).await.is_err() {
+            eprintln!("navigate failed");
+            return 1;
+        }
+        match outcome(&mut events).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                eprintln!("the visit after trusting the certificate failed: {error:?}");
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                return 1;
+            }
+        }
+        let moved = format!("gemini://127.0.0.1:{port}/moved");
+        if tab.url().map(|u| u.to_string()).as_deref() != Some(moved.as_str()) || tab.title() != "Moved here" {
+            eprintln!(
+                "the redirect did not commit under its target: {:?} {:?}",
+                tab.url(),
+                tab.title()
+            );
+            return 1;
+        }
+
+        let line = |path: &str| Some(format!("gemini://127.0.0.1:{port}{path}\r\n").into_bytes());
         match server.await {
-            Ok(lines) if lines == [Some(format!("{first}\r\n").into_bytes()), None] => {}
+            Ok(lines) if lines == [line("/"), None, line("/old"), line("/moved")] => {}
             Ok(lines) => {
                 eprintln!("the server saw {lines:?}: the refused visit must send no request");
                 return 1;
@@ -9081,14 +9143,13 @@ fn engine_gemini() -> i32 {
                 return 1;
             }
         }
-        if known_hosts.pin("127.0.0.1", port) != Some(CertPin::of(A_CERT)) {
-            eprintln!("the refused certificate replaced the pin");
-            return 1;
-        }
 
         engine.close_zone(zone).await;
         let _ = engine.shutdown().await;
-        println!("gemini served from the network process, pinned, and a changed certificate refused");
+        println!(
+            "gemini served from the network process, pinned, a changed certificate refused and \
+trusted, and a redirect followed"
+        );
         0
     })
 }

@@ -63,16 +63,18 @@ pub async fn handshake(
 }
 
 /// The error a failed handshake ends in. A certificate other than the pinned one is said so,
-/// with both, since that is what the user has to decide about.
+/// with both, and carries the new one's fingerprint: that is what the user has to decide
+/// about, and what an embedder pins when they trust it (`known_hosts`). Any other failure
+/// carries none, so nothing else is offered for trusting, a certificate shown without its
+/// key least of all.
 fn failure(host: &str, port: u16, pin: Option<&CertPin>, seen: Option<CertPin>, e: std::io::Error) -> NetError {
-    let tls = |kind, message| {
+    let tls = |kind, message, fingerprint| {
         NetError::Tls(TlsError {
             kind,
             host: host.to_string(),
             message,
-            // No override is offered: a certificate is accepted again by forgetting the pin.
             certificate: None,
-            fingerprint: None,
+            fingerprint,
         })
     };
     if let (Some(pin), Some(seen)) = (pin, seen) {
@@ -83,12 +85,13 @@ fn failure(host: &str, port: u16, pin: Option<&CertPin>, seen: Option<CertPin>, 
                     "the certificate at {host}:{port} changed since the first visit \
 (it was SHA-256 {pin}, it is now {seen})"
                 ),
+                Some(seen.digest()),
             );
         }
     }
     match e.get_ref().and_then(|inner| inner.downcast_ref::<rustls::Error>()) {
-        Some(rustls::Error::InvalidCertificate(_)) => tls(TlsErrorKind::InvalidCertificate, e.to_string()),
-        Some(_) => tls(TlsErrorKind::Handshake, e.to_string()),
+        Some(rustls::Error::InvalidCertificate(_)) => tls(TlsErrorKind::InvalidCertificate, e.to_string(), None),
+        Some(_) => tls(TlsErrorKind::Handshake, e.to_string(), None),
         None => socket::io(e),
     }
 }

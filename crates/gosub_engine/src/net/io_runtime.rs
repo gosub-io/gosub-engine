@@ -403,6 +403,7 @@ fn dispatch_to_net_process(
     let body_preview = crate::net::emitter::capture_body_previews().then(crate::net::emitter::body_capture_limit);
 
     let url = req.url.to_string();
+    let host = req.url.host_str().unwrap_or_default().to_string();
     let method = req.method.as_str().to_string();
     let streaming = req.streaming;
     // No in-process fetcher emits the terminal event that would drop this.
@@ -492,6 +493,18 @@ fn dispatch_to_net_process(
         }
         let _ = reply_tx.send(match reply.outcome {
             FetchOutcome::Error(e) => FetchResult::Error(net_error(e)),
+            // Only a request that went out with a pin can meet a changed certificate.
+            FetchOutcome::CertificateChanged { message, seen } if pins.as_ref().is_some_and(|p| p.pin.is_some()) => {
+                // Checked for form where the reply was received (`plausible_reply`).
+                let seen = crate::net::protocols::known_hosts::CertPin::parse(&seen).map(|pin| pin.digest());
+                FetchResult::Error(crate::net::types::NetError::Tls(gosub_sonar::net::tls::TlsError {
+                    kind: gosub_sonar::net::tls::TlsErrorKind::InvalidCertificate,
+                    host,
+                    message,
+                    certificate: None,
+                    fingerprint: seen,
+                }))
+            }
             _ => match crate::net::process::client::outcome_to_result(reply) {
                 Ok(result) => result,
                 Err(e) => FetchResult::Error(e),

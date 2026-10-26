@@ -901,6 +901,10 @@ pub enum FetchOutcome {
     /// reports it, and a rich error type would be one more thing whose
     /// deserialization a compromised child could exercise.
     Error(String),
+    /// An engine protocol's server showed another certificate than the pinned one. The
+    /// one failure with a field the broker acts on: `seen` (`CertPin` text) is what the
+    /// user may choose to trust, checked for form where the reply is received.
+    CertificateChanged { message: String, seen: String },
 }
 
 #[cfg(test)]

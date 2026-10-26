@@ -1587,15 +1587,27 @@ mod tests {
 
     /// A gemini page loads through the whole tab pipeline, its certificate lands in the
     /// zone's known hosts, and a later visit to the same port showing another certificate
-    /// fails before the request is sent.
+    /// fails before the request is sent, with the new certificate's fingerprint. Trusting
+    /// that one lets the next visit through, and a redirect it follows commits the page
+    /// under where it ended.
     #[cfg(feature = "gemini")]
     #[tokio::test]
     async fn a_gemini_page_loads_and_its_certificate_is_pinned() {
         use crate::events::NavigationEvent;
-        use crate::net::gemini::testing::{serve, A, A_CERT, B};
-        use crate::net::protocols::known_hosts::{CertPin, InMemoryKnownHosts, KnownHosts};
+        use crate::net::gemini::testing::{serve_each, A, A_CERT, B, B_CERT};
+        use crate::net::protocols::known_hosts::{key_for, CertPin, InMemoryKnownHosts, KnownHosts};
 
-        let (port, server) = serve(&[A, B], b"20 text/gemini\r\n# Hello gemini\r\ntext\r\n", true).await;
+        let page: &[u8] = b"20 text/gemini\r\n# Hello gemini\r\ntext\r\n";
+        let (port, server) = serve_each(
+            &[
+                (A, page),
+                (B, page),
+                (B, b"31 /moved\r\n"),
+                (B, b"20 text/gemini\r\n# Moved here\r\n"),
+            ],
+            true,
+        )
+        .await;
         let store = Arc::new(InMemoryKnownHosts::new());
 
         let mut engine = engine_with_max_zones(1);
@@ -1636,13 +1648,34 @@ mod tests {
         assert_eq!(tab.title(), "Hello gemini");
         assert_eq!(store.pin("127.0.0.1", port), Some(CertPin::of(A_CERT)));
 
-        let error = outcome(format!("gemini://127.0.0.1:{port}/again")).await;
-        assert!(
-            matches!(&error, Some(crate::LoadError::Tls { message, .. }) if message.contains("changed since the first visit")),
-            "got {error:?}"
-        );
+        let again = format!("gemini://127.0.0.1:{port}/again");
+        let error = outcome(again.clone()).await;
+        let Some(crate::LoadError::Tls {
+            message,
+            fingerprint: Some(fingerprint),
+            ..
+        }) = &error
+        else {
+            panic!("not a changed certificate: {error:?}");
+        };
+        assert!(message.contains("changed since the first visit"), "{message}");
+        assert_eq!(*fingerprint, CertPin::of(B_CERT).digest());
         assert_eq!(store.pin("127.0.0.1", port), Some(CertPin::of(A_CERT)));
-        assert_eq!(server.await.unwrap(), [Some(format!("{first}\r\n").into_bytes()), None]);
+
+        // What an embedder does when the user trusts the new certificate.
+        let (host, key_port) = key_for(&url::Url::parse(&again).unwrap()).unwrap();
+        store.remember(&host, key_port, &CertPin::from_digest(fingerprint));
+        assert!(
+            outcome(format!("gemini://127.0.0.1:{port}/old")).await.is_none(),
+            "the trusted certificate was refused"
+        );
+        assert_eq!(tab.title(), "Moved here");
+        assert_eq!(
+            tab.url().map(|u| u.to_string()),
+            Some(format!("gemini://127.0.0.1:{port}/moved"))
+        );
+        let line = |path: &str| Some(format!("gemini://127.0.0.1:{port}{path}\r\n").into_bytes());
+        assert_eq!(server.await.unwrap(), [line("/"), None, line("/old"), line("/moved")]);
 
         engine.close_zone(zone).await;
         engine.shutdown().await.expect("shutdown");

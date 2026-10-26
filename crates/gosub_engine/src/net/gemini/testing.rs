@@ -57,12 +57,24 @@ pub async fn serve(
     response: &'static [u8],
     clean: bool,
 ) -> (u16, tokio::task::JoinHandle<Vec<Option<Vec<u8>>>>) {
-    let acceptors: Vec<TlsAcceptor> = identities.iter().copied().map(acceptor).collect();
+    let turns: Vec<_> = identities.iter().map(|&identity| (identity, response)).collect();
+    serve_each(&turns, clean).await
+}
+
+/// [`serve`], with a response of its own for each connection.
+pub async fn serve_each(
+    turns: &[(Identity, &'static [u8])],
+    clean: bool,
+) -> (u16, tokio::task::JoinHandle<Vec<Option<Vec<u8>>>>) {
+    let turns: Vec<(TlsAcceptor, &'static [u8])> = turns
+        .iter()
+        .map(|&(identity, response)| (acceptor(identity), response))
+        .collect();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let task = tokio::spawn(async move {
         let mut lines = Vec::new();
-        for acceptor in acceptors {
+        for (acceptor, response) in turns {
             let (tcp, _) = listener.accept().await.unwrap();
             let Ok(mut tls) = acceptor.accept(tcp).await else {
                 lines.push(None);
