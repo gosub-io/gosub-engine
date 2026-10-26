@@ -1957,6 +1957,20 @@ impl TaffyLayouter {
                 None
             };
             for (inline_layout_element_id, inline_taffy_node_id) in &rest[..run] {
+                // A flex item is never narrower than its min-content width unless told otherwise,
+                // and under `overflow-wrap: break-word` that is the longest word: the line box
+                // would hand the text that much room and the shaper would never break the word.
+                // A word that may break inside can be as narrow as the line it is on. Only in a
+                // line box: text that is an author flex or grid item keeps its automatic minimum.
+                let breaks_inside_words = layout_tree.arena.get(inline_layout_element_id).is_some_and(
+                    |el| matches!(&el.context, ElementContext::Text(t) if t.font_info.breaks_inside_words()),
+                );
+                if breaks_inside_words {
+                    if let Ok(mut item) = self.tree.style(*inline_taffy_node_id).cloned() {
+                        item.min_size.width = LengthPercentageAuto::length(0.0);
+                        let _ = self.tree.set_style(*inline_taffy_node_id, item);
+                    }
+                }
                 if let Err(e) = self
                     .tree
                     .add_child(parent.unwrap_or(taffy_container_id), *inline_taffy_node_id)
@@ -3400,14 +3414,6 @@ impl TaffyLayouter {
                     if let Some(width) = measured {
                         taffy_style.size.width = Dimension::from_length(width);
                     }
-                }
-
-                // A flex item is never narrower than its min-content width unless told otherwise,
-                // and under `overflow-wrap: break-word` that is the longest word: the line box
-                // would hand the text that much room and the shaper would never break the word.
-                // A word that may break inside can be as narrow as the line it is on.
-                if font_info.breaks_inside_words() {
-                    taffy_style.min_size.width = LengthPercentageAuto::length(0.0);
                 }
 
                 taffy_context = Some(TaffyContext::text(

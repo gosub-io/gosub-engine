@@ -197,6 +197,29 @@ fn only_anywhere_and_break_all_shrink_the_min_content_width() {
     );
 }
 
+/// Text that is itself a flex item is not in a line box: its automatic minimum is its min-content
+/// width, so under `break-word` it keeps the word whole and overflows, as in other browsers.
+#[test]
+fn a_flex_item_keeps_its_min_content_width() {
+    let (tree, _, [break_word, anywhere]) = lay_out(
+        &format!(
+            r#"<body style="margin: 0">
+                <div id="break-word" style="display: flex; width: 100px; overflow-wrap: break-word">{LONG_WORD}</div>
+                <div id="anywhere" style="display: flex; width: 100px; overflow-wrap: anywhere">{LONG_WORD}</div>
+            </body>"#
+        ),
+        ["break-word", "anywhere"],
+    );
+    let widest = |node| {
+        text_boxes(&tree, node)
+            .iter()
+            .map(|piece| piece.width)
+            .fold(0.0, f64::max)
+    };
+    assert!(widest(break_word) > 150.0, "break-word: {}", widest(break_word));
+    assert!(widest(anywhere) <= 100.5, "anywhere: {}", widest(anywhere));
+}
+
 /// `nowrap` keeps a block's line together even where it is made of several inline boxes.
 #[test]
 fn a_nowrap_block_keeps_mixed_inline_content_on_one_line() {
