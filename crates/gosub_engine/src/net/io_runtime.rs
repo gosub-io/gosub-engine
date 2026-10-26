@@ -3,6 +3,7 @@ use crate::engine::events::IoCommand;
 use crate::engine::types::IoChannel;
 use crate::engine::EngineContext;
 use crate::net::fetcher::{fetcher_config_from, reach_config, EngineNetContext, Fetcher};
+use crate::net::protocols::known_hosts::PinSlot;
 use crate::net::req_ref_tracker::{RequestRefTracker, RequestReference, REF_REGISTRY};
 use crate::net::ssrf::AddressSpace;
 use crate::net::tab_identity::{TabIdentity, TabIdentityRegistry};
@@ -383,11 +384,13 @@ fn start_net_process(engine_ctx: &Arc<EngineContext>) -> Option<Arc<crate::net::
 /// network process that claimed hops it never reported is lying about where
 /// its requests went, and is killed (the next request respawns it).
 #[cfg(feature = "process-isolation")]
+#[allow(clippy::too_many_arguments)]
 fn dispatch_to_net_process(
     net: Arc<crate::net::process::client::NetProcess>,
     req: FetchRequest,
     reach: AddressSpace,
     grant: Option<Grant>,
+    pins: Option<PinSlot>,
     cancel: tokio_util::sync::CancellationToken,
     reply_tx: oneshot::Sender<FetchResult>,
     observer: Option<Arc<dyn crate::net::emitter::NetObserver + Send + Sync>>,
@@ -449,6 +452,7 @@ fn dispatch_to_net_process(
             body_preview,
             context,
             no_total_body_timeout,
+            pin: pins.as_ref().and_then(|p| p.pin.as_ref()).map(|pin| pin.to_string()),
         };
         // A process that died is respawned before the request goes out;
         // blocking, so off the runtime's workers.
@@ -475,6 +479,17 @@ fn dispatch_to_net_process(
                 net.condemn();
             }
         }
+        if let (
+            Some(pins),
+            FetchOutcome::Ok {
+                certificate: Some(certificate),
+                ..
+            },
+        ) = (&pins, &reply.outcome)
+        {
+            // Checked for form where the reply was received (`plausible_reply`).
+            pins.record(crate::net::protocols::known_hosts::CertPin::parse(certificate).as_ref());
+        }
         let _ = reply_tx.send(match reply.outcome {
             FetchOutcome::Error(e) => FetchResult::Error(net_error(e)),
             _ => match crate::net::process::client::outcome_to_result(reply) {
@@ -492,11 +507,13 @@ type CookieScope = crate::net::process::protocol::CookieScope;
 type CookieScope = std::convert::Infallible;
 
 #[cfg(not(feature = "process-isolation"))]
+#[allow(clippy::too_many_arguments)]
 fn dispatch_to_net_process(
     _net: std::convert::Infallible,
     _req: FetchRequest,
     _reach: AddressSpace,
     _grant: Option<Grant>,
+    _pins: Option<PinSlot>,
     _cancel: tokio_util::sync::CancellationToken,
     _reply_tx: oneshot::Sender<FetchResult>,
     _observer: Option<Arc<dyn crate::net::emitter::NetObserver + Send + Sync>>,
@@ -973,6 +990,18 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                     AddressSpace::Loopback
                                 };
 
+                                // A protocol that trusts certificates on first use is held to
+                                // the zone's pin for the host, and a first visit's certificate
+                                // becomes the pin. Any other protocol's report is dropped, so
+                                // a network process cannot plant a pin through one. No tab
+                                // identity, no store: a first visit then, remembered nowhere.
+                                let pins = match (&protocol, identity.as_ref()) {
+                                    (Some((protocol, _)), Some(id)) if protocol.pins_certificates() => {
+                                        PinSlot::for_url(&id.known_hosts, &req.url, protocol.default_port())
+                                    }
+                                    _ => None,
+                                };
+
                                 // A network process's reply is intercepted so `Set-Cookie` is
                                 // stored on this side too; the requester still receives the
                                 // untouched result. Under a vault grant the network process
@@ -1003,6 +1032,7 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                         req,
                                         reach,
                                         grant,
+                                        pins,
                                         handle.cancel.clone(),
                                         reply_tx,
                                         #[cfg(feature = "process-isolation")]
@@ -1012,16 +1042,19 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                     ),
                                     (None, Some(fetchers)) => match protocol {
                                         Some((protocol, observer)) => {
-                                            let served = crate::net::protocols::run(
-                                                protocol,
-                                                &req.url,
+                                            let request = crate::net::protocols::ProtocolRequest {
+                                                url: &req.url,
                                                 reach,
-                                                &handle.cancel,
-                                                observer,
-                                            )
-                                            .await;
-                                            if let Some(result) = served {
-                                                let _ = reply_tx.send(result);
+                                                pin: pins.as_ref().and_then(|p| p.pin.as_ref()),
+                                            };
+                                            let served =
+                                                crate::net::protocols::run(protocol, request, &handle.cancel, observer)
+                                                    .await;
+                                            if let Some(served) = served {
+                                                if let Some(pins) = &pins {
+                                                    pins.record(served.certificate.as_ref());
+                                                }
+                                                let _ = reply_tx.send(served.result);
                                             }
                                         }
                                         None => {
@@ -1106,7 +1139,10 @@ mod tests {
         let destination = Url::parse("https://b.test/submit").unwrap();
         let page = Url::parse("https://a.test/form").unwrap();
         let nav = NavigationId::new();
-        let mut identity = TabIdentity::new(crate::cookies::DefaultCookieJar::new().into());
+        let mut identity = TabIdentity::new(
+            crate::cookies::DefaultCookieJar::new().into(),
+            crate::net::protocols::known_hosts::InMemoryKnownHosts::handle(),
+        );
         identity.top_level = Some(destination.clone());
         identity.initiators.push_back((nav, Some(page)));
         let post = FetchRequest::builder(http::Method::POST, destination)
@@ -1129,7 +1165,10 @@ mod tests {
         let private = Url::parse("http://192.168.1.1/").unwrap();
         let identity = TabIdentity {
             top_level: Some(private.clone()),
-            ..TabIdentity::new(crate::cookies::DefaultCookieJar::new().into())
+            ..TabIdentity::new(
+                crate::cookies::DefaultCookieJar::new().into(),
+                crate::net::protocols::known_hosts::InMemoryKnownHosts::handle(),
+            )
         };
         let for_public = FetchRequest::builder(http::Method::GET, Url::parse("http://192.168.1.1/img.png").unwrap())
             .with_referrer(public.clone())
@@ -1177,7 +1216,10 @@ mod tests {
             use crate::net::types::{ResourceKind, SubresourceOf as _};
             let identity = TabIdentity {
                 top_level: Some(Url::parse("https://bank.test/").unwrap()),
-                ..TabIdentity::new(jar_with("https://bank.test/", "lax=1; SameSite=Lax; Path=/"))
+                ..TabIdentity::new(
+                    jar_with("https://bank.test/", "lax=1; SameSite=Lax; Path=/"),
+                    crate::net::protocols::known_hosts::InMemoryKnownHosts::handle(),
+                )
             };
             let mut req = FetchRequest::builder(Method::GET, Url::parse("https://bank.test/img.png").unwrap())
                 .with_kind(ResourceKind::Image { imageset: false }.to_net())
@@ -1236,7 +1278,11 @@ mod tests {
                 },
                 None,
             );
-            reg.register(tab, jar);
+            reg.register(
+                tab,
+                jar,
+                crate::net::protocols::known_hosts::InMemoryKnownHosts::handle(),
+            );
             reg.set_top_level(tab, Url::parse("https://bank.test/").unwrap());
             reg.start_navigation(tab, nav, Some(Url::parse("https://evil.test/page").unwrap()));
             let identity = reg.get(tab).unwrap();
@@ -1262,7 +1308,10 @@ mod tests {
         async fn a_tab_gets_its_own_cookies() {
             let identity = TabIdentity {
                 top_level: Some(Url::parse("https://example.com/page").unwrap()),
-                ..TabIdentity::new(jar_with("https://example.com/", "sid=abc; Path=/"))
+                ..TabIdentity::new(
+                    jar_with("https://example.com/", "sid=abc; Path=/"),
+                    crate::net::protocols::known_hosts::InMemoryKnownHosts::handle(),
+                )
             };
             let mut req = request_to("https://example.com/api");
             attach_request_cookies(&mut req, Some(&identity)).await;
@@ -1285,7 +1334,10 @@ mod tests {
             // send cookies of its own choosing, not even for its own origin.
             let identity = TabIdentity {
                 top_level: Some(Url::parse("https://example.com/page").unwrap()),
-                ..TabIdentity::new(jar_with("https://example.com/", "sid=real; Path=/"))
+                ..TabIdentity::new(
+                    jar_with("https://example.com/", "sid=real; Path=/"),
+                    crate::net::protocols::known_hosts::InMemoryKnownHosts::handle(),
+                )
             };
             let mut req = request_to("https://example.com/api");
             req.headers

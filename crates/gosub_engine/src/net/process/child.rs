@@ -9,6 +9,7 @@ use crate::net::fetcher::{Fetcher, FetcherConfig};
 use crate::net::process::protocol::{
     flatten_headers, rebuild_headers, CookieScope, FetchOutcome, FromNet, NetEventWire, NetFetch, RequestTag, ToNet,
 };
+use crate::net::protocols::known_hosts::CertPin;
 use crate::net::ssrf::AddressSpace;
 use crate::net::types::{FetchRequest, FetchResult, RequestBody};
 use gosub_ipc::Endpoint;
@@ -268,6 +269,7 @@ fn share_large_body(
         headers,
         body,
         peer_addr,
+        certificate,
     } = outcome
     else {
         return Some(outcome);
@@ -280,6 +282,7 @@ fn share_large_body(
             headers,
             body,
             peer_addr,
+            certificate,
         });
     }
     let len = body.len();
@@ -299,6 +302,7 @@ fn share_large_body(
         headers,
         peer_addr,
         len: len as u64,
+        certificate,
     };
     // A write error means the broker went away; the recv loop ends the process.
     if link_tx.send(&head).is_ok() {
@@ -585,20 +589,33 @@ async fn perform_protocol(
         preview: None,
         last_progress: std::sync::atomic::AtomicU64::new(0),
     });
-    match crate::net::protocols::run(protocol, &url, fetch.reach, &cancel, observer).await {
-        Some(FetchResult::Buffered { meta, body }) => FetchOutcome::Ok {
+    // A pin that is not one is the broker's mistake; checking against nothing would turn
+    // trust on first use into trust on every use, so the request fails instead.
+    let pin = match fetch.pin.as_deref().map(CertPin::parse) {
+        None => None,
+        Some(Some(pin)) => Some(pin),
+        Some(None) => return FetchOutcome::Error(format!("malformed certificate pin for {url}")),
+    };
+    let request = crate::net::protocols::ProtocolRequest {
+        url: &url,
+        reach: fetch.reach,
+        pin: pin.as_ref(),
+    };
+    let Some(served) = crate::net::protocols::run(protocol, request, &cancel, observer).await else {
+        return FetchOutcome::Error("cancelled by the broker".into());
+    };
+    match served.result {
+        FetchResult::Buffered { meta, body } => FetchOutcome::Ok {
             status: meta.status,
             status_text: meta.status_text,
             final_url: meta.final_url.to_string(),
             headers: flatten_headers(&meta.headers),
             body: body.to_vec(),
             peer_addr: meta.peer_addr,
+            certificate: served.certificate.map(|pin| pin.to_string()),
         },
-        Some(FetchResult::Error(e)) => FetchOutcome::Error(e.to_string()),
-        Some(FetchResult::Stream { .. }) => {
-            FetchOutcome::Error(format!("{} answered with a stream", protocol.scheme()))
-        }
-        None => FetchOutcome::Error("cancelled by the broker".into()),
+        FetchResult::Error(e) => FetchOutcome::Error(e.to_string()),
+        FetchResult::Stream { .. } => FetchOutcome::Error(format!("{} answered with a stream", protocol.scheme())),
     }
 }
 
@@ -696,6 +713,7 @@ async fn perform_inner(
             headers: reply_headers(&meta.headers),
             body: body.to_vec(),
             peer_addr: meta.peer_addr,
+            certificate: None,
         }),
         Ok(FetchResult::Stream { meta, peek_buf, shared }) => {
             // What `Content-Length` promises past the peek, when it says.

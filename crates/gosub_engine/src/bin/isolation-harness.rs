@@ -170,6 +170,7 @@ fn main() {
         "net-events" => net_events(),
         "engine-net-events" => engine_net_events(),
         "engine-gopher" => engine_gopher(),
+        "engine-gemini" => engine_gemini(),
         "oversized" => oversized(),
         "resolve" => resolve(),
         "decode" => decode(),
@@ -8856,5 +8857,244 @@ fn engine_gopher() -> i32 {
 #[cfg(not(feature = "gopher"))]
 fn engine_gopher() -> i32 {
     eprintln!("this harness was built without the gopher feature");
+    2
+}
+
+/// A gemini navigation served from the network process: the page loads over TLS from inside
+/// the network process's sandbox, the certificate it showed crosses back and is pinned in the
+/// zone, and a later visit to the same port showing another certificate is refused before the
+/// request is sent.
+#[cfg(feature = "gemini")]
+fn engine_gemini() -> i32 {
+    use gosub_config::settings::Setting;
+    use gosub_engine::events::{EngineEvent, NavigationEvent};
+    use gosub_engine::net::protocols::known_hosts::{CertPin, InMemoryKnownHosts, KnownHosts};
+    use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+    use gosub_engine::zone::ZoneServices;
+    use gosub_engine::GosubEngine;
+    use gosub_render_pipeline::render::backends::null::NullBackend;
+    use gosub_render_pipeline::render::DefaultCompositor;
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+    use rustls::server::{ClientHello, ResolvesServerCert};
+    use rustls::sign::CertifiedKey;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    const A_CERT: &[u8] = include_bytes!("../net/gemini/testdata/a.crt.der");
+    const A_KEY: &[u8] = include_bytes!("../net/gemini/testdata/a.key.der");
+    const B_CERT: &[u8] = include_bytes!("../net/gemini/testdata/b.crt.der");
+    const B_KEY: &[u8] = include_bytes!("../net/gemini/testdata/b.key.der");
+
+    #[derive(Debug)]
+    struct Fixed(Arc<CertifiedKey>);
+    impl ResolvesServerCert for Fixed {
+        fn resolve(&self, _hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
+            Some(self.0.clone())
+        }
+    }
+    fn acceptor(cert: &'static [u8], key: &'static [u8]) -> Option<tokio_rustls::TlsAcceptor> {
+        let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+        let key = provider
+            .key_provider
+            .load_private_key(PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key)))
+            .ok()?;
+        let certified = CertifiedKey::new(vec![CertificateDer::from(cert)], key);
+        let config = rustls::ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .ok()?
+            .with_no_client_auth()
+            .with_cert_resolver(Arc::new(Fixed(Arc::new(certified))));
+        Some(tokio_rustls::TlsAcceptor::from(Arc::new(config)))
+    }
+
+    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("could not build a runtime: {e}");
+            return 1;
+        }
+    };
+    runtime.block_on(async move {
+        // A gemini server showing certificate A to the first connection and B to the second,
+        // on the same port, handing back each request line (`None` for a failed handshake).
+        let (Some(a), Some(b)) = (acceptor(A_CERT, A_KEY), acceptor(B_CERT, B_KEY)) else {
+            eprintln!("could not set up the test server's TLS");
+            return 1;
+        };
+        let Ok(listener) = tokio::net::TcpListener::bind("127.0.0.1:0").await else {
+            eprintln!("could not start the test server");
+            return 1;
+        };
+        let Ok(port) = listener.local_addr().map(|a| a.port()) else {
+            return 1;
+        };
+        let server = tokio::spawn(async move {
+            let mut lines = Vec::new();
+            for acceptor in [a, b] {
+                let Ok((tcp, _)) = listener.accept().await else { break };
+                let Ok(mut tls) = acceptor.accept(tcp).await else {
+                    lines.push(None);
+                    continue;
+                };
+                let mut line = Vec::new();
+                let mut byte = [0u8; 1];
+                while tls.read_exact(&mut byte).await.is_ok() {
+                    line.push(byte[0]);
+                    if line.ends_with(b"\r\n") {
+                        break;
+                    }
+                }
+                let _ = tls.write_all(b"20 text/gemini\r\n# From the network process\r\n").await;
+                let _ = tls.shutdown().await;
+                lines.push(Some(line));
+            }
+            lines
+        });
+
+        let mut engine: GosubEngine = GosubEngine::new(
+            None,
+            Arc::new(NullBackend::new()),
+            Arc::new(DefaultCompositor::default()),
+        );
+        // The broker parses the page, so its title is there once the navigation finishes.
+        for (key, on) in [("security.network_process", true), ("security.renderer_process", false)] {
+            if let Err(e) = engine.settings().set(key, Setting::Bool(on)) {
+                eprintln!("could not set {key}: {e}");
+                return 1;
+            }
+        }
+        let mut events = engine.subscribe_events();
+        let Ok(run) = engine.start() else {
+            eprintln!("engine failed to start");
+            return 1;
+        };
+        tokio::spawn(run);
+        if engine.net_process_pid().await.is_none() {
+            eprintln!("the network process is not running: the request would be served in process");
+            return 1;
+        }
+
+        let services = ZoneServices {
+            storage: Arc::new(StorageService::new(
+                Arc::new(InMemoryLocalStore::new()),
+                Arc::new(InMemorySessionStore::new()),
+            )),
+            cookie_store: None,
+            cookie_jar: None,
+            partition_policy: PartitionPolicy::None,
+            places: None,
+        };
+        let known_hosts = Arc::new(InMemoryKnownHosts::new());
+        let Ok(mut zone) = engine
+            .zone_builder()
+            .services(services)
+            .known_hosts(known_hosts.clone())
+            .create()
+        else {
+            eprintln!("could not create a zone");
+            return 1;
+        };
+        let Ok(tab) = zone.tab_builder().create().await else {
+            eprintln!("could not create a tab");
+            return 1;
+        };
+
+        // How the next navigation ends: `Ok` when it finished, the error when it failed.
+        async fn outcome(
+            events: &mut tokio::sync::broadcast::Receiver<EngineEvent>,
+        ) -> Result<Result<(), String>, &'static str> {
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+            loop {
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                match tokio::time::timeout(remaining, events.recv()).await {
+                    Ok(Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    })) => return Ok(Ok(())),
+                    Ok(Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Failed { error, .. },
+                        ..
+                    })) => return Ok(Err(error.to_string())),
+                    Ok(Ok(_)) | Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+                    Ok(Err(_)) => return Err("event channel closed"),
+                    Err(_) => return Err("timed out waiting for the navigation"),
+                }
+            }
+        }
+
+        let first = format!("gemini://127.0.0.1:{port}/");
+        if tab.navigate(first.clone()).await.is_err() {
+            eprintln!("navigate failed");
+            return 1;
+        }
+        match outcome(&mut events).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                eprintln!("the gemini navigation failed: {error}");
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                return 1;
+            }
+        }
+        let title = tab.title();
+        if title != "From the network process" {
+            eprintln!("the gemini page did not load as its page: title {title:?}");
+            return 1;
+        }
+        if known_hosts.pin("127.0.0.1", port) != Some(CertPin::of(A_CERT)) {
+            eprintln!(
+                "the first visit's certificate was not pinned: {:?}",
+                known_hosts.pin("127.0.0.1", port)
+            );
+            return 1;
+        }
+
+        // Another certificate on the same port: refused in the handshake.
+        if tab.navigate(format!("gemini://127.0.0.1:{port}/again")).await.is_err() {
+            eprintln!("navigate failed");
+            return 1;
+        }
+        match outcome(&mut events).await {
+            Ok(Err(error)) if error.contains("changed since the first visit") => {}
+            Ok(Err(error)) => {
+                eprintln!("the second visit failed, but not on its certificate: {error}");
+                return 1;
+            }
+            Ok(Ok(())) => {
+                eprintln!("a gemini page showing another certificate than the pinned one loaded");
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                return 1;
+            }
+        }
+        match server.await {
+            Ok(lines) if lines == [Some(format!("{first}\r\n").into_bytes()), None] => {}
+            Ok(lines) => {
+                eprintln!("the server saw {lines:?}: the refused visit must send no request");
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("the test server failed: {e}");
+                return 1;
+            }
+        }
+        if known_hosts.pin("127.0.0.1", port) != Some(CertPin::of(A_CERT)) {
+            eprintln!("the refused certificate replaced the pin");
+            return 1;
+        }
+
+        engine.close_zone(zone).await;
+        let _ = engine.shutdown().await;
+        println!("gemini served from the network process, pinned, and a changed certificate refused");
+        0
+    })
+}
+
+#[cfg(not(feature = "gemini"))]
+fn engine_gemini() -> i32 {
+    eprintln!("this harness was built without the gemini feature");
     2
 }

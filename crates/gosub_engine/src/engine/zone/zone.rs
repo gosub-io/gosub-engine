@@ -177,6 +177,9 @@ pub struct Zone<C: RenderConfiguration = crate::html::DefaultRenderConfig> {
     /// or when the zone is dropped. `None` for an embedder-supplied jar.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub(crate) vault_lease: Option<crate::cookie_vault::client::ZoneLease>,
+    /// Certificates the zone's tabs have trusted on first use. In memory unless the
+    /// builder was given a store (`ZoneBuilder::known_hosts`).
+    pub(crate) known_hosts: crate::net::protocols::known_hosts::KnownHostsHandle,
 }
 
 impl<C: RenderConfiguration> Debug for Zone<C> {
@@ -283,6 +286,7 @@ impl<C: RenderConfiguration> Zone<C> {
             config,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             vault_lease: None,
+            known_hosts: crate::net::protocols::known_hosts::InMemoryKnownHosts::handle(),
         };
 
         _ = zone.spawn_storage_events_to_engine();
@@ -363,6 +367,7 @@ impl<C: RenderConfiguration> Zone<C> {
         let tab_services = resolve_tab_services(
             self.id,
             &self.context.services,
+            &self.known_hosts,
             &self.config,
             &overrides.unwrap_or_default(),
         );

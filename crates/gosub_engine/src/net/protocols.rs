@@ -22,10 +22,16 @@
 //! the reach and every port to [`socket::port_refused`], and on [`page`] for the HTML it
 //! shows. [`is_network_place`] and [`transport`] answer, for any URL, what an embedder asks
 //! of a scheme (bookmarks, the address bar's padlock), so an embedder names no schemes.
+//!
+//! A protocol that trusts certificates on first use is handed the pin the zone keeps for its
+//! host ([`ProtocolRequest::pin`]) and reports the certificate it saw
+//! ([`ProtocolResponse::certificate`]); the broker records it ([`known_hosts`]).
 
+pub mod known_hosts;
 pub mod page;
 pub mod socket;
 
+use crate::net::protocols::known_hosts::CertPin;
 use crate::net::ssrf::AddressSpace;
 use crate::net::types::{FetchRequest, FetchResult, FetchResultMeta, NetError};
 use async_trait::async_trait;
@@ -39,6 +45,17 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
+/// What a protocol is asked to fetch.
+#[derive(Debug, Clone, Copy)]
+pub struct ProtocolRequest<'a> {
+    pub url: &'a Url,
+    /// The most private address space the fetch may reach.
+    pub reach: AddressSpace,
+    /// The certificate the zone has seen at this host and port, which the server must show
+    /// again. `None` on a first visit, and for a protocol that pins nothing.
+    pub pin: Option<&'a CertPin>,
+}
+
 /// What a protocol answered with.
 #[derive(Debug, Clone)]
 pub struct ProtocolResponse {
@@ -48,6 +65,15 @@ pub struct ProtocolResponse {
     /// The peer the body was read from: what the document is placed by on the
     /// private-network policy, as for an http response.
     pub peer_addr: Option<SocketAddr>,
+    /// The certificate the server showed, for the broker to pin on a first visit.
+    pub certificate: Option<CertPin>,
+}
+
+/// What [`run`] served: the reply for the requester, and the certificate a response showed.
+#[derive(Debug)]
+pub struct Served {
+    pub result: FetchResult,
+    pub certificate: Option<CertPin>,
 }
 
 /// A scheme the engine fetches with its own client.
@@ -67,9 +93,15 @@ pub trait Protocol: Send + Sync {
     /// Whether the connection is encrypted, as an address bar shows it.
     fn encrypted(&self) -> bool;
 
-    /// Fetch `url`, reaching no address space more private than `reach`. Resolves when the
-    /// whole body is in; dropping the future abandons the fetch.
-    async fn fetch(&self, url: &Url, reach: AddressSpace) -> Result<ProtocolResponse, NetError>;
+    /// Whether the protocol trusts certificates on first use: is handed the zone's pin for
+    /// its host and reports the certificate it saw. Only such a protocol's report is pinned.
+    fn pins_certificates(&self) -> bool {
+        false
+    }
+
+    /// Fetch `request.url`, reaching no address space more private than `request.reach`.
+    /// Resolves when the whole body is in; dropping the future abandons the fetch.
+    async fn fetch(&self, request: ProtocolRequest<'_>) -> Result<ProtocolResponse, NetError>;
 }
 
 /// Every protocol compiled into this build.
@@ -78,6 +110,8 @@ static PROTOCOLS: &[&dyn Protocol] = &[
     &crate::net::gopher::Gopher,
     #[cfg(feature = "finger")]
     &crate::net::finger::Finger,
+    #[cfg(feature = "gemini")]
+    &crate::net::gemini::Gemini,
 ];
 
 /// The protocol serving `scheme`, if this build has one.
@@ -154,17 +188,16 @@ pub fn refuse(
 /// fetch was cancelled: the reply channel is dropped then, as the zone fetcher drops it.
 pub async fn run(
     protocol: &dyn Protocol,
-    url: &Url,
-    reach: AddressSpace,
+    request: ProtocolRequest<'_>,
     cancel: &CancellationToken,
     observer: Arc<dyn NetObserver + Send + Sync>,
-) -> Option<FetchResult> {
+) -> Option<Served> {
     // A navigation cancelled while its request sat in the I/O queue must not go on to emit
     // network events for it, as for `data:`.
     if cancel.is_cancelled() {
         return None;
     }
-    let url = url.clone();
+    let url = request.url.clone();
     observer.on_event(NetEvent::Accepted {
         url: url.clone(),
         joined: false,
@@ -177,7 +210,7 @@ pub async fn run(
             observer.on_event(NetEvent::Cancelled { url, reason: "request cancelled" });
             return None;
         }
-        fetched = protocol.fetch(&url, reach) => fetched,
+        fetched = protocol.fetch(request) => fetched,
     };
     let response = match fetched {
         Ok(response) => response,
@@ -186,7 +219,10 @@ pub async fn run(
                 url,
                 error: anyhow::anyhow!(err.clone()),
             });
-            return Some(FetchResult::Error(err));
+            return Some(Served {
+                result: FetchResult::Error(err),
+                certificate: None,
+            });
         }
     };
 
@@ -214,9 +250,12 @@ pub async fn run(
     meta.content_type = Some(response.content_type);
     meta.has_body = len > 0;
     meta.peer_addr = response.peer_addr;
-    Some(FetchResult::Buffered {
-        meta,
-        body: response.body,
+    Some(Served {
+        result: FetchResult::Buffered {
+            meta,
+            body: response.body,
+        },
+        certificate: response.certificate,
     })
 }
 
@@ -254,11 +293,12 @@ mod tests {
         fn encrypted(&self) -> bool {
             false
         }
-        async fn fetch(&self, url: &Url, _reach: AddressSpace) -> Result<ProtocolResponse, NetError> {
+        async fn fetch(&self, request: ProtocolRequest<'_>) -> Result<ProtocolResponse, NetError> {
             Ok(ProtocolResponse {
                 content_type: "text/plain".into(),
-                body: Bytes::from(url.path().to_string()),
+                body: Bytes::from(request.url.path().to_string()),
                 peer_addr: Some("192.0.2.7:70".parse().unwrap()),
+                certificate: Some(CertPin::of(b"echo")),
             })
         }
     }
@@ -280,7 +320,7 @@ mod tests {
         fn encrypted(&self) -> bool {
             false
         }
-        async fn fetch(&self, _url: &Url, _reach: AddressSpace) -> Result<ProtocolResponse, NetError> {
+        async fn fetch(&self, _request: ProtocolRequest<'_>) -> Result<ProtocolResponse, NetError> {
             std::future::pending().await
         }
     }
@@ -310,9 +350,16 @@ mod tests {
         cancel: &CancellationToken,
     ) -> (Option<FetchResult>, Vec<String>) {
         let recorder = Arc::new(Recorder::default());
+        let request = ProtocolRequest {
+            url: &req.url,
+            reach: AddressSpace::Loopback,
+            pin: None,
+        };
         let result = match refuse(protocol, req, enabled, &*recorder) {
             Some(refused) => Some(refused),
-            None => run(protocol, &req.url, AddressSpace::Loopback, cancel, recorder.clone()).await,
+            None => run(protocol, request, cancel, recorder.clone())
+                .await
+                .map(|served| served.result),
         };
         let events = recorder.0.lock().clone();
         (result, events)
@@ -386,6 +433,20 @@ mod tests {
             events,
             ["Accepted", "Started", "ResponseHeaders", "Progress", "Finished"]
         );
+    }
+
+    #[tokio::test]
+    async fn the_certificate_a_response_showed_is_served_beside_it() {
+        let url = Url::parse("echo://host/hello").unwrap();
+        let request = ProtocolRequest {
+            url: &url,
+            reach: AddressSpace::Loopback,
+            pin: None,
+        };
+        let served = run(&Echo, request, &CancellationToken::new(), Arc::new(Recorder::default()))
+            .await
+            .expect("served");
+        assert_eq!(served.certificate, Some(CertPin::of(b"echo")));
     }
 
     #[tokio::test]

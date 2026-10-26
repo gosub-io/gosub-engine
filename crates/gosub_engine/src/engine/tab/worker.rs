@@ -578,10 +578,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
         self.wire_media_source();
 
         // Publish this tab's jar to the I/O side, which attaches cookies on its
-        // behalf from now on - the tab itself never handles a cookie value.
-        self.zone_context
-            .tab_identities
-            .register(self.tab_id, self.services.cookie_jar.clone());
+        // behalf from now on - the tab itself never handles a cookie value. The
+        // zone's certificate pins go with it, for the same reason.
+        self.zone_context.tab_identities.register(
+            self.tab_id,
+            self.services.cookie_jar.clone(),
+            self.services.known_hosts.clone(),
+        );
 
         // Announce creation
         self.send_event(EngineEvent::TabCreated {

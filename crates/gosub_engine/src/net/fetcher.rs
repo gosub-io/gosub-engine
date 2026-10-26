@@ -468,7 +468,11 @@ mod fetcher_context_tests {
         let tab = TabId::new();
         let identities = Arc::new(crate::net::tab_identity::TabIdentityRegistry::new());
         let jar: Box<dyn CookieJar + Send + Sync> = Box::new(jar);
-        identities.register(tab, CookieJarHandle::from(jar));
+        identities.register(
+            tab,
+            CookieJarHandle::from(jar),
+            crate::net::protocols::known_hosts::InMemoryKnownHosts::handle(),
+        );
         identities.set_top_level(tab, top_level.clone());
         let navigation = NavigationId::new();
         identities.start_navigation(tab, navigation, None);

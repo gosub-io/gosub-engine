@@ -37,6 +37,8 @@ pub struct Outbound {
     pub context: RequestContext,
     /// No deadline for the whole body; see `NetFetch::no_total_body_timeout`.
     pub no_total_body_timeout: bool,
+    /// The certificate pin an engine protocol checks against; see `NetFetch::pin`.
+    pub pin: Option<String>,
 }
 
 impl Outbound {
@@ -53,6 +55,7 @@ impl Outbound {
             body_preview: None,
             context: RequestContext::default(),
             no_total_body_timeout: false,
+            pin: None,
         }
     }
 }
@@ -694,6 +697,7 @@ fn start_reader(
                         headers,
                         peer_addr,
                         len,
+                        certificate,
                     } => {
                         let reply = match recv_shared_body(&mut rx, len) {
                             Ok(body) => NetReply {
@@ -704,6 +708,7 @@ fn start_reader(
                                     headers,
                                     body,
                                     peer_addr,
+                                    certificate,
                                 },
                                 ring: None,
                                 stream_end: None,
@@ -1021,6 +1026,7 @@ impl NetProcess {
             body_preview,
             context,
             no_total_body_timeout,
+            pin,
         } = out;
         let permit = tokio::select! {
             _ = cancel.cancelled() => return NetReply::error("cancelled"),
@@ -1046,6 +1052,7 @@ impl NetProcess {
             body_preview,
             context,
             no_total_body_timeout,
+            pin,
         }));
         // The link write can block on a full pipe (bodies can be large), so it
         // runs on a blocking thread rather than a runtime worker.
@@ -1090,12 +1097,25 @@ impl NetProcess {
     /// (`net::protocols`) has no redirects, so its request ends exactly where it
     /// was asked or not at all. Where it landed within the web is still
     /// the child's word; only the broker following redirects itself could fix that.
+    /// A certificate the child reports, for the broker to pin, must be a pin's text form,
+    /// or the reply is refused.
     ///
     /// Its size is checked too, since the frame cap is the only other bound: a
     /// failure's message and a status text are cut to [`MAX_EVENT_STRING`], and
     /// a reply past [`MAX_REPLY_HEADERS`], [`MAX_REPLY_HEADER_BYTES`] or
     /// [`MAX_REPLY_URL`] is refused.
     fn plausible_reply(mut reply: NetReply, requested: &str) -> NetReply {
+        if let FetchOutcome::Ok {
+            certificate: Some(certificate),
+            ..
+        } = &reply.outcome
+        {
+            if crate::net::protocols::known_hosts::CertPin::parse(certificate).is_none() {
+                return NetReply::error(format!(
+                    "the network process reported a malformed certificate pin for {requested}"
+                ));
+            }
+        }
         let (status_text, final_url, headers) = match &mut reply.outcome {
             FetchOutcome::Ok {
                 status_text,
@@ -1198,6 +1218,7 @@ pub fn outcome_to_result(reply: NetReply) -> Result<crate::net::types::FetchResu
             headers,
             body,
             peer_addr,
+            certificate: _,
         } => (status, status_text, final_url, headers, peer_addr, Body::Whole(body)),
         FetchOutcome::Streaming {
             status,
@@ -1387,6 +1408,7 @@ mod tests {
             headers: Vec::new(),
             body: b"hi".to_vec(),
             peer_addr: Some(peer),
+            certificate: None,
         })
         .unwrap();
         let outcome: FetchOutcome = serde_json::from_slice(&wire).unwrap();
@@ -1412,6 +1434,7 @@ mod tests {
                 headers,
                 body: Vec::new(),
                 peer_addr: None,
+                certificate: None,
             },
             ring: None,
             stream_end: None,
@@ -1458,6 +1481,7 @@ mod tests {
                 headers: Vec::new(),
                 body: Vec::new(),
                 peer_addr: None,
+                certificate: None,
             },
             ring: None,
             stream_end: None,
@@ -1627,6 +1651,7 @@ mod tests {
             headers: Vec::new(),
             body: vec![1],
             peer_addr: None,
+            certificate: None,
         });
         assert!(request.is_closed());
         assert_eq!(

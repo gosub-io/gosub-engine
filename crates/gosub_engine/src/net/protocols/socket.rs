@@ -119,15 +119,40 @@ pub async fn exchange(
 ) -> Result<(Vec<u8>, Option<SocketAddr>), NetError> {
     let mut stream = connect(url, host, addrs, reach).await?;
     let peer = stream.peer_addr().ok();
+    let body = talk(&mut stream, host, line, Close::Clean).await?;
+    Ok((body, peer))
+}
 
+/// How a response may end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Close {
+    /// Only by the server closing the stream.
+    Clean,
+    /// Also by the connection dropping where a clean end was owed, which a TLS stream reads
+    /// as an error: many servers close without TLS's `close_notify`. A response cut short
+    /// then reads as complete.
+    Unclean,
+}
+
+/// Send `line` on `stream` and read the response to its end, within [`RESPONSE_TIMEOUT`] and
+/// at most [`MAX_RESPONSE_BYTES`].
+pub async fn talk<S>(stream: &mut S, host: &str, line: &[u8], close: Close) -> Result<Vec<u8>, NetError>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
     let talk = async {
         stream.write_all(line).await?;
+        stream.flush().await?;
         let mut body = Vec::new();
-        (&mut stream)
+        let read = (&mut *stream)
             .take(MAX_RESPONSE_BYTES as u64 + 1)
             .read_to_end(&mut body)
-            .await?;
-        Ok::<_, std::io::Error>(body)
+            .await;
+        match read {
+            Ok(_) => Ok(body),
+            Err(e) if close == Close::Unclean && e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(body),
+            Err(e) => Err(e),
+        }
     };
     let body = tokio::time::timeout(RESPONSE_TIMEOUT, talk)
         .await
@@ -138,7 +163,7 @@ pub async fn exchange(
             "response from {host} is larger than {MAX_RESPONSE_BYTES} bytes"
         )));
     }
-    Ok((body, peer))
+    Ok(body)
 }
 
 /// Refuse `addr` when it is in a space `reach` does not include.
@@ -173,7 +198,7 @@ pub fn invalid(message: impl Into<String>) -> NetError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::net::protocols::ProtocolResponse;
+    use crate::net::protocols::{ProtocolRequest, ProtocolResponse};
     use async_trait::async_trait;
 
     /// A protocol whose own port is 79, which the Fetch standard blocks.
@@ -193,7 +218,7 @@ mod tests {
         fn encrypted(&self) -> bool {
             false
         }
-        async fn fetch(&self, _url: &Url, _reach: AddressSpace) -> Result<ProtocolResponse, NetError> {
+        async fn fetch(&self, _request: ProtocolRequest<'_>) -> Result<ProtocolResponse, NetError> {
             Err(invalid("not fetched in this test"))
         }
     }
@@ -215,7 +240,7 @@ mod tests {
         fn encrypted(&self) -> bool {
             false
         }
-        async fn fetch(&self, _url: &Url, _reach: AddressSpace) -> Result<ProtocolResponse, NetError> {
+        async fn fetch(&self, _request: ProtocolRequest<'_>) -> Result<ProtocolResponse, NetError> {
             Err(invalid("not fetched in this test"))
         }
     }

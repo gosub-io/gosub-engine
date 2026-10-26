@@ -5,8 +5,18 @@
 /// A whole page: `title` and `body` in a document with `style`. The title is escaped here;
 /// `body` is markup the protocol built, with its server text already escaped.
 pub fn document(title: &str, style: &str, body: &str) -> String {
+    document_in(None, title, style, body)
+}
+
+/// [`document`], in the language `lang` names when it is a language tag. A server's tag is
+/// kept to the characters one has, so it never leaves the attribute.
+pub fn document_in(lang: Option<&str>, title: &str, style: &str, body: &str) -> String {
+    let lang = lang
+        .filter(|l| !l.is_empty() && l.len() <= 35 && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+        .map(|l| format!(" lang=\"{l}\""))
+        .unwrap_or_default();
     format!(
-        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>{}</title><style>{style}</style></head>\
+        "<!DOCTYPE html><html{lang}><head><meta charset=\"utf-8\"><title>{}</title><style>{style}</style></head>\
 <body>{body}</body></html>",
         escape(title)
     )
@@ -53,6 +63,17 @@ mod tests {
         let page = document("<t>", "", "<pre>x</pre>");
         assert!(page.contains("<title>&lt;t&gt;</title>"));
         assert!(page.contains("<body><pre>x</pre></body>"));
+    }
+
+    #[test]
+    fn only_a_language_tag_becomes_the_lang() {
+        assert!(document_in(Some("en-GB"), "", "", "").starts_with("<!DOCTYPE html><html lang=\"en-GB\"><head>"));
+        for bad in ["en\" onload=\"x", "", "en_GB"] {
+            assert!(
+                document_in(Some(bad), "", "", "").starts_with("<!DOCTYPE html><html><head>"),
+                "{bad}"
+            );
+        }
     }
 
     #[test]

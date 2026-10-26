@@ -826,6 +826,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             config: None,
             id: None,
             services: ZoneServices::default(),
+            known_hosts: None,
         }
     }
 
@@ -1106,6 +1107,7 @@ pub struct ZoneBuilder<'a, C: RenderConfiguration> {
     config: Option<ZoneConfig>,
     id: Option<ZoneId>,
     services: ZoneServices,
+    known_hosts: Option<crate::net::protocols::known_hosts::KnownHostsHandle>,
 }
 
 impl<C: RenderConfiguration> ZoneBuilder<'_, C> {
@@ -1160,12 +1162,25 @@ impl<C: RenderConfiguration> ZoneBuilder<'_, C> {
         self
     }
 
+    /// Where the zone keeps the certificates it trusted on first use (`gemini://`). The
+    /// default keeps them in memory for the zone's life, so every run trusts anew; pass a
+    /// persistent store for a profile. Never share one between a private zone and others.
+    pub fn known_hosts(mut self, known_hosts: crate::net::protocols::known_hosts::KnownHostsHandle) -> Self {
+        self.known_hosts = Some(known_hosts);
+        self
+    }
+
     /// Create the zone. Fails with [`EngineError::ZoneLimitExceeded`] past `max_zones`, with
     /// [`EngineError::ZoneAlreadyExists`] for the [`id`](Self::id) of a zone the engine still
     /// holds, and with [`EngineError::CookieStore`] when the
     /// [`cookie_store`](Self::cookie_store) cannot provision the zone's jar.
     pub fn create(self) -> Result<Zone<C>, EngineError> {
-        self.engine.create_zone(self.config, self.services, self.id)
+        let known_hosts = self.known_hosts;
+        let mut zone = self.engine.create_zone(self.config, self.services, self.id)?;
+        if let Some(known_hosts) = known_hosts {
+            zone.known_hosts = known_hosts;
+        }
+        Ok(zone)
     }
 }
 
@@ -1565,6 +1580,69 @@ mod tests {
             tab.url().map(|u| u.to_string()),
             Some(format!("finger://127.0.0.1:{port}/bob"))
         );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A gemini page loads through the whole tab pipeline, its certificate lands in the
+    /// zone's known hosts, and a later visit to the same port showing another certificate
+    /// fails before the request is sent.
+    #[cfg(feature = "gemini")]
+    #[tokio::test]
+    async fn a_gemini_page_loads_and_its_certificate_is_pinned() {
+        use crate::events::NavigationEvent;
+        use crate::net::gemini::testing::{serve, A, A_CERT, B};
+        use crate::net::protocols::known_hosts::{CertPin, InMemoryKnownHosts, KnownHosts};
+
+        let (port, server) = serve(&[A, B], b"20 text/gemini\r\n# Hello gemini\r\ntext\r\n", true).await;
+        let store = Arc::new(InMemoryKnownHosts::new());
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine
+            .zone_builder()
+            .services(services())
+            .known_hosts(store.clone())
+            .create()
+            .expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        let mut outcome = async |url: String| {
+            tab.navigate(url).await.expect("navigate");
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    match events.recv().await {
+                        Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::Finished { .. },
+                            ..
+                        }) => return None,
+                        Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::Failed { error, .. },
+                            ..
+                        }) => return Some(error),
+                        Ok(_) => continue,
+                        Err(e) => panic!("event stream closed: {e}"),
+                    }
+                }
+            })
+            .await
+            .expect("timed out waiting for the gemini page")
+        };
+
+        let first = format!("gemini://127.0.0.1:{port}/");
+        assert!(outcome(first.clone()).await.is_none(), "the first visit failed");
+        assert_eq!(tab.title(), "Hello gemini");
+        assert_eq!(store.pin("127.0.0.1", port), Some(CertPin::of(A_CERT)));
+
+        let error = outcome(format!("gemini://127.0.0.1:{port}/again")).await;
+        assert!(
+            matches!(&error, Some(crate::LoadError::Tls { message, .. }) if message.contains("changed since the first visit")),
+            "got {error:?}"
+        );
+        assert_eq!(store.pin("127.0.0.1", port), Some(CertPin::of(A_CERT)));
+        assert_eq!(server.await.unwrap(), [Some(format!("{first}\r\n").into_bytes()), None]);
 
         engine.close_zone(zone).await;
         engine.shutdown().await.expect("shutdown");

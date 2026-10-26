@@ -157,6 +157,22 @@ a renderer.
   onward, past any reach the engine judged. Terminal escape sequences in an
   answer are dropped before it is shown. Mitigation is `net.finger.enabled`
   off where finger is not needed.
+- **Gemini trusts the first certificate a server shows.** Gemini servers
+  mostly sign their own certificates, so no authority is asked: the first
+  visit to a host and port accepts whatever certificate comes, and later
+  visits must show the same one or fail before the request is sent. A first
+  visit on a hostile network can therefore be intercepted, and the address
+  bar shows the same padlock as for an https page an authority vouched for.
+  The certificate's name and dates are not checked; the pin stands in for
+  both. Pins live in the zone, in memory unless the embedder passes a store
+  (`ZoneBuilder::known_hosts`), so every restart is a first visit again, and
+  the only way past a changed certificate is the embedder forgetting the pin.
+  Many servers close without TLS `close_notify`, so a response cut short on
+  the path reads as complete. The request line is the URL alone and goes out
+  only after a handshake, so a plaintext service on a port a link can reach
+  gets a TLS hello it rejects, not a command. Links follow the gopher rules:
+  navigations only, to gemini or the web, within the page's space.
+  Mitigation is `net.gemini.enabled` off where gemini is not needed.
 - **Cross-origin authenticated bytes of embeddable types reach the renderer.**
   No-CORS subresource loads carry the zone's cookies for the URL (`SameSite`
   judged against the tab, so `SameSite=None` ones cross sites), and opaque

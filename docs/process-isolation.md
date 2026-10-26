@@ -450,7 +450,7 @@ navigation that produced it), never from anything the requester sent.
   and a document on the local network may load its neighbours, link-local
   included, but not this machine's own services. Navigations are not
   restricted, with one exception: a navigation over one of the engine's own
-  protocols (`net::protocols`: gopher and finger) that a page started, by a link or
+  protocols (`net::protocols`: gopher, finger and gemini) that a page started, by a link or
   a form, reaches only that page's space, since such a protocol writes what
   the page put in the URL straight to a socket. The user's own, typed or from
   history, reaches anything. The decision and the connection are one step: such requests go
@@ -585,7 +585,10 @@ vault) is tracked separately; see [Known limits](#known-limits-and-roadmap).
   any port in its own space, where the selector arrives as one line of text;
   `net.gopher.enabled` turns the scheme off. A finger answer is text with no
   links, so finger is reached from the address bar only;
-  `net.finger.enabled` turns it off. See
+  `net.finger.enabled` turns it off. A gemini request goes out only after a
+  TLS handshake, so a plaintext service never sees the line; the server's
+  certificate is trusted on first use and pinned in the zone, in memory unless
+  the embedder passes a store. `net.gemini.enabled` turns it off. See
   [security-assessment.md](security-assessment.md).
 - The vault's `document.cookie` view (`visible_only`) has no consumer yet; it
   starts to matter when scripts can read cookies. A zone using an

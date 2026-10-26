@@ -131,6 +131,11 @@ pub struct NetFetch {
     /// would otherwise apply its own.
     #[serde(default)]
     pub no_total_body_timeout: bool,
+    /// For an engine protocol that trusts certificates on first use: the certificate the
+    /// zone has seen at this host and port (`CertPin` text), which the server must show
+    /// again. The broker keeps the pins; this process only checks against one.
+    #[serde(default)]
+    pub pin: Option<String>,
 }
 
 /// The parts of a `FetchRequest` that say who is asking, as they travel. Without
@@ -355,6 +360,9 @@ pub enum FromNet {
         headers: HeaderList,
         peer_addr: Option<std::net::SocketAddr>,
         len: u64,
+        /// As `FetchOutcome::Ok::certificate`.
+        #[serde(default)]
+        certificate: Option<String>,
     },
     /// Answer to [`ToNet::Audit`]; `None` where the audit cannot run.
     Audit {
@@ -872,6 +880,10 @@ pub enum FetchOutcome {
         /// Where the response came from (`FetchResultMeta::peer_addr`): what the
         /// broker places the document by on the private-network policy.
         peer_addr: Option<std::net::SocketAddr>,
+        /// The certificate an engine protocol's server showed (`CertPin` text), for the
+        /// broker to pin on a first visit.
+        #[serde(default)]
+        certificate: Option<String>,
     },
     /// The response head; the body streams through a shared-memory ring
     /// (`gosub_ipc::ring`) whose fd follows this message on the link, right
