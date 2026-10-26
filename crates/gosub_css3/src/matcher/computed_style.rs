@@ -19,18 +19,18 @@ use gosub_interface::style::{
     BorderCollapse, BorderStyle, BoxShadow, BoxSizing, CaptionSide, Clear, Color, ComputedStyle, Display,
     FlexDirection, FlexWrap, Float, FontStyle, FontWeight, GradientStop, GridAreas, GridAutoFlow, GridLine,
     LengthPercentage, LengthPercentageAuto, LetterSpacing, LineHeight, LinearGradient, ListStylePosition,
-    ListStyleType, ObjectFit, Overflow, Position, Prop, RepeatCount, TableLayout, TextAlign, TextDecorationLine,
-    TextTransform, TextWrap, TrackBreadth, TrackList, TrackListItem, TrackSize, VerticalAlign, Visibility, WhiteSpace,
-    ZIndex,
+    ListStyleType, ObjectFit, Overflow, OverflowWrap, Position, Prop, RepeatCount, TableLayout, TextAlign,
+    TextDecorationLine, TextOverflow, TextTransform, TextWrap, TrackBreadth, TrackList, TrackListItem, TrackSize,
+    VerticalAlign, Visibility, WhiteSpace, WordBreak, ZIndex,
 };
 
 use crate::colors::resolve::{resolve_color, ColorContext};
 use crate::colors::{CssColor, RgbColor};
 use crate::matcher::keywords::{
     BorderCollapseKeyword, BorderTopStyleKeyword, BoxSizingKeyword, CaptionSideKeyword, ClearKeyword,
-    FlexDirectionKeyword, Keyword, ListStylePositionKeyword, ObjectFitKeyword, OutlineStyleKeyword, OverflowXKeyword,
-    TableLayoutKeyword, TextAlignKeyword, TextWrapModeKeyword, TextWrapStyleKeyword, VisibilityKeyword,
-    WhiteSpaceKeyword,
+    FlexDirectionKeyword, Keyword, ListStylePositionKeyword, ObjectFitKeyword, OutlineStyleKeyword,
+    OverflowWrapKeyword, OverflowXKeyword, TableLayoutKeyword, TextAlignKeyword, TextOverflowKeyword,
+    TextWrapModeKeyword, TextWrapStyleKeyword, VisibilityKeyword, WhiteSpaceKeyword, WordBreakKeyword,
 };
 use crate::matcher::property_ids::{LonghandId, PropertyId, LONGHAND_COUNT, PROPERTY_COUNT};
 use crate::matcher::shorthands::bg_position_axes;
@@ -981,6 +981,9 @@ static ENGINE_LONGHANDS: &[(LonghandId, Prop, u16)] = &[
     (LonghandId::TextAlign, Prop::TextAlign, G_INHERITED),
     (LonghandId::TextTransform, Prop::TextTransform, G_INHERITED),
     (LonghandId::WhiteSpace, Prop::WhiteSpace, G_INHERITED),
+    (LonghandId::OverflowWrap, Prop::OverflowWrap, G_INHERITED),
+    (LonghandId::WordWrap, Prop::OverflowWrap, G_INHERITED),
+    (LonghandId::WordBreak, Prop::WordBreak, G_INHERITED),
     (LonghandId::LetterSpacing, Prop::LetterSpacing, G_INHERITED),
     (LonghandId::CaptionSide, Prop::CaptionSide, G_INHERITED),
     (LonghandId::ListStyleType, Prop::ListStyleType, G_INHERITED),
@@ -998,6 +1001,7 @@ static ENGINE_LONGHANDS: &[(LonghandId, Prop, u16)] = &[
     (LonghandId::BoxSizing, Prop::BoxSizing, G_BOX),
     (LonghandId::OverflowX, Prop::OverflowX, G_BOX),
     (LonghandId::OverflowY, Prop::OverflowY, G_BOX),
+    (LonghandId::TextOverflow, Prop::TextOverflow, G_BOX),
     (LonghandId::ZIndex, Prop::ZIndex, G_BOX),
     (LonghandId::Opacity, Prop::Opacity, G_BOX),
     (LonghandId::MixBlendMode, Prop::MixBlendMode, G_BOX),
@@ -1405,6 +1409,16 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
         WhiteSpaceKeyword::BreakSpaces => WhiteSpace::BreakSpaces,
     }));
 
+    resolve_overflow_wrap(map, style);
+
+    read!(map, style, WordBreak, inherited_mut, word_break, |value| keyword(value)
+        .map(|keyword| match keyword {
+            WordBreakKeyword::Normal => WordBreak::Normal,
+            WordBreakKeyword::KeepAll => WordBreak::KeepAll,
+            WordBreakKeyword::BreakAll => WordBreak::BreakAll,
+            WordBreakKeyword::BreakWord => WordBreak::BreakWord,
+        }));
+
     read!(map, style, LetterSpacing, inherited_mut, letter_spacing, |value| Some(
         match length_percentage(value, font_size) {
             Some(length) => LetterSpacing::Length(length),
@@ -1573,6 +1587,12 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
         .map(overflow_of));
     read!(map, style, OverflowY, box_mut, overflow_y, |value| keyword(value)
         .map(overflow_of));
+
+    read!(map, style, TextOverflow, box_mut, text_overflow, |value| keyword(value)
+        .map(|keyword| match keyword {
+            TextOverflowKeyword::Clip => TextOverflow::Clip,
+            TextOverflowKeyword::Ellipsis => TextOverflow::Ellipsis,
+        }));
 
     read!(map, style, ZIndex, box_mut, z_index, |value| {
         if let Some(number) = as_number(value) {
@@ -1982,6 +2002,32 @@ fn box_shadows(value: &CssValue, current: Color, font_size: f32) -> Option<Arc<[
     Some(shadows.into())
 }
 
+/// `overflow-wrap`, from whichever of it and its legacy name `word-wrap` was declared the stronger
+/// (css-text-3 §5.5: the two are one property). An element that declares neither keeps what it
+/// inherited, which the style already holds, so neither name's inherited value is read here.
+fn resolve_overflow_wrap(map: &CssProperties, style: &mut ComputedStyle) {
+    let strongest = |id| {
+        map.get_id(longhand(id))
+            .and_then(|property| property.declared.iter().max())
+    };
+    let winner = match (strongest(LonghandId::OverflowWrap), strongest(LonghandId::WordWrap)) {
+        (Some(modern), Some(legacy)) if legacy > modern => LonghandId::WordWrap,
+        (None, Some(_)) => LonghandId::WordWrap,
+        (Some(_), _) => LonghandId::OverflowWrap,
+        (None, None) => return,
+    };
+    // The two names share one grammar, so one enum reads both.
+    let Some(wrap) = value(map, longhand(winner)).and_then(keyword) else {
+        return;
+    };
+    style.inherited_mut().overflow_wrap = match wrap {
+        OverflowWrapKeyword::Normal => OverflowWrap::Normal,
+        OverflowWrapKeyword::BreakWord => OverflowWrap::BreakWord,
+        OverflowWrapKeyword::Anywhere => OverflowWrap::Anywhere,
+    };
+    style.declared.set(Prop::OverflowWrap);
+}
+
 /// The insets, from whichever of the logical and the physical name won the cascade.
 ///
 /// Pages write `top`/`right`/`bottom`/`left`; the pipeline models the insets logically. The
@@ -2198,6 +2244,47 @@ mod tests {
         assert_eq!(of("display: list-item flow-root"), (Display::FlowRoot, true));
         assert_eq!(of("display: block"), (Display::Block, false));
         assert_eq!(of("display: list-item; display: flex"), (Display::Flex, false));
+    }
+
+    /// `word-wrap` is the legacy name of `overflow-wrap`: whichever of the two is declared later
+    /// wins, and an element that declares neither keeps what it inherits.
+    #[test]
+    fn overflow_wrap_and_word_wrap_are_one_property() {
+        let wrap = |css| style_of(css).inherited.overflow_wrap;
+        assert_eq!(wrap(""), OverflowWrap::Normal);
+        assert_eq!(wrap("overflow-wrap: break-word"), OverflowWrap::BreakWord);
+        assert_eq!(wrap("word-wrap: break-word"), OverflowWrap::BreakWord);
+        assert_eq!(wrap("overflow-wrap: anywhere"), OverflowWrap::Anywhere);
+        assert_eq!(wrap("overflow-wrap: anywhere; word-wrap: normal"), OverflowWrap::Normal);
+        assert_eq!(
+            wrap("word-wrap: normal; overflow-wrap: anywhere"),
+            OverflowWrap::Anywhere
+        );
+
+        let parent = style_of("word-wrap: break-word");
+        let child = computed_style(&map_of("color: red"), Some(&parent));
+        assert_eq!(child.inherited.overflow_wrap, OverflowWrap::BreakWord);
+        let child = computed_style(&map_of("overflow-wrap: normal"), Some(&parent));
+        assert_eq!(child.inherited.overflow_wrap, OverflowWrap::Normal);
+    }
+
+    #[test]
+    fn word_break_and_text_overflow_are_read() {
+        let word_break = |css| style_of(css).inherited.word_break;
+        assert_eq!(word_break(""), WordBreak::Normal);
+        assert_eq!(word_break("word-break: break-all"), WordBreak::BreakAll);
+        assert_eq!(word_break("word-break: keep-all"), WordBreak::KeepAll);
+        assert_eq!(word_break("word-break: break-word"), WordBreak::BreakWord);
+
+        let overflow = |css| style_of(css).box_group.text_overflow;
+        assert_eq!(overflow(""), TextOverflow::Clip);
+        assert_eq!(overflow("text-overflow: ellipsis"), TextOverflow::Ellipsis);
+        // The two-value form is css-overflow-4's; the grammar here is level 3's, which drops it.
+        assert_eq!(overflow("text-overflow: clip ellipsis"), TextOverflow::Clip);
+        // `text-overflow` does not inherit.
+        let parent = style_of("text-overflow: ellipsis");
+        let child = computed_style(&map_of("color: red"), Some(&parent));
+        assert_eq!(child.box_group.text_overflow, TextOverflow::Clip);
     }
 
     #[test]

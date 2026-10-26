@@ -157,11 +157,12 @@ pub fn submission<C: RenderConfiguration>(
     };
     let post = attr("formmethod", "method").is_some_and(|m| m.eq_ignore_ascii_case("post"));
 
+    let data = data_set(doc, form, submitter);
     let mut encoded = url::form_urlencoded::Serializer::new(String::new());
-    for (k, v) in data_set(doc, form, submitter) {
-        encoded.append_pair(&k, &v);
+    for (k, v) in &data {
+        encoded.append_pair(k, v);
     }
-    let encoded = encoded.finish();
+    let mut encoded = encoded.finish();
     let referrer_policy = crate::html::link_referrer_policy(doc, form);
 
     if post {
@@ -171,6 +172,11 @@ pub fn submission<C: RenderConfiguration>(
             body: Some(encoded),
             referrer_policy,
         });
+    }
+    // A protocol of the engine's own may carry the data its own way: gemini's query is the
+    // input itself (`net::protocols::Protocol::form_query`).
+    if let Some(query) = crate::net::protocols::lookup(url.scheme()).and_then(|p| p.form_query(&data)) {
+        encoded = query;
     }
     url.set_query(if encoded.is_empty() { None } else { Some(&encoded) });
     url.set_fragment(None);

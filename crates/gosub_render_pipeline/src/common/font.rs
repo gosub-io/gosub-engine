@@ -1,3 +1,5 @@
+use gosub_interface::style::{OverflowWrap, WordBreak};
+
 #[derive(Debug, Clone)]
 pub enum FontAlignment {
     /// Start of the line (left for LTR, right for RTL)
@@ -27,6 +29,11 @@ pub struct FontInfo {
     pub alignment: FontAlignment,
     pub underline: bool,
     pub line_through: bool,
+    /// CSS `word-break`, with the legacy `break-word` already folded into `overflow_wrap`
+    /// (see [`gosub_interface::style::InheritedGroup::word_breaking`]).
+    pub word_break: WordBreak,
+    /// CSS `overflow-wrap`.
+    pub overflow_wrap: OverflowWrap,
 }
 
 impl FontInfo {
@@ -36,5 +43,20 @@ impl FontInfo {
     /// fallback they were tuned with.
     pub fn line_height_px(&self) -> f64 {
         self.line_height.unwrap_or(self.size * 1.4)
+    }
+
+    /// Whether a line may break inside a word that does not fit it: `word-break: break-all`,
+    /// or `overflow-wrap` other than `normal`.
+    #[must_use]
+    pub fn breaks_inside_words(&self) -> bool {
+        self.word_break == WordBreak::BreakAll || self.overflow_wrap != OverflowWrap::Normal
+    }
+
+    /// Whether those breaks count towards the min-content width (css-text-3 §5.2, §5.5): they do
+    /// under `break-all` and `anywhere`, but not under `break-word`, which only rescues a word
+    /// that would overflow its line.
+    #[must_use]
+    pub fn min_content_breaks_inside_words(&self) -> bool {
+        self.word_break == WordBreak::BreakAll || self.overflow_wrap == OverflowWrap::Anywhere
     }
 }

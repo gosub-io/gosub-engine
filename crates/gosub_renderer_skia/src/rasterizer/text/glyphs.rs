@@ -123,6 +123,8 @@ mod tests {
             alignment: FontAlignment::Start,
             underline: true,
             line_through: false,
+            word_break: gosub_interface::style::WordBreak::Normal,
+            overflow_wrap: gosub_interface::style::OverflowWrap::Normal,
         };
         let mut style = TextStyle::new("sans-serif", 24.0);
         style.line_height = Some(28.0);

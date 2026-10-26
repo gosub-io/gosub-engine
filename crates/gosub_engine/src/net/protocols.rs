@@ -22,10 +22,17 @@
 //! the reach and every port to [`socket::port_refused`], and on [`page`] for the HTML it
 //! shows. [`is_network_place`] and [`transport`] answer, for any URL, what an embedder asks
 //! of a scheme (bookmarks, the address bar's padlock), so an embedder names no schemes.
+//!
+//! A protocol that trusts certificates on first use learns the pin the zone keeps for each
+//! server it reaches ([`ProtocolRequest::pins`]) and reports the certificates first visits
+//! showed ([`ProtocolResponse::certificates`]); the broker records them ([`known_hosts`]).
 
+pub mod identities;
+pub mod known_hosts;
 pub mod page;
 pub mod socket;
 
+use crate::net::protocols::known_hosts::{Pins, ServerPin};
 use crate::net::ssrf::AddressSpace;
 use crate::net::types::{FetchRequest, FetchResult, FetchResultMeta, NetError};
 use async_trait::async_trait;
@@ -39,6 +46,31 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
+/// What a protocol is asked to fetch.
+#[derive(Clone, Copy)]
+pub struct ProtocolRequest<'a> {
+    pub url: &'a Url,
+    /// The most private address space the fetch may reach.
+    pub reach: AddressSpace,
+    /// Where the certificates the zone has seen are learned, for each server the fetch
+    /// reaches. `None` for a protocol that pins nothing; every visit is a first one then.
+    pub pins: Option<&'a dyn Pins>,
+    /// The client certificate the request presents, where its scope covers the URL
+    /// (`identities`): on a redirect only while it stays inside that scope.
+    pub identity: Option<&'a crate::net::protocols::identities::ClientIdentity>,
+}
+
+impl std::fmt::Debug for ProtocolRequest<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProtocolRequest")
+            .field("url", &self.url.as_str())
+            .field("reach", &self.reach)
+            .field("pins", &self.pins.is_some())
+            .field("identity", &self.identity.map(|identity| &identity.scope))
+            .finish()
+    }
+}
+
 /// What a protocol answered with.
 #[derive(Debug, Clone)]
 pub struct ProtocolResponse {
@@ -48,6 +80,18 @@ pub struct ProtocolResponse {
     /// The peer the body was read from: what the document is placed by on the
     /// private-network policy, as for an http response.
     pub peer_addr: Option<SocketAddr>,
+    /// The certificates servers showed on a first visit, one for each, for the broker to pin.
+    pub certificates: Vec<ServerPin>,
+    /// Where `body` came from, when a redirect the protocol followed led elsewhere than the
+    /// request's URL: what the page commits under and resolves its links against.
+    pub final_url: Option<Url>,
+}
+
+/// What [`run`] served: the reply for the requester, and the certificates first visits showed.
+#[derive(Debug)]
+pub struct Served {
+    pub result: FetchResult,
+    pub certificates: Vec<ServerPin>,
 }
 
 /// A scheme the engine fetches with its own client.
@@ -67,9 +111,22 @@ pub trait Protocol: Send + Sync {
     /// Whether the connection is encrypted, as an address bar shows it.
     fn encrypted(&self) -> bool;
 
-    /// Fetch `url`, reaching no address space more private than `reach`. Resolves when the
-    /// whole body is in; dropping the future abandons the fetch.
-    async fn fetch(&self, url: &Url, reach: AddressSpace) -> Result<ProtocolResponse, NetError>;
+    /// Whether the protocol trusts certificates on first use: learns the zone's pins for the
+    /// servers it reaches and reports what first visits saw. Only such a protocol's report
+    /// is pinned.
+    fn pins_certificates(&self) -> bool {
+        false
+    }
+
+    /// The query a form submitted with GET to this protocol's URLs carries, from the form's
+    /// data (name and value, in order). `None` keeps the web's `name=value&...` encoding.
+    fn form_query(&self, _data: &[(String, String)]) -> Option<String> {
+        None
+    }
+
+    /// Fetch `request.url`, reaching no address space more private than `request.reach`.
+    /// Resolves when the whole body is in; dropping the future abandons the fetch.
+    async fn fetch(&self, request: ProtocolRequest<'_>) -> Result<ProtocolResponse, NetError>;
 }
 
 /// Every protocol compiled into this build.
@@ -78,6 +135,8 @@ static PROTOCOLS: &[&dyn Protocol] = &[
     &crate::net::gopher::Gopher,
     #[cfg(feature = "finger")]
     &crate::net::finger::Finger,
+    #[cfg(feature = "gemini")]
+    &crate::net::gemini::Gemini,
 ];
 
 /// The protocol serving `scheme`, if this build has one.
@@ -154,17 +213,16 @@ pub fn refuse(
 /// fetch was cancelled: the reply channel is dropped then, as the zone fetcher drops it.
 pub async fn run(
     protocol: &dyn Protocol,
-    url: &Url,
-    reach: AddressSpace,
+    request: ProtocolRequest<'_>,
     cancel: &CancellationToken,
     observer: Arc<dyn NetObserver + Send + Sync>,
-) -> Option<FetchResult> {
+) -> Option<Served> {
     // A navigation cancelled while its request sat in the I/O queue must not go on to emit
     // network events for it, as for `data:`.
     if cancel.is_cancelled() {
         return None;
     }
-    let url = url.clone();
+    let url = request.url.clone();
     observer.on_event(NetEvent::Accepted {
         url: url.clone(),
         joined: false,
@@ -177,7 +235,7 @@ pub async fn run(
             observer.on_event(NetEvent::Cancelled { url, reason: "request cancelled" });
             return None;
         }
-        fetched = protocol.fetch(&url, reach) => fetched,
+        fetched = protocol.fetch(request) => fetched,
     };
     let response = match fetched {
         Ok(response) => response,
@@ -186,7 +244,10 @@ pub async fn run(
                 url,
                 error: anyhow::anyhow!(err.clone()),
             });
-            return Some(FetchResult::Error(err));
+            return Some(Served {
+                result: FetchResult::Error(err),
+                certificates: Vec::new(),
+            });
         }
     };
 
@@ -208,15 +269,18 @@ pub async fn run(
         url: url.clone(),
     });
 
-    let mut meta = FetchResultMeta::synthetic(url);
+    let mut meta = FetchResultMeta::synthetic(response.final_url.unwrap_or(url));
     meta.headers = headers;
     meta.content_length = Some(len);
     meta.content_type = Some(response.content_type);
     meta.has_body = len > 0;
     meta.peer_addr = response.peer_addr;
-    Some(FetchResult::Buffered {
-        meta,
-        body: response.body,
+    Some(Served {
+        result: FetchResult::Buffered {
+            meta,
+            body: response.body,
+        },
+        certificates: response.certificates,
     })
 }
 
@@ -235,6 +299,7 @@ pub fn synthesized_headers(content_type: &str, len: u64) -> HeaderMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::net::protocols::known_hosts::CertPin;
     use parking_lot::Mutex;
 
     /// Answers every URL with its own path as plain text.
@@ -254,11 +319,17 @@ mod tests {
         fn encrypted(&self) -> bool {
             false
         }
-        async fn fetch(&self, url: &Url, _reach: AddressSpace) -> Result<ProtocolResponse, NetError> {
+        async fn fetch(&self, request: ProtocolRequest<'_>) -> Result<ProtocolResponse, NetError> {
             Ok(ProtocolResponse {
                 content_type: "text/plain".into(),
-                body: Bytes::from(url.path().to_string()),
+                body: Bytes::from(request.url.path().to_string()),
                 peer_addr: Some("192.0.2.7:70".parse().unwrap()),
+                certificates: vec![ServerPin {
+                    host: "host".into(),
+                    port: 7,
+                    pin: CertPin::of(b"echo"),
+                }],
+                final_url: None,
             })
         }
     }
@@ -280,7 +351,7 @@ mod tests {
         fn encrypted(&self) -> bool {
             false
         }
-        async fn fetch(&self, _url: &Url, _reach: AddressSpace) -> Result<ProtocolResponse, NetError> {
+        async fn fetch(&self, _request: ProtocolRequest<'_>) -> Result<ProtocolResponse, NetError> {
             std::future::pending().await
         }
     }
@@ -310,9 +381,17 @@ mod tests {
         cancel: &CancellationToken,
     ) -> (Option<FetchResult>, Vec<String>) {
         let recorder = Arc::new(Recorder::default());
+        let request = ProtocolRequest {
+            url: &req.url,
+            reach: AddressSpace::Loopback,
+            pins: None,
+            identity: None,
+        };
         let result = match refuse(protocol, req, enabled, &*recorder) {
             Some(refused) => Some(refused),
-            None => run(protocol, &req.url, AddressSpace::Loopback, cancel, recorder.clone()).await,
+            None => run(protocol, request, cancel, recorder.clone())
+                .await
+                .map(|served| served.result),
         };
         let events = recorder.0.lock().clone();
         (result, events)
@@ -386,6 +465,21 @@ mod tests {
             events,
             ["Accepted", "Started", "ResponseHeaders", "Progress", "Finished"]
         );
+    }
+
+    #[tokio::test]
+    async fn the_certificate_a_response_showed_is_served_beside_it() {
+        let url = Url::parse("echo://host/hello").unwrap();
+        let request = ProtocolRequest {
+            url: &url,
+            reach: AddressSpace::Loopback,
+            pins: None,
+            identity: None,
+        };
+        let served = run(&Echo, request, &CancellationToken::new(), Arc::new(Recorder::default()))
+            .await
+            .expect("served");
+        assert_eq!(served.certificates[0].pin, CertPin::of(b"echo"));
     }
 
     #[tokio::test]

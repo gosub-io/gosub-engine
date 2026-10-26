@@ -56,6 +56,14 @@ dashmap = { workspace = true }
 once_cell = { workspace = true }
 psl = "2"
 sha2 = "0.11.0"
+# TLS for gemini://, with the aws-lc-rs provider gosub-sonar uses, so there is one provider.
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "aws-lc-rs"], optional = true }
+tokio-rustls = { version = "0.26", default-features = false, optional = true }
+# Text gemini serves in a charset other than UTF-8.
+encoding_rs = { version = "0.8.35", optional = true }
+# Client certificates gemini servers ask for, made on the aws-lc-rs provider rustls uses.
+rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs"], optional = true }
+zeroize = "1.8"
 parking_lot = { workspace = true }
 mime = "0.3.17"
 chrono = { workspace = true }
@@ -85,9 +93,11 @@ required-features = ["process-isolation"]
 brotli = "9"
 
 [features]
-default = ["sqlite_cookie_store", "process-isolation", "gopher", "finger"]
+default = ["sqlite_cookie_store", "process-isolation", "gopher", "finger", "gemini"]
 sqlite_cookie_store = ["r2d2", "r2d2_sqlite"]
 sqlite_places = ["r2d2", "r2d2_sqlite"]
+sqlite_known_hosts = ["r2d2", "r2d2_sqlite"]
+sqlite_client_identities = ["r2d2", "r2d2_sqlite"]
 # Encrypted SQLite stores (SQLCipher): the `open(path, key)` constructors take a key. Links
 # libcrypto on Linux; the vendored variant builds OpenSSL (Windows, Android).
 sqlcipher = ["gosub_config/sqlcipher"]
@@ -111,6 +121,9 @@ gopher = []
 # The finger:// protocol (`net::finger`), served the same way. `net.finger.enabled` turns it
 # off at run time.
 finger = []
+# The gemini:// protocol (`net::gemini`): TLS, certificates trusted on first use. Served the
+# same way; `net.gemini.enabled` turns it off at run time.
+gemini = ["dep:rustls", "dep:tokio-rustls", "dep:encoding_rs", "dep:rcgen"]
 # Compile the feature-gated font systems into the isolation harness, so its
 # font scenarios can be pointed at every backend the engine supports - the
 # confinement contract has to hold per font stack, not just for the default.

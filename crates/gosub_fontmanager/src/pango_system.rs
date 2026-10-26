@@ -6,6 +6,7 @@ use gosub_interface::font_system::{
     Confinement, FontQuery, FontSystem, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText, TextAlign,
     TextStyle,
 };
+use gosub_interface::style::{OverflowWrap, WordBreak};
 use gtk4::pango;
 use gtk4::pango::Weight;
 use gtk4::prelude::{FontExt, FontFamilyExt};
@@ -468,7 +469,18 @@ impl PangoFontSystem {
         }
         layout.set_font_description(Some(&font_desc));
         layout.set_text(text);
-        layout.set_wrap(pango::WrapMode::Word);
+        // `word-break: break-all` breaks between any two letters; `overflow-wrap` other than
+        // `normal` falls back to them when a word does not fit. Pango has no `keep-all`.
+        layout.set_wrap(match (style.word_break, style.overflow_wrap) {
+            (WordBreak::BreakAll, _) => pango::WrapMode::Char,
+            (_, OverflowWrap::BreakWord | OverflowWrap::Anywhere) => pango::WrapMode::WordChar,
+            _ => pango::WrapMode::Word,
+        });
+        // A break inside a word gets no hyphen: that is `hyphens: auto`, and the initial `manual`
+        // only breaks where the text has a soft hyphen of its own. Pango hyphenates by default.
+        let attributes = pango::AttrList::new();
+        attributes.insert(pango::AttrInt::new_insert_hyphens(false));
+        layout.set_attributes(Some(&attributes));
         match style.align {
             TextAlign::Start => {} // pango's default (left for LTR)
             TextAlign::Center => layout.set_alignment(pango::Alignment::Center),

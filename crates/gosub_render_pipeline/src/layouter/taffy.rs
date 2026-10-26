@@ -28,8 +28,8 @@ use gosub_interface::font_system::FontSystem;
 use gosub_interface::style::{
     BackgroundImage, BackgroundSize, BorderStyle, ComputedStyle, Display as CssDisplay, Float as CssFloat,
     LengthPercentage as CssLp, LengthPercentageAuto as CssLpa, LineHeight, ListStylePosition, Overflow as CssOverflow,
-    Position as CssPosition, TextAlign, TextTransform as CssTextTransform, VerticalAlign as CssVerticalAlign,
-    WhiteSpace,
+    OverflowWrap, Position as CssPosition, TextAlign, TextTransform as CssTextTransform,
+    VerticalAlign as CssVerticalAlign, WhiteSpace, WordBreak,
 };
 use gosub_interface::used;
 use gosub_shared::microsyntax::parse_floating_point_number;
@@ -118,6 +118,9 @@ struct LineStyle {
     /// `inline_box_content_is_container_bound`, which says when taking the container's width is
     /// safe.
     full_width: bool,
+    /// The block's `white-space` forbids wrapping (`nowrap`, `pre`): its inline content stays on
+    /// one line, and overflows the block where it does not fit.
+    no_wrap: bool,
 }
 
 /// Where one line box goes: which band it sits in, and how far below the previous one it starts.
@@ -257,7 +260,7 @@ fn parse_px_attr(v: &str) -> Option<f32> {
 
 // Cache key: (text, font_family, size_bits, line_height_bits, weight, max_width_bits,
 // letter_spacing_bits). Floats are stored as their bit pattern so the tuple is Hash + Eq.
-pub(crate) type MeasureKey = (String, String, u32, u32, i32, u32, u32);
+pub(crate) type MeasureKey = (String, String, u32, u32, i32, u32, u32, (WordBreak, OverflowWrap));
 
 /// CSS `text-align` on a block, as `justify_content` for the anonymous flex containers holding its
 /// line boxes. A line box *is* that container, so this is what positions a run too short to fill it
@@ -1197,6 +1200,8 @@ impl TaffyLayouter {
             letter_spacing: 0.0,
             max_width: None,
             align: gosub_interface::font_system::TextAlign::Start,
+            word_break: font_info.word_break,
+            overflow_wrap: font_info.overflow_wrap,
             display_scale: 1.0,
         };
         let shaped = self.font_system.lock().shape("x", &style);
@@ -1243,6 +1248,8 @@ impl TaffyLayouter {
             letter_spacing: font_info.letter_spacing as f32,
             max_width: None,
             align: gosub_interface::font_system::TextAlign::Start,
+            word_break: font_info.word_break,
+            overflow_wrap: font_info.overflow_wrap,
             display_scale: 1.0,
         };
         let shaped = self.font_system.lock().shape(text, &style);
@@ -1274,6 +1281,13 @@ impl TaffyLayouter {
             &mut self.measure_cache,
         )
         .width
+    }
+
+    /// The min-content width of one whitespace-separated word: the whole word, unless the breaks
+    /// `word-break` or `overflow-wrap` allow inside it count towards min-content, in which case
+    /// it is as narrow as the shaper can break it.
+    pub(super) fn min_content_word_width(&mut self, word: &str, font_info: &crate::common::font::FontInfo) -> f32 {
+        min_content_word_width(word, font_info, &self.font_system, &mut self.measure_cache)
     }
 
     /// Override the cell's border widths in its taffy style with the collapse
@@ -1503,17 +1517,11 @@ impl TaffyLayouter {
         // cross axis - the cell's `align_items`, set from its `text-align`. An `align_self` on the
         // line box would override that, so inside a cell it is left off. Wikipedia's infobox
         // section headers are `text-align: center` and came out flush left for want of this.
+        let block_style = layout_tree.render_tree.doc.computed_style(element_node.dom_node_id);
         let line_style = LineStyle {
             justify,
-            cell_aligned: matches!(
-                layout_tree
-                    .render_tree
-                    .doc
-                    .computed_style(element_node.dom_node_id)
-                    .box_group
-                    .display,
-                CssDisplay::TableCell
-            ),
+            cell_aligned: matches!(block_style.box_group.display, CssDisplay::TableCell),
+            no_wrap: matches!(block_style.inherited.white_space, WhiteSpace::NoWrap | WhiteSpace::Pre),
             // The line boxes of an inline box whose content cannot outgrow its container take that
             // container's width, so a percentage on an inline-level child has something definite to
             // resolve against. The inline box itself is widened to match in `extract_taffy_data`.
@@ -1613,6 +1621,31 @@ impl TaffyLayouter {
         let line_height = self.inline_line_height(layout_tree, items);
         // Taken up front so an early return cannot leak it into the next run.
         let closing_extra = std::mem::take(&mut cursor.closing_extra);
+        // `nowrap` and `pre` leave a run no soft wrap opportunity, so it is one line and is not
+        // split between bands. A line too wide for the room beside a float goes below it, as a
+        // line box too small for any of its content does (CSS 2 §9.5).
+        if line_style.no_wrap {
+            let width: Option<f64> = items
+                .iter()
+                .map(|(id, _)| self.inline_item_width(layout_tree, id))
+                .sum();
+            while (cursor.lines_left(line_height) == 0
+                || width.is_none_or(|width| width > cursor.current().line_width as f64))
+                && cursor.advance()
+            {}
+            let placement = cursor.placement();
+            self.emit_line(
+                layout_tree,
+                items,
+                None,
+                element_node,
+                leaf_id,
+                line_style,
+                Some(placement),
+            );
+            cursor.take_lines_tall_last(1, line_height, closing_extra);
+            return;
+        }
         let mut rest = items;
         while !rest.is_empty() {
             let band = cursor.current();
@@ -1855,7 +1888,14 @@ impl TaffyLayouter {
         let mut style = Style {
             display: Display::Flex,
             flex_direction: FlexDirection::Row,
-            flex_wrap: FlexWrap::Wrap,
+            // Every item is a place the line may wrap, unless the block says it may not: each
+            // text item keeps its own words together then, but a run of several items - the text
+            // around a `<b>` - would still wrap between them.
+            flex_wrap: if line_style.no_wrap {
+                FlexWrap::NoWrap
+            } else {
+                FlexWrap::Wrap
+            },
             // The block's `text-align`: positions runs that don't fill the line box.
             justify_content: line_style.justify,
             align_self: (!line_style.cell_aligned).then_some(AlignSelf::FLEX_START),
@@ -1933,15 +1973,33 @@ impl TaffyLayouter {
                 matches!(&el.context, ElementContext::Text(t) if !t.text.is_empty() && !t.text.chars().any(char::is_whitespace))
             })
         };
+        // A flex item is never narrower than its min-content width unless told otherwise, and
+        // under `overflow-wrap: break-word` that is the longest word: the line box would hand the
+        // text that much room and the shaper would never break the word. A word that may break
+        // inside can be as narrow as its widest grapheme. Only in a line box: text that is an
+        // author flex or grid item keeps its automatic minimum.
+        let breaks_inside_words = |id: &LayoutElementId| {
+            layout_tree
+                .arena
+                .get(id)
+                .is_some_and(|el| matches!(&el.context, ElementContext::Text(t) if t.font_info.breaks_inside_words()))
+        };
         let mut rest = items;
         while !rest.is_empty() {
             let run = rest.iter().take_while(|(id, _)| touches(id)).count().max(1);
             let parent = if run > 1 {
-                self.glue_box(taffy_container_id)
+                let shrinks = rest[..run].iter().any(|(id, _)| breaks_inside_words(id));
+                self.glue_box(taffy_container_id, shrinks)
             } else {
                 None
             };
             for (inline_layout_element_id, inline_taffy_node_id) in &rest[..run] {
+                if let Some(narrowest) = self.narrowest_line(layout_tree, inline_layout_element_id) {
+                    if let Ok(mut item) = self.tree.style(*inline_taffy_node_id).cloned() {
+                        item.min_size.width = LengthPercentageAuto::length(narrowest);
+                        let _ = self.tree.set_style(*inline_taffy_node_id, item);
+                    }
+                }
                 if let Err(e) = self
                     .tree
                     .add_child(parent.unwrap_or(taffy_container_id), *inline_taffy_node_id)
@@ -1961,10 +2019,33 @@ impl TaffyLayouter {
         }
     }
 
+    /// The width of the narrowest line a text item that may break inside its words can be set in:
+    /// its widest grapheme. `None` for any other item.
+    fn narrowest_line(&mut self, layout_tree: &LayoutTree, id: &LayoutElementId) -> Option<f32> {
+        let ElementContext::Text(text) = &layout_tree.arena.get(id)?.context else {
+            return None;
+        };
+        if !text.font_info.breaks_inside_words() {
+            return None;
+        }
+        Some(
+            measure_str_cached(
+                &text.text,
+                &text.font_info,
+                1.0,
+                &self.font_system,
+                &mut self.measure_cache,
+            )
+            .width,
+        )
+    }
+
     /// A box in `line` for text items that must stay together: a row that does not wrap, its
-    /// items at its top for baseline alignment to move down, as in the line box itself.
-    fn glue_box(&mut self, line: TaffyNodeId) -> Option<TaffyNodeId> {
-        let style = Style {
+    /// items at its top for baseline alignment to move down, as in the line box itself. It
+    /// `shrinks` when one of its items may break inside a word: the line still does not break
+    /// between the items, but that item can then take the break the line needs.
+    fn glue_box(&mut self, line: TaffyNodeId, shrinks: bool) -> Option<TaffyNodeId> {
+        let mut style = Style {
             display: Display::Flex,
             flex_direction: FlexDirection::Row,
             flex_wrap: FlexWrap::NoWrap,
@@ -1972,6 +2053,10 @@ impl TaffyLayouter {
             align_items: Some(AlignItems::FLEX_START),
             ..Default::default()
         };
+        if shrinks {
+            style.flex_shrink = 1.0;
+            style.min_size.width = LengthPercentageAuto::length(0.0);
+        }
         let glue = self.tree.new_leaf(style).ok()?;
         if let Err(e) = self.tree.add_child(line, glue) {
             log::warn!("Failed to add glue box to taffy tree: {:?}", e);
@@ -3347,6 +3432,12 @@ impl TaffyLayouter {
                 // A percentage `letter-spacing` is of the font size, settled here (css-text-4
                 // §8.2: it is a used value).
                 let letter_spacing = used::letter_spacing(text_style.letter_spacing, font_size);
+                // `nowrap` and `pre` have no soft wrap opportunities for these to add to.
+                let (word_break, overflow_wrap) = if no_wrap {
+                    (WordBreak::Normal, OverflowWrap::Normal)
+                } else {
+                    text_style.word_breaking()
+                };
 
                 let font_info = FontInfo {
                     family: font_family,
@@ -3359,6 +3450,8 @@ impl TaffyLayouter {
                     alignment,
                     underline: decoration.underline,
                     line_through: decoration.line_through,
+                    word_break,
+                    overflow_wrap,
                 };
 
                 // The gap between two words of a mixed inline run is one of these whitespace
@@ -3752,6 +3845,8 @@ fn control_font_info(doc: &dyn PipelineDocument, node_id: DomNodeId) -> FontInfo
         alignment: FontAlignment::Start,
         underline: false,
         line_through: false,
+        word_break: WordBreak::Normal,
+        overflow_wrap: OverflowWrap::Normal,
     }
 }
 
@@ -3793,6 +3888,7 @@ pub(crate) fn measure_str_cached(
         font_info.weight,
         (max_width as f32).to_bits(),
         (font_info.letter_spacing as f32).to_bits(),
+        (font_info.word_break, font_info.overflow_wrap),
     );
     if let Some(&cached) = cache.get(&cache_key) {
         return cached;
@@ -3849,8 +3945,25 @@ fn min_content_width(
     text_ctx
         .text
         .split_ascii_whitespace()
-        .map(|word| measure_str_cached(word, &text_ctx.font_info, MAX_CONTENT_WIDTH, font_system, cache).width as f64)
+        .map(|word| f64::from(min_content_word_width(word, &text_ctx.font_info, font_system, cache)))
         .fold(0.0_f64, f64::max)
+}
+
+/// See [`TaffyLayouter::min_content_word_width`].
+fn min_content_word_width(
+    word: &str,
+    font_info: &crate::common::font::FontInfo,
+    font_system: &Arc<Mutex<dyn FontSystem>>,
+    cache: &mut HashMap<MeasureKey, Size<f32>>,
+) -> f32 {
+    // One pixel rather than zero, which some shapers read as "no limit": the word then breaks at
+    // every opportunity it has, and its widest piece is what remains.
+    let width = if font_info.min_content_breaks_inside_words() {
+        1.0
+    } else {
+        MAX_CONTENT_WIDTH
+    };
+    measure_str_cached(word, font_info, width, font_system, cache).width
 }
 
 /// Read a taffy `max-height` back into the form the measure callback can use.
@@ -4275,6 +4388,7 @@ fn measure_node(
                 text_ctx.font_info.weight,
                 (max_width as f32).to_bits(),
                 (text_ctx.font_info.letter_spacing as f32).to_bits(),
+                (text_ctx.font_info.word_break, text_ctx.font_info.overflow_wrap),
             );
             if let Some(&cached) = measure_cache.get(&cache_key) {
                 return cached;

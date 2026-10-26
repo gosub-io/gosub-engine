@@ -111,6 +111,12 @@
       "description": "Speak finger:// (navigations only; the answer is shown as a page of text, and asking a server to finger another host is refused). Needs a build with the engine's finger feature, which is on by default."
     },
     {
+      "key": "gemini.enabled",
+      "type": "b",
+      "default": "b:true",
+      "description": "Speak gemini:// (navigations only). A server's certificate is trusted on first use and must stay the same on later visits. Needs a build with the engine's gemini feature, which is on by default."
+    },
+    {
       "key": "timeout.connect_secs",
       "type": "u",
       "default": "u:5",

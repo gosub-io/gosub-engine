@@ -339,6 +339,37 @@ impl WhiteSpace {
     }
 }
 
+/// `overflow-wrap`, which `word-wrap` is the legacy name of (css-text-3 §5.5): whether a word too
+/// long for its line may be broken where there is no other way to fit it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum OverflowWrap {
+    #[default]
+    Normal,
+    /// Breaks as a last resort, but the breaks do not count towards the min-content size.
+    BreakWord,
+    /// Breaks as a last resort, and the breaks count towards the min-content size.
+    Anywhere,
+}
+
+/// `word-break` (css-text-3 §5.2): where lines may break between letters.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum WordBreak {
+    #[default]
+    Normal,
+    BreakAll,
+    KeepAll,
+    /// The legacy value: `normal`, with `overflow-wrap: anywhere` whatever that says.
+    BreakWord,
+}
+
+/// `text-overflow` (css-overflow-3 §5.1): what marks inline content cut off at the end edge of a
+/// box that does not let it show. The `<string>` form is not carried.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextOverflow {
+    Clip,
+    Ellipsis,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextTransform {
     None,
@@ -574,6 +605,8 @@ declare_props! {
     TextTransform,
     TextDecorationLine,
     WhiteSpace,
+    OverflowWrap,
+    WordBreak,
     LetterSpacing,
     CaptionSide,
     ListStyleType,
@@ -590,6 +623,7 @@ declare_props! {
     BoxSizing,
     OverflowX,
     OverflowY,
+    TextOverflow,
     ZIndex,
     Opacity,
     MixBlendMode,
@@ -742,6 +776,9 @@ pub struct InheritedGroup {
     pub text_transform: TextTransform,
     pub text_decoration_line: TextDecorationLine,
     pub white_space: WhiteSpace,
+    /// `overflow-wrap`, or `word-wrap` where that was the stronger declaration.
+    pub overflow_wrap: OverflowWrap,
+    pub word_break: WordBreak,
     pub letter_spacing: LetterSpacing,
     pub caption_side: CaptionSide,
     pub list_style_type: ListStyleType,
@@ -766,6 +803,19 @@ pub struct InheritedGroup {
     pub font_size_declared_in_chain: bool,
 }
 
+impl InheritedGroup {
+    /// `word-break` and `overflow-wrap` as they act on line breaking: the legacy `word-break:
+    /// break-word` is `normal` with `overflow-wrap: anywhere`, whatever `overflow-wrap` says
+    /// (css-text-3 §5.2).
+    #[must_use]
+    pub fn word_breaking(&self) -> (WordBreak, OverflowWrap) {
+        match self.word_break {
+            WordBreak::BreakWord => (WordBreak::Normal, OverflowWrap::Anywhere),
+            word_break => (word_break, self.overflow_wrap),
+        }
+    }
+}
+
 /// The box's own nature: what kind of box it is, where it sits, how it composites.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BoxGroup {
@@ -779,6 +829,7 @@ pub struct BoxGroup {
     pub box_sizing: BoxSizing,
     pub overflow_x: Overflow,
     pub overflow_y: Overflow,
+    pub text_overflow: TextOverflow,
     pub z_index: ZIndex,
     pub opacity: f32,
     /// Kept as text: the blend-mode set is the painter's, not style's.
@@ -1283,6 +1334,8 @@ impl ComputedStyle {
                 text_transform: TextTransform::None,
                 text_decoration_line: TextDecorationLine::NONE,
                 white_space: WhiteSpace::Normal,
+                overflow_wrap: OverflowWrap::Normal,
+                word_break: WordBreak::Normal,
                 letter_spacing: LetterSpacing::Normal,
                 caption_side: CaptionSide::Top,
                 list_style_type: ListStyleType::Disc,
@@ -1303,6 +1356,7 @@ impl ComputedStyle {
                 box_sizing: BoxSizing::ContentBox,
                 overflow_x: Overflow::Visible,
                 overflow_y: Overflow::Visible,
+                text_overflow: TextOverflow::Clip,
                 z_index: ZIndex::Auto,
                 opacity: 1.0,
                 mix_blend_mode: Arc::from("normal"),

@@ -668,7 +668,7 @@ fn subtree_min_content_width(
             text_ctx
                 .text
                 .split_ascii_whitespace()
-                .map(|run| layouter.word_width(run, &text_ctx.font_info))
+                .map(|run| layouter.min_content_word_width(run, &text_ctx.font_info))
                 .fold(0.0_f32, f32::max)
         }
         // A form control, like an image, is as wide as its box and has no break opportunities.
