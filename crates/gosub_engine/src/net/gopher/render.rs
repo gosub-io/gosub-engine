@@ -43,7 +43,9 @@ pub fn menu_page(url: &Url, body: &[u8]) -> String {
     let mut out = String::new();
     for item in menu::parse(body) {
         out.push_str(&menu_line(&item, host, port));
-        out.push('\n');
+        // `<br>`, not a newline: the engine loses a preserved newline between inline
+        // elements, and a browser renders either as a line break.
+        out.push_str("<br>");
     }
     page(&title_for(url), &format!("<pre>{out}</pre>"))
 }
@@ -92,7 +94,10 @@ pub fn error_page(url: &Url, message: &str) -> String {
 /// when the item is something the engine can go to.
 fn menu_line(item: &Item, host: &str, port: u16) -> String {
     let display = escape(&item.display);
-    let tag = format!("<span class=\"t\">{:<5}</span>", tag_for(item.item_type));
+    // The padding sits outside the span: the engine drops preserved spaces at the end of an
+    // inline element.
+    let label = tag_for(item.item_type);
+    let tag = format!("<span class=\"t\">{label}</span>{:pad$}", "", pad = 5 - label.len());
     match item.item_type {
         'i' => format!("{:<5} {display}", ""),
         '3' => format!("{tag} <span class=\"e\">{display}</span>"),
@@ -222,6 +227,13 @@ mod tests {
         assert!(html.contains("      Hello"));
         assert!(html.contains("<span class=\"e\">Gone</span>"));
         assert!(!html.contains("<a "));
+    }
+
+    #[test]
+    fn each_menu_item_is_a_line() {
+        let html = menu_page(&url("gopher://h/"), b"iOne\t\t\t\r\niTwo\t\t\t\r\n");
+        assert!(html.contains("One<br>"));
+        assert!(html.contains("Two<br>"));
     }
 
     #[test]
