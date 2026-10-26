@@ -152,6 +152,8 @@ pub fn serve<C: RenderConfiguration>(
                     Arc::clone(&media_store),
                     Arc::clone(&forked_loader) as Arc<dyn crate::net::resource_loader::ResourceLoader>,
                 );
+                // The page's first update of the rendering: autofocus, then the frame.
+                let focus = page.flush_autofocus();
                 let pass = page.render(Some(scroll_y), &known_tiles);
                 let hit_regions = page.hit_regions.clone();
                 touch(&mut recent, &tab);
@@ -169,7 +171,7 @@ pub fn serve<C: RenderConfiguration>(
                     &pass.evicted,
                     pass.summary,
                     hit_regions,
-                    Vec::new(),
+                    focus.into_iter().collect(),
                 ) {
                     gosub_sandbox::exit_now(1);
                 }

@@ -106,6 +106,123 @@ fn label_control<C: RenderConfiguration>(doc: &EngineDocument<C>, label: NodeId)
     None
 }
 
+/// A top-level document's autofocus state (HTML, "autofocus processed flag" and "autofocus
+/// candidates"), run by [`Autofocus::flush`] at every update of the rendering.
+///
+/// The candidates are the elements with `autofocus` that the insertion steps would have
+/// appended while the flag was clear. No script inserts or moves elements here, so every
+/// element is the parser's and was inserted before the first flush: they are taken in tree
+/// order then, once. Nested documents are not modelled, so the document is always fully
+/// active, its own top-level document and of its own origin.
+#[derive(Debug, Default)]
+pub struct Autofocus {
+    processed: bool,
+    /// `None` until the first flush gathers them.
+    candidates: Option<std::collections::VecDeque<NodeId>>,
+}
+
+impl Autofocus {
+    /// Whether a flush could still focus anything: the flag is clear and the candidates are
+    /// not known to be empty. A cheap check before gathering what a flush needs.
+    pub fn pending(&self) -> bool {
+        !self.processed && self.candidates.as_ref().is_none_or(|c| !c.is_empty())
+    }
+
+    /// HTML "flush autofocus candidates": the element to run the focusing steps for, if
+    /// any. `rendered` = elements that have a box (`None` = no render yet, see
+    /// [`tab_order`]); `fragment` = the document URL's fragment, for its target element.
+    pub fn flush<C: RenderConfiguration>(
+        &mut self,
+        doc: &EngineDocument<C>,
+        rendered: Option<&HashSet<NodeId>>,
+        fragment: Option<&str>,
+    ) -> Option<NodeId> {
+        // 1.
+        if self.processed {
+            return None;
+        }
+        // 2. and 3.
+        let candidates = self.candidates.get_or_insert_with(|| autofocus_elements(doc).into());
+        if candidates.is_empty() {
+            return None;
+        }
+        // 4. The focused area is the document itself when nothing is focused.
+        if doc.focused_node().is_some() || fragment.is_some_and(|f| indicated_element(doc, f).is_some()) {
+            candidates.clear();
+            self.processed = true;
+            return None;
+        }
+        // 5. Steps 3 and 4 skip nothing in a lone top-level document, and step 5 never
+        // returns: the engine has every stylesheet in before the first layout, so the
+        // script-blocking style sheet set is empty by the time anything flushes. Step 8 finds
+        // no target element, which step 4 already ruled out.
+        while let Some(element) = candidates.pop_front() {
+            // 9. and 10. An element that is not a focusable area has none to give: only a
+            // navigable container or a shadow host would, and neither is modelled.
+            let focusable =
+                focusability(doc, element) != Focusability::No && rendered.is_none_or(|r| r.contains(&element));
+            if focusable {
+                // 11.
+                candidates.clear();
+                self.processed = true;
+                // 12.
+                return Some(element);
+            }
+        }
+        None
+    }
+}
+
+/// Every element with an `autofocus` attribute, in tree order.
+fn autofocus_elements<C: RenderConfiguration>(doc: &EngineDocument<C>) -> Vec<NodeId> {
+    let mut found = Vec::new();
+    let mut stack = vec![doc.root()];
+    while let Some(id) = stack.pop() {
+        if doc.node_type(id) == NodeType::ElementNode && doc.attribute(id, "autofocus").is_some() {
+            found.push(id);
+        }
+        stack.extend(doc.children(id).iter().rev());
+    }
+    found
+}
+
+/// The element a URL fragment indicates (HTML, "the indicated part of the document"), when
+/// it is an element and not the top of the document or nothing: what becomes the
+/// document's target element.
+pub fn indicated_element<C: RenderConfiguration>(doc: &EngineDocument<C>, fragment: &str) -> Option<NodeId> {
+    // 1. An empty fragment is the top of the document.
+    if fragment.is_empty() {
+        return None;
+    }
+    // 2. to 4. The fragment as it is, then percent-decoded. Step 5's `top` is the top of the
+    // document, which no element is.
+    potential_indicated_element(doc, fragment).or_else(|| {
+        let decoded = percent_encoding::percent_decode_str(fragment).decode_utf8_lossy();
+        potential_indicated_element(doc, &decoded)
+    })
+}
+
+/// HTML "find a potential indicated element": the element whose ID is `fragment`, else the
+/// first `a` in tree order whose `name` is.
+fn potential_indicated_element<C: RenderConfiguration>(doc: &EngineDocument<C>, fragment: &str) -> Option<NodeId> {
+    let mut by_id = None;
+    let mut by_name = None;
+    let mut stack = vec![doc.root()];
+    while let Some(id) = stack.pop() {
+        if doc.node_type(id) == NodeType::ElementNode {
+            if doc.attribute(id, "id") == Some(fragment) {
+                by_id = Some(id);
+                break;
+            }
+            if by_name.is_none() && doc.tag_name(id) == Some("a") && doc.attribute(id, "name") == Some(fragment) {
+                by_name = Some(id);
+            }
+        }
+        stack.extend(doc.children(id).iter().rev());
+    }
+    by_id.or(by_name)
+}
+
 /// Positive `tabindex` first (ascending, then document order), then the rest in document order.
 /// `rendered` = elements that have a box (the others are unreachable by keyboard); `None` = no
 /// render yet, keep every focusable element.

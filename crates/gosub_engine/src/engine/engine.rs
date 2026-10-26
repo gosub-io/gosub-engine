@@ -1764,6 +1764,21 @@ mod tests {
         .expect("timed out waiting for a gopher page")
     }
 
+    /// Whether the next focus change focused something editable.
+    async fn focus_moved(mut events: tokio::sync::broadcast::Receiver<EngineEvent>) -> bool {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::FocusChanged { focused, editable, .. }) => return focused && editable,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for focus to move")
+    }
+
     /// A search prompt on a named host submits to that host. The prompt is served without a
     /// connection, and is placed by what its host resolves to: placed public, its submit
     /// could not reach `localhost`.
@@ -1796,22 +1811,27 @@ mod tests {
         let mut zone = engine.zone_builder().services(services()).create().expect("zone");
         let tab = zone.tab_builder().create().await.expect("tab");
 
+        // Autofocus runs with the rendering, so the tab draws.
+        tab.send(TabCommand::SetViewport {
+            x: 0,
+            y: 0,
+            width: 800,
+            height: 600,
+        })
+        .await
+        .expect("viewport");
+        tab.send(TabCommand::ResumeDrawing { fps: 60 }).await.expect("drawing");
         let prompt = gopher_page_finished(events.resubscribe());
+        let focused = focus_moved(events.resubscribe());
         tab.navigate(format!("gopher://localhost:{port}/7/find"))
             .await
             .expect("navigate");
         prompt.await;
+        // The search field has `autofocus`, honoured once the page has laid out.
+        assert!(focused.await, "autofocus focused nothing editable");
         assert!(lines.lock().is_empty(), "the prompt connected: {:?}", lines.lock());
 
         let results = gopher_page_finished(events.resubscribe());
-        // The engine does not honour `autofocus` yet: Tab to the field.
-        tab.send(TabCommand::KeyDown {
-            key: "Tab".into(),
-            code: "Tab".into(),
-            modifiers: Modifiers::empty(),
-        })
-        .await
-        .expect("tab");
         tab.send(TabCommand::TextInput { text: "x".into() })
             .await
             .expect("text");

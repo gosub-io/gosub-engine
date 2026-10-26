@@ -27,6 +27,11 @@ type Ctx = BrowsingContext<DefaultRenderConfig>;
 
 /// A laid-out context for `body_html` at http://test.local/page.html.
 fn page(body_html: &str) -> Ctx {
+    page_at("http://test.local/page.html", body_html)
+}
+
+/// A laid-out context for `body_html` at `url`.
+fn page_at(url: &str, body_html: &str) -> Ctx {
     let mut ctx: Ctx = BrowsingContext::new(settings_store::default_config());
     ctx.set_rasterizer(Box::new(StubRasterizer), RasterStrategy::ParallelCached);
     ctx.set_viewport(Viewport {
@@ -38,7 +43,7 @@ fn page(body_html: &str) -> Ctx {
     let html = format!("<!DOCTYPE html><html><body style=\"margin:0;padding:20px\">{body_html}</body></html>");
     let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(&html);
     doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
-    doc.url = Some(url::Url::parse("http://test.local/page.html").unwrap_or_else(|_| unreachable!()));
+    doc.url = Some(url::Url::parse(url).unwrap_or_else(|_| unreachable!()));
     ctx.set_document(Arc::new(doc), None);
     ctx.rebuild_pipeline_cache_if_needed();
     ctx
@@ -1030,4 +1035,58 @@ fn cursor_kind_follows_whats_under_the_pointer() {
     let (sx, sy) = (content.x + content.width - 3.0, content.y + 3.0);
     ctx.update_hover(sx, sy);
     assert_eq!(ctx.cursor_at(sx, sy), CursorKind::Default);
+}
+
+#[test]
+fn autofocus_focuses_the_first_candidate_in_tree_order_once() {
+    let mut ctx = page(r#"<input id="a"><input id="b" autofocus><input id="c" autofocus>"#);
+    assert!(ctx.flush_autofocus(), "nothing was autofocused");
+    assert_eq!(ctx.focused_node(), Some(by_id(&ctx, "b")));
+    // Processed: a later flush leaves focus where the user put it.
+    let a = by_id(&ctx, "a");
+    ctx.set_focus(Some(a), true);
+    assert!(!ctx.flush_autofocus());
+    assert_eq!(ctx.focused_node(), Some(a));
+}
+
+#[test]
+fn autofocus_passes_over_a_candidate_that_cannot_take_focus() {
+    let mut ctx = page(
+        r#"<input id="a" autofocus disabled><p id="p" autofocus>text</p>
+<input id="h" autofocus style="display:none"><input id="b" autofocus>"#,
+    );
+    assert!(ctx.flush_autofocus());
+    assert_eq!(ctx.focused_node(), Some(by_id(&ctx, "b")));
+}
+
+#[test]
+fn autofocus_yields_to_a_fragment_that_indicates_an_element() {
+    let mut ctx = page_at(
+        "http://test.local/page.html#there",
+        r#"<input autofocus><p id="there">here</p>"#,
+    );
+    assert!(!ctx.flush_autofocus());
+    assert_eq!(ctx.focused_node(), None);
+
+    // A fragment that indicates nothing, or the top, leaves autofocus be.
+    for url in ["http://test.local/page.html#nowhere", "http://test.local/page.html#top"] {
+        let mut ctx = page_at(url, r#"<input id="i" autofocus>"#);
+        assert!(ctx.flush_autofocus(), "{url}");
+        assert_eq!(ctx.focused_node(), Some(by_id(&ctx, "i")), "{url}");
+    }
+    // `<a name>` indicates too, and the fragment is matched decoded as well.
+    let mut ctx = page_at(
+        "http://test.local/page.html#two%20words",
+        r#"<input autofocus><a name="two words">x</a>"#,
+    );
+    assert!(!ctx.flush_autofocus());
+}
+
+#[test]
+fn autofocus_yields_to_focus_already_moved() {
+    let mut ctx = page(r#"<input id="a"><input id="b" autofocus>"#);
+    let a = by_id(&ctx, "a");
+    ctx.set_focus(Some(a), true);
+    assert!(!ctx.flush_autofocus());
+    assert_eq!(ctx.focused_node(), Some(a));
 }

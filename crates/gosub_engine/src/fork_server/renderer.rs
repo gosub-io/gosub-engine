@@ -198,6 +198,8 @@ pub struct RetainedPage<C: RenderConfiguration> {
     hovered: Option<NodeId>,
     /// Gestures in progress and what the last one asked of the embedder.
     input: PageInput,
+    /// The page's autofocus candidates and whether they were processed.
+    autofocus: crate::engine::focus::Autofocus,
     /// What the input layer changed since the last pass.
     dirty: Dirty,
     /// Stage costs of `build`, reported with the first pass only.
@@ -419,10 +421,43 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             scroll_y: 0.0,
             hovered,
             input: PageInput::default(),
+            autofocus: Default::default(),
             dirty: Dirty::None,
             build_timings,
             diagnostics,
         }
+    }
+
+    /// Flush the page's autofocus candidates (HTML, "update the rendering"), as the tab
+    /// worker does for a page it lays out itself, and run the focusing steps for the one
+    /// that takes focus: the effect telling the broker, when focus moved. Run before the
+    /// page's full render, which then paints the focus as it is.
+    pub fn flush_autofocus(&mut self) -> Option<Effect> {
+        if !self.autofocus.pending() {
+            return None;
+        }
+        let rendered: HashSet<NodeId> = self
+            .layer_list
+            .layout_tree
+            .arena
+            .values()
+            .map(|el| el.dom_node_id)
+            .collect();
+        let fragment = self.base_url.as_ref().and_then(Url::fragment);
+        let target = self.autofocus.flush(&self.doc, Some(&rendered), fragment)?;
+        let visible = crate::engine::focus::click_shows_ring(&self.doc, target);
+        if !self.with_input(|input, host| input.set_focus(host, Some(target), visible)) {
+            return None;
+        }
+        // The full render that follows paints everything; nothing is left to repaint.
+        if matches!(self.dirty, Dirty::Paint(_)) {
+            self.dirty = Dirty::None;
+        }
+        Some(Effect::Focus {
+            focused: true,
+            editable: PageInput::focused_editable(self),
+            bounds: self.control_bounds(target),
+        })
     }
 
     /// Stages 4-6 over one window of the page: the raster window around
@@ -1347,5 +1382,51 @@ mod tests {
             page.render(Some(0.0), &known).summary.diagnostics.is_none(),
             "only once"
         );
+    }
+
+    /// A renderer that holds the page runs autofocus itself and tells the broker where focus
+    /// went, once; a fragment that indicates an element keeps it from running.
+    #[test]
+    fn a_retained_page_autofocuses_and_says_so() {
+        use crate::html::{DefaultRenderConfig, RenderConfiguration};
+        type Fonts = <DefaultRenderConfig as RenderConfiguration>::FontSystem;
+        let build = |page_url: &str| {
+            let fonts: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(Fonts::default()));
+            RetainedPage::<DefaultRenderConfig>::build(
+                PageRequest {
+                    html: "<!DOCTYPE html><p id=\"p\">x</p><input id=\"i\" autofocus>",
+                    page_url,
+                    viewport_width: 800.0,
+                    viewport_height: 600.0,
+                    known_tiles: &HashSet::new(),
+                    hovered_node: None,
+                    dpr: 1,
+                    media: MediaPrefs::default(),
+                },
+                fonts,
+                Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
+                Arc::new(crate::net::resource_loader::NoResourceLoader),
+            )
+        };
+
+        let mut page = build("https://example.test/");
+        let effect = page.flush_autofocus();
+        assert!(
+            matches!(
+                effect,
+                Some(Effect::Focus {
+                    focused: true,
+                    editable: true,
+                    bounds: Some(_)
+                })
+            ),
+            "{effect:?}"
+        );
+        assert_eq!(page.doc.focused_node(), page.doc.node_by_named_id("i"));
+        assert!(page.flush_autofocus().is_none(), "only once");
+
+        let mut page = build("https://example.test/#p");
+        assert!(page.flush_autofocus().is_none());
+        assert_eq!(page.doc.focused_node(), None);
     }
 }

@@ -2836,6 +2836,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.apply_scroll(x, y);
             }
         }
+        // Update the rendering flushes the autofocus candidates of a document that has laid
+        // out (HTML); the first that can take focus does.
+        if self.context.flush_autofocus() {
+            self.emit_focus_changed();
+            self.runtime.dirty = true;
+        }
 
         // Advance an in-flight smooth scroll: ease the engine scroll one step toward its target and
         // keep the frame loop alive (mark dirty) until it settles exactly on the target. Dormant
