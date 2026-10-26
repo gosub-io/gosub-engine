@@ -158,6 +158,21 @@ impl TabIdentity {
             .and_then(|id| self.navigations.iter().rev().find(|(n, _)| *n == id))
             .map_or(AddressSpace::Public, |(_, space)| *space)
     }
+
+    /// How far a navigation over one of the engine's own protocols (`net::protocols`) may
+    /// reach. The user's own goes anywhere; one a page started (its link or its form) goes
+    /// no further than that page's space, which is the tab's committed document until the
+    /// new one commits. Unlike http, such a protocol writes what the page put in the URL
+    /// straight to a socket, so a public page must not aim it at this machine's services.
+    /// One never announced is public: every navigation is announced ahead of its request,
+    /// in the same queue, so that is none the tab made.
+    pub fn protocol_navigation_reach(&self, navigation: NavigationId) -> AddressSpace {
+        match self.navigating(navigation) {
+            Some(None) => AddressSpace::Loopback,
+            Some(Some(_)) => self.document_space(None),
+            None => AddressSpace::Public,
+        }
+    }
 }
 
 /// Maps a tab to its cookie jar and current top-level document.
@@ -333,6 +348,39 @@ mod tests {
             Public,
             "an unknown navigation"
         );
+    }
+
+    /// A protocol navigation a page starts reaches only as far as that page's space; the
+    /// user's own reaches anything.
+    #[test]
+    fn a_page_s_protocol_navigation_reaches_only_its_space() {
+        use crate::engine::types::NavigationId;
+        use crate::net::ssrf::AddressSpace::{Local, Loopback, Public};
+
+        let reg = TabIdentityRegistry::new();
+        let tab = TabId::new();
+        reg.register(tab, jar());
+        let reach = |n| reg.get(tab).unwrap().protocol_navigation_reach(n);
+
+        let typed = NavigationId::new();
+        reg.start_navigation(tab, typed, None);
+        assert_eq!(reach(typed), Loopback, "typed by the user");
+
+        let public = NavigationId::new();
+        reg.record_navigation(tab, public, Public);
+        reg.commit_navigation(tab, public);
+        let link = NavigationId::new();
+        reg.start_navigation(tab, link, Some(Url::parse("gopher://public.test/1/").unwrap()));
+        assert_eq!(reach(link), Public, "a public page's link");
+
+        let intranet = NavigationId::new();
+        reg.record_navigation(tab, intranet, Local);
+        reg.commit_navigation(tab, intranet);
+        let form = NavigationId::new();
+        reg.start_navigation(tab, form, Some(Url::parse("gopher://intranet.test/7/s").unwrap()));
+        assert_eq!(reach(form), Local, "an intranet page's form");
+
+        assert_eq!(reach(NavigationId::new()), Public, "never announced");
     }
 
     /// The record is bounded, and the committed navigation outlives the cap.

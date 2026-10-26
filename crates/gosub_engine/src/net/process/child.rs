@@ -190,8 +190,16 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
                 let cancels = cancels.clone();
                 let tickets = tickets.clone();
                 let attached = attached.clone();
+                // A scheme the engine speaks itself goes to its own client, not the fetcher.
+                let protocol = fetch
+                    .url
+                    .split_once(':')
+                    .and_then(|(scheme, _)| crate::net::protocols::lookup(scheme));
                 let handle = runtime.spawn(async move {
-                    let performed = perform(&fetcher, fetch, token, &tickets, &attached, &previews).await;
+                    let performed = match protocol {
+                        Some(protocol) => Performed::Done(perform_protocol(protocol, fetch, token, &link_tx).await),
+                        None => perform(&fetcher, fetch, token, &tickets, &attached, &previews).await,
+                    };
                     cancels.lock().remove(&tag);
                     match performed {
                         Performed::Done(outcome) => {
@@ -556,6 +564,42 @@ async fn perform(
     tickets.lock().remove(&tag);
     attached.lock().remove(&tag);
     performed
+}
+
+/// Serve a request for one of the engine's own protocols (`net::protocols`): no fetcher, so
+/// no cookies, cache or redirects. The broker has already judged it against the protocol's
+/// policy; its events go over the link as a fetcher's would.
+async fn perform_protocol(
+    protocol: &'static dyn crate::net::protocols::Protocol,
+    fetch: NetFetch,
+    cancel: CancellationToken,
+    link_tx: &Arc<Mutex<gosub_ipc::EndpointTx>>,
+) -> FetchOutcome {
+    let url = match Url::parse(&fetch.url) {
+        Ok(u) => u,
+        Err(e) => return FetchOutcome::Error(format!("bad url {}: {e}", fetch.url)),
+    };
+    let observer = Arc::new(LinkObserver {
+        tag: fetch.tag,
+        link_tx: Arc::clone(link_tx),
+        preview: None,
+        last_progress: std::sync::atomic::AtomicU64::new(0),
+    });
+    match crate::net::protocols::run(protocol, &url, fetch.reach, &cancel, observer).await {
+        Some(FetchResult::Buffered { meta, body }) => FetchOutcome::Ok {
+            status: meta.status,
+            status_text: meta.status_text,
+            final_url: meta.final_url.to_string(),
+            headers: flatten_headers(&meta.headers),
+            body: body.to_vec(),
+            peer_addr: meta.peer_addr,
+        },
+        Some(FetchResult::Error(e)) => FetchOutcome::Error(e.to_string()),
+        Some(FetchResult::Stream { .. }) => {
+            FetchOutcome::Error(format!("{} answered with a stream", protocol.scheme()))
+        }
+        None => FetchOutcome::Error("cancelled by the broker".into()),
+    }
 }
 
 /// [`perform`] proper; split so the preview and ticket entries are removed on

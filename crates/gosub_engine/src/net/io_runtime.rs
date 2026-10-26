@@ -848,6 +848,30 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                 router.serve_data_url_request(req, handle.cancel.clone(), reply_tx);
                                 continue;
                             }
+                            // A scheme the engine speaks itself (`net::protocols`) is judged
+                            // here, before anything else is done for it. What passes is
+                            // served in place of the zone fetcher, in this process or the
+                            // network process, and carries no cookies either way.
+                            let protocol = match crate::net::protocols::for_request(&req) {
+                                None => None,
+                                Some(protocol) => {
+                                    use gosub_sonar::net::fetcher_context::FetcherContext;
+                                    let enabled = router.engine_ctx.config_store.get_bool(protocol.setting());
+                                    let observer = router.local_ctx.observer_for(
+                                        req.reference,
+                                        req.req_id,
+                                        req.kind,
+                                        req.initiator,
+                                    );
+                                    if let Some(refused) =
+                                        crate::net::protocols::refuse(protocol, &req, enabled, &*observer)
+                                    {
+                                        let _ = reply_tx.send(refused);
+                                        continue;
+                                    }
+                                    Some((protocol, observer))
+                                }
+                            };
 
                             // Cookies are attached here, never by the requester: see
                             // `net::tab_identity`. `identity` is None for a tab that has
@@ -867,7 +891,10 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                             // process asks for them per hop. In process, the fetcher asks
                             // the tab's jar per hop (`EngineNetContext::cookies_for`).
                             // Either way this side neither attaches nor stores any.
-                            let cookie_scope = cookie_scope_for(&router, identity.as_ref(), &req);
+                            let cookie_scope = match protocol {
+                                Some(_) => None,
+                                None => cookie_scope_for(&router, identity.as_ref(), &req),
+                            };
                             let net = router.net_process();
                             // All of the zone's fetchers: which one serves the request
                             // is decided in the task, after the address-space lookup.
@@ -916,7 +943,7 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                 // first URL, and a cookie a redirect hop sets reaches no jar
                                 // (its final response's does, below).
                                 let cookies_per_hop = grant.is_some() || net.is_none();
-                                if cookies_per_hop {
+                                if cookies_per_hop || protocol.is_some() {
                                     req.headers.remove(http::header::COOKIE);
                                 } else {
                                     attach_request_cookies(&mut req, identity.as_ref()).await;
@@ -928,11 +955,20 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                 // its document's, and its cross-origin bytes pass through ORB.
                                 // The document is placed by where its response came from, which
                                 // the tab's identity recorded when it arrived; see
-                                // `TabIdentity::document_space`. A navigation reaches anything.
+                                // `TabIdentity::document_space`. A navigation reaches anything,
+                                // except one over the engine's own protocols that a page started:
+                                // see `TabIdentity::protocol_navigation_reach`.
                                 let reach = if subresource {
                                     identity
                                         .as_ref()
                                         .map_or(AddressSpace::Public, |id| id.document_space(reference))
+                                } else if protocol.is_some() {
+                                    match (identity.as_ref(), reference) {
+                                        (Some(id), Some(RequestReference::Navigation(nav))) => {
+                                            id.protocol_navigation_reach(nav)
+                                        }
+                                        _ => AddressSpace::Public,
+                                    }
                                 } else {
                                     AddressSpace::Loopback
                                 };
@@ -974,10 +1010,25 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                         #[cfg(not(feature = "process-isolation"))]
                                         None,
                                     ),
-                                    (None, Some(fetchers)) => {
-                                        let fetcher = fetchers.for_reach(reach);
-                                        fetcher.submit(req, handle.cancel.clone(), reply_tx).await;
-                                    }
+                                    (None, Some(fetchers)) => match protocol {
+                                        Some((protocol, observer)) => {
+                                            let served = crate::net::protocols::run(
+                                                protocol,
+                                                &req.url,
+                                                reach,
+                                                &handle.cancel,
+                                                observer,
+                                            )
+                                            .await;
+                                            if let Some(result) = served {
+                                                let _ = reply_tx.send(result);
+                                            }
+                                        }
+                                        None => {
+                                            let fetcher = fetchers.for_reach(reach);
+                                            fetcher.submit(req, handle.cancel.clone(), reply_tx).await;
+                                        }
+                                    },
                                     (None, None) => {}
                                 }
                             });

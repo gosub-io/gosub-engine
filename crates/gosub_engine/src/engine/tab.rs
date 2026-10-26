@@ -24,14 +24,16 @@ pub use history::{HistoryEntryId, HistoryEntrySummary, HistorySnapshot};
 
 /// Whether a page at `from` may take its tab to `to` - by a link, a form, or a
 /// navigation its renderer asks for: to the web, from a file page to another file,
-/// or from an internal page to another internal page. Never from anything else to an
-/// internal page, `data:`, `javascript:` or anything else; those are reached from the
-/// address bar or not at all.
+/// from an internal page to another internal page, or from a page served over one of
+/// the engine's own protocols (`net::protocols`) to another on the same one. Never from
+/// anything else to an internal page, `data:`, `javascript:` or anything else; those are
+/// reached from the address bar or not at all.
 pub(crate) fn page_may_navigate(from: &url::Url, to: &url::Url) -> bool {
     let internal = |url: &url::Url| matches!(url.scheme(), "gosub" | "about");
     matches!(to.scheme(), "http" | "https")
         || (to.scheme() == "file" && from.scheme() == "file")
         || (internal(to) && internal(from))
+        || (to.scheme() == from.scheme() && crate::net::protocols::lookup(to.scheme()).is_some())
 }
 
 // Tab management and tab-related types.
@@ -75,5 +77,17 @@ mod tests {
         assert!(may("gosub://home", "https://b.test/"));
         assert!(!may("gosub://home", "file:///etc/passwd"));
         assert!(!may("gosub://home", "javascript:alert(1)"));
+    }
+
+    #[cfg(feature = "gopher")]
+    #[test]
+    fn a_gopher_page_also_reaches_gopherspace() {
+        assert!(may("gopher://a.test/1/", "gopher://b.test/7/find?q=x"));
+        assert!(may("gopher://a.test/1/", "https://b.test/"));
+        assert!(!may("gopher://a.test/1/", "file:///etc/passwd"));
+        assert!(!may("gopher://a.test/1/", "gosub://settings"));
+        for from in ["https://a.test/", "file:///home/u/a.html", "gosub://home"] {
+            assert!(!may(from, "gopher://b.test/1/"), "{from}");
+        }
     }
 }

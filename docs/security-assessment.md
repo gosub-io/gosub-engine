@@ -136,6 +136,17 @@ a renderer.
   that embedding is a read, and any HTTP request is a channel out. Mitigation
   is `net.file.enabled` off where local pages are not needed; a per-directory
   bound would break rustdoc-style output and was not taken.
+- **A gopher page on this machine or the local network can aim a line of
+  text at any port in its space.** A gopher request is the URL's selector
+  written to a socket, so a link is a way to send one line to whatever
+  listens there. A page may only navigate to gopher from gopher, never load
+  it as a subresource, and a link or form reaches no further than its page's
+  space (a public menu cannot point at 127.0.0.1); the Fetch standard's
+  bad-port list applies, and a CR, LF, TAB or NUL in the URL never reaches the
+  line. What is left is a menu the user opened on loopback or the LAN
+  pointing at a neighbour that takes single-line commands. Mitigation is
+  `net.gopher.enabled` off where gopher is not needed. Gopher is also
+  plaintext: anything on the path can change a page.
 - **Cross-origin authenticated bytes of embeddable types reach the renderer.**
   No-CORS subresource loads carry the zone's cookies for the URL (`SameSite`
   judged against the tab, so `SameSite=None` ones cross sites), and opaque
