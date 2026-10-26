@@ -64,13 +64,15 @@ impl Protocol for Gopher {
 
     async fn fetch(&self, url: &Url, reach: AddressSpace) -> Result<ProtocolResponse, NetError> {
         let request = Request::from_url(url).map_err(invalid)?;
-        if request.needs_search_terms() {
-            return Ok(html(render::search_page(url), None));
-        }
         if request.port == 0 || gosub_sonar::net::port_blocking::is_bad_port(request.port) {
             return Err(blocked(BlockReason::BadPort, url));
         }
         let addrs = resolve(&request, reach, url).await?;
+        if request.needs_search_terms() {
+            // The prompt needs no server, but it is placed by where its server is: the form
+            // submits from it, and that search may reach only as far as the prompt's space.
+            return Ok(html(render::search_page(url), most_public(&addrs)));
+        }
         let (body, peer) = exchange(&request, &addrs).await?;
         Ok(present(&request, url, body, peer))
     }
@@ -109,6 +111,17 @@ async fn resolve(request: &Request, reach: AddressSpace, url: &Url) -> Result<Ve
         }
     }
     Ok(addrs)
+}
+
+/// The most public of `addrs`: what a page served without a connection is placed by, so it
+/// is never placed more privately than its host can be.
+fn most_public(addrs: &[SocketAddr]) -> Option<SocketAddr> {
+    let rank = |addr: &&SocketAddr| match classify_ip(addr.ip()) {
+        None => 0,
+        Some((AddressSpace::Local, _)) => 1,
+        Some(_) => 2,
+    };
+    addrs.iter().min_by_key(rank).copied()
 }
 
 /// Send the request line to the first address that answers and read the response to its end.
@@ -295,12 +308,40 @@ mod tests {
 
     #[tokio::test]
     async fn a_search_without_terms_is_a_form_and_no_connection() {
-        // Port 1 is never contacted (it is a blocked port): the prompt needs no server.
-        let response = fetch("gopher://127.0.0.1:1/7/find", AddressSpace::Public)
+        // Nothing listens: the prompt needs no server, only where it is.
+        let port = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap().port()
+        };
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/7/find"), AddressSpace::Loopback)
             .await
             .unwrap();
         assert!(std::str::from_utf8(&response.body).unwrap().contains("<form"));
-        assert_eq!(response.peer_addr, None);
+        assert_eq!(response.peer_addr, Some(SocketAddr::from(([127, 0, 0, 1], port))));
+    }
+
+    #[tokio::test]
+    async fn a_search_prompt_is_out_of_reach_like_its_server() {
+        let err = fetch("gopher://127.0.0.1:7070/7/find", AddressSpace::Public)
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            NetError::Blocked {
+                reason: BlockReason::UrlPolicy,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn a_page_without_a_connection_is_placed_by_its_most_public_address() {
+        let addrs: Vec<SocketAddr> = ["127.0.0.1:70", "10.0.0.1:70", "93.184.215.14:70"]
+            .iter()
+            .map(|a| a.parse().unwrap())
+            .collect();
+        assert_eq!(most_public(&addrs), Some(addrs[2]));
+        assert_eq!(most_public(&addrs[..2]), Some(addrs[1]));
     }
 
     #[tokio::test]

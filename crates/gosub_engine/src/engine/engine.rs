@@ -1512,6 +1512,154 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A link on a gopher menu leads to another menu: a page may take its tab around
+    /// gopherspace, and a menu served from this machine may reach this machine.
+    #[cfg(feature = "gopher")]
+    #[tokio::test]
+    async fn a_gopher_link_leads_to_another_menu() {
+        use crate::events::{Modifiers, TabCommand};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let selectors = Arc::new(Mutex::new(Vec::<String>::new()));
+        let seen = selectors.clone();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let seen = seen.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 1024];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    let selector = String::from_utf8_lossy(&buf[..n]).trim_end().to_string();
+                    let menu = if selector == "/next" {
+                        "iThe next menu\t\t\t\r\n.\r\n".to_string()
+                    } else {
+                        format!("1Next\t/next\t127.0.0.1\t{port}\r\n.\r\n")
+                    };
+                    seen.lock().push(selector);
+                    let _ = stream.write_all(menu.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        let first = gopher_page_finished(events.resubscribe());
+        tab.navigate(format!("gopher://127.0.0.1:{port}/1/"))
+            .await
+            .expect("navigate");
+        first.await;
+
+        let next = gopher_page_finished(events.resubscribe());
+        for key in ["Tab", "Enter"] {
+            let _ = tab
+                .send(TabCommand::KeyDown {
+                    key: key.into(),
+                    code: key.into(),
+                    modifiers: Modifiers::empty(),
+                })
+                .await;
+        }
+        assert_eq!(next.await.as_str(), format!("gopher://127.0.0.1:{port}/1/next"));
+        assert_eq!(*selectors.lock(), ["/", "/next"]);
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// The URL of the next gopher page `events` sees finish; panics on a failed one.
+    #[cfg(feature = "gopher")]
+    async fn gopher_page_finished(mut events: tokio::sync::broadcast::Receiver<EngineEvent>) -> url::Url {
+        use crate::events::NavigationEvent;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { url, .. },
+                        ..
+                    }) => return url,
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Failed { error, .. },
+                        ..
+                    }) => panic!("gopher navigation failed: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for a gopher page")
+    }
+
+    /// A search prompt on a named host submits to that host. The prompt is served without a
+    /// connection, and is placed by what its host resolves to: placed public, its submit
+    /// could not reach `localhost`.
+    #[cfg(feature = "gopher")]
+    #[tokio::test]
+    async fn a_gopher_search_on_localhost_submits() {
+        use crate::events::{Modifiers, TabCommand};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+        let seen = lines.clone();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let seen = seen.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 1024];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    seen.lock()
+                        .push(String::from_utf8_lossy(&buf[..n]).trim_end().to_string());
+                    let _ = stream.write_all(b"iA hit\t\t\t\r\n.\r\n").await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        let prompt = gopher_page_finished(events.resubscribe());
+        tab.navigate(format!("gopher://localhost:{port}/7/find"))
+            .await
+            .expect("navigate");
+        prompt.await;
+        assert!(lines.lock().is_empty(), "the prompt connected: {:?}", lines.lock());
+
+        let results = gopher_page_finished(events.resubscribe());
+        // The engine does not honour `autofocus` yet: Tab to the field.
+        tab.send(TabCommand::KeyDown {
+            key: "Tab".into(),
+            code: "Tab".into(),
+            modifiers: Modifiers::empty(),
+        })
+        .await
+        .expect("tab");
+        tab.send(TabCommand::TextInput { text: "x".into() })
+            .await
+            .expect("text");
+        tab.send(TabCommand::KeyDown {
+            key: "Enter".into(),
+            code: "Enter".into(),
+            modifiers: Modifiers::empty(),
+        })
+        .await
+        .expect("enter");
+        assert_eq!(results.await.as_str(), format!("gopher://localhost:{port}/7/find?q=x"));
+        assert_eq!(*lines.lock(), ["/find\tx"]);
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// `net.*` settings are read when a zone first fetches, so an override made after
     /// `start()` must reach the wire for a zone created afterwards.
     #[tokio::test(flavor = "current_thread")]

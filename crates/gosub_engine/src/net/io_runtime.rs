@@ -955,11 +955,20 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                 // its document's, and its cross-origin bytes pass through ORB.
                                 // The document is placed by where its response came from, which
                                 // the tab's identity recorded when it arrived; see
-                                // `TabIdentity::document_space`. A navigation reaches anything.
+                                // `TabIdentity::document_space`. A navigation reaches anything,
+                                // except one over the engine's own protocols that a page started:
+                                // see `TabIdentity::protocol_navigation_reach`.
                                 let reach = if subresource {
                                     identity
                                         .as_ref()
                                         .map_or(AddressSpace::Public, |id| id.document_space(reference))
+                                } else if protocol.is_some() {
+                                    match (identity.as_ref(), reference) {
+                                        (Some(id), Some(RequestReference::Navigation(nav))) => {
+                                            id.protocol_navigation_reach(nav)
+                                        }
+                                        _ => AddressSpace::Public,
+                                    }
                                 } else {
                                     AddressSpace::Loopback
                                 };

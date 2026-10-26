@@ -13,7 +13,10 @@
 //! Policy, enforced by the broker in [`refuse`] before the request goes anywhere: a protocol
 //! is off when its setting is off, and serves top-level navigations only. A page cannot load
 //! a subresource over one, so a remote document never gets to drive a raw-socket protocol.
-//! What passes is served by [`run`], in this process or in the network process.
+//! A page may still link to one from a page on the same protocol (`page_may_navigate`), and
+//! such a navigation reaches no further than that page's space
+//! (`TabIdentity::protocol_navigation_reach`). What passes is served by [`run`], in this
+//! process or in the network process.
 
 use crate::net::ssrf::AddressSpace;
 use crate::net::types::{FetchRequest, FetchResult, FetchResultMeta, NetError};

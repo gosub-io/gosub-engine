@@ -448,8 +448,12 @@ navigation that produced it), never from anything the requester sent.
   one: a document on the public internet reaches neither the local network nor
   loopback - the classic SSRF through `<img src="http://169.254.169.254/…">` -
   and a document on the local network may load its neighbours, link-local
-  included, but not this machine's own services. Navigations are never
-  restricted. The decision and the connection are one step: such requests go
+  included, but not this machine's own services. Navigations are not
+  restricted, with one exception: a navigation over one of the engine's own
+  protocols (`net::protocols`, gopher today) that a page started, by a link or
+  a form, reaches only that page's space, since such a protocol writes what
+  the page put in the URL straight to a socket. The user's own, typed or from
+  history, reaches anything. The decision and the connection are one step: such requests go
   through a *strict* fetcher for the document's space (one per zone and space,
   and one per space in the network process) whose DNS resolver refuses a name
   if *any* answer is more private than that space and which classifies IP
@@ -577,6 +581,10 @@ vault) is tracked separately; see [Known limits](#known-limits-and-roadmap).
   `net.file.enabled` off where local pages are not needed. See
   [security-assessment.md](security-assessment.md) for this and the other
   accepted limits.
+- A gopher page served from this machine or the local network may link to
+  any port in its own space, where the selector arrives as one line of text;
+  `net.gopher.enabled` turns the scheme off. See
+  [security-assessment.md](security-assessment.md).
 - The vault's `document.cookie` view (`visible_only`) has no consumer yet; it
   starts to matter when scripts can read cookies. A zone using an
   embedder-supplied jar is not vaulted.
