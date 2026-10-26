@@ -6,6 +6,7 @@
 
 use super::menu::{self, Item};
 use super::request::{DEFAULT_PORT, SEARCH_FIELD, SEARCH_TYPE};
+use crate::net::protocols::page::{self, escape, title_for};
 use percent_encoding::{percent_encode, AsciiSet, CONTROLS};
 use url::Url;
 
@@ -174,32 +175,8 @@ fn tag_for(item_type: char) -> &'static str {
     }
 }
 
-/// A page's title: where it is, without the scheme.
-fn title_for(url: &Url) -> String {
-    let s = url.as_str();
-    s.strip_prefix("gopher://").unwrap_or(s).to_string()
-}
-
 fn page(title: &str, body: &str) -> String {
-    format!(
-        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>{}</title><style>{STYLE}</style></head>\
-<body>{body}</body></html>",
-        escape(title)
-    )
-}
-
-fn escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            _ => out.push(c),
-        }
-    }
-    out
+    page::document(title, STYLE, body)
 }
 
 #[cfg(test)]

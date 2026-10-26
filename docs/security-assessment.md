@@ -147,6 +147,16 @@ a renderer.
   pointing at a neighbour that takes single-line commands. Mitigation is
   `net.gopher.enabled` off where gopher is not needed. Gopher is also
   plaintext: anything on the path can change a page.
+- **Finger is plaintext, and a finger server decides what it tells.** A
+  finger answer is shown as text with no links, and no page may navigate to
+  finger (only a page on the same protocol may, and a finger page links
+  nowhere), so a finger request is one the user typed. Ports follow the same
+  rule as gopher's, with finger's own port 79 open to finger only, and a
+  control byte in the URL never reaches the line. A query naming another
+  host (`user@host`) is refused: RFC 1288 forwarding has the server connect
+  onward, past any reach the engine judged. Terminal escape sequences in an
+  answer are dropped before it is shown. Mitigation is `net.finger.enabled`
+  off where finger is not needed.
 - **Cross-origin authenticated bytes of embeddable types reach the renderer.**
   No-CORS subresource loads carry the zone's cookies for the URL (`SameSite`
   judged against the tab, so `SameSite=None` ones cross sites), and opaque

@@ -85,7 +85,7 @@ required-features = ["process-isolation"]
 brotli = "9"
 
 [features]
-default = ["sqlite_cookie_store", "process-isolation", "gopher"]
+default = ["sqlite_cookie_store", "process-isolation", "gopher", "finger"]
 sqlite_cookie_store = ["r2d2", "r2d2_sqlite"]
 sqlite_places = ["r2d2", "r2d2_sqlite"]
 metrics = []
@@ -104,6 +104,9 @@ process-isolation = ["dep:gosub_ipc", "dep:gosub_sandbox"]
 # The gopher:// protocol (`net::gopher`), served like http(s): from the network process
 # when it runs, in process otherwise. `net.gopher.enabled` turns it off at run time.
 gopher = []
+# The finger:// protocol (`net::finger`), served the same way. `net.finger.enabled` turns it
+# off at run time.
+finger = []
 # Compile the feature-gated font systems into the isolation harness, so its
 # font scenarios can be pointed at every backend the engine supports - the
 # confinement contract has to hold per font stack, not just for the default.

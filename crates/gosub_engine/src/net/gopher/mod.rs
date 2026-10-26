@@ -9,11 +9,10 @@
 //! - everything else is served raw under a sniffed media type, so images display and
 //!   anything unknown goes to the download offer.
 //!
-//! What it may reach is the caller's `reach`, judged on every address the host resolves to,
-//! as `ssrf::StrictResolver` judges a name for http. Ports the Fetch standard blocks are
-//! refused whatever the reach. Both matter more here than for http: a selector is an
-//! arbitrary line, which is a complete command to more than one service listening on a
-//! private port.
+//! The connection is [`socket`]'s: the caller's `reach` is judged on every address the host
+//! resolves to, and ports the Fetch standard blocks are refused whatever the reach. Both
+//! matter more here than for http: a selector is an arbitrary line, which is a complete
+//! command to more than one service listening on a private port.
 //!
 //! [protocols]: crate::net::protocols
 
@@ -21,33 +20,15 @@ mod menu;
 mod render;
 mod request;
 
+use crate::net::protocols::socket::{self, invalid};
 use crate::net::protocols::{Protocol, ProtocolResponse};
-use crate::net::ssrf::{classify_ip, parse_ip_literal, AddressSpace};
+use crate::net::ssrf::AddressSpace;
 use crate::net::types::NetError;
 use async_trait::async_trait;
 use bytes::Bytes;
-use gosub_sonar::net::types::BlockReason;
 use request::Request;
 use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 use url::Url;
-
-/// Longest the name lookup may take, and then connecting, across every address the name
-/// has. With [`RESPONSE_TIMEOUT`] this stays well inside the broker's wait for a
-/// network-process reply (`client::REPLY_TIMEOUT`, 120 s), so a slow server ends in this
-/// protocol's own error rather than the broker giving up on the child.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// Longest the whole exchange may take once connected: gopher has no length to wait for, so
-/// a server that never closes would otherwise hold the request forever.
-const RESPONSE_TIMEOUT: Duration = Duration::from_secs(60);
-
-/// Most bytes of one response. Gopher sends no length, so without a cap any server could fill
-/// memory. Kept under what one network-process reply carries in-band.
-pub const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 
 /// The gopher protocol.
 pub struct Gopher;
@@ -62,105 +43,25 @@ impl Protocol for Gopher {
         "net.gopher.enabled"
     }
 
+    fn default_port(&self) -> u16 {
+        request::DEFAULT_PORT
+    }
+
+    fn encrypted(&self) -> bool {
+        false
+    }
+
     async fn fetch(&self, url: &Url, reach: AddressSpace) -> Result<ProtocolResponse, NetError> {
         let request = Request::from_url(url).map_err(invalid)?;
-        if request.port == 0 || gosub_sonar::net::port_blocking::is_bad_port(request.port) {
-            return Err(blocked(BlockReason::BadPort, url));
-        }
-        let addrs = resolve(&request, reach, url).await?;
+        let addrs = socket::resolve(self, url, &request.host, request.port, reach).await?;
         if request.needs_search_terms() {
             // The prompt needs no server, but it is placed by where its server is: the form
             // submits from it, and that search may reach only as far as the prompt's space.
-            return Ok(html(render::search_page(url), most_public(&addrs)));
+            return Ok(html(render::search_page(url), socket::most_public(&addrs)));
         }
-        let (body, peer) = exchange(&request, &addrs).await?;
+        let (body, peer) = socket::exchange(url, &request.host, &addrs, reach, &request.wire_line()).await?;
         Ok(present(&request, url, body, peer))
     }
-}
-
-/// The addresses `request`'s host resolves to, or a refusal when any of them is beyond
-/// `reach`: which answer the OS connects to is not this code's choice, so a name answering a
-/// public and a loopback address is refused whole.
-async fn resolve(request: &Request, reach: AddressSpace, url: &Url) -> Result<Vec<SocketAddr>, NetError> {
-    // An address in any of its spellings (`2130706433`, `0x7f000001`, `127.1`) is read here,
-    // not left to whatever the system resolver makes of it.
-    let addrs: Vec<SocketAddr> = match parse_ip_literal(&request.host) {
-        Some(ip) => vec![SocketAddr::new(ip, request.port)],
-        None => {
-            let lookup = tokio::net::lookup_host((request.host.as_str(), request.port));
-            tokio::time::timeout(CONNECT_TIMEOUT, lookup)
-                .await
-                .map_err(|_| NetError::Timeout(format!("resolving {}", request.host)))?
-                .map_err(io)?
-                .collect()
-        }
-    };
-    if addrs.is_empty() {
-        return Err(invalid(format!("host {} did not resolve", request.host)));
-    }
-    for addr in &addrs {
-        if let Some((space, category)) = classify_ip(addr.ip()) {
-            if !reach.may_reach(space) {
-                log::warn!(
-                    "refusing {url}: {} resolves to {}, which is {category} (private network policy)",
-                    request.host,
-                    addr.ip()
-                );
-                return Err(blocked(BlockReason::UrlPolicy, url));
-            }
-        }
-    }
-    Ok(addrs)
-}
-
-/// The most public of `addrs`: what a page served without a connection is placed by, so it
-/// is never placed more privately than its host can be.
-fn most_public(addrs: &[SocketAddr]) -> Option<SocketAddr> {
-    let rank = |addr: &&SocketAddr| match classify_ip(addr.ip()) {
-        None => 0,
-        Some((AddressSpace::Local, _)) => 1,
-        Some(_) => 2,
-    };
-    addrs.iter().min_by_key(rank).copied()
-}
-
-/// Send the request line to the first address that answers and read the response to its end.
-async fn exchange(request: &Request, addrs: &[SocketAddr]) -> Result<(Vec<u8>, Option<SocketAddr>), NetError> {
-    let connect = async {
-        let mut last_error = None;
-        for addr in addrs {
-            match TcpStream::connect(addr).await {
-                Ok(s) => return Ok(s),
-                Err(e) => last_error = Some(io(e)),
-            }
-        }
-        Err(last_error.unwrap_or_else(|| invalid("no address to connect to")))
-    };
-    let mut stream = tokio::time::timeout(CONNECT_TIMEOUT, connect)
-        .await
-        .map_err(|_| NetError::Timeout(format!("connecting to {}", request.host)))??;
-    let peer = stream.peer_addr().ok();
-
-    let talk = async {
-        stream.write_all(&request.wire_line()).await?;
-        let mut body = Vec::new();
-        (&mut stream)
-            .take(MAX_RESPONSE_BYTES as u64 + 1)
-            .read_to_end(&mut body)
-            .await?;
-        Ok::<_, std::io::Error>(body)
-    };
-    let body = tokio::time::timeout(RESPONSE_TIMEOUT, talk)
-        .await
-        .map_err(|_| NetError::Timeout(format!("waiting for {}", request.host)))?
-        .map_err(io)?;
-    if body.len() > MAX_RESPONSE_BYTES {
-        return Err(invalid(format!(
-            "gopher response from {} is larger than {MAX_RESPONSE_BYTES} bytes",
-            request.host
-        )));
-    }
-    Ok((body, peer))
 }
 
 /// What the response is, by the item type the URL asked for.
@@ -235,24 +136,12 @@ fn html(page: String, peer: Option<SocketAddr>) -> ProtocolResponse {
     }
 }
 
-fn blocked(reason: BlockReason, url: &Url) -> NetError {
-    NetError::Blocked {
-        reason,
-        url: url.clone(),
-    }
-}
-
-fn io(e: std::io::Error) -> NetError {
-    NetError::Io(Arc::new(e))
-}
-
-fn invalid(message: impl Into<String>) -> NetError {
-    io(std::io::Error::new(std::io::ErrorKind::InvalidInput, message.into()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::net::protocols::socket::MAX_RESPONSE_BYTES;
+    use gosub_sonar::net::types::BlockReason;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
     /// A one-shot gopher server on loopback: answers the first connection with `response`
@@ -334,16 +223,6 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn a_page_without_a_connection_is_placed_by_its_most_public_address() {
-        let addrs: Vec<SocketAddr> = ["127.0.0.1:70", "10.0.0.1:70", "93.184.215.14:70"]
-            .iter()
-            .map(|a| a.parse().unwrap())
-            .collect();
-        assert_eq!(most_public(&addrs), Some(addrs[2]));
-        assert_eq!(most_public(&addrs[..2]), Some(addrs[1]));
-    }
-
     #[tokio::test]
     async fn a_binary_item_is_served_raw_and_sniffed() {
         let (port, _server) = serve_once(b"GIF89a\x01\x00\x01\x00").await;
@@ -391,6 +270,21 @@ mod tests {
     #[tokio::test]
     async fn a_blocked_port_is_refused_whatever_the_reach() {
         let err = fetch("gopher://127.0.0.1:25/1/", AddressSpace::Loopback)
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            NetError::Blocked {
+                reason: BlockReason::BadPort,
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn finger_s_port_is_not_gopher_s() {
+        // 79 is open to finger, whose port it is, and blocked to every other protocol.
+        let err = fetch("gopher://127.0.0.1:79/1/", AddressSpace::Loopback)
             .await
             .unwrap_err();
         assert!(matches!(
