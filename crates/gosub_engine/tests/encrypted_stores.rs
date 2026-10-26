@@ -71,3 +71,20 @@ fn local_storage() {
     drop((area, store));
     assert_sealed(&path, |k| SqliteLocalStore::open(path_str, k).is_ok());
 }
+
+#[cfg(all(feature = "sqlite_client_identities", feature = "gemini"))]
+#[test]
+fn client_identities() {
+    use gosub_engine::net::protocols::identities::{
+        ClientIdentities, ClientIdentity, IdentityScope, SqliteClientIdentities,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("client-identities.db");
+    let at = url::Url::parse("gemini://example.org/app/").unwrap();
+    let store = SqliteClientIdentities::open(path.clone(), Some(key(1))).unwrap();
+    store.add(ClientIdentity::generate(IdentityScope::for_url(&at).unwrap(), "Visitor").unwrap());
+    drop(store);
+    assert_sealed(&path, |k| SqliteClientIdentities::open(path.clone(), k).is_ok());
+    let store = SqliteClientIdentities::open(path.clone(), Some(key(1))).unwrap();
+    assert_eq!(store.all().len(), 1);
+}

@@ -232,6 +232,7 @@ pub use sqlite::SqliteClientIdentities;
 #[cfg(feature = "sqlite_client_identities")]
 mod sqlite {
     use super::{ClientIdentities, ClientIdentity, IdentityScope};
+    use crate::engine::storage::sqlite_key::{self, SqliteKey};
     use crate::EngineError;
     use r2d2::Pool;
     use r2d2_sqlite::rusqlite::{self, params, Connection};
@@ -254,9 +255,14 @@ mod sqlite {
     }
 
     impl SqliteClientIdentities {
-        /// Opens (or creates) the database at `path`.
+        /// Opens (or creates) the plaintext database at `path`.
         pub fn new(path: PathBuf) -> Result<Self, EngineError> {
-            let manager = SqliteConnectionManager::file(path);
+            Self::open(path, None)
+        }
+
+        /// Opens (or creates) the database at `path`, encrypted with `key` when there is one.
+        pub fn open(path: PathBuf, key: Option<SqliteKey>) -> Result<Self, EngineError> {
+            let manager = sqlite_key::manager(&path, key).map_err(|e| EngineError::Internal(anyhow::anyhow!(e)))?;
             let pool = Pool::new(manager).map_err(|e| EngineError::Internal(anyhow::anyhow!(e)))?;
             pool.get()
                 .map_err(|e| EngineError::Internal(anyhow::anyhow!(e)))?
