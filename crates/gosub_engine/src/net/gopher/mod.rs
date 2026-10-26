@@ -35,7 +35,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use url::Url;
 
-/// Longest the name lookup, and then each connection attempt, may take.
+/// Longest the name lookup may take, and then connecting, across every address the name
+/// has. With [`RESPONSE_TIMEOUT`] this stays well inside the broker's wait for a
+/// network-process reply (`client::REPLY_TIMEOUT`, 120 s), so a slow server ends in this
+/// protocol's own error rather than the broker giving up on the child.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Longest the whole exchange may take once connected: gopher has no length to wait for, so
@@ -110,21 +113,19 @@ async fn resolve(request: &Request, reach: AddressSpace, url: &Url) -> Result<Ve
 
 /// Send the request line to the first address that answers and read the response to its end.
 async fn exchange(request: &Request, addrs: &[SocketAddr]) -> Result<(Vec<u8>, Option<SocketAddr>), NetError> {
-    let mut stream = None;
-    let mut last_error = None;
-    for addr in addrs {
-        match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr)).await {
-            Ok(Ok(s)) => {
-                stream = Some(s);
-                break;
+    let connect = async {
+        let mut last_error = None;
+        for addr in addrs {
+            match TcpStream::connect(addr).await {
+                Ok(s) => return Ok(s),
+                Err(e) => last_error = Some(io(e)),
             }
-            Ok(Err(e)) => last_error = Some(io(e)),
-            Err(_) => last_error = Some(NetError::Timeout(format!("connecting to {addr}"))),
         }
-    }
-    let Some(mut stream) = stream else {
-        return Err(last_error.unwrap_or_else(|| invalid("no address to connect to")));
+        Err(last_error.unwrap_or_else(|| invalid("no address to connect to")))
     };
+    let mut stream = tokio::time::timeout(CONNECT_TIMEOUT, connect)
+        .await
+        .map_err(|_| NetError::Timeout(format!("connecting to {}", request.host)))??;
     let peer = stream.peer_addr().ok();
 
     let talk = async {

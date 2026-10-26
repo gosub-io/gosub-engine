@@ -169,6 +169,7 @@ fn main() {
         "direct" => direct(),
         "net-events" => net_events(),
         "engine-net-events" => engine_net_events(),
+        "engine-gopher" => engine_gopher(),
         "oversized" => oversized(),
         "resolve" => resolve(),
         "decode" => decode(),
@@ -8685,4 +8686,171 @@ fn engine_net_events() -> i32 {
 
     drop(server);
     code
+}
+
+/// A gopher navigation served from the network process: the menu loads as a page, and
+/// turning `net.gopher.enabled` off refuses the next one before it reaches the server.
+#[cfg(feature = "gopher")]
+fn engine_gopher() -> i32 {
+    use gosub_config::settings::Setting;
+    use gosub_engine::events::{EngineEvent, NavigationEvent};
+    use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+    use gosub_engine::zone::ZoneServices;
+    use gosub_engine::GosubEngine;
+    use gosub_render_pipeline::render::backends::null::NullBackend;
+    use gosub_render_pipeline::render::DefaultCompositor;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    // A gopher server answering every connection with the same menu, counting requests.
+    let Ok(listener) = TcpListener::bind("127.0.0.1:0") else {
+        eprintln!("could not start the test server");
+        return 1;
+    };
+    let Ok(port) = listener.local_addr().map(|a| a.port()) else {
+        return 1;
+    };
+    let requests = Arc::new(AtomicUsize::new(0));
+    let served = Arc::clone(&requests);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let mut buf = [0u8; 1024];
+            let _ = stream.read(&mut buf);
+            served.fetch_add(1, Ordering::SeqCst);
+            let _ = stream.write_all(b"iFrom the network process\t\t\t\r\n1Sub\t/sub\t127.0.0.1\t70\r\n.\r\n");
+        }
+    });
+
+    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("could not build a runtime: {e}");
+            return 1;
+        }
+    };
+    runtime.block_on(async move {
+        let mut engine: GosubEngine = GosubEngine::new(
+            None,
+            Arc::new(NullBackend::new()),
+            Arc::new(DefaultCompositor::default()),
+        );
+        if let Err(e) = engine.settings().set("security.network_process", Setting::Bool(true)) {
+            eprintln!("could not enable the network process: {e}");
+            return 1;
+        }
+        let mut events = engine.subscribe_events();
+        let Ok(run) = engine.start() else {
+            eprintln!("engine failed to start");
+            return 1;
+        };
+        tokio::spawn(run);
+        if engine.net_process_pid().await.is_none() {
+            eprintln!("the network process is not running: the request would be served in process");
+            return 1;
+        }
+
+        let services = ZoneServices {
+            storage: Arc::new(StorageService::new(
+                Arc::new(InMemoryLocalStore::new()),
+                Arc::new(InMemorySessionStore::new()),
+            )),
+            cookie_store: None,
+            cookie_jar: None,
+            partition_policy: PartitionPolicy::None,
+            places: None,
+        };
+        let Ok(mut zone) = engine.zone_builder().services(services).create() else {
+            eprintln!("could not create a zone");
+            return 1;
+        };
+        let Ok(tab) = zone.tab_builder().create().await else {
+            eprintln!("could not create a tab");
+            return 1;
+        };
+
+        // How the next navigation ends: `Ok` when it finished, the error when it failed.
+        async fn outcome(
+            events: &mut tokio::sync::broadcast::Receiver<EngineEvent>,
+        ) -> Result<Result<(), String>, &'static str> {
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+            loop {
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                match tokio::time::timeout(remaining, events.recv()).await {
+                    Ok(Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    })) => return Ok(Ok(())),
+                    Ok(Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Failed { error, .. },
+                        ..
+                    })) => return Ok(Err(error.to_string())),
+                    Ok(Ok(_)) | Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+                    Ok(Err(_)) => return Err("event channel closed"),
+                    Err(_) => return Err("timed out waiting for the navigation"),
+                }
+            }
+        }
+
+        let url = format!("gopher://127.0.0.1:{port}/1/");
+        if tab.navigate(url.clone()).await.is_err() {
+            eprintln!("navigate failed");
+            return 1;
+        }
+        match outcome(&mut events).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                eprintln!("the gopher navigation failed: {error}");
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                return 1;
+            }
+        }
+        let title = tab.title();
+        if title != format!("127.0.0.1:{port}/1/") {
+            eprintln!("the gopher menu did not load as its page: title {title:?}");
+            return 1;
+        }
+        if requests.load(Ordering::SeqCst) != 1 {
+            eprintln!("the server saw {} requests, not 1", requests.load(Ordering::SeqCst));
+            return 1;
+        }
+
+        // Off: refused by the broker, before anything reaches the server.
+        if let Err(e) = engine.settings().set("net.gopher.enabled", Setting::Bool(false)) {
+            eprintln!("could not turn gopher off: {e}");
+            return 1;
+        }
+        if tab.navigate(format!("gopher://127.0.0.1:{port}/1/off")).await.is_err() {
+            eprintln!("navigate failed");
+            return 1;
+        }
+        match outcome(&mut events).await {
+            Ok(Err(_)) => {}
+            Ok(Ok(())) => {
+                eprintln!("a gopher navigation finished with net.gopher.enabled off");
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                return 1;
+            }
+        }
+        if requests.load(Ordering::SeqCst) != 1 {
+            eprintln!("a refused gopher request reached the server");
+            return 1;
+        }
+
+        engine.close_zone(zone).await;
+        let _ = engine.shutdown().await;
+        println!("gopher served from the network process, and refused when off");
+        0
+    })
+}
+
+#[cfg(not(feature = "gopher"))]
+fn engine_gopher() -> i32 {
+    eprintln!("this harness was built without the gopher feature");
+    2
 }

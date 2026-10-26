@@ -10,9 +10,10 @@
 //! [`PROTOCOLS`]. Nothing is registered at run time, because the network process runs none
 //! of the embedder's code.
 //!
-//! Policy, enforced by the broker in [`refusal`]: a protocol is off when its setting is off,
-//! and serves top-level navigations only. A page cannot load a subresource over one, so a
-//! remote document never gets to drive a raw-socket protocol.
+//! Policy, enforced by the broker in [`refuse`] before the request goes anywhere: a protocol
+//! is off when its setting is off, and serves top-level navigations only. A page cannot load
+//! a subresource over one, so a remote document never gets to drive a raw-socket protocol.
+//! What passes is served by [`run`], in this process or in the network process.
 
 use crate::net::ssrf::AddressSpace;
 use crate::net::types::{FetchRequest, FetchResult, FetchResultMeta, NetError};
@@ -77,14 +78,35 @@ pub fn refusal(req: &FetchRequest, enabled: bool) -> Option<BlockReason> {
     None
 }
 
-/// Serve a request in process, emitting the observer events a network fetch would, and
-/// return the buffered response (or error) for the reply channel. `None` when the fetch was
-/// cancelled: the reply channel is dropped then, as the zone fetcher drops it.
-pub async fn serve(
+/// Refuse a request the policy does not allow, emitting the events of a blocked fetch, and
+/// return the error for the reply channel. `None` when the request may go ahead.
+pub fn refuse(
     protocol: &dyn Protocol,
     req: &FetchRequest,
-    reach: AddressSpace,
     enabled: bool,
+    observer: &dyn NetObserver,
+) -> Option<FetchResult> {
+    let reason = refusal(req, enabled)?;
+    let url = req.url.clone();
+    log::warn!("refusing {} request for {url} (kind {:?})", protocol.scheme(), req.kind);
+    observer.on_event(NetEvent::Accepted {
+        url: url.clone(),
+        joined: false,
+    });
+    observer.on_event(NetEvent::Blocked {
+        url: url.clone(),
+        reason,
+    });
+    Some(FetchResult::Error(NetError::Blocked { reason, url }))
+}
+
+/// Serve a request [`refuse`] let through, emitting the observer events a network fetch
+/// would, and return the buffered response (or error) for the reply channel. `None` when the
+/// fetch was cancelled: the reply channel is dropped then, as the zone fetcher drops it.
+pub async fn run(
+    protocol: &dyn Protocol,
+    url: &Url,
+    reach: AddressSpace,
     cancel: &CancellationToken,
     observer: Arc<dyn NetObserver + Send + Sync>,
 ) -> Option<FetchResult> {
@@ -93,21 +115,11 @@ pub async fn serve(
     if cancel.is_cancelled() {
         return None;
     }
-    let url = req.url.clone();
+    let url = url.clone();
     observer.on_event(NetEvent::Accepted {
         url: url.clone(),
         joined: false,
     });
-
-    if let Some(reason) = refusal(req, enabled) {
-        log::warn!("refusing {} request for {url} (kind {:?})", protocol.scheme(), req.kind);
-        observer.on_event(NetEvent::Blocked {
-            url: url.clone(),
-            reason,
-        });
-        return Some(FetchResult::Error(NetError::Blocked { reason, url }));
-    }
-
     observer.on_event(NetEvent::Started { url: url.clone() });
     let started = std::time::Instant::now();
 
@@ -229,14 +241,18 @@ mod tests {
             .build()
     }
 
-    async fn run(
+    /// What the broker and then the serving side together make of `req`.
+    async fn serve(
         protocol: &dyn Protocol,
         req: &FetchRequest,
         enabled: bool,
         cancel: &CancellationToken,
     ) -> (Option<FetchResult>, Vec<String>) {
         let recorder = Arc::new(Recorder::default());
-        let result = serve(protocol, req, AddressSpace::Loopback, enabled, cancel, recorder.clone()).await;
+        let result = match refuse(protocol, req, enabled, &*recorder) {
+            Some(refused) => Some(refused),
+            None => run(protocol, &req.url, AddressSpace::Loopback, cancel, recorder.clone()).await,
+        };
         let events = recorder.0.lock().clone();
         (result, events)
     }
@@ -257,7 +273,7 @@ mod tests {
     #[tokio::test]
     async fn a_navigation_is_served_with_the_events_of_a_fetch() {
         let req = request("echo://host/hello", NetResourceKind::Primary);
-        let (result, events) = run(&Echo, &req, true, &CancellationToken::new()).await;
+        let (result, events) = serve(&Echo, &req, true, &CancellationToken::new()).await;
         let Some(FetchResult::Buffered { meta, body }) = result else {
             panic!("expected a buffered response");
         };
@@ -274,7 +290,7 @@ mod tests {
     #[tokio::test]
     async fn a_disabled_protocol_is_refused() {
         let req = request("echo://host/hello", NetResourceKind::Primary);
-        let (result, events) = run(&Echo, &req, false, &CancellationToken::new()).await;
+        let (result, events) = serve(&Echo, &req, false, &CancellationToken::new()).await;
         assert!(matches!(
             result,
             Some(FetchResult::Error(NetError::Blocked {
@@ -288,7 +304,7 @@ mod tests {
     #[tokio::test]
     async fn a_subresource_is_refused() {
         let req = request("echo://host/hello", NetResourceKind::Asset);
-        let (result, _) = run(&Echo, &req, true, &CancellationToken::new()).await;
+        let (result, _) = serve(&Echo, &req, true, &CancellationToken::new()).await;
         assert!(matches!(result, Some(FetchResult::Error(NetError::Blocked { .. }))));
     }
 
@@ -297,7 +313,7 @@ mod tests {
         let req = request("stall://host/", NetResourceKind::Primary);
         let cancel = CancellationToken::new();
         cancel.cancel();
-        let (result, events) = run(&Stall, &req, true, &cancel).await;
+        let (result, events) = serve(&Stall, &req, true, &cancel).await;
         assert!(result.is_none());
         assert!(events.is_empty());
     }
@@ -311,7 +327,7 @@ mod tests {
             tokio::task::yield_now().await;
             later.cancel();
         });
-        let (result, events) = run(&Stall, &req, true, &cancel).await;
+        let (result, events) = serve(&Stall, &req, true, &cancel).await;
         assert!(result.is_none());
         assert_eq!(events, ["Accepted", "Started", "Cancelled"]);
     }

@@ -848,6 +848,30 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                 router.serve_data_url_request(req, handle.cancel.clone(), reply_tx);
                                 continue;
                             }
+                            // A scheme the engine speaks itself (`net::protocols`) is judged
+                            // here, before anything else is done for it. What passes is
+                            // served in place of the zone fetcher, in this process or the
+                            // network process, and carries no cookies either way.
+                            let protocol = match crate::net::protocols::for_request(&req) {
+                                None => None,
+                                Some(protocol) => {
+                                    use gosub_sonar::net::fetcher_context::FetcherContext;
+                                    let enabled = router.engine_ctx.config_store.get_bool(protocol.setting());
+                                    let observer = router.local_ctx.observer_for(
+                                        req.reference,
+                                        req.req_id,
+                                        req.kind,
+                                        req.initiator,
+                                    );
+                                    if let Some(refused) =
+                                        crate::net::protocols::refuse(protocol, &req, enabled, &*observer)
+                                    {
+                                        let _ = reply_tx.send(refused);
+                                        continue;
+                                    }
+                                    Some((protocol, observer))
+                                }
+                            };
 
                             // Cookies are attached here, never by the requester: see
                             // `net::tab_identity`. `identity` is None for a tab that has
@@ -867,7 +891,10 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                             // process asks for them per hop. In process, the fetcher asks
                             // the tab's jar per hop (`EngineNetContext::cookies_for`).
                             // Either way this side neither attaches nor stores any.
-                            let cookie_scope = cookie_scope_for(&router, identity.as_ref(), &req);
+                            let cookie_scope = match protocol {
+                                Some(_) => None,
+                                None => cookie_scope_for(&router, identity.as_ref(), &req),
+                            };
                             let net = router.net_process();
                             // All of the zone's fetchers: which one serves the request
                             // is decided in the task, after the address-space lookup.
@@ -883,18 +910,6 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                             };
                             let tab_identities = Arc::clone(&router.engine_ctx.tab_identities);
                             let reference = REF_REGISTRY.from_net(req.reference);
-                            // A scheme the engine speaks itself (`net::protocols`) is served
-                            // in place of the zone fetcher. Its setting and observer are
-                            // taken here, where the router is.
-                            let protocol = crate::net::protocols::for_request(&req).map(|protocol| {
-                                use gosub_sonar::net::fetcher_context::FetcherContext;
-                                let enabled = router.engine_ctx.config_store.get_bool(protocol.setting());
-                                let observer =
-                                    router
-                                        .local_ctx
-                                        .observer_for(req.reference, req.req_id, req.kind, req.initiator);
-                                (protocol, enabled, observer)
-                            });
                             // The network process has no fetcher of ours to ask for an
                             // observer: built here, as the in-process fetcher would.
                             #[cfg(feature = "process-isolation")]
@@ -928,7 +943,7 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                 // first URL, and a cookie a redirect hop sets reaches no jar
                                 // (its final response's does, below).
                                 let cookies_per_hop = grant.is_some() || net.is_none();
-                                if cookies_per_hop {
+                                if cookies_per_hop || protocol.is_some() {
                                     req.headers.remove(http::header::COOKIE);
                                 } else {
                                     attach_request_cookies(&mut req, identity.as_ref()).await;
@@ -987,12 +1002,11 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                         None,
                                     ),
                                     (None, Some(fetchers)) => match protocol {
-                                        Some((protocol, enabled, observer)) => {
-                                            let served = crate::net::protocols::serve(
+                                        Some((protocol, observer)) => {
+                                            let served = crate::net::protocols::run(
                                                 protocol,
-                                                &req,
+                                                &req.url,
                                                 reach,
-                                                enabled,
                                                 &handle.cancel,
                                                 observer,
                                             )

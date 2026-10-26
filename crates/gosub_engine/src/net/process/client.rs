@@ -1086,7 +1086,9 @@ impl NetProcess {
     /// The child's word on where a request ended is checked against what was
     /// asked: a `final_url` must be a web URL, and stay on the requested URL's
     /// scheme family - a redirect chain cannot land on `file:` or an internal
-    /// page, whatever the child reports. Where it landed within the web is still
+    /// page, whatever the child reports. One of the engine's own protocols
+    /// (`net::protocols`) has no redirects, so its request ends exactly where it
+    /// was asked or not at all. Where it landed within the web is still
     /// the child's word; only the broker following redirects itself could fix that.
     ///
     /// Its size is checked too, since the frame cap is the only other bound: a
@@ -1131,7 +1133,8 @@ impl NetProcess {
                 "the network process reported an unparsable final url for {requested}"
             ));
         };
-        if !matches!(parsed.scheme(), "http" | "https") {
+        let own_protocol = crate::net::protocols::lookup(parsed.scheme()).is_some() && final_url.as_str() == requested;
+        if !matches!(parsed.scheme(), "http" | "https") && !own_protocol {
             return NetReply::error(format!(
                 "the network process reported a non-web final url ({}) for {requested}",
                 parsed.scheme()
@@ -1439,6 +1442,37 @@ mod tests {
 
         let error = NetReply::error("e".repeat(MAX_EVENT_STRING * 2));
         assert_eq!(failed(NetProcess::plausible_reply(error, &url)).len(), MAX_EVENT_STRING);
+    }
+
+    /// An engine protocol's reply passes only where it was asked: it has no
+    /// redirects, so a request cannot end on another of its URLs, and a web
+    /// request cannot end on one at all.
+    #[cfg(feature = "gopher")]
+    #[test]
+    fn an_own_protocol_reply_ends_where_it_was_asked() {
+        let ok = |final_url: &str| NetReply {
+            outcome: FetchOutcome::Ok {
+                status: 200,
+                status_text: "OK".into(),
+                final_url: final_url.into(),
+                headers: Vec::new(),
+                body: Vec::new(),
+                peer_addr: None,
+            },
+            ring: None,
+            stream_end: None,
+            redirects: None,
+        };
+        let passes = |final_url: &str, requested: &str| {
+            !matches!(
+                NetProcess::plausible_reply(ok(final_url), requested).outcome,
+                FetchOutcome::Error(_)
+            )
+        };
+        assert!(passes("gopher://h/1/", "gopher://h/1/"));
+        assert!(!passes("gopher://127.0.0.1:6379/1/", "gopher://h/1/"));
+        assert!(!passes("gopher://h/1/", "https://site.test/"));
+        assert!(!passes("file:///etc/passwd", "file:///etc/passwd"));
     }
 
     /// What a request's observer was told, by kind.
