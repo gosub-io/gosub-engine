@@ -53,7 +53,7 @@ pub mod tree_builder;
 /// already read the filesystem it came from.
 #[cfg(not(target_arch = "wasm32"))]
 fn import_scheme_allowed(base: Option<&Url>, resolved: &Url) -> bool {
-    let base_is_remote = base.is_some_and(|u| matches!(u.scheme(), "http" | "https"));
+    let base_is_remote = base.is_some_and(|u| u.scheme() != "file");
     !base_is_remote || matches!(resolved.scheme(), "http" | "https")
 }
 
@@ -4514,6 +4514,17 @@ mod import_scheme_tests {
     fn a_local_sheet_is_unrestricted() {
         let base = url("file:///home/u/site/a.css");
         assert!(import_scheme_allowed(Some(&base), &url("file:///home/u/site/b.css")));
+        assert!(import_scheme_allowed(
+            Some(&base),
+            &url("https://cdn.example.org/b.css")
+        ));
+    }
+
+    /// Remote is anything not read from disk: a page served over gopher, say.
+    #[test]
+    fn a_sheet_from_any_other_scheme_is_remote() {
+        let base = url("gopher://example.org/0/a.css");
+        assert!(!import_scheme_allowed(Some(&base), &url("file:///etc/passwd")));
         assert!(import_scheme_allowed(
             Some(&base),
             &url("https://cdn.example.org/b.css")

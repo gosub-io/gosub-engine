@@ -68,11 +68,16 @@ pub mod brokered_loader;
 pub mod events;
 mod fetcher;
 mod file_loader;
+#[cfg(feature = "finger")]
+pub mod finger;
+#[cfg(feature = "gopher")]
+pub mod gopher;
 mod io_runtime;
 pub mod orb;
 /// The network stack running as a separate, sandboxed process.
 #[cfg(feature = "process-isolation")]
 pub mod process;
+pub mod protocols;
 pub mod req_ref_tracker;
 pub mod resource_loader;
 mod router;

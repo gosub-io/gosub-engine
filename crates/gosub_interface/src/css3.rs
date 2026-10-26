@@ -67,9 +67,11 @@ pub trait CssSystem: Clone + Debug + 'static {
         parent: Option<&Self::PropertyMap>,
     ) -> Option<Self::PropertyMap>;
 
-    /// Returns the properties that apply to the `::before` / `::after` pseudo-element of `id`.
-    /// `pseudo` is the pseudo-element name without colons (`"before"` or `"after"`). Returns
-    /// `None` when no rule targets that pseudo-element (so no generated box should be created).
+    /// Returns the properties that apply to the `::before` / `::after` / `::marker`
+    /// pseudo-element of `id`. `pseudo` is the pseudo-element name without colons (`"before"`,
+    /// `"after"` or `"marker"`). Returns `None` when no rule targets a `::before` / `::after`
+    /// (so no generated box should be created); a `::marker` gets its map whether or not a rule
+    /// targets it, since a list item has one regardless.
     /// `owner` is the originating element's computed map (custom properties inherit from it).
     /// The default implementation reports no pseudo-element styling.
     fn pseudo_properties_from_node<C: HasDocument<CssSystem = Self>>(

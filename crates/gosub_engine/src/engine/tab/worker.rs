@@ -881,9 +881,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 };
 
                 // Global visited history (URL-bar completion, gosub://history). Only real
-                // web pages: internal pages and LoadHtml stand-ins are not "places".
+                // remote pages: internal pages and LoadHtml stand-ins are not "places".
                 if let Some(places) = &self.services.places {
-                    if matches!(final_url.scheme(), "http" | "https") {
+                    if crate::net::protocols::is_network_place(&final_url) {
                         places.record_visit(final_url.as_str(), &visit_title);
                     }
                 }
@@ -2742,7 +2742,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.history.set_entry_title(id, Some(title.clone()));
                 // The visit was counted at the commit; only its title is new.
                 if let (Some(places), Some(url)) = (&self.services.places, &self.current_url) {
-                    if matches!(url.scheme(), "http" | "https") {
+                    if crate::net::protocols::is_network_place(url) {
                         places.set_visit_title(url.as_str(), &title);
                     }
                 }

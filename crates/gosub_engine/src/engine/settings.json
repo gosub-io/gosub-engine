@@ -99,6 +99,18 @@
       "description": "Serve file:// URLs from the local filesystem (navigations, downloads, and subresources of file:// documents only; remote pages can never reference local files). Embedders rendering untrusted content in a non-browser setting may want this off."
     },
     {
+      "key": "gopher.enabled",
+      "type": "b",
+      "default": "b:true",
+      "description": "Speak gopher:// (navigations only; menus and text files are shown as HTML pages). Needs a build with the engine's gopher feature, which is on by default."
+    },
+    {
+      "key": "finger.enabled",
+      "type": "b",
+      "default": "b:true",
+      "description": "Speak finger:// (navigations only; the answer is shown as a page of text, and asking a server to finger another host is refused). Needs a build with the engine's finger feature, which is on by default."
+    },
+    {
       "key": "timeout.connect_secs",
       "type": "u",
       "default": "u:5",

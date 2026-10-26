@@ -71,6 +71,20 @@ fn a_navigation_through_the_network_process_reports_its_requests() {
     );
 }
 
+/// A gopher navigation is served from the network process, not the broker, and
+/// `net.gopher.enabled` off refuses it before it reaches the server.
+#[cfg(feature = "gopher")]
+#[test]
+fn a_gopher_navigation_is_served_from_the_network_process() {
+    let out = run("engine-gopher");
+    assert!(
+        out.status.success(),
+        "gopher scenario failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// A body too large for one IPC frame crosses whole as a sealed memfd on Linux
 /// (and is refused, promptly, elsewhere), and the network process keeps serving.
 #[test]

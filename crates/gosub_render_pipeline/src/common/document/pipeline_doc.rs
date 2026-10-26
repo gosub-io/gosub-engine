@@ -1,3 +1,4 @@
+use crate::common::document::list_marker;
 use crate::common::document::node::{AttrMap, ElementData, Node, NodeType};
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem, CssValue};
@@ -112,22 +113,84 @@ pub trait PipelineDocument: Send + Sync {
     fn invalidate_style_for_nodes(&self, _ids: &[NodeId]) {}
 }
 
-// ── Pseudo-element (::before / ::after) synthetic nodes ───────────────────────
+// ── Pseudo-element (::before / ::after / ::marker) synthetic nodes ────────────
 //
 // Generated content has no DOM node, but the pipeline is keyed by `NodeId` - so mint synthetic
 // ids the adapter resolves on the fly, letting the rest of the pipeline treat them as normal nodes.
 //
-// Encoding: top bit flags a synthetic id, next two bits are the role, the rest hold the owner
+// Encoding: top bit flags a synthetic id, next three bits are the role, the rest hold the owner
 // element id. Real DOM ids are small, so the high bits are free.
 const PSEUDO_FLAG: u64 = 1 << 62;
+const ROLE_BITS: u32 = 3;
+const ROLE_MASK: u64 = (1 << ROLE_BITS) - 1;
 pub(crate) const ROLE_BEFORE_ELEM: u64 = 0; // the ::before pseudo-element box
 const ROLE_AFTER_ELEM: u64 = 1; // the ::after pseudo-element box
 const ROLE_BEFORE_TEXT: u64 = 2; // generated text child of ::before
 const ROLE_AFTER_TEXT: u64 = 3; // generated text child of ::after
+const ROLE_MARKER_ELEM: u64 = 4; // the ::marker box of a list item
+const ROLE_MARKER_TEXT: u64 = 5; // the marker's text
+const ALL_ROLES: [u64; 6] = [
+    ROLE_BEFORE_ELEM,
+    ROLE_AFTER_ELEM,
+    ROLE_BEFORE_TEXT,
+    ROLE_AFTER_TEXT,
+    ROLE_MARKER_ELEM,
+    ROLE_MARKER_TEXT,
+];
 
-/// The element that generated a synthetic `::before`/`::after` node id; `None` for real nodes.
+/// Which generated box of its owner a pseudo node belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum PseudoKind {
+    Before,
+    After,
+    Marker,
+}
+
+impl PseudoKind {
+    const ALL: [PseudoKind; 3] = [PseudoKind::Before, PseudoKind::After, PseudoKind::Marker];
+
+    const fn of_role(role: u64) -> Self {
+        match role {
+            ROLE_AFTER_ELEM | ROLE_AFTER_TEXT => PseudoKind::After,
+            ROLE_MARKER_ELEM | ROLE_MARKER_TEXT => PseudoKind::Marker,
+            _ => PseudoKind::Before,
+        }
+    }
+
+    const fn element_role(self) -> u64 {
+        match self {
+            PseudoKind::Before => ROLE_BEFORE_ELEM,
+            PseudoKind::After => ROLE_AFTER_ELEM,
+            PseudoKind::Marker => ROLE_MARKER_ELEM,
+        }
+    }
+
+    const fn text_role(self) -> u64 {
+        match self {
+            PseudoKind::Before => ROLE_BEFORE_TEXT,
+            PseudoKind::After => ROLE_AFTER_TEXT,
+            PseudoKind::Marker => ROLE_MARKER_TEXT,
+        }
+    }
+
+    /// The pseudo-element's name in a selector, without the colons.
+    const fn name(self) -> &'static str {
+        match self {
+            PseudoKind::Before => "before",
+            PseudoKind::After => "after",
+            PseudoKind::Marker => "marker",
+        }
+    }
+}
+
+/// The element that generated a synthetic pseudo-element node id; `None` for real nodes.
 pub fn pseudo_owner(id: NodeId) -> Option<NodeId> {
     is_pseudo_id(u64::from(id)).then(|| decode_pseudo(id).0)
+}
+
+/// Whether `id` is the `::marker` box of a list item (not its text).
+pub fn is_marker_box(id: NodeId) -> bool {
+    is_pseudo_id(u64::from(id)) && decode_pseudo(id).1 == ROLE_MARKER_ELEM
 }
 
 const fn is_pseudo_id(id_val: u64) -> bool {
@@ -135,16 +198,12 @@ const fn is_pseudo_id(id_val: u64) -> bool {
 }
 
 pub(crate) fn encode_pseudo(owner: NodeId, role: u64) -> NodeId {
-    NodeId::from(PSEUDO_FLAG | (u64::from(owner) << 2) | role)
+    NodeId::from(PSEUDO_FLAG | (u64::from(owner) << ROLE_BITS) | role)
 }
 
 fn decode_pseudo(id: NodeId) -> (NodeId, u64) {
     let v = u64::from(id) & !PSEUDO_FLAG;
-    (NodeId::from(v >> 2), v & 0b11)
-}
-
-const fn role_is_after(role: u64) -> bool {
-    matches!(role, ROLE_AFTER_ELEM | ROLE_AFTER_TEXT)
+    (NodeId::from(v >> ROLE_BITS), v & ROLE_MASK)
 }
 
 // ── Anonymous table boxes (CSS 2.1 §17.2.1, "generate missing parents") ───────
@@ -251,7 +310,7 @@ fn needs_table_parent(child: &Display, parent: Option<&Display>) -> bool {
 }
 
 const fn role_is_text(role: u64) -> bool {
-    matches!(role, ROLE_BEFORE_TEXT | ROLE_AFTER_TEXT)
+    matches!(role, ROLE_BEFORE_TEXT | ROLE_AFTER_TEXT | ROLE_MARKER_TEXT)
 }
 
 /// A materialized pseudo-element: its computed style map plus the generated text (if the
@@ -436,10 +495,14 @@ where
     /// This is what the pipeline reads; the map behind it stays for the cascade's own questions
     /// (custom-property scope, which origin won a declaration) and for `getComputedStyle`.
     computed_cache: Mutex<HashMap<NodeId, Arc<ComputedStyle>>>,
-    /// Materialized `::before` / `::after` pseudo-boxes, keyed by `(owner, is_after)`.
+    /// Materialized `::before` / `::after` / `::marker` pseudo-boxes, keyed by owner and kind.
     /// `None` means "no generated box". Populated lazily.
     #[allow(clippy::type_complexity)]
-    pseudo_cache: Mutex<HashMap<(NodeId, bool), Option<Arc<PseudoBox<<C::CssSystem as CssSystem>::PropertyMap>>>>>,
+    pseudo_cache:
+        Mutex<HashMap<(NodeId, PseudoKind), Option<Arc<PseudoBox<<C::CssSystem as CssSystem>::PropertyMap>>>>>,
+    /// The ordinal of every list item among a parent's children, keyed by that parent: one walk
+    /// of the list numbers all of it, instead of each item counting the ones before it.
+    ordinal_cache: Mutex<HashMap<NodeId, Arc<HashMap<NodeId, i64>>>>,
     /// `parent()` resolves anonymous-wrapper parents by scanning the real parent's child
     /// list; `get_style` calls it per inherited property, which made style resolution
     /// quadratic in table size. Keyed on the (possibly synthetic) id.
@@ -503,14 +566,7 @@ where
                 return self.parent(owner);
             }
             return Some(if role_is_text(role) {
-                encode_pseudo(
-                    owner,
-                    if role_is_after(role) {
-                        ROLE_AFTER_ELEM
-                    } else {
-                        ROLE_BEFORE_ELEM
-                    },
-                )
+                encode_pseudo(owner, PseudoKind::of_role(role).element_role())
             } else {
                 owner
             });
@@ -554,6 +610,7 @@ where
             style_cache: Mutex::new(HashMap::new()),
             computed_cache: Mutex::new(HashMap::new()),
             pseudo_cache: Mutex::new(HashMap::new()),
+            ordinal_cache: Mutex::new(HashMap::new()),
             parent_cache: Mutex::new(HashMap::new()),
             slots,
         }
@@ -660,15 +717,17 @@ where
     }
 
     /// The box children of a real element, before any anonymous table box is wrapped around
-    /// them: `::before`, the flat-tree children, `::after`.
+    /// them: `::marker`, `::before`, the flat-tree children, `::after`.
     fn box_children(&self, id: NodeId) -> Vec<NodeId> {
         let mut out = Vec::new();
-        // `::before` is inserted as the first child, `::after` as the last.
-        if self.pseudo_box(id, false).is_some() {
-            out.push(encode_pseudo(id, ROLE_BEFORE_ELEM));
+        // The marker comes before `::before` (css-pseudo-4 §3.1), `::after` is the last child.
+        for kind in [PseudoKind::Marker, PseudoKind::Before] {
+            if self.pseudo_box(id, kind).is_some() {
+                out.push(encode_pseudo(id, kind.element_role()));
+            }
         }
         out.extend(self.flat_children(id));
-        if self.pseudo_box(id, true).is_some() {
+        if self.pseudo_box(id, PseudoKind::After).is_some() {
             out.push(encode_pseudo(id, ROLE_AFTER_ELEM));
         }
         out
@@ -715,38 +774,51 @@ where
     fn pseudo_box(
         &self,
         owner: NodeId,
-        is_after: bool,
+        kind: PseudoKind,
     ) -> Option<Arc<PseudoBox<<C::CssSystem as CssSystem>::PropertyMap>>> {
-        if let Some(cached) = self.pseudo_cache.lock().get(&(owner, is_after)) {
+        if let Some(cached) = self.pseudo_cache.lock().get(&(owner, kind)) {
             return cached.clone();
         }
 
-        let result = self.compute_pseudo_box(owner, is_after);
-        self.pseudo_cache.lock().insert((owner, is_after), result.clone());
+        let result = self.compute_pseudo_box(owner, kind);
+        self.pseudo_cache.lock().insert((owner, kind), result.clone());
         result
     }
 
     fn compute_pseudo_box(
         &self,
         owner: NodeId,
-        is_after: bool,
+        kind: PseudoKind,
     ) -> Option<Arc<PseudoBox<<C::CssSystem as CssSystem>::PropertyMap>>> {
         // Pseudo-elements only hang off real elements.
         if self.doc.node_type(owner) != GosubNodeType::ElementNode {
             return None;
         }
-        let name = if is_after { "after" } else { "before" };
+        // Only a list item has a marker; asking first keeps every other element from matching
+        // `::marker` rules at all.
+        if kind == PseudoKind::Marker && !self.cached_computed_style(owner).box_group.list_item {
+            return None;
+        }
         let sheets = self.doc.stylesheets();
         let owner_styles = self.cached_styles(owner);
-        let mut prop_map =
-            C::CssSystem::pseudo_properties_from_node::<C>(&*self.doc, owner, sheets, name, Some(&owner_styles))?;
+        let mut prop_map = C::CssSystem::pseudo_properties_from_node::<C>(
+            &*self.doc,
+            owner,
+            sheets,
+            kind.name(),
+            Some(&owner_styles),
+        )?;
         for (_, prop) in prop_map.iter_mut() {
             prop.compute_value();
         }
 
-        // Resolve `content` into generated text. `none`/`normal` means no box at all.
-        let content_prop = <_ as CssPropertyMap<C::CssSystem>>::get(&prop_map, "content")?;
-        let text = resolve_content::<C::CssSystem>(content_prop)?;
+        let content_prop = <_ as CssPropertyMap<C::CssSystem>>::get(&prop_map, "content");
+        let text = if kind == PseudoKind::Marker {
+            self.marker_content::<C::CssSystem>(owner, content_prop)?
+        } else {
+            // Resolve `content` into generated text. `none`/`normal` means no box at all.
+            resolve_content::<C::CssSystem>(content_prop?)?
+        };
 
         // `content: ""` (and any all-empty result) generates a box but no text child.
         let text = if text.is_empty() { None } else { Some(text) };
@@ -757,21 +829,80 @@ where
         }))
     }
 
+    /// What a list item's marker says: the `::marker`'s own `content` when it has one, else its
+    /// `list-style-type` applied to the item's ordinal. `None` when there is no marker to show.
+    fn marker_content<S: CssSystem>(&self, owner: NodeId, content: Option<&S::Property>) -> Option<String> {
+        if let Some(content) = content {
+            match content.as_string() {
+                Some("none") => return None,
+                Some("normal") => {}
+                _ => return resolve_content::<S>(content),
+            }
+        }
+        let style = self.cached_computed_style(owner);
+        let ordinal = self.ordinal(owner);
+        list_marker::marker_text(&style.inherited.list_style_type, ordinal)
+    }
+
+    /// The value of a list item's `list-item` counter: HTML's ordinal value (§4.4.8), counted
+    /// among the list items that share its parent.
+    ///
+    /// The parent's `start` and `reversed` set where the count begins and which way it goes, an
+    /// item's `value` moves it. Counters in general (`counter-reset`, `counter-increment`) are not
+    /// modelled, so the count does not reach through other elements nesting the items.
+    fn ordinal(&self, item: NodeId) -> i64 {
+        let Some(parent) = self.flat_parent(item) else {
+            return 1;
+        };
+        if let Some(ordinals) = self.ordinal_cache.lock().get(&parent) {
+            return ordinals.get(&item).copied().unwrap_or(1);
+        }
+        let items: Vec<NodeId> = self
+            .flat_children(parent)
+            .into_iter()
+            .filter(|&child| {
+                self.doc.node_type(child) == GosubNodeType::ElementNode
+                    && self.cached_computed_style(child).box_group.list_item
+            })
+            .collect();
+        let integer = |id: NodeId, name: &str| self.doc.attribute(id, name).and_then(|v| v.trim().parse::<i64>().ok());
+        let is_ol = self.doc.tag_name(parent) == Some("ol");
+        let reversed = is_ol && self.doc.attribute(parent, "reversed").is_some();
+        let step = if reversed { -1 } else { 1 };
+        let start = is_ol
+            .then(|| integer(parent, "start"))
+            .flatten()
+            .unwrap_or(if reversed { items.len() as i64 } else { 1 });
+
+        let mut ordinals = HashMap::with_capacity(items.len());
+        let mut next = start;
+        for child in items {
+            let value = integer(child, "value").unwrap_or(next);
+            ordinals.insert(child, value);
+            next = value.saturating_add(step);
+        }
+        let result = ordinals.get(&item).copied().unwrap_or(1);
+        self.ordinal_cache.lock().insert(parent, Arc::new(ordinals));
+        result
+    }
+
     /// Drop every cached style below `id` (not `id` itself), pseudo-boxes included.
     fn invalidate_subtree(&self, id: NodeId) {
         let mut cache = self.style_cache.lock();
         let mut computed_cache = self.computed_cache.lock();
         let mut pseudo_cache = self.pseudo_cache.lock();
+        // A restyled item can stop or start being one, which renumbers its whole list.
+        self.ordinal_cache.lock().clear();
         let mut stack: Vec<NodeId> = self.doc.children(id).to_vec();
         while let Some(node) = stack.pop() {
             cache.remove(&node);
             computed_cache.remove(&node);
-            computed_cache.remove(&encode_pseudo(node, ROLE_BEFORE_ELEM));
-            computed_cache.remove(&encode_pseudo(node, ROLE_AFTER_ELEM));
-            computed_cache.remove(&encode_pseudo(node, ROLE_BEFORE_TEXT));
-            computed_cache.remove(&encode_pseudo(node, ROLE_AFTER_TEXT));
-            pseudo_cache.remove(&(node, false));
-            pseudo_cache.remove(&(node, true));
+            for role in ALL_ROLES {
+                computed_cache.remove(&encode_pseudo(node, role));
+            }
+            for kind in PseudoKind::ALL {
+                pseudo_cache.remove(&(node, kind));
+            }
             stack.extend_from_slice(self.doc.children(node));
         }
     }
@@ -850,25 +981,24 @@ where
 
         if is_pseudo_id(raw) {
             let (owner, role) = decode_pseudo(id);
+            let kind = PseudoKind::of_role(role);
             if role_is_text(role) {
                 // Generated text has no style of its own; it inherits from the pseudo-element
                 // that generated it, exactly as a real text node does from its element.
-                let element = encode_pseudo(
-                    owner,
-                    if role_is_after(role) {
-                        ROLE_AFTER_ELEM
-                    } else {
-                        ROLE_BEFORE_ELEM
-                    },
-                );
-                let parent = self.cached_computed_style(element);
+                let parent = self.cached_computed_style(encode_pseudo(owner, kind.element_role()));
                 return ComputedStyle::inherit_from(Some(&parent));
             }
             let owner_style = self.cached_computed_style(owner);
-            return match self.pseudo_box(owner, role_is_after(role)) {
+            let mut style = match self.pseudo_box(owner, kind) {
                 Some(pseudo) => pseudo.styles.computed_style(Some(&owner_style)),
                 None => ComputedStyle::inherit_from(Some(&owner_style)),
             };
+            // A marker is an inline box whatever `display` says: css-pseudo-4 §3.1.1 leaves
+            // `::marker` only the font, colour, text and `content` properties.
+            if kind == PseudoKind::Marker && style.box_group.display != Display::Inline {
+                style.box_mut().display = Display::Inline;
+            }
+            return style;
         }
 
         let parent = self.inherited_from(id);
@@ -1333,15 +1463,9 @@ where
             if role_is_text(role) {
                 return Vec::new();
             }
-            return match self.pseudo_box(owner, role_is_after(role)) {
-                Some(pb) if pb.text.is_some() => {
-                    let text_role = if role_is_after(role) {
-                        ROLE_AFTER_TEXT
-                    } else {
-                        ROLE_BEFORE_TEXT
-                    };
-                    vec![encode_pseudo(owner, text_role)]
-                }
+            let kind = PseudoKind::of_role(role);
+            return match self.pseudo_box(owner, kind) {
+                Some(pb) if pb.text.is_some() => vec![encode_pseudo(owner, kind.text_role())],
                 _ => Vec::new(),
             };
         }
@@ -1445,6 +1569,7 @@ where
         self.style_cache.lock().clear();
         self.computed_cache.lock().clear();
         self.pseudo_cache.lock().clear();
+        self.ordinal_cache.lock().clear();
         self.parent_cache.lock().clear();
     }
 
@@ -1453,17 +1578,19 @@ where
             let mut cache = self.style_cache.lock();
             let mut computed_cache = self.computed_cache.lock();
             let mut pseudo_cache = self.pseudo_cache.lock();
+            // A restyled element can stop or start being a list item, which renumbers its list.
+            self.ordinal_cache.lock().clear();
             ids.iter()
                 .map(|id| {
                     computed_cache.remove(id);
                     // The pseudo-elements' own structs hang off the owner's id too.
-                    computed_cache.remove(&encode_pseudo(*id, ROLE_BEFORE_ELEM));
-                    computed_cache.remove(&encode_pseudo(*id, ROLE_AFTER_ELEM));
-                    computed_cache.remove(&encode_pseudo(*id, ROLE_BEFORE_TEXT));
-                    computed_cache.remove(&encode_pseudo(*id, ROLE_AFTER_TEXT));
-                    // Drop both pseudo-boxes belonging to this owner.
-                    pseudo_cache.remove(&(*id, false));
-                    pseudo_cache.remove(&(*id, true));
+                    for role in ALL_ROLES {
+                        computed_cache.remove(&encode_pseudo(*id, role));
+                    }
+                    // Drop every pseudo-box belonging to this owner.
+                    for kind in PseudoKind::ALL {
+                        pseudo_cache.remove(&(*id, kind));
+                    }
                     (*id, cache.remove(id))
                 })
                 .collect()
@@ -1553,7 +1680,7 @@ where
             let (owner, role) = decode_pseudo(id);
             let node_type = if role_is_text(role) {
                 let text = self
-                    .pseudo_box(owner, role_is_after(role))
+                    .pseudo_box(owner, PseudoKind::of_role(role))
                     .and_then(|pb| pb.text.clone());
                 NodeType::Text(text.unwrap_or_default())
             } else {
