@@ -1512,6 +1512,64 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A finger answer goes through the whole tab pipeline and lands as a page of text, titled
+    /// like a page from the web.
+    #[cfg(feature = "finger")]
+    #[tokio::test]
+    async fn a_finger_answer_loads_as_a_page() {
+        use crate::events::NavigationEvent;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (line_tx, line_rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 64];
+            let n = stream.read(&mut buf).await.unwrap_or(0);
+            let _ = line_tx.send(buf[..n].to_vec());
+            let _ = stream.write_all(b"Login: bob\r\nNo plan.\r\n").await;
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        tab.navigate(format!("finger://127.0.0.1:{port}/bob"))
+            .await
+            .expect("navigate");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    }) => return,
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Failed { error, .. },
+                        ..
+                    }) => panic!("finger navigation failed: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for the finger page");
+
+        assert_eq!(line_rx.await.unwrap(), b"bob\r\n");
+        assert_eq!(tab.title(), format!("127.0.0.1:{port}/bob"));
+        assert_eq!(
+            tab.url().map(|u| u.to_string()),
+            Some(format!("finger://127.0.0.1:{port}/bob"))
+        );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// A link on a gopher menu leads to another menu: a page may take its tab around
     /// gopherspace, and a menu served from this machine may reach this machine.
     #[cfg(feature = "gopher")]

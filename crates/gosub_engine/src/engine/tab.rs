@@ -90,4 +90,19 @@ mod tests {
             assert!(!may(from, "gopher://b.test/1/"), "{from}");
         }
     }
+
+    /// A finger page links nowhere, so no page reaches finger: not the web, and not another
+    /// engine protocol's page either (a gopher `h` item is any HTML).
+    #[cfg(feature = "finger")]
+    #[test]
+    fn no_page_reaches_finger() {
+        for from in [
+            "https://a.test/",
+            "file:///home/u/a.html",
+            "gosub://home",
+            "gopher://a.test/h/page.html",
+        ] {
+            assert!(!may(from, "finger://b.test/bob"), "{from}");
+        }
+    }
 }

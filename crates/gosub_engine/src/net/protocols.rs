@@ -76,6 +76,8 @@ pub trait Protocol: Send + Sync {
 static PROTOCOLS: &[&dyn Protocol] = &[
     #[cfg(feature = "gopher")]
     &crate::net::gopher::Gopher,
+    #[cfg(feature = "finger")]
+    &crate::net::finger::Finger,
 ];
 
 /// The protocol serving `scheme`, if this build has one.
@@ -329,6 +331,13 @@ mod tests {
         assert_eq!(gopher.setting(), "net.gopher.enabled");
     }
 
+    #[cfg(feature = "finger")]
+    #[test]
+    fn finger_is_a_protocol() {
+        let finger = lookup("finger").expect("finger compiled in");
+        assert_eq!(finger.setting(), "net.finger.enabled");
+    }
+
     #[test]
     fn the_web_is_a_network_place_and_local_pages_are_not() {
         let url = |s: &str| Url::parse(s).unwrap();
@@ -350,6 +359,14 @@ mod tests {
     #[test]
     fn a_gopher_page_is_a_cleartext_network_place() {
         let url = Url::parse("gopher://a.test/1/").unwrap();
+        assert_eq!(transport(&url), Some(Transport::Cleartext));
+        assert!(is_network_place(&url));
+    }
+
+    #[cfg(feature = "finger")]
+    #[test]
+    fn a_finger_page_is_a_cleartext_network_place() {
+        let url = Url::parse("finger://a.test/bob").unwrap();
         assert_eq!(transport(&url), Some(Transport::Cleartext));
         assert!(is_network_place(&url));
     }
