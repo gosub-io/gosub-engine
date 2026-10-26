@@ -78,6 +78,18 @@ const PROPERTIES: &[(&str, Prop, Field)] = &[
     ("white-space", Prop::WhiteSpace, |s| {
         format!("{:?}", s.inherited.white_space)
     }),
+    ("overflow-wrap", Prop::OverflowWrap, |s| {
+        format!("{:?}", s.inherited.overflow_wrap)
+    }),
+    ("word-wrap", Prop::OverflowWrap, |s| {
+        format!("{:?}", s.inherited.overflow_wrap)
+    }),
+    ("word-break", Prop::WordBreak, |s| {
+        format!("{:?}", s.inherited.word_break)
+    }),
+    ("text-overflow", Prop::TextOverflow, |s| {
+        format!("{:?}", s.box_group.text_overflow)
+    }),
     ("text-wrap", Prop::TextWrap, |s| format!("{:?}", s.box_group.text_wrap)),
     ("list-style-type", Prop::ListStyleType, |s| {
         format!("{:?}", s.inherited.list_style_type)

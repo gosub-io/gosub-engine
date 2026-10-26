@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use gosub_interface::font::FontStyle;
 use gosub_interface::font_system::{ShapedText, TextAlign, TextStyle};
+use gosub_interface::style::{OverflowWrap, WordBreak};
 use parking_lot::Mutex;
 
 /// How many shaped runs one cache holds. A grid is repainted window by window, so the runs that
@@ -33,6 +34,8 @@ struct ShapeKey {
     letter_spacing: u32,
     max_width: Option<u32>,
     align: u8,
+    word_break: WordBreak,
+    overflow_wrap: OverflowWrap,
     display_scale: u32,
 }
 
@@ -58,6 +61,8 @@ impl ShapeKey {
                 TextAlign::End => 2,
                 TextAlign::Justify => 3,
             },
+            word_break: style.word_break,
+            overflow_wrap: style.overflow_wrap,
             display_scale: style.display_scale.to_bits(),
         }
     }

@@ -2,6 +2,7 @@
 
 use cosmic_text::{
     fontdb, Align, Attrs, Buffer, Family, FontSystem as CosmicTextFontSystem, Metrics, Shaping, Stretch, Style, Weight,
+    Wrap,
 };
 use cow_utils::CowUtils;
 use gosub_interface::font::{FontBlob, FontError, FontStyle};
@@ -9,6 +10,7 @@ use gosub_interface::font_system::{
     Confinement, FontQuery, FontStretch, FontSystem, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText,
     TextAlign, TextStyle,
 };
+use gosub_interface::style::{OverflowWrap, WordBreak};
 use std::sync::Arc;
 
 /// A [`FontSystem`] backed by cosmic-text.
@@ -65,6 +67,13 @@ impl CosmicFontSystem {
     fn shaped_buffer(&mut self, text: &str, style: &TextStyle, metrics: Metrics) -> Buffer {
         let mut buffer = Buffer::new(&mut self.inner, metrics);
         buffer.set_size(style.max_width, None);
+        // `word-break: break-all` breaks between any two glyphs; `overflow-wrap` other than
+        // `normal` falls back to them when a word does not fit. cosmic-text has no `keep-all`.
+        buffer.set_wrap(match (style.word_break, style.overflow_wrap) {
+            (WordBreak::BreakAll, _) => Wrap::Glyph,
+            (_, OverflowWrap::BreakWord | OverflowWrap::Anywhere) => Wrap::WordOrGlyph,
+            _ => Wrap::Word,
+        });
         let attrs = Attrs::new()
             .family(css_family(&style.family))
             .weight(Weight(style.weight.0))

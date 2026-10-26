@@ -369,6 +369,8 @@ fn build_style_paragraph(fc: &FontCollection, text: &str, style: &GosubTextStyle
 
     let mut paragraph = builder.build();
     // `None` = no wrap; use a large finite advance (Skia dislikes INFINITY).
+    // SkParagraph has no `word-break` or `overflow-wrap`: it breaks between words, and inside a
+    // word only when the word alone does not fit, whatever those say.
     paragraph.layout(style.max_width.unwrap_or(1.0e9));
     paragraph
 }

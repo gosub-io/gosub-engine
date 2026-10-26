@@ -3466,6 +3466,7 @@ dependencies = [
  "stacker",
  "taffy",
  "tempfile",
+ "unicode-segmentation",
  "url",
 ]
 

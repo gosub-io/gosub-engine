@@ -2,6 +2,7 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 
 use crate::font::{FontBlob, FontError, FontStyle};
+use crate::style::{OverflowWrap, WordBreak};
 
 // Value types
 
@@ -190,6 +191,11 @@ pub struct TextStyle {
     pub max_width: Option<f32>,
     /// Alignment of the shaped lines within `max_width` (no-op when `max_width` is `None`).
     pub align: TextAlign,
+    /// CSS `word-break`: where lines may break between letters. Never the legacy `break-word`,
+    /// which arrives as `normal` with `overflow-wrap: anywhere`.
+    pub word_break: WordBreak,
+    /// CSS `overflow-wrap`: whether a word too long for the line may be broken inside.
+    pub overflow_wrap: OverflowWrap,
     /// Device-pixel scale (DPI). `1.0` = CSS pixels.
     pub display_scale: f32,
 }
@@ -207,6 +213,8 @@ impl TextStyle {
             letter_spacing: 0.0,
             max_width: None,
             align: TextAlign::Start,
+            word_break: WordBreak::Normal,
+            overflow_wrap: OverflowWrap::Normal,
             display_scale: 1.0,
         }
     }
