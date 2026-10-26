@@ -14,7 +14,8 @@
 //!   is shown as a page linking there: the pin a hop to another server would be held to is
 //!   the broker's, which this side of the request does not have,
 //! - `4x` and `5x` are failures, and `6x` asks for a client certificate the engine does not
-//!   have: each is a page with the server's message.
+//!   have: each is a page with the server's message. After a `44`, slow down, the server
+//!   is left alone for a while that doubles each time it says so again ([`slow_down`]).
 //!
 //! Servers mostly sign their own certificates, so the connection trusts a certificate on
 //! first use ([`tls`]): the first visit to a host and port reports the certificate, which the
@@ -30,6 +31,7 @@
 //! [protocols]: crate::net::protocols
 
 mod gemtext;
+mod slow_down;
 #[cfg(test)]
 pub(crate) mod testing;
 mod tls;
@@ -102,6 +104,19 @@ impl Protocol for Gemini {
         let mut pin = request.pin.cloned();
         let mut hops = 0;
         loop {
+            let server = key(&url, DEFAULT_PORT);
+            if let Some(wait) = server.as_ref().and_then(slow_down::waiting) {
+                if wait > slow_down::LONGEST_WAIT {
+                    return Ok(ProtocolResponse {
+                        content_type: "text/html; charset=utf-8".into(),
+                        body: Bytes::from(held_back(&url, wait)),
+                        peer_addr: None,
+                        certificate: pin,
+                        final_url: (hops > 0).then_some(url),
+                    });
+                }
+                tokio::time::sleep(wait).await;
+            }
             let (response, peer, certificate) = match self.exchange(&url, request.reach, pin.as_ref()).await {
                 // A first visit that meets another certificate on a later hop has no pin to
                 // replace, so it is no changed certificate to offer for trusting.
@@ -115,6 +130,10 @@ impl Protocol for Gemini {
             };
             // A first visit's later hops are held to the certificate its first one showed.
             let pin = pin.get_or_insert_with(|| certificate.clone());
+            let status = header(&response).map(|(status, ..)| status).ok();
+            let delay = server
+                .as_ref()
+                .and_then(|server| slow_down::answered(server, status == Some(44)));
             let target = followed(&url, &response).map_err(|e| invalid(format!("{url} answered: {e}")))?;
             let target = match target {
                 Some(mut target) if hops < MAX_REDIRECTS => {
@@ -140,7 +159,7 @@ impl Protocol for Gemini {
                         escape(target.as_str())
                     ),
                 )),
-                None => present(&url, &response).map_err(|e| invalid(format!("{url} answered: {e}")))?,
+                None => present(&url, &response, delay).map_err(|e| invalid(format!("{url} answered: {e}")))?,
             };
             return Ok(ProtocolResponse {
                 content_type,
@@ -257,9 +276,23 @@ fn header(response: &[u8]) -> Result<(u8, &str, &[u8]), String> {
     Ok((status, meta, &response[end + 1..]))
 }
 
-/// What a response is shown as: its media type and body.
-fn present(url: &Url, response: &[u8]) -> Result<(String, Vec<u8>), String> {
+/// What a response is shown as: its media type and body. `delay` is how long the server is
+/// now left alone, when it said slow down.
+fn present(url: &Url, response: &[u8], delay: Option<std::time::Duration>) -> Result<(String, Vec<u8>), String> {
     let (status, meta, body) = header(response)?;
+    if let (44, Some(delay)) = (status, delay) {
+        return Ok(html(status_page(
+            url,
+            status,
+            &format!(
+                "<p>{}</p><p class=\"u\">This browser asks the server again in {} at the earliest: \
+<a href=\"{}\">try again</a>.</p>",
+                escape(meta),
+                slow_down::in_words(delay),
+                escape(url.as_str())
+            ),
+        )));
+    }
     Ok(match status / 10 {
         2 => content(url, meta, body),
         1 => html(status_page(url, status, &input_form(url, status, meta))),
@@ -275,6 +308,21 @@ cannot present yet.</p>",
         )),
         _ => html(status_page(url, status, &format!("<p>{}</p>", escape(meta)))),
     })
+}
+
+/// The page a request gets that was not sent, because its server said slow down and is left
+/// alone for another `wait`.
+fn held_back(url: &Url, wait: std::time::Duration) -> String {
+    status_page(
+        url,
+        44,
+        &format!(
+            "<p>The server asked this browser to slow down, so the request was not sent. It is \
+sent again in {} at the earliest: <a href=\"{}\">try again</a>.</p>",
+            slow_down::in_words(wait),
+            escape(url.as_str())
+        ),
+    )
 }
 
 /// A form asking for what the prompt in `meta` asks, submitted to `url` without its query:
@@ -482,7 +530,7 @@ mod tests {
     #[test]
     fn a_success_is_shown_by_its_media_type() {
         let at = url("gemini://h.test/");
-        let shown = |r: &[u8]| present(&at, r).unwrap();
+        let shown = |r: &[u8]| present(&at, r, None).unwrap();
         let (ty, page) = shown(b"20 text/gemini; lang=nl\r\n# Hoi");
         assert_eq!(ty, "text/html; charset=utf-8");
         let page = String::from_utf8(page).unwrap();
@@ -509,11 +557,11 @@ mod tests {
     #[test]
     fn text_is_decoded_from_its_charset() {
         let at = url("gemini://h.test/");
-        let shown = |r: &[u8]| String::from_utf8(present(&at, r).unwrap().1).unwrap();
+        let shown = |r: &[u8]| String::from_utf8(present(&at, r, None).unwrap().1).unwrap();
         assert!(shown(b"20 text/gemini; charset=ISO-8859-1\r\n# caf\xe9").contains("<h1>caf\u{e9}</h1>"));
         assert!(shown(b"20 text/gemini;charset=\"windows-1252\"; lang=fr\r\n\x93q\x94").contains("\u{201c}q\u{201d}"));
         assert!(shown(b"20 text/plain; charset=koi8-r\r\n\xf0\xd2\xc9").contains("<pre>\u{41f}\u{440}\u{438}</pre>"));
-        let (ty, page) = present(&at, b"20 text/html; charset=shift_jis\r\n<p>\x93\xfa</p>").unwrap();
+        let (ty, page) = present(&at, b"20 text/html; charset=shift_jis\r\n<p>\x93\xfa</p>", None).unwrap();
         assert_eq!(
             (ty.as_str(), String::from_utf8(page).unwrap().as_str()),
             ("text/html; charset=utf-8", "<p>\u{65e5}</p>")
@@ -523,7 +571,7 @@ mod tests {
         assert!(shown(b"20 text/plain; charset=nonsense\r\ncaf\xc3\xa9").contains("caf\u{e9}"));
         // A charset parameter on other media is left alone.
         assert_eq!(
-            present(&at, b"20 image/png; charset=koi8-r\r\n\xf0").unwrap(),
+            present(&at, b"20 image/png; charset=koi8-r\r\n\xf0", None).unwrap(),
             ("image/png".into(), b"\xf0".to_vec())
         );
     }
@@ -531,7 +579,7 @@ mod tests {
     #[test]
     fn a_byte_order_mark_is_not_part_of_the_text() {
         let at = url("gemini://h.test/");
-        let shown = |r: &[u8]| String::from_utf8(present(&at, r).unwrap().1).unwrap();
+        let shown = |r: &[u8]| String::from_utf8(present(&at, r, None).unwrap().1).unwrap();
         let page = shown(b"20 text/gemini\r\n\xef\xbb\xbf# Title");
         assert!(page.contains("<h1>Title</h1>") && !page.contains('\u{feff}'), "{page}");
         let page = shown(b"20 text/gemini; charset=utf-16le\r\n\xff\xfe#\x00 \x00x\x00");
@@ -543,14 +591,14 @@ mod tests {
         let at = url("gemini://h.test/a");
         assert_eq!(followed(&at, b"30\r\n"), Ok(None));
         assert_eq!(followed(&at, b"31 \r\n"), Ok(None));
-        let page = String::from_utf8(present(&at, b"30\r\n").unwrap().1).unwrap();
+        let page = String::from_utf8(present(&at, b"30\r\n", None).unwrap().1).unwrap();
         assert!(page.contains("without saying where to"), "{page}");
     }
 
     #[test]
     fn other_statuses_are_pages_with_the_server_s_message() {
         let at = url("gemini://h.test/dir/");
-        let shown = |r: &[u8]| String::from_utf8(present(&at, r).unwrap().1).unwrap();
+        let shown = |r: &[u8]| String::from_utf8(present(&at, r, None).unwrap().1).unwrap();
         assert!(shown(b"10 Your name?\r\n").contains("<h1>Input requested (10)</h1>"));
         assert!(shown(b"51 <nope>\r\n").contains("<h1>Not found (51)</h1><p>&lt;nope&gt;</p>"));
         assert!(shown(b"42 x\r\n").contains("<h1>CGI error (42)</h1>"));
@@ -624,7 +672,7 @@ mod tests {
     #[test]
     fn input_is_asked_for_with_a_form_that_replaces_the_query() {
         let at = url("gemini://h.test/search?old#f");
-        let shown = |r: &[u8]| String::from_utf8(present(&at, r).unwrap().1).unwrap();
+        let shown = |r: &[u8]| String::from_utf8(present(&at, r, None).unwrap().1).unwrap();
         let page = shown(b"10 Search <for>\r\n");
         assert!(
             page.contains("<form method=\"get\" action=\"gemini://h.test/search\">"),
@@ -722,6 +770,51 @@ mod tests {
             "{}",
             body(&response)
         );
+    }
+
+    #[tokio::test]
+    async fn a_server_that_says_slow_down_is_asked_again_only_after_its_delay() {
+        let (port, server) = serve_each(&[(A, b"44 Easy\r\n"), (A, b"20 text/gemini\r\nfine")], true).await;
+        let at = format!("gemini://127.0.0.1:{port}/");
+        let first = fetch(&at, None).await.unwrap();
+        assert!(
+            body(&first).contains("<h1>Slow down (44)</h1><p>Easy</p>") && body(&first).contains("in 1 second"),
+            "{}",
+            body(&first)
+        );
+        let asked = std::time::Instant::now();
+        let second = fetch(&at, None).await.unwrap();
+        assert!(
+            asked.elapsed() >= slow_down::FIRST_DELAY - std::time::Duration::from_millis(50),
+            "asked again after {:?}",
+            asked.elapsed()
+        );
+        assert!(body(&second).contains("<p>fine</p>"), "{}", body(&second));
+        assert_eq!(server.await.unwrap().len(), 2);
+        // Answering ends the delay.
+        assert_eq!(slow_down::waiting(&("127.0.0.1".into(), port)), None);
+    }
+
+    #[tokio::test]
+    async fn a_request_that_would_wait_too_long_is_not_sent() {
+        // Nothing listens there: the request must not get as far as connecting.
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let server = ("127.0.0.1".to_string(), port);
+        let mut delay = None;
+        while delay.is_none_or(|delay| delay <= slow_down::LONGEST_WAIT) {
+            delay = slow_down::answered(&server, true);
+        }
+        let response = fetch(&format!("gemini://127.0.0.1:{port}/"), None).await.unwrap();
+        assert!(
+            body(&response).contains("the request was not sent") && body(&response).contains("16 seconds"),
+            "{}",
+            body(&response)
+        );
+        assert_eq!(response.peer_addr, None);
     }
 
     #[tokio::test]
