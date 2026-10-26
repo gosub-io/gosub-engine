@@ -8734,9 +8734,13 @@ fn engine_gopher() -> i32 {
             Arc::new(NullBackend::new()),
             Arc::new(DefaultCompositor::default()),
         );
-        if let Err(e) = engine.settings().set("security.network_process", Setting::Bool(true)) {
-            eprintln!("could not enable the network process: {e}");
-            return 1;
+        // The broker parses the page, so its title is there once the navigation finishes: a
+        // forked renderer (on by default with `cairo-tiles`) reports it only on its first render.
+        for (key, on) in [("security.network_process", true), ("security.renderer_process", false)] {
+            if let Err(e) = engine.settings().set(key, Setting::Bool(on)) {
+                eprintln!("could not set {key}: {e}");
+                return 1;
+            }
         }
         let mut events = engine.subscribe_events();
         let Ok(run) = engine.start() else {
