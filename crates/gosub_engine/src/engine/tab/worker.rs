@@ -243,6 +243,9 @@ enum HistoryIntent {
     Push,
     /// Reload: keep the current entry, refresh its URL, restore its scroll offset.
     Reload,
+    /// A navigation to the document's own URL: a fresh load that takes the current entry's
+    /// place instead of pushing one, as HTML's navigate does.
+    Replace,
     /// Back/forward/jump: the cursor already moved to `entry` when the navigation started;
     /// on commit only the entry's saved scroll offset is restored.
     Traverse(HistoryEntryId),
@@ -865,6 +868,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         self.history.replace_current_url(final_url.clone());
                         self.history.set_current_title(title);
                         self.history.current_entry().map(|e| e.scroll)
+                    }
+                    HistoryIntent::Replace => {
+                        self.history.replace_current_url(final_url.clone());
+                        self.history.set_current_title(title);
+                        None
                     }
                     HistoryIntent::Traverse(entry) => {
                         self.history.replace_current_url(final_url.clone());
@@ -2041,7 +2049,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.history.set_current_scroll(self.scroll_x, self.scroll_y);
                 self.history.push(url.clone(), Some(self.title.clone()));
             }
-            HistoryIntent::Reload | HistoryIntent::Traverse(_) => {}
+            HistoryIntent::Reload | HistoryIntent::Replace | HistoryIntent::Traverse(_) => {}
         }
         self.current_url = Some(url.clone());
 
@@ -2120,9 +2128,29 @@ impl<C: RenderConfiguration> TabWorker<C> {
             Err(_) => return,
         };
 
+        // To the document's own URL, by the user or a page of the same origin, the navigation
+        // takes the current entry's place (HTML's navigate: "replace").
+        let history = match history {
+            HistoryIntent::Push
+                if !self.is_loading
+                    && self.current_url.as_ref() == Some(&url)
+                    && initiator.is_none_or(|from| from.origin() == url.origin()) =>
+            {
+                HistoryIntent::Replace
+            }
+            history => history,
+        };
         // A fragment-only change of the loaded document does not refetch it. Reloads always
-        // refetch (that is what reload means).
-        if history != HistoryIntent::Reload && self.is_same_document(&url) {
+        // refetch (that is what reload means). A fresh navigation stays in the document only
+        // to a URL with a fragment, as HTML's "navigate to a fragment" says: the document's
+        // own URL without one loads it again. A traversal between two entries of the same
+        // document never refetches.
+        let same_document = match history {
+            HistoryIntent::Reload => false,
+            HistoryIntent::Push | HistoryIntent::Replace => url.fragment().is_some() && self.is_same_document(&url),
+            HistoryIntent::Traverse(_) => self.is_same_document(&url),
+        };
+        if same_document {
             self.navigate_same_document(url, history);
             return;
         }

@@ -4815,6 +4815,36 @@ mod tests {
             served_before,
             "fragment navigation and same-document back must not refetch"
         );
+        // The document's own URL without a fragment is a fresh load: HTML navigates to a
+        // fragment only when the URL has one. It takes the current entry's place rather than
+        // pushing another, and the forward entry stays.
+        tab.navigate(b.clone()).await.expect("navigate to the current url");
+        for _ in 0..100 {
+            if served.lock().len() > served_before {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(
+            served.lock()[served_before..],
+            ["/b".to_string()],
+            "navigating to the current URL must load it again"
+        );
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let mut last = None;
+        while let Ok(event) = event_rx.try_recv() {
+            if let EngineEvent::Navigation {
+                event: NavigationEvent::HistoryChanged { history },
+                ..
+            } = event
+            {
+                last = Some(history);
+            }
+        }
+        let h = last.expect("the load committed to history");
+        assert_eq!(h.entries.len(), 3, "a load of the current URL pushed an entry");
+        assert_eq!(h.current, Some(HistoryEntryId(1)));
+        assert_eq!(h.forward.len(), 1);
 
         // Internal pages: served by the engine's registry (no fetch), real history entries,
         // titles from the page, `about:` alias, and embedder overrides.
