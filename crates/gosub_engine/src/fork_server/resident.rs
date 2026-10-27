@@ -252,6 +252,10 @@ pub fn serve<C: RenderConfiguration>(
                 known_tiles,
             } => {
                 media_store.set_partition(documents.get(&tab).copied().unwrap_or_default());
+                // Bounded like a resize: the page is laid out again, nothing is parsed.
+                if gosub_sandbox::arm_deadline(INPUT_DEADLINE).is_err() {
+                    gosub_sandbox::exit_now(1);
+                }
                 let known: HashSet<u64> = known_tiles.into_iter().collect();
                 let (pass, hit_regions) = match pages.get_mut(&tab) {
                     Some(page) => {

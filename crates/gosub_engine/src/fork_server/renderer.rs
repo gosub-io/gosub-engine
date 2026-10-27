@@ -1444,41 +1444,62 @@ mod tests {
         assert_eq!(page.doc.focused_node(), None);
     }
 
-    /// An image that was still on its way when the page was built lands, and the page is laid
-    /// out again around it: the focus stays where the user put it, autofocus does not run
-    /// again, and the image takes its room.
-    #[test]
-    fn a_landed_image_keeps_the_users_focus() {
+    /// The broker's deferred loader for one image: "not yet" until it has landed.
+    #[derive(Debug)]
+    struct Landing {
+        landed: std::sync::atomic::AtomicBool,
+        png: Vec<u8>,
+    }
+
+    impl crate::net::resource_loader::ResourceLoader for Landing {
+        fn load(
+            &self,
+            _url: &Url,
+            _kind: ResourceKind,
+        ) -> Result<crate::net::resource_loader::LoadedResource, crate::net::resource_loader::LoadError> {
+            if !self.landed.load(std::sync::atomic::Ordering::Acquire) {
+                return Err(crate::net::resource_loader::LoadError::Pending);
+            }
+            Ok(crate::net::resource_loader::LoadedResource {
+                status: 200,
+                content_type: Some("image/png".into()),
+                body: self.png.clone().into(),
+            })
+        }
+    }
+
+    /// Fills every tile, so a pass ships what it rasterized.
+    struct Solid;
+
+    impl Rasterable for Solid {
+        fn rasterize(
+            &self,
+            tile: &gosub_render_pipeline::tiler::Tile,
+            store: &mut gosub_render_pipeline::common::texture_store::TextureStore,
+            _media: &gosub_render_pipeline::common::media::MediaStore,
+        ) -> Option<gosub_render_pipeline::common::texture::TextureId> {
+            let (w, h) = (tile.rect.width as usize, tile.rect.height as usize);
+            Some(store.add(
+                w,
+                h,
+                vec![0xFF; w * h * 4],
+                gosub_render_pipeline::render::backend::PixelFormat::PreMulArgb32,
+            ))
+        }
+    }
+
+    /// `html` built as a renderer builds it, its images still on their way.
+    fn page_waiting_for_an_image(html: &str) -> (RetainedPage<crate::html::DefaultRenderConfig>, Arc<Landing>) {
         use crate::html::{DefaultRenderConfig, RenderConfiguration};
-        use crate::net::resource_loader::{LoadError, LoadedResource, LoaderMediaSource, ResourceLoader};
-        use std::sync::atomic::{AtomicBool, Ordering};
+        use crate::net::resource_loader::{LoaderMediaSource, ResourceLoader};
         type Fonts = <DefaultRenderConfig as RenderConfiguration>::FontSystem;
 
-        /// The broker's deferred loader: "not yet" until the image has landed.
-        #[derive(Debug)]
-        struct Landing {
-            landed: AtomicBool,
-            png: Vec<u8>,
-        }
-        impl ResourceLoader for Landing {
-            fn load(&self, _url: &Url, _kind: ResourceKind) -> Result<LoadedResource, LoadError> {
-                if !self.landed.load(Ordering::Acquire) {
-                    return Err(LoadError::Pending);
-                }
-                Ok(LoadedResource {
-                    status: 200,
-                    content_type: Some("image/png".into()),
-                    body: self.png.clone().into(),
-                })
-            }
-        }
-
         let mut png = Vec::new();
-        image::RgbaImage::new(10, 400)
+        image::RgbaImage::from_pixel(10, 400, image::Rgba([200, 0, 0, 255]))
             .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
             .expect("encode");
         let loader = Arc::new(Landing {
-            landed: AtomicBool::new(false),
+            landed: Default::default(),
             png,
         });
         let media_store = Arc::new(gosub_render_pipeline::common::media::MediaStore::new());
@@ -1487,15 +1508,13 @@ mod tests {
         )));
         media_store.set_synchronous_fetch(true);
         let fonts: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(Fonts::default()));
-        let known = HashSet::new();
-        let mut page = RetainedPage::<DefaultRenderConfig>::build(
+        let page = RetainedPage::<DefaultRenderConfig>::build(
             PageRequest {
-                html: "<!DOCTYPE html><body style=\"margin:0\"><input id=\"a\" autofocus><input id=\"b\"><br>\
-<img src=\"https://example.test/tall.png\"></body>",
+                html,
                 page_url: "https://example.test/",
                 viewport_width: 800.0,
                 viewport_height: 600.0,
-                known_tiles: &known,
+                known_tiles: &HashSet::new(),
                 hovered_node: None,
                 dpr: 1,
                 media: MediaPrefs::default(),
@@ -1504,13 +1523,26 @@ mod tests {
             media_store,
             Arc::clone(&loader) as Arc<dyn ResourceLoader>,
         );
+        (page, loader)
+    }
+
+    /// An image that was still on its way when the page was built lands, and the page is laid
+    /// out again around it: the focus stays where the user put it, autofocus does not run
+    /// again, and the image takes its room.
+    #[test]
+    fn a_landed_image_keeps_the_users_focus() {
+        let (mut page, loader) = page_waiting_for_an_image(
+            "<!DOCTYPE html><body style=\"margin:0\"><input id=\"a\" autofocus><input id=\"b\"><br>\
+<img src=\"https://example.test/tall.png\"></body>",
+        );
+        let known = HashSet::new();
         assert!(page.flush_autofocus().is_some());
         page.render(Some(0.0), &known);
         let before = page.page_height;
         let b = page.doc.node_by_named_id("b");
         assert!(page.with_input(|input, host| input.set_focus(host, b, true)));
 
-        loader.landed.store(true, Ordering::Release);
+        loader.landed.store(true, std::sync::atomic::Ordering::Release);
         let out = page.media_landed(0.0, &known);
         assert!(out.relayouted);
         assert!(out.effects.is_empty(), "{:?}", out.effects);
@@ -1519,6 +1551,37 @@ mod tests {
             page.page_height >= before + 400.0,
             "the image took no room: {before} -> {}",
             page.page_height
+        );
+    }
+
+    /// An image whose size the page fixed lands without moving a box: its tile still paints
+    /// it, so it travels again rather than being taken for the placeholder the broker holds.
+    #[test]
+    fn a_landed_image_of_fixed_size_is_shipped() {
+        let (mut page, loader) = page_waiting_for_an_image(
+            "<!DOCTYPE html><body style=\"margin:0\">\
+<img src=\"https://example.test/tall.png\" width=\"10\" height=\"400\"></body>",
+        );
+        let hash = |tile: &RenderedTile| match tile {
+            RenderedTile::Fresh { hash, .. } | RenderedTile::Unchanged { hash, .. } => *hash,
+        };
+        page.rasterizer = Some(Box::new(Solid));
+        let first = page.render(Some(0.0), &HashSet::new());
+        let held: HashSet<u64> = first.tiles.iter().map(hash).collect();
+        assert!(!held.is_empty());
+        let before = page.page_height;
+        let still_waiting = page.media_landed(0.0, &held);
+        assert!(
+            still_waiting.pass.tiles.iter().all(|tile| held.contains(&hash(tile))),
+            "nothing changed yet"
+        );
+
+        loader.landed.store(true, std::sync::atomic::Ordering::Release);
+        let out = page.media_landed(0.0, &held);
+        assert_eq!(page.page_height, before, "a fixed size moves nothing");
+        assert!(
+            out.pass.tiles.iter().any(|tile| !held.contains(&hash(tile))),
+            "every tile was taken for one the broker held"
         );
     }
 }
