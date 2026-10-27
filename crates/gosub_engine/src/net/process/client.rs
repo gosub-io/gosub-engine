@@ -650,6 +650,36 @@ fn launch(vault: Option<VaultLine>) -> anyhow::Result<Launched> {
     })
 }
 
+/// How many of the network process's pin questions are answered at once, each on a thread
+/// of its own. A process asks one at a time per request, so only one flooding the broker
+/// meets the cap; a question past it goes unanswered, and its request fails on the
+/// network process's own timeout.
+const MOST_PIN_ANSWERS: usize = 16;
+
+/// The pin answers in flight, at most [`MOST_PIN_ANSWERS`].
+#[derive(Default)]
+struct PinAnswerSlots(Arc<std::sync::atomic::AtomicUsize>);
+
+impl PinAnswerSlots {
+    /// A slot for one more answer, held until it is sent; `None` when all are taken.
+    fn take(&self) -> Option<PinAnswerSlot> {
+        if self.0.fetch_add(1, Ordering::AcqRel) >= MOST_PIN_ANSWERS {
+            self.0.fetch_sub(1, Ordering::AcqRel);
+            return None;
+        }
+        Some(PinAnswerSlot(Arc::clone(&self.0)))
+    }
+}
+
+/// One answer's slot, given back when dropped.
+struct PinAnswerSlot(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for PinAnswerSlot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 /// Read the link until it ends: replies to their waiters, events to their
 /// observers. At the end `alive` is cleared and everything still waiting is
 /// woken, as failed.
@@ -669,6 +699,7 @@ fn start_reader(
     std::thread::Builder::new()
         .name("net-process-reader".into())
         .spawn(move || {
+            let pin_answers = PinAnswerSlots::default();
             while let Ok(msg) = rx.recv::<FromNet>() {
                 match msg {
                     FromNet::Pong => {
@@ -684,6 +715,13 @@ fn start_reader(
                     // thread, which must keep reading: the store may be slow, and the
                     // write can wait on a child that is itself waiting to be read.
                     FromNet::AskPin { tag, host, port } => {
+                        let Some(slot) = pin_answers.take() else {
+                            log::warn!(
+                                "the network process asked more than {MOST_PIN_ANSWERS} pin questions at once; \
+                                 one goes unanswered"
+                            );
+                            continue;
+                        };
                         let pins = askers.lock().get(&tag).cloned();
                         let tx = Arc::clone(&tx);
                         let host = cut_string(host, MAX_EVENT_STRING);
@@ -700,6 +738,7 @@ fn start_reader(
                                     None => PinAnswer::Refused,
                                 };
                                 let _ = tx.lock().send(&ToNet::Pin { tag, answer });
+                                drop(slot);
                             });
                         if let Err(e) = answered {
                             log::error!("could not answer the network process's pin question: {e}");
@@ -1647,6 +1686,18 @@ mod tests {
             assert!(passes("gemini://other.test:7000/x", "gemini://h/"));
             assert!(!passes("gopher://h/1/", "gemini://h/"));
         }
+    }
+
+    /// Pin answers past the cap get no slot until one in flight is sent.
+    #[test]
+    fn pin_answers_in_flight_are_bounded() {
+        let slots = PinAnswerSlots::default();
+        let mut taken: Vec<_> = (0..MOST_PIN_ANSWERS).map(|_| slots.take().expect("a slot")).collect();
+        assert!(slots.take().is_none());
+        taken.pop();
+        let again = slots.take();
+        assert!(again.is_some());
+        assert!(slots.take().is_none(), "one given back, one taken");
     }
 
     /// The certificates a reply reports pass only as pins, no more than one request reaches.
