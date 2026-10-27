@@ -198,7 +198,7 @@ pub fn invalid(message: impl Into<String>) -> NetError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::net::protocols::{ProtocolRequest, ProtocolResponse};
+    use crate::net::protocols::{ProtocolError, ProtocolRequest, ProtocolResponse};
     use async_trait::async_trait;
 
     /// A protocol whose own port is 79, which the Fetch standard blocks.
@@ -218,8 +218,8 @@ mod tests {
         fn encrypted(&self) -> bool {
             false
         }
-        async fn fetch(&self, _request: ProtocolRequest<'_>) -> Result<ProtocolResponse, NetError> {
-            Err(invalid("not fetched in this test"))
+        async fn fetch(&self, _request: ProtocolRequest<'_>) -> Result<ProtocolResponse, ProtocolError> {
+            Err(invalid("not fetched in this test").into())
         }
     }
 
@@ -240,8 +240,8 @@ mod tests {
         fn encrypted(&self) -> bool {
             false
         }
-        async fn fetch(&self, _request: ProtocolRequest<'_>) -> Result<ProtocolResponse, NetError> {
-            Err(invalid("not fetched in this test"))
+        async fn fetch(&self, _request: ProtocolRequest<'_>) -> Result<ProtocolResponse, ProtocolError> {
+            Err(invalid("not fetched in this test").into())
         }
     }
 

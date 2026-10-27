@@ -1650,13 +1650,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         };
         let hovered = self.hover_leaf.map(|id| id.into());
         let url = page_url.clone();
-        let source = self.document_source.clone();
-        let viewport = (self.viewport.width as f64, self.viewport.height as f64);
-        // An input or resize pass that lays the page out again ships it by
-        // content hash against what this tab holds; the other passes never answer
-        // `TileUnchanged`, so they look nothing up.
+        // A pass that lays the page out again ships it by content hash against what this
+        // tab holds; the other passes never answer `TileUnchanged`, so they look nothing up.
         let known = match &what {
-            RemotePass::Input(..) | RemotePass::Resize(_) => self.remote_tile_memory.clone(),
+            RemotePass::Input(..) | RemotePass::Resize(_) | RemotePass::Media => self.remote_tile_memory.clone(),
             _ => crate::fork_server::client::TileMemory::default(),
         };
         let (tx, rx) = std::sync::mpsc::channel();
@@ -1681,7 +1678,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     let mut renderer = renderer.lock();
                     // A navigation that took the renderer first has replaced
                     // the page this pass was for: running it now would render
-                    // (or, for media, retain) the wrong one.
+                    // the wrong one.
                     if !current() {
                         anyhow::bail!("superseded by a newer page");
                     }
@@ -1690,21 +1687,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                         RemotePass::Hover => renderer.hover(&remote_tab, hovered, &resources, &known),
                         RemotePass::Input(event, _) => renderer.input(&remote_tab, scroll_y, event, &resources, &known),
                         RemotePass::Resize(size) => renderer.resize(&remote_tab, size, scroll_y, &resources, &known),
-                        RemotePass::Media => {
-                            let Some(source) = source.as_deref() else {
-                                anyhow::bail!("no document source to render again");
-                            };
-                            renderer.navigate(
-                                source,
-                                &url,
-                                &remote_tab,
-                                viewport,
-                                scroll_y,
-                                &resources,
-                                &known,
-                                hovered,
-                            )
-                        }
+                        // The page laid out again, not built again: what the user did
+                        // on it (focus, typed text) stays.
+                        RemotePass::Media => renderer.media_landed(&remote_tab, scroll_y, &resources, &known),
                     }
                 })();
                 let _ = tx.send((result, started.elapsed()));
@@ -1783,7 +1768,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 // gets the tiles back.
                 if matches!(
                     inflight.what,
-                    PassKind::Scroll | PassKind::Hover | PassKind::Input(_) | PassKind::Resize
+                    PassKind::Scroll | PassKind::Hover | PassKind::Input(_) | PassKind::Resize | PassKind::Media
                 ) && page.summary.no_page
                 {
                     log::warn!("resident renderer has no retained page for this tab; rendering it again");
@@ -1832,8 +1817,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     self.scroll_dirty = true;
                 } else if matches!(inflight.what, PassKind::Media | PassKind::Resize) {
                     // A whole page, like a navigate: what came back replaces
-                    // this tab's tiles and geometry. A resize ships it by
-                    // content hash, so most of it is what the tab already held.
+                    // this tab's tiles and geometry. Both ship it by content
+                    // hash, so most of it is what the tab already held.
                     report_remote_pass(
                         inflight.what.event_kind(),
                         &self.remote_tab,

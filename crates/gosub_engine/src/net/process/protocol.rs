@@ -190,6 +190,13 @@ impl std::fmt::Debug for IdentityWire {
     }
 }
 
+/// The key is wiped with the copy that carried it, as `ClientIdentity` wipes its own.
+impl Drop for IdentityWire {
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.key);
+    }
+}
+
 impl From<&crate::net::protocols::identities::ClientIdentity> for IdentityWire {
     fn from(identity: &crate::net::protocols::identities::ClientIdentity) -> Self {
         Self {
@@ -204,16 +211,18 @@ impl From<&crate::net::protocols::identities::ClientIdentity> for IdentityWire {
 }
 
 impl From<IdentityWire> for crate::net::protocols::identities::ClientIdentity {
-    fn from(wire: IdentityWire) -> Self {
+    fn from(mut wire: IdentityWire) -> Self {
+        use std::mem::take;
         Self {
             scope: crate::net::protocols::identities::IdentityScope {
-                host: wire.host,
+                host: take(&mut wire.host),
                 port: wire.port,
-                path: wire.path,
+                path: take(&mut wire.path),
             },
-            name: wire.name,
-            certificate: wire.certificate,
-            key: zeroize::Zeroizing::new(wire.key),
+            name: take(&mut wire.name),
+            certificate: take(&mut wire.certificate),
+            // The buffer itself moves, so no copy of the key is left behind.
+            key: zeroize::Zeroizing::new(take(&mut wire.key)),
         }
     }
 }
@@ -988,10 +997,22 @@ pub enum FetchOutcome {
     /// reports it, and a rich error type would be one more thing whose
     /// deserialization a compromised child could exercise.
     Error(String),
+    /// An engine protocol's request failed after first visits showed certificates, which
+    /// the broker pins as for `Ok`: a server that answered stays pinned.
+    Failed {
+        message: String,
+        certificates: Vec<SeenCertificate>,
+    },
     /// An engine protocol's server showed another certificate than the pinned one. The
     /// one failure with a field the broker acts on: `seen` (`CertPin` text) is what the
     /// user may choose to trust, checked for form where the reply is received.
-    CertificateChanged { message: String, seen: String },
+    CertificateChanged {
+        message: String,
+        seen: String,
+        /// As `Ok::certificates`.
+        #[serde(default)]
+        certificates: Vec<SeenCertificate>,
+    },
     /// An engine protocol's server wants a client certificate, or another one
     /// (`net::protocols::identities::IdentityAsked`): what the navigation fails with, for the
     /// embedder to ask the user. `url` is checked to stay on the request's scheme.
@@ -1000,12 +1021,47 @@ pub enum FetchOutcome {
         status: u8,
         message: String,
         presented: bool,
+        /// As `Ok::certificates`: the server asking was reached, and is pinned.
+        #[serde(default)]
+        certificates: Vec<SeenCertificate>,
     },
+}
+
+impl FetchOutcome {
+    /// The certificates first visits showed, for the broker to pin.
+    pub fn certificates(&self) -> &[SeenCertificate] {
+        match self {
+            Self::Ok { certificates, .. }
+            | Self::Failed { certificates, .. }
+            | Self::CertificateChanged { certificates, .. }
+            | Self::IdentityAsked { certificates, .. } => certificates,
+            Self::Streaming { .. } | Self::Error(_) => &[],
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An identity crosses whole: what the network process presents is what the zone holds.
+    #[test]
+    fn an_identity_crosses_whole() {
+        use crate::net::protocols::identities::{ClientIdentity, IdentityScope};
+        let identity = ClientIdentity {
+            scope: IdentityScope {
+                host: "h.test".into(),
+                port: 1965,
+                path: "/private/".into(),
+            },
+            name: "Visitor".into(),
+            certificate: b"cert".to_vec(),
+            key: zeroize::Zeroizing::new(b"key".to_vec()),
+        };
+        let wire = IdentityWire::from(&identity);
+        assert_eq!(ClientIdentity::from(wire.clone()), identity);
+        assert_eq!(wire.key, b"key");
+    }
 
     /// Who is asking survives the trip to the network process: origin, referrer,
     /// referrer policy and mixed-content handling all come out as they went in.

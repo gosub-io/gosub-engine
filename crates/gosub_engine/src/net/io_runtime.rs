@@ -438,6 +438,12 @@ fn dispatch_to_net_process(
         },
     };
 
+    // A pin the zone's store could not read is no first visit.
+    if let Some(Err(e)) = pins.as_ref().map(|pins| &pins.pin) {
+        let _ = reply_tx.send(FetchResult::Error(net_error(format!("no pin to hold {url} to: {e}"))));
+        return;
+    }
+
     #[cfg(target_os = "linux")]
     let cookies = grant.as_ref().map(|grant| grant.scope.clone());
     #[cfg(not(target_os = "linux"))]
@@ -455,7 +461,10 @@ fn dispatch_to_net_process(
             body_preview,
             context,
             no_total_body_timeout,
-            pin: pins.as_ref().and_then(|p| p.pin.as_ref()).map(|pin| pin.to_string()),
+            pin: pins
+                .as_ref()
+                .and_then(|p| p.pin.as_ref().ok()?.as_ref())
+                .map(|pin| pin.to_string()),
             pins: pins.clone(),
             identity: client_identity.as_ref().map(Into::into),
         };
@@ -484,9 +493,11 @@ fn dispatch_to_net_process(
                 net.condemn();
             }
         }
-        if let (Some(pins), FetchOutcome::Ok { certificates, .. }) = (&pins, &reply.outcome) {
+        if let Some(pins) = &pins {
             // Checked for form where the reply was received (`plausible_reply`).
-            let seen: Vec<_> = certificates
+            let seen: Vec<_> = reply
+                .outcome
+                .certificates()
                 .iter()
                 .filter_map(|seen| {
                     Some(crate::net::protocols::known_hosts::ServerPin {
@@ -501,7 +512,9 @@ fn dispatch_to_net_process(
         let _ = reply_tx.send(match reply.outcome {
             FetchOutcome::Error(e) => FetchResult::Error(net_error(e)),
             // Only a request that went out with a pin can meet a changed certificate.
-            FetchOutcome::CertificateChanged { message, seen } if pins.as_ref().is_some_and(|p| p.pin.is_some()) => {
+            FetchOutcome::CertificateChanged { message, seen, .. }
+                if pins.as_ref().is_some_and(|p| matches!(p.pin, Ok(Some(_)))) =>
+            {
                 // Checked for form where the reply was received (`plausible_reply`).
                 let seen = crate::net::protocols::known_hosts::CertPin::parse(&seen).map(|pin| pin.digest());
                 FetchResult::Error(crate::net::types::NetError::Tls(gosub_sonar::net::tls::TlsError {

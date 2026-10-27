@@ -314,6 +314,7 @@ impl ReportedRequest {
                 }
             }
             FetchOutcome::Error(message)
+            | FetchOutcome::Failed { message, .. }
             | FetchOutcome::CertificateChanged { message, .. }
             | FetchOutcome::IdentityAsked { message, .. } => self.fail(message),
         }
@@ -649,6 +650,36 @@ fn launch(vault: Option<VaultLine>) -> anyhow::Result<Launched> {
     })
 }
 
+/// How many of the network process's pin questions are answered at once, each on a thread
+/// of its own. A process asks one at a time per request, so only one flooding the broker
+/// meets the cap; a question past it goes unanswered, and its request fails on the
+/// network process's own timeout.
+const MOST_PIN_ANSWERS: usize = 16;
+
+/// The pin answers in flight, at most [`MOST_PIN_ANSWERS`].
+#[derive(Default)]
+struct PinAnswerSlots(Arc<std::sync::atomic::AtomicUsize>);
+
+impl PinAnswerSlots {
+    /// A slot for one more answer, held until it is sent; `None` when all are taken.
+    fn take(&self) -> Option<PinAnswerSlot> {
+        if self.0.fetch_add(1, Ordering::AcqRel) >= MOST_PIN_ANSWERS {
+            self.0.fetch_sub(1, Ordering::AcqRel);
+            return None;
+        }
+        Some(PinAnswerSlot(Arc::clone(&self.0)))
+    }
+}
+
+/// One answer's slot, given back when dropped.
+struct PinAnswerSlot(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for PinAnswerSlot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 /// Read the link until it ends: replies to their waiters, events to their
 /// observers. At the end `alive` is cleared and everything still waiting is
 /// woken, as failed.
@@ -668,6 +699,7 @@ fn start_reader(
     std::thread::Builder::new()
         .name("net-process-reader".into())
         .spawn(move || {
+            let pin_answers = PinAnswerSlots::default();
             while let Ok(msg) = rx.recv::<FromNet>() {
                 match msg {
                     FromNet::Pong => {
@@ -683,6 +715,13 @@ fn start_reader(
                     // thread, which must keep reading: the store may be slow, and the
                     // write can wait on a child that is itself waiting to be read.
                     FromNet::AskPin { tag, host, port } => {
+                        let Some(slot) = pin_answers.take() else {
+                            log::warn!(
+                                "the network process asked more than {MOST_PIN_ANSWERS} pin questions at once; \
+                                 one goes unanswered"
+                            );
+                            continue;
+                        };
                         let pins = askers.lock().get(&tag).cloned();
                         let tx = Arc::clone(&tx);
                         let host = cut_string(host, MAX_EVENT_STRING);
@@ -699,6 +738,7 @@ fn start_reader(
                                     None => PinAnswer::Refused,
                                 };
                                 let _ = tx.lock().send(&ToNet::Pin { tag, answer });
+                                drop(slot);
                             });
                         if let Err(e) = answered {
                             log::error!("could not answer the network process's pin question: {e}");
@@ -1180,8 +1220,9 @@ impl NetProcess {
     /// a reply past [`MAX_REPLY_HEADERS`], [`MAX_REPLY_HEADER_BYTES`] or
     /// [`MAX_REPLY_URL`] is refused.
     fn plausible_reply(mut reply: NetReply, requested: &str) -> NetReply {
-        if let FetchOutcome::Ok { certificates, .. } = &reply.outcome {
+        {
             use crate::net::protocols::known_hosts::{CertPin, MOST_OTHER_SERVERS};
+            let certificates = reply.outcome.certificates();
             if certificates.len() > MOST_OTHER_SERVERS + 1
                 || certificates
                     .iter()
@@ -1205,7 +1246,7 @@ impl NetProcess {
                 headers,
                 ..
             } => (status_text, final_url, headers),
-            FetchOutcome::Error(message) => {
+            FetchOutcome::Error(message) | FetchOutcome::Failed { message, .. } => {
                 *message = cut_string(std::mem::take(message), MAX_EVENT_STRING);
                 return reply;
             }
@@ -1227,7 +1268,7 @@ impl NetProcess {
                 *message = cut_string(std::mem::take(message), MAX_EVENT_STRING);
                 return reply;
             }
-            FetchOutcome::CertificateChanged { message, seen } => {
+            FetchOutcome::CertificateChanged { message, seen, .. } => {
                 if crate::net::protocols::known_hosts::CertPin::parse(seen).is_none() {
                     return NetReply::error(format!(
                         "the network process reported a malformed certificate pin for {requested}"
@@ -1357,13 +1398,16 @@ pub fn outcome_to_result(reply: NetReply) -> Result<crate::net::types::FetchResu
         }
         // The broker turns a changed certificate into a TLS error before this, for a request
         // that pins; for any other it is a failure like the rest.
-        FetchOutcome::Error(e) | FetchOutcome::CertificateChanged { message: e, .. } => return Err(net_error(e)),
+        FetchOutcome::Error(e)
+        | FetchOutcome::Failed { message: e, .. }
+        | FetchOutcome::CertificateChanged { message: e, .. } => return Err(net_error(e)),
         // Checked where the reply was received (`plausible_reply`).
         FetchOutcome::IdentityAsked {
             url,
             status,
             message,
             presented,
+            ..
         } => {
             return Err(match url::Url::parse(&url) {
                 Ok(url) => crate::net::protocols::identities::IdentityAsked {
@@ -1644,6 +1688,18 @@ mod tests {
         }
     }
 
+    /// Pin answers past the cap get no slot until one in flight is sent.
+    #[test]
+    fn pin_answers_in_flight_are_bounded() {
+        let slots = PinAnswerSlots::default();
+        let mut taken: Vec<_> = (0..MOST_PIN_ANSWERS).map(|_| slots.take().expect("a slot")).collect();
+        assert!(slots.take().is_none());
+        taken.pop();
+        let again = slots.take();
+        assert!(again.is_some());
+        assert!(slots.take().is_none(), "one given back, one taken");
+    }
+
     /// The certificates a reply reports pass only as pins, no more than one request reaches.
     #[test]
     fn reported_certificates_are_pins_and_few() {
@@ -1679,6 +1735,33 @@ mod tests {
         assert!(refused(ok(vec![seen("h", &pin); most + 1])));
         assert!(refused(ok(vec![seen("h", "nope")])));
         assert!(refused(ok(vec![seen(&"h".repeat(MAX_EVENT_STRING + 1), &pin)])));
+
+        // A failure reports them under the same bounds.
+        let failed = |certificates: Vec<SeenCertificate>| NetReply {
+            outcome: FetchOutcome::Failed {
+                message: "failed".into(),
+                certificates,
+            },
+            ring: None,
+            stream_end: None,
+            redirects: None,
+        };
+        let asked = |certificates: Vec<SeenCertificate>| NetReply {
+            outcome: FetchOutcome::IdentityAsked {
+                url: "gemini://h/".into(),
+                status: 60,
+                message: String::new(),
+                presented: false,
+                certificates,
+            },
+            ring: None,
+            stream_end: None,
+            redirects: None,
+        };
+        assert!(!refused(failed(vec![seen("h", &pin)])));
+        assert!(refused(failed(vec![seen("h", "nope")])));
+        assert!(!refused(asked(vec![seen("h", &pin)])));
+        assert!(refused(asked(vec![seen("h", &pin); most + 1])));
     }
 
     /// A changed certificate's report passes only with a pin's text form as what was seen:
@@ -1689,6 +1772,7 @@ mod tests {
             outcome: FetchOutcome::CertificateChanged {
                 message: "x".repeat(MAX_EVENT_STRING * 2),
                 seen: seen.into(),
+                certificates: Vec::new(),
             },
             ring: None,
             stream_end: None,
@@ -1697,7 +1781,7 @@ mod tests {
         let url = "gemini://h.test/";
         let pin = crate::net::protocols::known_hosts::CertPin::of(b"cert").to_string();
         match NetProcess::plausible_reply(changed(&pin), url).outcome {
-            FetchOutcome::CertificateChanged { message, seen } => {
+            FetchOutcome::CertificateChanged { message, seen, .. } => {
                 assert_eq!(seen, pin);
                 assert_eq!(message.len(), MAX_EVENT_STRING);
             }

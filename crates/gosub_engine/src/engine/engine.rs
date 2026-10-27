@@ -1660,7 +1660,7 @@ mod tests {
         let first = format!("gemini://127.0.0.1:{port}/");
         assert!(outcome(first.clone()).await.is_none(), "the first visit failed");
         assert_eq!(tab.title(), "Hello gemini");
-        assert_eq!(store.pin("127.0.0.1", port), Some(CertPin::of(A_CERT)));
+        assert_eq!(store.pin("127.0.0.1", port), Ok(Some(CertPin::of(A_CERT))));
 
         let again = format!("gemini://127.0.0.1:{port}/again");
         let error = outcome(again.clone()).await;
@@ -1674,7 +1674,7 @@ mod tests {
         };
         assert!(message.contains("changed since the first visit"), "{message}");
         assert_eq!(*fingerprint, CertPin::of(B_CERT).digest());
-        assert_eq!(store.pin("127.0.0.1", port), Some(CertPin::of(A_CERT)));
+        assert_eq!(store.pin("127.0.0.1", port), Ok(Some(CertPin::of(A_CERT))));
 
         // What an embedder does when the user trusts the new certificate.
         let (host, key_port) = key_for(&url::Url::parse(&again).unwrap()).unwrap();
@@ -1702,10 +1702,11 @@ mod tests {
     #[tokio::test]
     async fn a_gemini_identity_is_presented_once_the_zone_holds_one() {
         use crate::events::NavigationEvent;
-        use crate::net::gemini::testing::{serve_tls, Tls, A};
+        use crate::net::gemini::testing::{serve_tls, Tls, A, A_CERT};
         use crate::net::protocols::identities::{
             ClientIdentities, ClientIdentity, IdentityScope, InMemoryClientIdentities,
         };
+        use crate::net::protocols::known_hosts::{CertPin, InMemoryKnownHosts, KnownHosts};
 
         let (port, server) = serve_tls(
             &[
@@ -1718,6 +1719,7 @@ mod tests {
         )
         .await;
         let identities = Arc::new(InMemoryClientIdentities::new());
+        let known_hosts = Arc::new(InMemoryKnownHosts::new());
 
         let mut engine = engine_with_max_zones(1);
         let mut events = engine.subscribe_events();
@@ -1726,6 +1728,7 @@ mod tests {
             .zone_builder()
             .services(services())
             .client_identities(identities.clone())
+            .known_hosts(known_hosts.clone())
             .create()
             .expect("zone");
         let tab = zone.tab_builder().create().await.expect("tab");
@@ -1765,6 +1768,8 @@ mod tests {
         };
         assert_eq!(url.as_str(), private);
         assert_eq!(message, "Who are you?");
+        // The server that asked was reached: the identity goes to the certificate it showed.
+        assert_eq!(known_hosts.pin("127.0.0.1", port), Ok(Some(CertPin::of(A_CERT))));
 
         // What an embedder does when the user makes an identity for the place.
         let identity = ClientIdentity::generate(

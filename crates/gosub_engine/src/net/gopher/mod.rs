@@ -21,8 +21,7 @@ mod render;
 mod request;
 
 use crate::net::protocols::socket::{self, invalid};
-use crate::net::protocols::{Protocol, ProtocolRequest, ProtocolResponse};
-use crate::net::types::NetError;
+use crate::net::protocols::{Protocol, ProtocolError, ProtocolRequest, ProtocolResponse};
 use async_trait::async_trait;
 use bytes::Bytes;
 use request::Request;
@@ -50,7 +49,7 @@ impl Protocol for Gopher {
         false
     }
 
-    async fn fetch(&self, request: ProtocolRequest<'_>) -> Result<ProtocolResponse, NetError> {
+    async fn fetch(&self, request: ProtocolRequest<'_>) -> Result<ProtocolResponse, ProtocolError> {
         let (url, reach) = (request.url, request.reach);
         let request = Request::from_url(url).map_err(invalid)?;
         let addrs = socket::resolve(self, url, &request.host, request.port, reach).await?;
@@ -147,6 +146,7 @@ mod tests {
     use super::*;
     use crate::net::protocols::socket::MAX_RESPONSE_BYTES;
     use crate::net::ssrf::AddressSpace;
+    use crate::net::types::NetError;
     use gosub_sonar::net::types::BlockReason;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
@@ -183,6 +183,7 @@ mod tests {
                 identity: None,
             })
             .await
+            .map_err(|e| e.error)
     }
 
     #[tokio::test]

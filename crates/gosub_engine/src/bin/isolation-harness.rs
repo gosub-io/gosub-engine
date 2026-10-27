@@ -334,6 +334,7 @@ fn resolve() -> i32 {
             return 1;
         }
         FetchOutcome::Error(e)
+        | FetchOutcome::Failed { message: e, .. }
         | FetchOutcome::CertificateChanged { message: e, .. }
         | FetchOutcome::IdentityAsked { message: e, .. } => {
             println!("resolution failed as it should: {e}")
@@ -353,6 +354,7 @@ fn resolve() -> i32 {
                 println!("{reach:?} fetcher refused loopback: {e}");
             }
             FetchOutcome::Error(e)
+            | FetchOutcome::Failed { message: e, .. }
             | FetchOutcome::CertificateChanged { message: e, .. }
             | FetchOutcome::IdentityAsked { message: e, .. } => {
                 eprintln!("{reach:?} fetcher failed for the wrong reason: {e}");
@@ -6662,6 +6664,7 @@ fn stream() -> i32 {
         }
         FetchOutcome::Ok { .. } => Err("expected a streamed reply, got a buffered one".into()),
         FetchOutcome::Error(e)
+        | FetchOutcome::Failed { message: e, .. }
         | FetchOutcome::CertificateChanged { message: e, .. }
         | FetchOutcome::IdentityAsked { message: e, .. } => Err(format!("fetch failed: {e}")),
     };
@@ -8063,6 +8066,7 @@ fn direct() -> i32 {
             1
         }
         FetchOutcome::Error(e)
+        | FetchOutcome::Failed { message: e, .. }
         | FetchOutcome::CertificateChanged { message: e, .. }
         | FetchOutcome::IdentityAsked { message: e, .. } => {
             eprintln!("fetch through the network process failed: {e}");
@@ -8391,6 +8395,7 @@ fn oversized() -> i32 {
             println!("oversized body refused in {elapsed:?}: {e}");
         }
         FetchOutcome::Error(e)
+        | FetchOutcome::Failed { message: e, .. }
         | FetchOutcome::CertificateChanged { message: e, .. }
         | FetchOutcome::IdentityAsked { message: e, .. } => {
             eprintln!("the oversized body failed: {e}");
@@ -8431,6 +8436,7 @@ fn oversized() -> i32 {
             1
         }
         FetchOutcome::Error(e)
+        | FetchOutcome::Failed { message: e, .. }
         | FetchOutcome::CertificateChanged { message: e, .. }
         | FetchOutcome::IdentityAsked { message: e, .. } => {
             eprintln!("the link did not survive the oversized body: {e}");
@@ -9172,7 +9178,7 @@ fn engine_gemini() -> i32 {
             eprintln!("the gemini page did not load as its page: title {title:?}");
             return 1;
         }
-        if known_hosts.pin("127.0.0.1", port) != Some(CertPin::of(A_CERT)) {
+        if known_hosts.pin("127.0.0.1", port) != Ok(Some(CertPin::of(A_CERT))) {
             eprintln!(
                 "the first visit's certificate was not pinned: {:?}",
                 known_hosts.pin("127.0.0.1", port)
@@ -9209,7 +9215,7 @@ fn engine_gemini() -> i32 {
             eprintln!("the refusal names another certificate than the one the server showed");
             return 1;
         }
-        if known_hosts.pin("127.0.0.1", port) != Some(CertPin::of(A_CERT)) {
+        if known_hosts.pin("127.0.0.1", port) != Ok(Some(CertPin::of(A_CERT))) {
             eprintln!("the refused certificate replaced the pin");
             return 1;
         }
@@ -9275,7 +9281,7 @@ fn engine_gemini() -> i32 {
             );
             return 1;
         }
-        if known_hosts.pin("127.0.0.1", there_port) != Some(CertPin::of(A_CERT)) {
+        if known_hosts.pin("127.0.0.1", there_port) != Ok(Some(CertPin::of(A_CERT))) {
             eprintln!(
                 "the other server's first visit was not pinned: {:?}",
                 known_hosts.pin("127.0.0.1", there_port)
@@ -9327,6 +9333,14 @@ fn engine_gemini() -> i32 {
         };
         if asked_at != private {
             eprintln!("the certificate was asked for at {asked_at}, not {private}");
+            return 1;
+        }
+        // The server that asked was reached: the identity goes to the certificate it showed.
+        if known_hosts.pin("127.0.0.1", members_port) != Ok(Some(CertPin::of(A_CERT))) {
+            eprintln!(
+                "the server asking for a certificate was not pinned: {:?}",
+                known_hosts.pin("127.0.0.1", members_port)
+            );
             return 1;
         }
 

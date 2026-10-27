@@ -95,6 +95,17 @@ speak only 1.2, over which it would not be encrypted)",
         .and_then(|chain| chain.first())
         .map(|der| CertPin::of(der.as_ref()))
         .ok_or_else(|| invalid(format!("{host} showed no certificate")))?;
+    // The pin is checked where the handshake is signed; a handshake that was not, which none
+    // rustls speaks is, is still held to it.
+    if pin.is_some_and(|pin| *pin != certificate) {
+        return Err(NetError::Tls(TlsError {
+            kind: TlsErrorKind::InvalidCertificate,
+            host: host.to_string(),
+            message: format!("{host}:{port} showed another certificate than the pinned one, unsigned"),
+            certificate: None,
+            fingerprint: None,
+        }));
+    }
     Ok((stream, certificate))
 }
 
@@ -134,33 +145,46 @@ fn failure(host: &str, port: u16, pin: Option<&CertPin>, seen: Option<CertPin>, 
 
 /// Accepts the certificate a first visit sees and only the pinned one after; checks the
 /// handshake signatures as any verifier does.
+///
+/// The pin is compared once the signature proved the server holds the certificate's key:
+/// rustls asks about the certificate first, and a mismatch found then would name a
+/// certificate anyone can copy for the user to trust.
 #[derive(Debug)]
 struct TofuVerifier {
     pin: Option<CertPin>,
     algorithms: WebPkiSupportedAlgorithms,
-    /// The certificate the server showed, for the error when it is not the pinned one.
+    /// The certificate the server showed and signed for, for the error when it is not the
+    /// pinned one.
     seen: Mutex<Option<CertPin>>,
 }
 
-impl ServerCertVerifier for TofuVerifier {
-    fn verify_server_cert(
-        &self,
-        end_entity: &CertificateDer<'_>,
-        _intermediates: &[CertificateDer<'_>],
-        _server_name: &ServerName<'_>,
-        _ocsp_response: &[u8],
-        _now: UnixTime,
-    ) -> Result<ServerCertVerified, rustls::Error> {
-        let seen = CertPin::of(end_entity.as_ref());
+impl TofuVerifier {
+    /// `cert` signed the handshake: refuse it unless it is the pinned one.
+    fn held_to_pin(&self, cert: &CertificateDer<'_>) -> Result<HandshakeSignatureValid, rustls::Error> {
+        let seen = CertPin::of(cert.as_ref());
         let trusted = self.pin.as_ref().is_none_or(|pin| *pin == seen);
         *self.seen.lock() = Some(seen);
         if trusted {
-            Ok(ServerCertVerified::assertion())
+            Ok(HandshakeSignatureValid::assertion())
         } else {
             Err(rustls::Error::InvalidCertificate(
                 CertificateError::ApplicationVerificationFailure,
             ))
         }
+    }
+}
+
+impl ServerCertVerifier for TofuVerifier {
+    /// Any certificate, until it signs the handshake ([`TofuVerifier::held_to_pin`]).
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        Ok(ServerCertVerified::assertion())
     }
 
     fn verify_tls12_signature(
@@ -169,7 +193,8 @@ impl ServerCertVerifier for TofuVerifier {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        verify_tls12_signature(message, cert, dss, &self.algorithms)
+        verify_tls12_signature(message, cert, dss, &self.algorithms)?;
+        self.held_to_pin(cert)
     }
 
     fn verify_tls13_signature(
@@ -178,7 +203,8 @@ impl ServerCertVerifier for TofuVerifier {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        verify_tls13_signature(message, cert, dss, &self.algorithms)
+        verify_tls13_signature(message, cert, dss, &self.algorithms)?;
+        self.held_to_pin(cert)
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {

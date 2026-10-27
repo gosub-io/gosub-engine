@@ -246,6 +246,36 @@ pub fn serve<C: RenderConfiguration>(
                     gosub_sandbox::exit_now(1);
                 }
             }
+            ToRenderer::MediaLanded {
+                tab,
+                scroll_y,
+                known_tiles,
+            } => {
+                media_store.set_partition(documents.get(&tab).copied().unwrap_or_default());
+                // Bounded like a resize: the page is laid out again, nothing is parsed.
+                if gosub_sandbox::arm_deadline(INPUT_DEADLINE).is_err() {
+                    gosub_sandbox::exit_now(1);
+                }
+                let known: HashSet<u64> = known_tiles.into_iter().collect();
+                let (pass, hit_regions) = match pages.get_mut(&tab) {
+                    Some(page) => {
+                        touch(&mut recent, &tab);
+                        let out = page.media_landed(scroll_y, &known);
+                        (out.pass, page.hit_regions.clone())
+                    }
+                    None => (no_page_pass(), Vec::new()),
+                };
+                if !stream_rendered(
+                    &mut link.lock(),
+                    &pass.tiles,
+                    &pass.evicted,
+                    pass.summary,
+                    hit_regions,
+                    Vec::new(),
+                ) {
+                    gosub_sandbox::exit_now(1);
+                }
+            }
             ToRenderer::Scroll { tab, scroll_y } => {
                 media_store.set_partition(documents.get(&tab).copied().unwrap_or_default());
                 let run: PagePass<C> = Box::new(move |page| page.render(Some(scroll_y), &HashSet::new()));
