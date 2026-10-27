@@ -104,7 +104,7 @@ impl SqliteCookieStore {
         Ok(Arc::new_cyclic(|store_self| Self {
             pool,
             jars: RwLock::new(HashMap::new()),
-            store_self: store_self.clone(),
+            store_self: store_self.clone() as WeakCookieStore,
         }))
     }
 

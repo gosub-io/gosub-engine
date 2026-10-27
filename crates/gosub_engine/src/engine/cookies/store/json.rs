@@ -91,7 +91,7 @@ impl JsonCookieStore {
             jars: RwLock::new(HashMap::new()),
             provisioning: Mutex::new(()),
             file: Mutex::new(FileState::default()),
-            store_self: store_self.clone(),
+            store_self: store_self.clone() as WeakCookieStore,
         }))
     }
 
