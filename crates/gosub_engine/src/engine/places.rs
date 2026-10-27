@@ -191,6 +191,7 @@ pub use sqlite::SqlitePlaces;
 #[cfg(feature = "sqlite_places")]
 mod sqlite {
     use super::{now_secs, Bookmark, Places, VisitedPage};
+    use crate::engine::storage::sqlite_key::{self, SqliteKey};
     use crate::EngineError;
     use r2d2::Pool;
     use r2d2_sqlite::rusqlite::params;
@@ -212,7 +213,12 @@ mod sqlite {
 
     impl SqlitePlaces {
         pub fn new(path: PathBuf) -> Result<Self, EngineError> {
-            let manager = SqliteConnectionManager::file(path);
+            Self::open(path, None)
+        }
+
+        /// Like [`new`](Self::new), encrypted with `key` when given.
+        pub fn open(path: PathBuf, key: Option<SqliteKey>) -> Result<Self, EngineError> {
+            let manager = sqlite_key::manager(&path, key).map_err(|e| EngineError::Internal(anyhow::anyhow!(e)))?;
             let pool = Pool::new(manager).map_err(|e| EngineError::Internal(anyhow::anyhow!(e)))?;
             {
                 let conn = pool.get().map_err(|e| EngineError::Internal(anyhow::anyhow!(e)))?;

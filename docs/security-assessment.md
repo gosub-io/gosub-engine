@@ -191,8 +191,8 @@ a renderer.
   (`ZoneBuilder::client_identities`, `SqliteClientIdentities`) goes out on
   every request to its host and port at or below its path, including hops
   a redirect leads to, and to no other server. Its key is stored as given:
-  `SqliteClientIdentities` writes it in the clear, so a profile that should
-  protect it needs an encrypted store. With the network process on, the key
+  `SqliteClientIdentities` opened without a key writes it in the clear, so a
+  profile that should protect it opens the store with one (SQLCipher). With the network process on, the key
   of the identity for the URL travels into the network process with the
   request, which a compromised network process can keep and use elsewhere;
   it gets only the identity the request needs. A handshake presenting an

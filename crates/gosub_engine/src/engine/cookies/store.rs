@@ -84,7 +84,7 @@ mod json;
 mod sqlite;
 
 use crate::engine::cookies::cookie_jar::DefaultCookieJar;
-use crate::engine::cookies::cookies::{CookieJarHandle, CookieStoreHandle};
+use crate::engine::cookies::cookies::{CookieJarHandle, WeakCookieStore};
 use crate::engine::cookies::persistent_cookie_jar::PersistentCookieJar;
 use crate::engine::zone::ZoneId;
 use parking_lot::RwLock;
@@ -137,7 +137,7 @@ pub trait CookieStore: Send + Sync {
 /// `store_self` (so every mutation writes back to the store), and caches the handle.
 pub(crate) fn provision_persistent_jar(
     jars: &RwLock<HashMap<ZoneId, CookieJarHandle>>,
-    store_self: &RwLock<Option<CookieStoreHandle>>,
+    store_self: &WeakCookieStore,
     zone_id: ZoneId,
     load: impl FnOnce() -> DefaultCookieJar,
 ) -> Option<CookieJarHandle> {
@@ -148,15 +148,7 @@ pub(crate) fn provision_persistent_jar(
     let mut loaded = load();
     loaded.enforce_limits();
     let inner: CookieJarHandle = loaded.into();
-    let store = match store_self.read().as_ref() {
-        Some(store) => store.clone(),
-        None => {
-            log::error!("store_self not initialized; cannot provision cookie jar");
-            return None;
-        }
-    };
-
-    let handle = CookieJarHandle::new(PersistentCookieJar::new(zone_id, inner, store));
+    let handle = CookieJarHandle::new(PersistentCookieJar::bound_to(zone_id, inner, store_self.clone()));
 
     // Re-check under the write lock: another thread may have provisioned this zone's jar between
     // our read miss and now. Every `PersistentCookieJar` snapshots the whole jar back to the store,
@@ -207,4 +199,44 @@ pub(crate) fn persisted_snapshot(jar: &(dyn crate::cookies::CookieJar + Send + S
     let persist = jar.as_any().downcast_ref::<PersistentCookieJar>()?;
     let inner = persist.inner.read();
     inner.as_any().downcast_ref::<DefaultCookieJar>().cloned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CookieStore, JsonCookieStore, SqliteCookieStore};
+    use crate::engine::zone::ZoneId;
+    use std::sync::{Arc, Weak};
+    use url::Url;
+
+    /// A store and the jar it handed out do not keep each other alive: once the embedder
+    /// drops the store, it goes (and a keyed store's pool with its key), and the jar still
+    /// takes cookies without writing them anywhere.
+    fn drops_with_a_jar_still_out(store: Arc<dyn CookieStore + Send + Sync>) {
+        let zone = ZoneId::new();
+        let jar = store.jar_for(zone).expect("a jar");
+        let url = Url::parse("https://example.com/").unwrap();
+        let mut headers = http::HeaderMap::new();
+        headers.append(http::header::SET_COOKIE, "id=1; Max-Age=3600".parse().unwrap());
+        jar.write().store_response_cookies(&url, &headers, None);
+
+        let gone: Weak<dyn CookieStore + Send + Sync> = Arc::downgrade(&store);
+        drop(store);
+        assert!(gone.upgrade().is_none(), "the store outlived its last handle");
+
+        headers.insert(http::header::SET_COOKIE, "id=2; Max-Age=3600".parse().unwrap());
+        jar.write().store_response_cookies(&url, &headers, None);
+        assert!(jar.read().get_all_cookies().iter().any(|(_, c)| c.contains("id=2")));
+    }
+
+    #[test]
+    fn a_sqlite_store_drops_with_a_jar_still_out() {
+        let dir = tempfile::tempdir().unwrap();
+        drops_with_a_jar_still_out(SqliteCookieStore::new(dir.path().join("cookies.sqlite")).unwrap());
+    }
+
+    #[test]
+    fn a_json_store_drops_with_a_jar_still_out() {
+        let dir = tempfile::tempdir().unwrap();
+        drops_with_a_jar_still_out(JsonCookieStore::new(dir.path().join("cookies.json")).unwrap());
+    }
 }

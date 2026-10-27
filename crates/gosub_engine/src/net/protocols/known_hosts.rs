@@ -74,6 +74,15 @@ pub trait KnownHosts: Send + Sync + std::fmt::Debug {
     /// Record `pin` for `host`:`port`, replacing any there: also how an embedder trusts the
     /// new certificate a refused visit named.
     fn remember(&self, host: &str, port: u16, pin: &CertPin);
+    /// Record `pin` for `host`:`port` only when nothing is pinned there: how a first visit is
+    /// recorded, so two first visits at once keep the first pin rather than the last. A store
+    /// should do the check and the write as one step; this default does them one after the
+    /// other, and records nothing when the pin cannot be read.
+    fn remember_if_absent(&self, host: &str, port: u16, pin: &CertPin) {
+        if matches!(self.pin(host, port), Ok(None)) {
+            self.remember(host, port, pin);
+        }
+    }
     /// Drop the pin for `host`:`port`, so the next connection is a first visit again, as
     /// when the user clears what the profile remembers.
     fn forget(&self, host: &str, port: u16);
@@ -110,6 +119,13 @@ impl KnownHosts for InMemoryKnownHosts {
         self.pins
             .lock()
             .insert((host.cow_to_ascii_lowercase().into_owned(), port), pin.clone());
+    }
+
+    fn remember_if_absent(&self, host: &str, port: u16, pin: &CertPin) {
+        self.pins
+            .lock()
+            .entry((host.cow_to_ascii_lowercase().into_owned(), port))
+            .or_insert_with(|| pin.clone());
     }
 
     fn forget(&self, host: &str, port: u16) {
@@ -195,7 +211,8 @@ impl RequestPins {
     }
 
     /// Record the certificates first visits showed, each where nothing is pinned yet: a pin
-    /// that was there stays, since the protocol refused a different certificate already.
+    /// that was there stays, since the protocol refused a different certificate already, and
+    /// so does one another request recorded meanwhile.
     /// Only for the server asked for and the servers the request asked about, so a report
     /// cannot plant a pin for a server the request never went to.
     pub fn record(&self, seen: &[ServerPin]) {
@@ -205,8 +222,8 @@ impl RequestPins {
                     .others
                     .lock()
                     .contains(&(host.cow_to_ascii_lowercase().into_owned(), *port));
-            if reached && matches!(self.store.pin(host, *port), Ok(None)) {
-                self.store.remember(host, *port, pin);
+            if reached {
+                self.store.remember_if_absent(host, *port, pin);
             }
         }
     }
@@ -248,6 +265,7 @@ pub use sqlite::SqliteKnownHosts;
 #[cfg(feature = "sqlite_known_hosts")]
 mod sqlite {
     use super::{CertPin, KnownHosts};
+    use crate::engine::storage::sqlite_key::{self, SqliteKey};
     use crate::EngineError;
     use cow_utils::CowUtils;
     use r2d2::Pool;
@@ -270,9 +288,14 @@ mod sqlite {
     }
 
     impl SqliteKnownHosts {
-        /// Opens (or creates) the database at `path`.
+        /// Opens (or creates) the plaintext database at `path`.
         pub fn new(path: PathBuf) -> Result<Self, EngineError> {
-            let manager = SqliteConnectionManager::file(path);
+            Self::open(path, None)
+        }
+
+        /// Opens (or creates) the database at `path`, encrypted with `key` when there is one.
+        pub fn open(path: PathBuf, key: Option<SqliteKey>) -> Result<Self, EngineError> {
+            let manager = sqlite_key::manager(&path, key).map_err(|e| EngineError::Internal(anyhow::anyhow!(e)))?;
             let pool = Pool::new(manager).map_err(|e| EngineError::Internal(anyhow::anyhow!(e)))?;
             pool.get()
                 .map_err(|e| EngineError::Internal(anyhow::anyhow!(e)))?
@@ -332,6 +355,17 @@ mod sqlite {
                 conn.execute(
                     "INSERT INTO known_hosts (host, port, pin) VALUES (?1, ?2, ?3)
                      ON CONFLICT (host, port) DO UPDATE SET pin = excluded.pin",
+                    params![&*host, port, pin.as_str()],
+                )
+            });
+        }
+
+        fn remember_if_absent(&self, host: &str, port: u16, pin: &CertPin) {
+            let host = host.cow_to_ascii_lowercase();
+            self.run("store a first pin", |conn| {
+                conn.execute(
+                    "INSERT INTO known_hosts (host, port, pin) VALUES (?1, ?2, ?3)
+                     ON CONFLICT (host, port) DO NOTHING",
                     params![&*host, port, pin.as_str()],
                 )
             });
@@ -434,6 +468,53 @@ mod tests {
         pins.record(&[seen("host.test", 1965, b"new"), seen("other.test", 1965, b"new")]);
         assert_eq!(inner.0.pin("host.test", 1965), Ok(Some(CertPin::of(b"old"))));
         assert_eq!(inner.0.pin("other.test", 1965), Ok(None));
+    }
+
+    /// A store read before another request's first visit was recorded, as two first visits
+    /// to one server at once both see.
+    #[derive(Debug)]
+    struct ReadTooEarly(KnownHostsHandle);
+
+    impl KnownHosts for ReadTooEarly {
+        fn pin(&self, _host: &str, _port: u16) -> Result<Option<CertPin>, String> {
+            Ok(None)
+        }
+        fn remember(&self, host: &str, port: u16, pin: &CertPin) {
+            self.0.remember(host, port, pin);
+        }
+        fn remember_if_absent(&self, host: &str, port: u16, pin: &CertPin) {
+            self.0.remember_if_absent(host, port, pin);
+        }
+        fn forget(&self, host: &str, port: u16) {
+            self.0.forget(host, port);
+        }
+    }
+
+    /// Of two first visits at once, the one recorded first keeps its pin.
+    fn the_first_of_two_first_visits_keeps_its_pin(inner: KnownHostsHandle) {
+        let store: KnownHostsHandle = Arc::new(ReadTooEarly(inner.clone()));
+        let url = Url::parse("gemini://host.test/").unwrap();
+        let (one, two) = (
+            RequestPins::for_url(&store, &url, 1965).unwrap(),
+            RequestPins::for_url(&store, &url, 1965).unwrap(),
+        );
+        one.record(&[seen("host.test", 1965, b"one")]);
+        two.record(&[seen("host.test", 1965, b"two")]);
+        assert_eq!(inner.pin("host.test", 1965), Ok(Some(CertPin::of(b"one"))));
+    }
+
+    #[test]
+    fn the_first_of_two_first_visits_keeps_its_pin_in_memory() {
+        the_first_of_two_first_visits_keeps_its_pin(InMemoryKnownHosts::handle());
+    }
+
+    #[cfg(feature = "sqlite_known_hosts")]
+    #[test]
+    fn the_first_of_two_first_visits_keeps_its_pin_in_sqlite() {
+        let dir = tempfile::tempdir().unwrap();
+        the_first_of_two_first_visits_keeps_its_pin(Arc::new(
+            SqliteKnownHosts::new(dir.path().join("known_hosts.db")).unwrap(),
+        ));
     }
 
     #[test]

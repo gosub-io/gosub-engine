@@ -1695,6 +1695,88 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A gemini page's link to its own URL loads it again in place of its entry. Its origin is
+    /// opaque, so this goes through the link path that carries the page as initiator.
+    #[cfg(feature = "gemini")]
+    #[tokio::test]
+    async fn a_gemini_self_link_replaces_its_entry() {
+        use crate::events::{Modifiers, NavigationEvent, TabCommand};
+        use crate::net::gemini::testing::{serve_each, A};
+
+        let page: &[u8] = b"20 text/gemini\r\n# Self\r\n=> / again\r\n";
+        let (port, server) = serve_each(&[(A, page), (A, page)], true).await;
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        // The last history snapshot once a navigation finishes.
+        let mut finished = async || {
+            let mut last = None;
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    match events.recv().await {
+                        Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::HistoryChanged { history },
+                            ..
+                        }) => last = Some(history),
+                        Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::Finished { .. },
+                            ..
+                        }) => break,
+                        Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::Failed { error, .. },
+                            ..
+                        }) => panic!("the gemini page failed: {error:?}"),
+                        Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(e) => panic!("event stream closed: {e}"),
+                    }
+                }
+            })
+            .await
+            .expect("timed out waiting for the gemini page");
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            while let Ok(e) = events.try_recv() {
+                if let EngineEvent::Navigation {
+                    event: NavigationEvent::HistoryChanged { history },
+                    ..
+                } = e
+                {
+                    last = Some(history);
+                }
+            }
+            last.expect("a history snapshot")
+        };
+
+        let url = format!("gemini://127.0.0.1:{port}/");
+        tab.navigate(url.clone()).await.expect("navigate");
+        assert_eq!(finished().await.entries.len(), 1);
+
+        for key in ["Tab", "Enter"] {
+            let _ = tab
+                .send(TabCommand::KeyDown {
+                    key: key.into(),
+                    code: key.into(),
+                    modifiers: Modifiers::empty(),
+                })
+                .await;
+        }
+        let h = finished().await;
+        assert_eq!(h.entries.len(), 1, "the self-link pushed an entry");
+        assert_eq!(h.entries[0].url.as_str(), url);
+        let line = Some(format!("{url}\r\n").into_bytes());
+        assert_eq!(
+            server.await.unwrap(),
+            [line.clone(), line],
+            "the link did not load the page again"
+        );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// A gemini server asking for a client certificate fails the navigation with what it
     /// asked; once the embedder adds an identity for that place to the zone's store, the
     /// next visit presents it, and a visit outside its scope does not.
@@ -5049,6 +5131,118 @@ mod tests {
             served_before,
             "internal pages must never hit the network"
         );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A failed back leaves the cursor on the entry it was going to while the old page stays
+    /// shown. That page linking to its own URL then pushes from the cursor; replacing would
+    /// write it over the entry the user went back to.
+    #[tokio::test]
+    async fn a_failed_back_keeps_the_entry_it_was_going_to() {
+        use crate::events::NavigationEvent;
+        use crate::tab::HistoryEntryId;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // Serves every page, until `fail_a` is set: from then on /a closes without an answer.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let fail_a = Arc::new(AtomicBool::new(false));
+        let fail_srv = fail_a.clone();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let fail_a = fail_srv.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let Some(path) = req.split_whitespace().nth(1).map(str::to_string) else {
+                        return;
+                    };
+                    if path == "/a" && fail_a.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    let body = format!("<html><head><title>{path}</title></head><body>{path}</body></html>");
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(body.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        // The last HistoryChanged once `event` has been seen.
+        async fn history_after(
+            rx: &mut tokio::sync::broadcast::Receiver<EngineEvent>,
+            event: impl Fn(&NavigationEvent) -> bool,
+        ) -> crate::tab::HistorySnapshot {
+            let mut last = None;
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    match rx.recv().await {
+                        Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::HistoryChanged { history },
+                            ..
+                        }) => last = Some(history),
+                        Ok(EngineEvent::Navigation { event: e, .. }) if event(&e) => break,
+                        Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(e) => panic!("event stream closed: {e}"),
+                    }
+                }
+            })
+            .await
+            .expect("timed out waiting for the navigation");
+            // A commit may report its history just after the event that ended the load.
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            while let Ok(e) = rx.try_recv() {
+                if let EngineEvent::Navigation {
+                    event: NavigationEvent::HistoryChanged { history },
+                    ..
+                } = e
+                {
+                    last = Some(history);
+                }
+            }
+            last.expect("a history snapshot")
+        }
+        let finished = |url: &str| {
+            let url = url.to_string();
+            move |e: &NavigationEvent| matches!(e, NavigationEvent::Finished { url: u, .. } if u.as_str() == url)
+        };
+
+        let a = format!("http://127.0.0.1:{port}/a");
+        let b = format!("http://127.0.0.1:{port}/b");
+        tab.navigate(a.clone()).await.expect("navigate a");
+        history_after(&mut event_rx, finished(&a)).await;
+        tab.navigate(b.clone()).await.expect("navigate b");
+        let h = history_after(&mut event_rx, finished(&b)).await;
+        assert_eq!(h.entries.len(), 2);
+
+        fail_a.store(true, Ordering::SeqCst);
+        tab.go_back().await.expect("go back");
+        let h = history_after(&mut event_rx, |e| matches!(e, NavigationEvent::Failed { .. })).await;
+        assert_eq!(
+            h.current,
+            Some(HistoryEntryId(0)),
+            "the cursor stays where back took it"
+        );
+
+        tab.navigate(b.clone()).await.expect("navigate to the shown url");
+        let h = history_after(&mut event_rx, finished(&b)).await;
+        assert_eq!(h.entries[0].url.as_str(), a, "the entry back went to was overwritten");
+        assert_eq!(h.entries.len(), 3);
+        assert_eq!(h.current, Some(HistoryEntryId(2)));
+        assert_eq!(h.entries[2].parent, Some(HistoryEntryId(0)));
 
         engine.close_zone(zone).await;
         engine.shutdown().await.expect("shutdown");

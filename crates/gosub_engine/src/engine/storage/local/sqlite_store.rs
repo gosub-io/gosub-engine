@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::engine::storage::area::{LocalStore, StorageArea};
+use crate::engine::storage::sqlite_key::SqliteKey;
 use crate::engine::storage::types::PartitionKey;
 use crate::zone::ZoneId;
 
@@ -21,6 +22,11 @@ pub struct SqliteLocalStore {
 impl SqliteLocalStore {
     /// Creates a new SQLite local store with the specified database file path.
     pub fn new(path: &str) -> Result<Self> {
+        Self::open(path, None)
+    }
+
+    /// Like [`new`](Self::new), encrypted with `key` when given.
+    pub fn open(path: &str, key: Option<SqliteKey>) -> Result<Self> {
         let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_URI;
 
         // One-time setup on a single connection, before the pool exists. Both steps take the
@@ -29,6 +35,9 @@ impl SqliteLocalStore {
         // logged by r2d2 as a bare "database is locked" before it retried. WAL mode is a
         // property of the file, so setting it once is enough.
         let setup = Connection::open_with_flags(path, flags)?;
+        if let Some(key) = &key {
+            key.apply(&setup)?;
+        }
         setup.busy_timeout(BUSY_TIMEOUT)?;
         setup.pragma_update(None, "journal_mode", "WAL")?;
         setup.execute_batch(
@@ -44,11 +53,16 @@ impl SqliteLocalStore {
         )?;
         drop(setup);
 
-        // Per-connection settings only; neither takes a lock.
-        let manager = SqliteConnectionManager::file(path).with_flags(flags).with_init(|c| {
-            c.busy_timeout(BUSY_TIMEOUT)?;
-            c.pragma_update(None, "foreign_keys", "ON")
-        });
+        // Per-connection settings only; none takes a lock. The key goes first.
+        let manager = SqliteConnectionManager::file(path)
+            .with_flags(flags)
+            .with_init(move |c| {
+                if let Some(key) = &key {
+                    key.apply(c)?;
+                }
+                c.busy_timeout(BUSY_TIMEOUT)?;
+                c.pragma_update(None, "foreign_keys", "ON")
+            });
 
         let pool = Pool::builder()
             .max_size(16)

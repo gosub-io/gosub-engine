@@ -17,9 +17,17 @@ cow-utils = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rusqlite = "0.39.0"
+zeroize = "1.8.2"
 
 [dev-dependencies]
 testing_logger = "0.1.1"
+tempfile = { workspace = true }
+
+[features]
+# Encrypted SQLite (SQLCipher) for `SqliteKey`. Links the system libcrypto on Linux and
+# CommonCrypto on Apple; the vendored variant builds OpenSSL (Windows, Android).
+sqlcipher = ["rusqlite/bundled-sqlcipher"]
+sqlcipher-vendored-openssl = ["sqlcipher", "rusqlite/bundled-sqlcipher-vendored-openssl"]
 
 [lints]
 workspace = true

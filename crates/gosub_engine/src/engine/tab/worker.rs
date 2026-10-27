@@ -2129,12 +2129,15 @@ impl<C: RenderConfiguration> TabWorker<C> {
         };
 
         // To the document's own URL, by the user or a page of the same origin, the navigation
-        // takes the current entry's place (HTML's navigate: "replace").
+        // takes the current entry's place (HTML's navigate: "replace"). Only while the cursor
+        // is on that document's entry: a traversal that failed left it on another one, which
+        // the load would overwrite.
         let history = match history {
             HistoryIntent::Push
                 if !self.is_loading
                     && self.current_url.as_ref() == Some(&url)
-                    && initiator.is_none_or(|from| from.origin() == url.origin()) =>
+                    && self.history.current_entry().is_some_and(|e| e.url == url)
+                    && initiator.is_none_or(|from| same_origin(from, &url)) =>
             {
                 HistoryIntent::Replace
             }
@@ -3478,8 +3481,39 @@ fn navigation(
         .with_mixed_content(gosub_sonar::MixedContentPolicy::Allow)
 }
 
+/// Whether a page at `from` is of `url`'s origin. A URL without a tuple origin (gemini, file,
+/// data) gets a fresh opaque origin from every `origin()` call, equal to nothing; its own
+/// document is still the same origin as itself, and that is the page linking to its own URL.
+fn same_origin(from: &Url, url: &Url) -> bool {
+    from == url || from.origin() == url.origin()
+}
+
 #[cfg(test)]
 mod tests {
+    mod same_origin {
+        use super::super::same_origin;
+        use url::Url;
+
+        fn url(s: &str) -> Url {
+            Url::parse(s).unwrap()
+        }
+
+        #[test]
+        fn a_gemini_page_is_the_same_origin_as_itself() {
+            let page = url("gemini://h.test/page");
+            assert!(page.origin() != page.origin(), "opaque origins equal nothing");
+            assert!(same_origin(&page, &page));
+            assert!(!same_origin(&url("gemini://h.test/other"), &page));
+        }
+
+        #[test]
+        fn tuple_origins_compare_by_scheme_host_and_port() {
+            assert!(same_origin(&url("https://h.test/a"), &url("https://h.test/b")));
+            assert!(!same_origin(&url("https://other.test/a"), &url("https://h.test/a")));
+            assert!(!same_origin(&url("http://h.test/a"), &url("https://h.test/a")));
+        }
+    }
+
     /// A link or form carries its document as the navigation's initiator; the user's own
     /// navigation carries nobody.
     mod navigation_initiator {
