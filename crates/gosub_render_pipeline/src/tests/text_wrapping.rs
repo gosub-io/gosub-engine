@@ -357,3 +357,19 @@ fn a_long_word_breaks_beside_the_text_it_touches() {
     assert_eq!(text[0].width, text[2].width, "{text:?}");
     assert!(text[0].width > 4.0, "{:?}", text[0]);
 }
+
+/// A `nowrap` line holding an inline-block cannot be measured before layout; it stays beside the
+/// float rather than being sent below it.
+#[test]
+fn a_nowrap_line_with_an_inline_block_stays_beside_a_float() {
+    let (tree, _, [block]) = lay_out(
+        r#"<body style="margin: 0"><div id="block" style="width: 300px; white-space: nowrap"><div style="float: left; width: 150px; height: 60px"></div>Go <span style="display: inline-block; width: 20px; height: 10px"></span> on</div></body>"#,
+        ["block"],
+    );
+    let text = text_boxes(&tree, block);
+    assert!(!text.is_empty());
+    for piece in &text {
+        assert!(piece.y < 60.0, "beside the float: {text:?}");
+        assert!(piece.x >= 150.0, "beside the float: {text:?}");
+    }
+}
