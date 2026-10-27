@@ -190,6 +190,13 @@ impl std::fmt::Debug for IdentityWire {
     }
 }
 
+/// The key is wiped with the copy that carried it, as `ClientIdentity` wipes its own.
+impl Drop for IdentityWire {
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.key);
+    }
+}
+
 impl From<&crate::net::protocols::identities::ClientIdentity> for IdentityWire {
     fn from(identity: &crate::net::protocols::identities::ClientIdentity) -> Self {
         Self {
@@ -204,16 +211,18 @@ impl From<&crate::net::protocols::identities::ClientIdentity> for IdentityWire {
 }
 
 impl From<IdentityWire> for crate::net::protocols::identities::ClientIdentity {
-    fn from(wire: IdentityWire) -> Self {
+    fn from(mut wire: IdentityWire) -> Self {
+        use std::mem::take;
         Self {
             scope: crate::net::protocols::identities::IdentityScope {
-                host: wire.host,
+                host: take(&mut wire.host),
                 port: wire.port,
-                path: wire.path,
+                path: take(&mut wire.path),
             },
-            name: wire.name,
-            certificate: wire.certificate,
-            key: zeroize::Zeroizing::new(wire.key),
+            name: take(&mut wire.name),
+            certificate: take(&mut wire.certificate),
+            // The buffer itself moves, so no copy of the key is left behind.
+            key: zeroize::Zeroizing::new(take(&mut wire.key)),
         }
     }
 }
@@ -1034,6 +1043,25 @@ impl FetchOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An identity crosses whole: what the network process presents is what the zone holds.
+    #[test]
+    fn an_identity_crosses_whole() {
+        use crate::net::protocols::identities::{ClientIdentity, IdentityScope};
+        let identity = ClientIdentity {
+            scope: IdentityScope {
+                host: "h.test".into(),
+                port: 1965,
+                path: "/private/".into(),
+            },
+            name: "Visitor".into(),
+            certificate: b"cert".to_vec(),
+            key: zeroize::Zeroizing::new(b"key".to_vec()),
+        };
+        let wire = IdentityWire::from(&identity);
+        assert_eq!(ClientIdentity::from(wire.clone()), identity);
+        assert_eq!(wire.key, b"key");
+    }
 
     /// Who is asking survives the trip to the network process: origin, referrer,
     /// referrer policy and mixed-content handling all come out as they went in.
