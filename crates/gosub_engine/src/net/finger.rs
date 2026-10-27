@@ -18,9 +18,7 @@
 
 use crate::net::protocols::page::{self, escape, title_for};
 use crate::net::protocols::socket::{self, invalid};
-use crate::net::protocols::{Protocol, ProtocolResponse};
-use crate::net::ssrf::AddressSpace;
-use crate::net::types::NetError;
+use crate::net::protocols::{Protocol, ProtocolError, ProtocolRequest, ProtocolResponse};
 use async_trait::async_trait;
 use bytes::Bytes;
 use percent_encoding::percent_decode_str;
@@ -53,7 +51,8 @@ impl Protocol for Finger {
         false
     }
 
-    async fn fetch(&self, url: &Url, reach: AddressSpace) -> Result<ProtocolResponse, NetError> {
+    async fn fetch(&self, request: ProtocolRequest<'_>) -> Result<ProtocolResponse, ProtocolError> {
+        let (url, reach) = (request.url, request.reach);
         let request = Request::from_url(url).map_err(invalid)?;
         let addrs = socket::resolve(self, url, &request.host, request.port, reach).await?;
         let (body, peer) = socket::exchange(url, &request.host, &addrs, reach, &request.wire_line()).await?;
@@ -61,6 +60,8 @@ impl Protocol for Finger {
             content_type: "text/html; charset=utf-8".into(),
             body: Bytes::from(text_page(url, &body)),
             peer_addr: peer,
+            certificates: Vec::new(),
+            final_url: None,
         })
     }
 }
@@ -171,6 +172,8 @@ fn printable(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::net::ssrf::AddressSpace;
+    use crate::net::types::NetError;
     use gosub_sonar::net::types::BlockReason;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
@@ -205,7 +208,16 @@ mod tests {
     }
 
     async fn fetch(url: &str, reach: AddressSpace) -> Result<ProtocolResponse, NetError> {
-        Finger.fetch(&Url::parse(url).unwrap(), reach).await
+        let url = Url::parse(url).unwrap();
+        Finger
+            .fetch(ProtocolRequest {
+                url: &url,
+                reach,
+                pins: None,
+                identity: None,
+            })
+            .await
+            .map_err(|e| e.error)
     }
 
     #[test]

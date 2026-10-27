@@ -157,9 +157,10 @@ pub fn submission<C: RenderConfiguration>(
     };
     let post = attr("formmethod", "method").is_some_and(|m| m.eq_ignore_ascii_case("post"));
 
+    let data = data_set(doc, form, submitter);
     let mut encoded = url::form_urlencoded::Serializer::new(String::new());
-    for (k, v) in data_set(doc, form, submitter) {
-        encoded.append_pair(&k, &v);
+    for (k, v) in &data {
+        encoded.append_pair(k, v);
     }
     let encoded = encoded.finish();
     let referrer_policy = crate::html::link_referrer_policy(doc, form);
@@ -172,7 +173,13 @@ pub fn submission<C: RenderConfiguration>(
             referrer_policy,
         });
     }
-    url.set_query(if encoded.is_empty() { None } else { Some(&encoded) });
+    // A protocol of the engine's own may carry the data its own way: gemini's query is the
+    // input itself (`net::protocols::Protocol::form_query`), sent even when empty, as `?`.
+    let query = match crate::net::protocols::lookup(url.scheme()).and_then(|p| p.form_query(&data)) {
+        Some(query) => Some(query),
+        None => (!encoded.is_empty()).then_some(encoded),
+    };
+    url.set_query(query.as_deref());
     url.set_fragment(None);
     Some(Submission {
         url,
@@ -229,5 +236,19 @@ mod tests {
             submission.referrer_policy,
             Some(gosub_sonar::ReferrerPolicy::NoReferrer)
         );
+    }
+
+    /// Gemini input that is empty is still input: the query is there, empty, so the server
+    /// does not take the request for one that sent none and ask again.
+    #[cfg(feature = "gemini")]
+    #[test]
+    fn empty_gemini_input_is_an_empty_query() {
+        let doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>(
+            r#"<form id="x" method="get" action="gemini://h.test/search"><input name="input"></form>"#,
+        );
+        let form = doc.node_by_named_id("x").unwrap();
+        let base = url::Url::parse("gemini://h.test/search").unwrap();
+        let submission = submission(&doc, form, None, &base).expect("a submission");
+        assert_eq!(submission.url.as_str(), "gemini://h.test/search?");
     }
 }

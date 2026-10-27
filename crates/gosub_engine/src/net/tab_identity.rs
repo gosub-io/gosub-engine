@@ -4,6 +4,7 @@
 use crate::cookies::CookieJarHandle;
 use crate::engine::cookies::{hop_context, SameSiteContext};
 use crate::engine::types::NavigationId;
+use crate::net::protocols::identities::ZoneCertificates;
 use crate::net::req_ref_tracker::RequestReference;
 use crate::net::ssrf::AddressSpace;
 use crate::tab::TabId;
@@ -25,6 +26,9 @@ pub struct TabIdentity {
     /// The tab's effective jar, resolved once at tab creation from zone services
     /// and any per-tab override.
     pub cookie_jar: CookieJarHandle,
+    /// The zone's certificate pins, for an engine protocol that trusts on first use, and the
+    /// client identities it presents.
+    pub certificates: ZoneCertificates,
     /// The document the tab is currently loading or showing, used as the
     /// top-level URL for `SameSite` and partitioning decisions. `None` until the
     /// first navigation.
@@ -49,9 +53,10 @@ pub struct TabIdentity {
 }
 
 impl TabIdentity {
-    pub fn new(cookie_jar: CookieJarHandle) -> Self {
+    pub fn new(cookie_jar: CookieJarHandle, certificates: ZoneCertificates) -> Self {
         Self {
             cookie_jar,
+            certificates,
             top_level: None,
             navigations: VecDeque::new(),
             committed: None,
@@ -186,10 +191,10 @@ impl TabIdentityRegistry {
         Self::default()
     }
 
-    /// Record a tab's jar at creation. Its top-level URL is unset until it
-    /// navigates.
-    pub fn register(&self, tab_id: TabId, cookie_jar: CookieJarHandle) {
-        self.tabs.insert(tab_id, TabIdentity::new(cookie_jar));
+    /// Record a tab's jar and its zone's certificates at creation. Its
+    /// top-level URL is unset until it navigates.
+    pub fn register(&self, tab_id: TabId, cookie_jar: CookieJarHandle, certificates: ZoneCertificates) {
+        self.tabs.insert(tab_id, TabIdentity::new(cookie_jar, certificates));
     }
 
     /// Point a tab at the document it is now loading. Called before the
@@ -284,7 +289,11 @@ mod tests {
     fn registers_and_resolves_a_tab() {
         let reg = TabIdentityRegistry::new();
         let tab = TabId::new();
-        reg.register(tab, jar());
+        reg.register(
+            tab,
+            jar(),
+            crate::net::protocols::identities::ZoneCertificates::default(),
+        );
 
         let id = reg.get(tab).expect("registered tab resolves");
         assert!(id.top_level.is_none(), "no top-level before the first navigation");
@@ -294,7 +303,11 @@ mod tests {
     fn navigation_sets_the_top_level_document() {
         let reg = TabIdentityRegistry::new();
         let tab = TabId::new();
-        reg.register(tab, jar());
+        reg.register(
+            tab,
+            jar(),
+            crate::net::protocols::identities::ZoneCertificates::default(),
+        );
 
         let url = Url::parse("https://example.com/page").unwrap();
         reg.set_top_level(tab, url.clone());
@@ -313,7 +326,11 @@ mod tests {
 
         let reg = TabIdentityRegistry::new();
         let tab = TabId::new();
-        reg.register(tab, jar());
+        reg.register(
+            tab,
+            jar(),
+            crate::net::protocols::identities::ZoneCertificates::default(),
+        );
         let space = |r| reg.get(tab).unwrap().document_space(r);
         assert_eq!(space(None), Public, "nothing committed yet");
 
@@ -359,7 +376,11 @@ mod tests {
 
         let reg = TabIdentityRegistry::new();
         let tab = TabId::new();
-        reg.register(tab, jar());
+        reg.register(
+            tab,
+            jar(),
+            crate::net::protocols::identities::ZoneCertificates::default(),
+        );
         let reach = |n| reg.get(tab).unwrap().protocol_navigation_reach(n);
 
         let typed = NavigationId::new();
@@ -391,7 +412,11 @@ mod tests {
 
         let reg = TabIdentityRegistry::new();
         let tab = TabId::new();
-        reg.register(tab, jar());
+        reg.register(
+            tab,
+            jar(),
+            crate::net::protocols::identities::ZoneCertificates::default(),
+        );
         let shown = NavigationId::new();
         reg.record_navigation(tab, shown, Local);
         reg.commit_navigation(tab, shown);
@@ -411,7 +436,11 @@ mod tests {
         assert!(reg.get(TabId::new()).is_none());
 
         let tab = TabId::new();
-        reg.register(tab, jar());
+        reg.register(
+            tab,
+            jar(),
+            crate::net::protocols::identities::ZoneCertificates::default(),
+        );
         reg.remove(tab);
         assert!(reg.get(tab).is_none(), "a closed tab must not resolve");
     }
@@ -423,8 +452,16 @@ mod tests {
         let reg = TabIdentityRegistry::new();
         let (a, b) = (TabId::new(), TabId::new());
         let (jar_a, jar_b) = (jar(), jar());
-        reg.register(a, jar_a.clone());
-        reg.register(b, jar_b.clone());
+        reg.register(
+            a,
+            jar_a.clone(),
+            crate::net::protocols::identities::ZoneCertificates::default(),
+        );
+        reg.register(
+            b,
+            jar_b.clone(),
+            crate::net::protocols::identities::ZoneCertificates::default(),
+        );
 
         assert!(CookieJarHandle::ptr_eq(&reg.get(a).unwrap().cookie_jar, &jar_a));
         assert!(CookieJarHandle::ptr_eq(&reg.get(b).unwrap().cookie_jar, &jar_b));
@@ -436,7 +473,11 @@ mod tests {
         let reg = TabIdentityRegistry::new();
         let tab = TabId::new();
         let nav = NavigationId::new();
-        reg.register(tab, jar());
+        reg.register(
+            tab,
+            jar(),
+            crate::net::protocols::identities::ZoneCertificates::default(),
+        );
         reg.set_top_level(tab, Url::parse(target).unwrap());
         reg.start_navigation(tab, nav, initiator.map(|u| Url::parse(u).unwrap()));
         (reg, tab, nav)
@@ -526,7 +567,11 @@ mod tests {
     fn a_local_documents_loads_are_subrequests() {
         let reg = TabIdentityRegistry::new();
         let tab = TabId::new();
-        reg.register(tab, jar());
+        reg.register(
+            tab,
+            jar(),
+            crate::net::protocols::identities::ZoneCertificates::default(),
+        );
         reg.set_top_level(tab, Url::parse("https://local.test/").unwrap());
         let reference = RequestReference::Navigation(NavigationId::new());
         assert_eq!(
@@ -588,7 +633,11 @@ mod tests {
     fn documents_kept_are_bounded_and_newest_wins() {
         let reg = TabIdentityRegistry::new();
         let tab = TabId::new();
-        reg.register(tab, jar());
+        reg.register(
+            tab,
+            jar(),
+            crate::net::protocols::identities::ZoneCertificates::default(),
+        );
         for n in 0..(KEPT_DOCUMENTS as u64 + 10) {
             reg.note_document(
                 tab,

@@ -252,6 +252,9 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     pointer: Option<(f64, f64)>,
     /// Gestures in progress and what the last one asked of the embedder; see [`PageInput`].
     input: PageInput,
+    /// The document's autofocus candidates and whether they were processed; see
+    /// [`Autofocus`](crate::engine::focus::Autofocus).
+    autofocus: crate::engine::focus::Autofocus,
     /// Font system for caret placement when the rasterizer doesn't share one (tests, null
     /// backend): the same default the layouter falls back to, so measurements agree.
     fallback_font_system: std::sync::OnceLock<Arc<parking_lot::Mutex<dyn gosub_interface::font_system::FontSystem>>>,
@@ -454,6 +457,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             hover_probe: None,
             pointer: None,
             input: PageInput::default(),
+            autofocus: Default::default(),
             fallback_font_system: std::sync::OnceLock::new(),
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
@@ -719,6 +723,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.media_store.begin_document();
         self.note_invalidate("document");
         self.document = doc;
+        self.autofocus = Default::default();
         self.damage.rebuild();
         // The new document may ask for another layout width. Its first layout is still ahead, and
         // everything that depends on the size is rebuilt for it anyway, so the size is set here
@@ -1553,6 +1558,18 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             tile_list: None,
             tile_pixel_cache: Default::default(),
         });
+        // A whole page's render may say where autofocus put the focus; nothing else a
+        // renderer asks for is taken from a pass no input produced.
+        let unprompted = InputProvenance {
+            pointer: false,
+            chord: ClipboardChord::None,
+        };
+        self.remote_effects.extend(
+            page.effects
+                .into_iter()
+                .filter(|effect| matches!(effect, crate::fork_server::protocol::Effect::Focus { .. }))
+                .map(|effect| (unprompted, effect)),
+        );
     }
 
     /// The viewport moved on a page a resident renderer retains: fetch what
@@ -1633,13 +1650,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         };
         let hovered = self.hover_leaf.map(|id| id.into());
         let url = page_url.clone();
-        let source = self.document_source.clone();
-        let viewport = (self.viewport.width as f64, self.viewport.height as f64);
-        // An input or resize pass that lays the page out again ships it by
-        // content hash against what this tab holds; the other passes never answer
-        // `TileUnchanged`, so they look nothing up.
+        // A pass that lays the page out again ships it by content hash against what this
+        // tab holds; the other passes never answer `TileUnchanged`, so they look nothing up.
         let known = match &what {
-            RemotePass::Input(..) | RemotePass::Resize(_) => self.remote_tile_memory.clone(),
+            RemotePass::Input(..) | RemotePass::Resize(_) | RemotePass::Media => self.remote_tile_memory.clone(),
             _ => crate::fork_server::client::TileMemory::default(),
         };
         let (tx, rx) = std::sync::mpsc::channel();
@@ -1664,7 +1678,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     let mut renderer = renderer.lock();
                     // A navigation that took the renderer first has replaced
                     // the page this pass was for: running it now would render
-                    // (or, for media, retain) the wrong one.
+                    // the wrong one.
                     if !current() {
                         anyhow::bail!("superseded by a newer page");
                     }
@@ -1673,21 +1687,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                         RemotePass::Hover => renderer.hover(&remote_tab, hovered, &resources, &known),
                         RemotePass::Input(event, _) => renderer.input(&remote_tab, scroll_y, event, &resources, &known),
                         RemotePass::Resize(size) => renderer.resize(&remote_tab, size, scroll_y, &resources, &known),
-                        RemotePass::Media => {
-                            let Some(source) = source.as_deref() else {
-                                anyhow::bail!("no document source to render again");
-                            };
-                            renderer.navigate(
-                                source,
-                                &url,
-                                &remote_tab,
-                                viewport,
-                                scroll_y,
-                                &resources,
-                                &known,
-                                hovered,
-                            )
-                        }
+                        // The page laid out again, not built again: what the user did
+                        // on it (focus, typed text) stays.
+                        RemotePass::Media => renderer.media_landed(&remote_tab, scroll_y, &resources, &known),
                     }
                 })();
                 let _ = tx.send((result, started.elapsed()));
@@ -1766,7 +1768,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 // gets the tiles back.
                 if matches!(
                     inflight.what,
-                    PassKind::Scroll | PassKind::Hover | PassKind::Input(_) | PassKind::Resize
+                    PassKind::Scroll | PassKind::Hover | PassKind::Input(_) | PassKind::Resize | PassKind::Media
                 ) && page.summary.no_page
                 {
                     log::warn!("resident renderer has no retained page for this tab; rendering it again");
@@ -1815,8 +1817,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     self.scroll_dirty = true;
                 } else if matches!(inflight.what, PassKind::Media | PassKind::Resize) {
                     // A whole page, like a navigate: what came back replaces
-                    // this tab's tiles and geometry. A resize ships it by
-                    // content hash, so most of it is what the tab already held.
+                    // this tab's tiles and geometry. Both ship it by content
+                    // hash, so most of it is what the tab already held.
                     report_remote_pass(
                         inflight.what.event_kind(),
                         &self.remote_tab,
@@ -2510,6 +2512,27 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
     pub fn focused_node(&self) -> Option<NodeId> {
         self.document.as_ref().and_then(|d| d.focused_node())
+    }
+
+    /// Flush the document's autofocus candidates once it has laid out (HTML, "update the
+    /// rendering"), focusing the first that can be. Whether focus moved. A document a renderer
+    /// process holds flushes there.
+    pub fn flush_autofocus(&mut self) -> bool {
+        if !self.autofocus.pending() {
+            return false;
+        }
+        let (Some(doc), Some(ll)) = (self.document.clone(), self.active_layer_list().cloned()) else {
+            return false;
+        };
+        let rendered: std::collections::HashSet<NodeId> =
+            ll.layout_tree.arena.values().map(|el| el.dom_node_id).collect();
+        let fragment = self.document_url.as_ref().and_then(Url::fragment);
+        let Some(target) = self.autofocus.flush(&doc, Some(&rendered), fragment) else {
+            return false;
+        };
+        // The focusing steps; a text control shows the ring, as a click into it would.
+        let visible = crate::engine::focus::click_shows_ring(&doc, target);
+        self.set_focus(Some(target), visible)
     }
 
     /// Move focus to `node` (`None` blurs); `visible` = show the ring. See [`PageInput::set_focus`].
@@ -3967,6 +3990,40 @@ mod tests {
             ctx.set_document(Arc::new(doc), None);
             ctx.rebuild_pipeline_cache_if_needed();
             ctx
+        }
+
+        /// A whole page's render passes on where the renderer's autofocus put the focus, and
+        /// nothing else it asks for: no input produced that pass.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        #[test]
+        fn a_remote_page_brings_its_autofocus_and_nothing_else() {
+            use crate::fork_server::protocol::Effect;
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.adopt_remote_page(crate::fork_server::client::RenderedPage {
+                summary: Default::default(),
+                tiles: Vec::new(),
+                hit_regions: Vec::new(),
+                evicted: Default::default(),
+                effects: vec![
+                    Effect::Navigate {
+                        url: "https://elsewhere.test/".into(),
+                        post: false,
+                        body: None,
+                        referrer_policy: None,
+                    },
+                    Effect::Focus {
+                        focused: true,
+                        editable: true,
+                        bounds: None,
+                    },
+                    Effect::PasteRequested,
+                ],
+            });
+            let effects = ctx.take_remote_effects();
+            assert!(
+                matches!(effects.as_slice(), [(_, Effect::Focus { focused: true, .. })]),
+                "{effects:?}"
+            );
         }
 
         /// A remotely rendered page has no local layout; the renderer's target

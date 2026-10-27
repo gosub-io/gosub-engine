@@ -70,6 +70,8 @@ mod fetcher;
 mod file_loader;
 #[cfg(feature = "finger")]
 pub mod finger;
+#[cfg(feature = "gemini")]
+pub mod gemini;
 #[cfg(feature = "gopher")]
 pub mod gopher;
 mod io_runtime;

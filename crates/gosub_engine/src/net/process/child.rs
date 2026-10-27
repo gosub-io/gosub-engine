@@ -7,11 +7,14 @@
 use crate::net::emitter::null_emitter::NullEmitter;
 use crate::net::fetcher::{Fetcher, FetcherConfig};
 use crate::net::process::protocol::{
-    flatten_headers, rebuild_headers, CookieScope, FetchOutcome, FromNet, NetEventWire, NetFetch, RequestTag, ToNet,
+    flatten_headers, rebuild_headers, CookieScope, FetchOutcome, FromNet, NetEventWire, NetFetch, PinAnswer,
+    RequestTag, SeenCertificate, ToNet,
 };
+use crate::net::protocols::known_hosts::CertPin;
 use crate::net::ssrf::AddressSpace;
-use crate::net::types::{FetchRequest, FetchResult, RequestBody};
+use crate::net::types::{FetchRequest, FetchResult, NetError, RequestBody};
 use gosub_ipc::Endpoint;
+use gosub_sonar::net::tls::TlsError;
 use http::Method;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -138,6 +141,7 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
     });
 
     let cancels: Arc<Mutex<HashMap<RequestTag, CancellationToken>>> = Arc::new(Mutex::new(HashMap::new()));
+    let pin_answers: PinAnswers = Arc::new(Mutex::new(HashMap::new()));
     let tasks: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>> = Arc::new(Mutex::new(Vec::new()));
 
     // A read error ends the loop: it means the broker went away, which is a
@@ -157,6 +161,11 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
             ToNet::Cancel(tag) => {
                 if let Some(token) = cancels.lock().remove(&tag) {
                     token.cancel();
+                }
+            }
+            ToNet::Pin { tag, answer } => {
+                if let Some(waiter) = pin_answers.lock().remove(&tag) {
+                    let _ = waiter.send(answer);
                 }
             }
             // On a runtime worker, not here: requests run there, so that is
@@ -190,6 +199,7 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
                 let cancels = cancels.clone();
                 let tickets = tickets.clone();
                 let attached = attached.clone();
+                let pin_answers = pin_answers.clone();
                 // A scheme the engine speaks itself goes to its own client, not the fetcher.
                 let protocol = fetch
                     .url
@@ -197,7 +207,9 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
                     .and_then(|(scheme, _)| crate::net::protocols::lookup(scheme));
                 let handle = runtime.spawn(async move {
                     let performed = match protocol {
-                        Some(protocol) => Performed::Done(perform_protocol(protocol, fetch, token, &link_tx).await),
+                        Some(protocol) => {
+                            Performed::Done(perform_protocol(protocol, fetch, token, &link_tx, &pin_answers).await)
+                        }
                         None => perform(&fetcher, fetch, token, &tickets, &attached, &previews).await,
                     };
                     cancels.lock().remove(&tag);
@@ -268,6 +280,7 @@ fn share_large_body(
         headers,
         body,
         peer_addr,
+        certificates,
     } = outcome
     else {
         return Some(outcome);
@@ -280,6 +293,7 @@ fn share_large_body(
             headers,
             body,
             peer_addr,
+            certificates,
         });
     }
     let len = body.len();
@@ -299,6 +313,7 @@ fn share_large_body(
         headers,
         peer_addr,
         len: len as u64,
+        certificates,
     };
     // A write error means the broker went away; the recv loop ends the process.
     if link_tx.send(&head).is_ok() {
@@ -566,14 +581,65 @@ async fn perform(
     performed
 }
 
+/// What each request waiting on [`ToNet::Pin`] is answered through, by tag.
+type PinAnswers = Arc<Mutex<HashMap<RequestTag, tokio::sync::oneshot::Sender<PinAnswer>>>>;
+
+/// How long a request waits for the broker to say what is pinned at a server.
+const PIN_ANSWER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// A request's pins in this process: the one the broker sent with it, for the server it was
+/// asked for, and for any other server a redirect leads to, the broker's answer over the
+/// link. The broker keeps the pins; nothing here is remembered past the request.
+struct LinkPins {
+    tag: RequestTag,
+    asked_for: Option<(String, u16)>,
+    pin: Option<CertPin>,
+    link_tx: Arc<Mutex<gosub_ipc::EndpointTx>>,
+    answers: PinAnswers,
+}
+
+#[async_trait::async_trait]
+impl crate::net::protocols::known_hosts::Pins for LinkPins {
+    async fn pin(&self, host: &str, port: u16) -> Result<Option<CertPin>, String> {
+        if let Some((asked_host, asked_port)) = &self.asked_for {
+            if *asked_port == port && asked_host.eq_ignore_ascii_case(host) {
+                return Ok(self.pin.clone());
+            }
+        }
+        let (answer_tx, answer_rx) = tokio::sync::oneshot::channel();
+        self.answers.lock().insert(self.tag, answer_tx);
+        let ask = FromNet::AskPin {
+            tag: self.tag,
+            host: host.to_string(),
+            port,
+        };
+        if self.link_tx.lock().send(&ask).is_err() {
+            self.answers.lock().remove(&self.tag);
+            return Err("the broker went away".into());
+        }
+        match tokio::time::timeout(PIN_ANSWER_TIMEOUT, answer_rx).await {
+            Ok(Ok(PinAnswer::Pinned(text))) => CertPin::parse(&text)
+                .map(Some)
+                .ok_or_else(|| format!("the broker sent a malformed pin for {host}:{port}")),
+            Ok(Ok(PinAnswer::None)) => Ok(None),
+            Ok(Ok(PinAnswer::Refused)) => Err(format!("the broker would not say what is pinned at {host}:{port}")),
+            Ok(Err(_)) | Err(_) => {
+                self.answers.lock().remove(&self.tag);
+                Err(format!("the broker did not say what is pinned at {host}:{port}"))
+            }
+        }
+    }
+}
+
 /// Serve a request for one of the engine's own protocols (`net::protocols`): no fetcher, so
-/// no cookies, cache or redirects. The broker has already judged it against the protocol's
-/// policy; its events go over the link as a fetcher's would.
+/// no cookies or cache, and the protocol follows its own redirects. The broker has already
+/// judged it against the protocol's policy; its events go over the link as a fetcher's would.
 async fn perform_protocol(
     protocol: &'static dyn crate::net::protocols::Protocol,
     fetch: NetFetch,
     cancel: CancellationToken,
     link_tx: &Arc<Mutex<gosub_ipc::EndpointTx>>,
+    answers: &PinAnswers,
 ) -> FetchOutcome {
     let url = match Url::parse(&fetch.url) {
         Ok(u) => u,
@@ -585,20 +651,80 @@ async fn perform_protocol(
         preview: None,
         last_progress: std::sync::atomic::AtomicU64::new(0),
     });
-    match crate::net::protocols::run(protocol, &url, fetch.reach, &cancel, observer).await {
-        Some(FetchResult::Buffered { meta, body }) => FetchOutcome::Ok {
+    // A pin that is not one is the broker's mistake; checking against nothing would turn
+    // trust on first use into trust on every use, so the request fails instead.
+    let pin = match fetch.pin.as_deref().map(CertPin::parse) {
+        None => None,
+        Some(Some(pin)) => Some(pin),
+        Some(None) => return FetchOutcome::Error(format!("malformed certificate pin for {url}")),
+    };
+    let pins = LinkPins {
+        tag: fetch.tag,
+        asked_for: crate::net::protocols::known_hosts::key(&url, protocol.default_port()),
+        pin,
+        link_tx: Arc::clone(link_tx),
+        answers: Arc::clone(answers),
+    };
+    let identity = fetch
+        .identity
+        .clone()
+        .map(crate::net::protocols::identities::ClientIdentity::from);
+    let request = crate::net::protocols::ProtocolRequest {
+        url: &url,
+        reach: fetch.reach,
+        pins: protocol
+            .pins_certificates()
+            .then_some(&pins as &dyn crate::net::protocols::known_hosts::Pins),
+        identity: identity.as_ref(),
+    };
+    let served = crate::net::protocols::run(protocol, request, &cancel, observer).await;
+    answers.lock().remove(&fetch.tag);
+    let Some(served) = served else {
+        return FetchOutcome::Error("cancelled by the broker".into());
+    };
+    let certificates: Vec<SeenCertificate> = served
+        .certificates
+        .into_iter()
+        .map(|seen| SeenCertificate {
+            host: seen.host,
+            port: seen.port,
+            pin: seen.pin.to_string(),
+        })
+        .collect();
+    match served.result {
+        FetchResult::Buffered { meta, body } => FetchOutcome::Ok {
             status: meta.status,
             status_text: meta.status_text,
             final_url: meta.final_url.to_string(),
             headers: flatten_headers(&meta.headers),
             body: body.to_vec(),
             peer_addr: meta.peer_addr,
+            certificates,
         },
-        Some(FetchResult::Error(e)) => FetchOutcome::Error(e.to_string()),
-        Some(FetchResult::Stream { .. }) => {
-            FetchOutcome::Error(format!("{} answered with a stream", protocol.scheme()))
-        }
-        None => FetchOutcome::Error("cancelled by the broker".into()),
+        FetchResult::Error(NetError::Tls(TlsError {
+            message,
+            fingerprint: Some(seen),
+            ..
+        })) => FetchOutcome::CertificateChanged {
+            message,
+            seen: CertPin::from_digest(&seen).to_string(),
+            certificates,
+        },
+        FetchResult::Error(e) => match crate::net::protocols::identities::IdentityAsked::of(&e) {
+            Some(asked) => FetchOutcome::IdentityAsked {
+                url: asked.url.to_string(),
+                status: asked.status,
+                message: asked.message.clone(),
+                presented: asked.presented,
+                certificates,
+            },
+            None if certificates.is_empty() => FetchOutcome::Error(e.to_string()),
+            None => FetchOutcome::Failed {
+                message: e.to_string(),
+                certificates,
+            },
+        },
+        FetchResult::Stream { .. } => FetchOutcome::Error(format!("{} answered with a stream", protocol.scheme())),
     }
 }
 
@@ -696,6 +822,7 @@ async fn perform_inner(
             headers: reply_headers(&meta.headers),
             body: body.to_vec(),
             peer_addr: meta.peer_addr,
+            certificates: Vec::new(),
         }),
         Ok(FetchResult::Stream { meta, peek_buf, shared }) => {
             // What `Content-Length` promises past the peek, when it says.

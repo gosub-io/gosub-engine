@@ -169,6 +169,14 @@ pub enum ToRenderer {
         scroll_y: f64,
         known_tiles: Vec<u64>,
     },
+    /// Images the page went without have arrived at the broker: lay the retained document
+    /// out again, which asks for them once more, and answer like `Resize`. The document is
+    /// the one the user is on, focus and typed text included; nothing is parsed again.
+    MediaLanded {
+        tab: String,
+        scroll_y: f64,
+        known_tiles: Vec<u64>,
+    },
     /// Die without replying, the way a crashing renderer would. For tests
     /// of the broker's recovery; a renderer that obeys it was going to be
     /// trusted with nothing anyway.

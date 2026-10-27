@@ -85,6 +85,20 @@ fn a_gopher_navigation_is_served_from_the_network_process() {
     );
 }
 
+/// A gemini navigation is served over TLS from the network process, the certificate it
+/// showed is pinned in the zone, and another certificate on the same port is refused.
+#[cfg(feature = "gemini")]
+#[test]
+fn a_gemini_navigation_is_served_from_the_network_process_and_pinned() {
+    let out = run("engine-gemini");
+    assert!(
+        out.status.success(),
+        "gemini scenario failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// A body too large for one IPC frame crosses whole as a sealed memfd on Linux
 /// (and is refused, promptly, elsewhere), and the network process keeps serving.
 #[test]

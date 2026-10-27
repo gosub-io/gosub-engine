@@ -826,6 +826,8 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             config: None,
             id: None,
             services: ZoneServices::default(),
+            known_hosts: None,
+            client_identities: None,
         }
     }
 
@@ -1106,6 +1108,8 @@ pub struct ZoneBuilder<'a, C: RenderConfiguration> {
     config: Option<ZoneConfig>,
     id: Option<ZoneId>,
     services: ZoneServices,
+    known_hosts: Option<crate::net::protocols::known_hosts::KnownHostsHandle>,
+    client_identities: Option<crate::net::protocols::identities::ClientIdentitiesHandle>,
 }
 
 impl<C: RenderConfiguration> ZoneBuilder<'_, C> {
@@ -1160,12 +1164,37 @@ impl<C: RenderConfiguration> ZoneBuilder<'_, C> {
         self
     }
 
+    /// Where the zone keeps the certificates it trusted on first use (`gemini://`). The
+    /// default keeps them in memory for the zone's life, so every run trusts anew; pass a
+    /// persistent store for a profile. Never share one between a private zone and others.
+    pub fn known_hosts(mut self, known_hosts: crate::net::protocols::known_hosts::KnownHostsHandle) -> Self {
+        self.known_hosts = Some(known_hosts);
+        self
+    }
+
+    /// Where the zone keeps the client certificates it presents to servers that ask for one
+    /// (`gemini://`, `net::protocols::identities`). The default keeps them in memory for the
+    /// zone's life; pass a persistent store for a profile, encrypted, since it holds private
+    /// keys. Never share one between a private zone and others.
+    pub fn client_identities(mut self, identities: crate::net::protocols::identities::ClientIdentitiesHandle) -> Self {
+        self.client_identities = Some(identities);
+        self
+    }
+
     /// Create the zone. Fails with [`EngineError::ZoneLimitExceeded`] past `max_zones`, with
     /// [`EngineError::ZoneAlreadyExists`] for the [`id`](Self::id) of a zone the engine still
     /// holds, and with [`EngineError::CookieStore`] when the
     /// [`cookie_store`](Self::cookie_store) cannot provision the zone's jar.
     pub fn create(self) -> Result<Zone<C>, EngineError> {
-        self.engine.create_zone(self.config, self.services, self.id)
+        let (known_hosts, identities) = (self.known_hosts, self.client_identities);
+        let mut zone = self.engine.create_zone(self.config, self.services, self.id)?;
+        if let Some(known_hosts) = known_hosts {
+            zone.certificates.known_hosts = known_hosts;
+        }
+        if let Some(identities) = identities {
+            zone.certificates.identities = identities;
+        }
+        Ok(zone)
     }
 }
 
@@ -1570,6 +1599,200 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A gemini page loads through the whole tab pipeline, its certificate lands in the
+    /// zone's known hosts, and a later visit to the same port showing another certificate
+    /// fails before the request is sent, with the new certificate's fingerprint. Trusting
+    /// that one lets the next visit through, and a redirect it follows commits the page
+    /// under where it ended.
+    #[cfg(feature = "gemini")]
+    #[tokio::test]
+    async fn a_gemini_page_loads_and_its_certificate_is_pinned() {
+        use crate::events::NavigationEvent;
+        use crate::net::gemini::testing::{serve_each, A, A_CERT, B, B_CERT};
+        use crate::net::protocols::known_hosts::{key_for, CertPin, InMemoryKnownHosts, KnownHosts};
+
+        let page: &[u8] = b"20 text/gemini\r\n# Hello gemini\r\ntext\r\n";
+        let (port, server) = serve_each(
+            &[
+                (A, page),
+                (B, page),
+                (B, b"31 /moved\r\n"),
+                (B, b"20 text/gemini\r\n# Moved here\r\n"),
+            ],
+            true,
+        )
+        .await;
+        let store = Arc::new(InMemoryKnownHosts::new());
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine
+            .zone_builder()
+            .services(services())
+            .known_hosts(store.clone())
+            .create()
+            .expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        let mut outcome = async |url: String| {
+            tab.navigate(url).await.expect("navigate");
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    match events.recv().await {
+                        Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::Finished { .. },
+                            ..
+                        }) => return None,
+                        Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::Failed { error, .. },
+                            ..
+                        }) => return Some(error),
+                        Ok(_) => continue,
+                        Err(e) => panic!("event stream closed: {e}"),
+                    }
+                }
+            })
+            .await
+            .expect("timed out waiting for the gemini page")
+        };
+
+        let first = format!("gemini://127.0.0.1:{port}/");
+        assert!(outcome(first.clone()).await.is_none(), "the first visit failed");
+        assert_eq!(tab.title(), "Hello gemini");
+        assert_eq!(store.pin("127.0.0.1", port), Ok(Some(CertPin::of(A_CERT))));
+
+        let again = format!("gemini://127.0.0.1:{port}/again");
+        let error = outcome(again.clone()).await;
+        let Some(crate::LoadError::Tls {
+            message,
+            fingerprint: Some(fingerprint),
+            ..
+        }) = &error
+        else {
+            panic!("not a changed certificate: {error:?}");
+        };
+        assert!(message.contains("changed since the first visit"), "{message}");
+        assert_eq!(*fingerprint, CertPin::of(B_CERT).digest());
+        assert_eq!(store.pin("127.0.0.1", port), Ok(Some(CertPin::of(A_CERT))));
+
+        // What an embedder does when the user trusts the new certificate.
+        let (host, key_port) = key_for(&url::Url::parse(&again).unwrap()).unwrap();
+        store.remember(&host, key_port, &CertPin::from_digest(fingerprint));
+        assert!(
+            outcome(format!("gemini://127.0.0.1:{port}/old")).await.is_none(),
+            "the trusted certificate was refused"
+        );
+        assert_eq!(tab.title(), "Moved here");
+        assert_eq!(
+            tab.url().map(|u| u.to_string()),
+            Some(format!("gemini://127.0.0.1:{port}/moved"))
+        );
+        let line = |path: &str| Some(format!("gemini://127.0.0.1:{port}{path}\r\n").into_bytes());
+        assert_eq!(server.await.unwrap(), [line("/"), None, line("/old"), line("/moved")]);
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A gemini server asking for a client certificate fails the navigation with what it
+    /// asked; once the embedder adds an identity for that place to the zone's store, the
+    /// next visit presents it, and a visit outside its scope does not.
+    #[cfg(feature = "gemini")]
+    #[tokio::test]
+    async fn a_gemini_identity_is_presented_once_the_zone_holds_one() {
+        use crate::events::NavigationEvent;
+        use crate::net::gemini::testing::{serve_tls, Tls, A, A_CERT};
+        use crate::net::protocols::identities::{
+            ClientIdentities, ClientIdentity, IdentityScope, InMemoryClientIdentities,
+        };
+        use crate::net::protocols::known_hosts::{CertPin, InMemoryKnownHosts, KnownHosts};
+
+        let (port, server) = serve_tls(
+            &[
+                (A, b"60 Who are you?\r\n"),
+                (A, b"20 text/gemini\r\n# Welcome back\r\n"),
+                (A, b"20 text/gemini\r\n# Public\r\n"),
+            ],
+            Tls::AskingClients,
+            true,
+        )
+        .await;
+        let identities = Arc::new(InMemoryClientIdentities::new());
+        let known_hosts = Arc::new(InMemoryKnownHosts::new());
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine
+            .zone_builder()
+            .services(services())
+            .client_identities(identities.clone())
+            .known_hosts(known_hosts.clone())
+            .create()
+            .expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        let mut outcome = async |url: String| {
+            tab.navigate(url).await.expect("navigate");
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    match events.recv().await {
+                        Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::Finished { .. },
+                            ..
+                        }) => return None,
+                        Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::Failed { error, .. },
+                            ..
+                        }) => return Some(error),
+                        Ok(_) => continue,
+                        Err(e) => panic!("event stream closed: {e}"),
+                    }
+                }
+            })
+            .await
+            .expect("timed out waiting for the gemini page")
+        };
+
+        let private = format!("gemini://127.0.0.1:{port}/private/");
+        let error = outcome(private.clone()).await;
+        let Some(crate::LoadError::ClientCertificate {
+            url,
+            status: 60,
+            message,
+            presented: false,
+        }) = &error
+        else {
+            panic!("not a certificate request: {error:?}");
+        };
+        assert_eq!(url.as_str(), private);
+        assert_eq!(message, "Who are you?");
+        // The server that asked was reached: the identity goes to the certificate it showed.
+        assert_eq!(known_hosts.pin("127.0.0.1", port), Ok(Some(CertPin::of(A_CERT))));
+
+        // What an embedder does when the user makes an identity for the place.
+        let identity = ClientIdentity::generate(
+            IdentityScope::for_url(&url::Url::parse(url).unwrap()).unwrap(),
+            "Visitor",
+        )
+        .unwrap();
+        let certificate = identity.certificate.clone();
+        identities.add(identity);
+        assert!(
+            outcome(format!("{private}page")).await.is_none(),
+            "the identity was refused"
+        );
+        assert_eq!(tab.title(), "Welcome back");
+        assert!(outcome(format!("gemini://127.0.0.1:{port}/")).await.is_none());
+
+        let presented: Vec<_> = server.await.unwrap().into_iter().map(|turn| turn.unwrap().1).collect();
+        assert_eq!(presented, [None, Some(certificate), None]);
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// A link on a gopher menu leads to another menu: a page may take its tab around
     /// gopherspace, and a menu served from this machine may reach this machine.
     #[cfg(feature = "gopher")]
@@ -1653,6 +1876,21 @@ mod tests {
         .expect("timed out waiting for a gopher page")
     }
 
+    /// Whether the next focus change focused something editable.
+    async fn focus_moved(mut events: tokio::sync::broadcast::Receiver<EngineEvent>) -> bool {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::FocusChanged { focused, editable, .. }) => return focused && editable,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for focus to move")
+    }
+
     /// A search prompt on a named host submits to that host. The prompt is served without a
     /// connection, and is placed by what its host resolves to: placed public, its submit
     /// could not reach `localhost`.
@@ -1685,22 +1923,27 @@ mod tests {
         let mut zone = engine.zone_builder().services(services()).create().expect("zone");
         let tab = zone.tab_builder().create().await.expect("tab");
 
+        // Autofocus runs with the rendering, so the tab draws.
+        tab.send(TabCommand::SetViewport {
+            x: 0,
+            y: 0,
+            width: 800,
+            height: 600,
+        })
+        .await
+        .expect("viewport");
+        tab.send(TabCommand::ResumeDrawing { fps: 60 }).await.expect("drawing");
         let prompt = gopher_page_finished(events.resubscribe());
+        let focused = focus_moved(events.resubscribe());
         tab.navigate(format!("gopher://localhost:{port}/7/find"))
             .await
             .expect("navigate");
         prompt.await;
+        // The search field has `autofocus`, honoured once the page has laid out.
+        assert!(focused.await, "autofocus focused nothing editable");
         assert!(lines.lock().is_empty(), "the prompt connected: {:?}", lines.lock());
 
         let results = gopher_page_finished(events.resubscribe());
-        // The engine does not honour `autofocus` yet: Tab to the field.
-        tab.send(TabCommand::KeyDown {
-            key: "Tab".into(),
-            code: "Tab".into(),
-            modifiers: Modifiers::empty(),
-        })
-        .await
-        .expect("tab");
         tab.send(TabCommand::TextInput { text: "x".into() })
             .await
             .expect("text");
@@ -4737,6 +4980,36 @@ mod tests {
             served_before,
             "fragment navigation and same-document back must not refetch"
         );
+        // The document's own URL without a fragment is a fresh load: HTML navigates to a
+        // fragment only when the URL has one. It takes the current entry's place rather than
+        // pushing another, and the forward entry stays.
+        tab.navigate(b.clone()).await.expect("navigate to the current url");
+        for _ in 0..100 {
+            if served.lock().len() > served_before {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(
+            served.lock()[served_before..],
+            ["/b".to_string()],
+            "navigating to the current URL must load it again"
+        );
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let mut last = None;
+        while let Ok(event) = event_rx.try_recv() {
+            if let EngineEvent::Navigation {
+                event: NavigationEvent::HistoryChanged { history },
+                ..
+            } = event
+            {
+                last = Some(history);
+            }
+        }
+        let h = last.expect("the load committed to history");
+        assert_eq!(h.entries.len(), 3, "a load of the current URL pushed an entry");
+        assert_eq!(h.current, Some(HistoryEntryId(1)));
+        assert_eq!(h.forward.len(), 1);
 
         // Internal pages: served by the engine's registry (no fetch), real history entries,
         // titles from the page, `about:` alias, and embedder overrides.

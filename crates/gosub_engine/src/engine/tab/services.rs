@@ -15,12 +15,15 @@ pub struct EffectiveTabServices {
     pub accept_language: Option<String>,
     /// Zone places store; the worker records committed http(s) visits into it.
     pub places: Option<crate::engine::places::PlacesHandle>,
+    /// The zone's certificate pins and client identities, handed to the I/O side with the jar.
+    pub certificates: crate::net::protocols::identities::ZoneCertificates,
 }
 
 /// Resolve the effective services for a tab based on the zone services/config and tab overrides.
 pub fn resolve_tab_services(
     zone_id: ZoneId,
     services: &ZoneServices,
+    certificates: &crate::net::protocols::identities::ZoneCertificates,
     zone_config: &ZoneConfig,
     ov: &TabOverrides,
 ) -> EffectiveTabServices {
@@ -74,5 +77,6 @@ pub fn resolve_tab_services(
         storage,
         cookie_jar,
         accept_language,
+        certificates: certificates.clone(),
     }
 }

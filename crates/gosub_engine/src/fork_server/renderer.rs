@@ -198,6 +198,8 @@ pub struct RetainedPage<C: RenderConfiguration> {
     hovered: Option<NodeId>,
     /// Gestures in progress and what the last one asked of the embedder.
     input: PageInput,
+    /// The page's autofocus candidates and whether they were processed.
+    autofocus: crate::engine::focus::Autofocus,
     /// What the input layer changed since the last pass.
     dirty: Dirty,
     /// Stage costs of `build`, reported with the first pass only.
@@ -419,10 +421,43 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             scroll_y: 0.0,
             hovered,
             input: PageInput::default(),
+            autofocus: Default::default(),
             dirty: Dirty::None,
             build_timings,
             diagnostics,
         }
+    }
+
+    /// Flush the page's autofocus candidates (HTML, "update the rendering"), as the tab
+    /// worker does for a page it lays out itself, and run the focusing steps for the one
+    /// that takes focus: the effect telling the broker, when focus moved. Run before the
+    /// page's full render, which then paints the focus as it is.
+    pub fn flush_autofocus(&mut self) -> Option<Effect> {
+        if !self.autofocus.pending() {
+            return None;
+        }
+        let rendered: HashSet<NodeId> = self
+            .layer_list
+            .layout_tree
+            .arena
+            .values()
+            .map(|el| el.dom_node_id)
+            .collect();
+        let fragment = self.base_url.as_ref().and_then(Url::fragment);
+        let target = self.autofocus.flush(&self.doc, Some(&rendered), fragment)?;
+        let visible = crate::engine::focus::click_shows_ring(&self.doc, target);
+        if !self.with_input(|input, host| input.set_focus(host, Some(target), visible)) {
+            return None;
+        }
+        // The full render that follows paints everything; nothing is left to repaint.
+        if matches!(self.dirty, Dirty::Paint(_)) {
+            self.dirty = Dirty::None;
+        }
+        Some(Effect::Focus {
+            focused: true,
+            editable: PageInput::focused_editable(self),
+            bounds: self.control_bounds(target),
+        })
     }
 
     /// Stages 4-6 over one window of the page: the raster window around
@@ -640,6 +675,20 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             Relayout::GeometryIfUnchanged,
             RasterBand::Viewport,
         );
+        InputPass {
+            pass,
+            effects: Vec::new(),
+            relayouted,
+        }
+    }
+
+    /// Images the page went without have arrived: lay it out again in full, which asks the
+    /// media store for them again, and ship the window by hash. The DOM stays as the user
+    /// left it.
+    pub fn media_landed(&mut self, scroll_y: f64, known_tiles: &HashSet<u64>) -> InputPass {
+        self.scroll_y = scroll_y;
+        self.dirty = Dirty::Relayout;
+        let (pass, relayouted) = self.finish_dirty(scroll_y, known_tiles, "media", Relayout::Full, RasterBand::Window);
         InputPass {
             pass,
             effects: Vec::new(),
@@ -1346,6 +1395,193 @@ mod tests {
         assert!(
             page.render(Some(0.0), &known).summary.diagnostics.is_none(),
             "only once"
+        );
+    }
+
+    /// A renderer that holds the page runs autofocus itself and tells the broker where focus
+    /// went, once; a fragment that indicates an element keeps it from running.
+    #[test]
+    fn a_retained_page_autofocuses_and_says_so() {
+        use crate::html::{DefaultRenderConfig, RenderConfiguration};
+        type Fonts = <DefaultRenderConfig as RenderConfiguration>::FontSystem;
+        let build = |page_url: &str| {
+            let fonts: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(Fonts::default()));
+            RetainedPage::<DefaultRenderConfig>::build(
+                PageRequest {
+                    html: "<!DOCTYPE html><p id=\"p\">x</p><input id=\"i\" autofocus>",
+                    page_url,
+                    viewport_width: 800.0,
+                    viewport_height: 600.0,
+                    known_tiles: &HashSet::new(),
+                    hovered_node: None,
+                    dpr: 1,
+                    media: MediaPrefs::default(),
+                },
+                fonts,
+                Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
+                Arc::new(crate::net::resource_loader::NoResourceLoader),
+            )
+        };
+
+        let mut page = build("https://example.test/");
+        let effect = page.flush_autofocus();
+        assert!(
+            matches!(
+                effect,
+                Some(Effect::Focus {
+                    focused: true,
+                    editable: true,
+                    bounds: Some(_)
+                })
+            ),
+            "{effect:?}"
+        );
+        assert_eq!(page.doc.focused_node(), page.doc.node_by_named_id("i"));
+        assert!(page.flush_autofocus().is_none(), "only once");
+
+        let mut page = build("https://example.test/#p");
+        assert!(page.flush_autofocus().is_none());
+        assert_eq!(page.doc.focused_node(), None);
+    }
+
+    /// The broker's deferred loader for one image: "not yet" until it has landed.
+    #[derive(Debug)]
+    struct Landing {
+        landed: std::sync::atomic::AtomicBool,
+        png: Vec<u8>,
+    }
+
+    impl crate::net::resource_loader::ResourceLoader for Landing {
+        fn load(
+            &self,
+            _url: &Url,
+            _kind: ResourceKind,
+        ) -> Result<crate::net::resource_loader::LoadedResource, crate::net::resource_loader::LoadError> {
+            if !self.landed.load(std::sync::atomic::Ordering::Acquire) {
+                return Err(crate::net::resource_loader::LoadError::Pending);
+            }
+            Ok(crate::net::resource_loader::LoadedResource {
+                status: 200,
+                content_type: Some("image/png".into()),
+                body: self.png.clone().into(),
+            })
+        }
+    }
+
+    /// Fills every tile, so a pass ships what it rasterized.
+    struct Solid;
+
+    impl Rasterable for Solid {
+        fn rasterize(
+            &self,
+            tile: &gosub_render_pipeline::tiler::Tile,
+            store: &mut gosub_render_pipeline::common::texture_store::TextureStore,
+            _media: &gosub_render_pipeline::common::media::MediaStore,
+        ) -> Option<gosub_render_pipeline::common::texture::TextureId> {
+            let (w, h) = (tile.rect.width as usize, tile.rect.height as usize);
+            Some(store.add(
+                w,
+                h,
+                vec![0xFF; w * h * 4],
+                gosub_render_pipeline::render::backend::PixelFormat::PreMulArgb32,
+            ))
+        }
+    }
+
+    /// `html` built as a renderer builds it, its images still on their way.
+    fn page_waiting_for_an_image(html: &str) -> (RetainedPage<crate::html::DefaultRenderConfig>, Arc<Landing>) {
+        use crate::html::{DefaultRenderConfig, RenderConfiguration};
+        use crate::net::resource_loader::{LoaderMediaSource, ResourceLoader};
+        type Fonts = <DefaultRenderConfig as RenderConfiguration>::FontSystem;
+
+        let mut png = Vec::new();
+        image::RgbaImage::from_pixel(10, 400, image::Rgba([200, 0, 0, 255]))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .expect("encode");
+        let loader = Arc::new(Landing {
+            landed: Default::default(),
+            png,
+        });
+        let media_store = Arc::new(gosub_render_pipeline::common::media::MediaStore::new());
+        media_store.set_source(Arc::new(LoaderMediaSource::new(
+            Arc::clone(&loader) as Arc<dyn ResourceLoader>
+        )));
+        media_store.set_synchronous_fetch(true);
+        let fonts: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(Fonts::default()));
+        let page = RetainedPage::<DefaultRenderConfig>::build(
+            PageRequest {
+                html,
+                page_url: "https://example.test/",
+                viewport_width: 800.0,
+                viewport_height: 600.0,
+                known_tiles: &HashSet::new(),
+                hovered_node: None,
+                dpr: 1,
+                media: MediaPrefs::default(),
+            },
+            fonts,
+            media_store,
+            Arc::clone(&loader) as Arc<dyn ResourceLoader>,
+        );
+        (page, loader)
+    }
+
+    /// An image that was still on its way when the page was built lands, and the page is laid
+    /// out again around it: the focus stays where the user put it, autofocus does not run
+    /// again, and the image takes its room.
+    #[test]
+    fn a_landed_image_keeps_the_users_focus() {
+        let (mut page, loader) = page_waiting_for_an_image(
+            "<!DOCTYPE html><body style=\"margin:0\"><input id=\"a\" autofocus><input id=\"b\"><br>\
+<img src=\"https://example.test/tall.png\"></body>",
+        );
+        let known = HashSet::new();
+        assert!(page.flush_autofocus().is_some());
+        page.render(Some(0.0), &known);
+        let before = page.page_height;
+        let b = page.doc.node_by_named_id("b");
+        assert!(page.with_input(|input, host| input.set_focus(host, b, true)));
+
+        loader.landed.store(true, std::sync::atomic::Ordering::Release);
+        let out = page.media_landed(0.0, &known);
+        assert!(out.relayouted);
+        assert!(out.effects.is_empty(), "{:?}", out.effects);
+        assert_eq!(page.doc.focused_node(), b, "the focus went back to the autofocus field");
+        assert!(
+            page.page_height >= before + 400.0,
+            "the image took no room: {before} -> {}",
+            page.page_height
+        );
+    }
+
+    /// An image whose size the page fixed lands without moving a box: its tile still paints
+    /// it, so it travels again rather than being taken for the placeholder the broker holds.
+    #[test]
+    fn a_landed_image_of_fixed_size_is_shipped() {
+        let (mut page, loader) = page_waiting_for_an_image(
+            "<!DOCTYPE html><body style=\"margin:0\">\
+<img src=\"https://example.test/tall.png\" width=\"10\" height=\"400\"></body>",
+        );
+        let hash = |tile: &RenderedTile| match tile {
+            RenderedTile::Fresh { hash, .. } | RenderedTile::Unchanged { hash, .. } => *hash,
+        };
+        page.rasterizer = Some(Box::new(Solid));
+        let first = page.render(Some(0.0), &HashSet::new());
+        let held: HashSet<u64> = first.tiles.iter().map(hash).collect();
+        assert!(!held.is_empty());
+        let before = page.page_height;
+        let still_waiting = page.media_landed(0.0, &held);
+        assert!(
+            still_waiting.pass.tiles.iter().all(|tile| held.contains(&hash(tile))),
+            "nothing changed yet"
+        );
+
+        loader.landed.store(true, std::sync::atomic::Ordering::Release);
+        let out = page.media_landed(0.0, &held);
+        assert_eq!(page.page_height, before, "a fixed size moves nothing");
+        assert!(
+            out.pass.tiles.iter().any(|tile| !held.contains(&hash(tile))),
+            "every tile was taken for one the broker held"
         );
     }
 }

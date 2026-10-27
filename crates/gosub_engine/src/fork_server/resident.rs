@@ -152,6 +152,8 @@ pub fn serve<C: RenderConfiguration>(
                     Arc::clone(&media_store),
                     Arc::clone(&forked_loader) as Arc<dyn crate::net::resource_loader::ResourceLoader>,
                 );
+                // The page's first update of the rendering: autofocus, then the frame.
+                let focus = page.flush_autofocus();
                 let pass = page.render(Some(scroll_y), &known_tiles);
                 let hit_regions = page.hit_regions.clone();
                 touch(&mut recent, &tab);
@@ -169,7 +171,7 @@ pub fn serve<C: RenderConfiguration>(
                     &pass.evicted,
                     pass.summary,
                     hit_regions,
-                    Vec::new(),
+                    focus.into_iter().collect(),
                 ) {
                     gosub_sandbox::exit_now(1);
                 }
@@ -229,6 +231,36 @@ pub fn serve<C: RenderConfiguration>(
                     Some(page) => {
                         touch(&mut recent, &tab);
                         let out = page.resize((viewport_width, viewport_height), dpr, scroll_y, &known);
+                        (out.pass, page.hit_regions.clone())
+                    }
+                    None => (no_page_pass(), Vec::new()),
+                };
+                if !stream_rendered(
+                    &mut link.lock(),
+                    &pass.tiles,
+                    &pass.evicted,
+                    pass.summary,
+                    hit_regions,
+                    Vec::new(),
+                ) {
+                    gosub_sandbox::exit_now(1);
+                }
+            }
+            ToRenderer::MediaLanded {
+                tab,
+                scroll_y,
+                known_tiles,
+            } => {
+                media_store.set_partition(documents.get(&tab).copied().unwrap_or_default());
+                // Bounded like a resize: the page is laid out again, nothing is parsed.
+                if gosub_sandbox::arm_deadline(INPUT_DEADLINE).is_err() {
+                    gosub_sandbox::exit_now(1);
+                }
+                let known: HashSet<u64> = known_tiles.into_iter().collect();
+                let (pass, hit_regions) = match pages.get_mut(&tab) {
+                    Some(page) => {
+                        touch(&mut recent, &tab);
+                        let out = page.media_landed(scroll_y, &known);
                         (out.pass, page.hit_regions.clone())
                     }
                     None => (no_page_pass(), Vec::new()),

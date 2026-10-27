@@ -3,9 +3,10 @@
 
 use crate::net::emitter::NetObserver;
 use crate::net::process::protocol::{
-    cut_string, rebuild_headers, CookieScope, FetchOutcome, FromNet, HeaderList, NetEventWire, NetFetch,
+    cut_string, rebuild_headers, CookieScope, FetchOutcome, FromNet, HeaderList, NetEventWire, NetFetch, PinAnswer,
     RequestContext, RequestTag, ToNet, MAX_EVENT_STRING, MAX_REPLY_HEADERS, MAX_REPLY_HEADER_BYTES, MAX_REPLY_URL,
 };
+use crate::net::protocols::known_hosts::RequestPins;
 use crate::net::ssrf::AddressSpace;
 use crate::net::types::NetError;
 use gosub_ipc::{Endpoint, EndpointTx};
@@ -37,6 +38,13 @@ pub struct Outbound {
     pub context: RequestContext,
     /// No deadline for the whole body; see `NetFetch::no_total_body_timeout`.
     pub no_total_body_timeout: bool,
+    /// The certificate pin an engine protocol checks against; see `NetFetch::pin`.
+    pub pin: Option<String>,
+    /// Where the pin of each other server the request is redirected to is looked up, when
+    /// the network process asks ([`FromNet::AskPin`]); `None` refuses every ask.
+    pub pins: Option<Arc<RequestPins>>,
+    /// The client certificate the request presents; see `NetFetch::identity`.
+    pub identity: Option<crate::net::process::protocol::IdentityWire>,
 }
 
 impl Outbound {
@@ -53,6 +61,9 @@ impl Outbound {
             body_preview: None,
             context: RequestContext::default(),
             no_total_body_timeout: false,
+            pin: None,
+            pins: None,
+            identity: None,
         }
     }
 }
@@ -302,7 +313,10 @@ impl ReportedRequest {
                     });
                 }
             }
-            FetchOutcome::Error(message) => self.fail(message),
+            FetchOutcome::Error(message)
+            | FetchOutcome::Failed { message, .. }
+            | FetchOutcome::CertificateChanged { message, .. }
+            | FetchOutcome::IdentityAsked { message, .. } => self.fail(message),
         }
     }
 
@@ -506,6 +520,21 @@ pub type Relink = Box<dyn Fn(gosub_ipc::channel::Channel) + Send + Sync>;
 /// Requests waiting for a reply, by tag.
 type Pending = Arc<Mutex<HashMap<RequestTag, tokio::sync::oneshot::Sender<NetReply>>>>;
 
+/// The pins each request in flight may ask about, by tag.
+type Askers = Arc<Mutex<HashMap<RequestTag, Arc<RequestPins>>>>;
+
+/// Takes a request's pins out of [`Askers`] however its wait ends.
+struct Asking {
+    askers: Askers,
+    tag: RequestTag,
+}
+
+impl Drop for Asking {
+    fn drop(&mut self) {
+        self.askers.lock().remove(&self.tag);
+    }
+}
+
 /// A running network process and the link to it. One that dies is respawned
 /// on the next use (see [`NetProcess::ensure_alive`]); what was in flight on
 /// it fails.
@@ -516,6 +545,7 @@ pub struct NetProcess {
     reported: Reported,
     tx: Arc<Mutex<EndpointTx>>,
     pending: Pending,
+    askers: Askers,
     next_tag: AtomicU64,
     child: Mutex<Option<gosub_sandbox::spawn::Child>>,
     /// Bounds concurrent requests (see [`MAX_INFLIGHT`]).
@@ -620,12 +650,45 @@ fn launch(vault: Option<VaultLine>) -> anyhow::Result<Launched> {
     })
 }
 
+/// How many of the network process's pin questions are answered at once, each on a thread
+/// of its own. A process asks one at a time per request, so only one flooding the broker
+/// meets the cap; a question past it goes unanswered, and its request fails on the
+/// network process's own timeout.
+const MOST_PIN_ANSWERS: usize = 16;
+
+/// The pin answers in flight, at most [`MOST_PIN_ANSWERS`].
+#[derive(Default)]
+struct PinAnswerSlots(Arc<std::sync::atomic::AtomicUsize>);
+
+impl PinAnswerSlots {
+    /// A slot for one more answer, held until it is sent; `None` when all are taken.
+    fn take(&self) -> Option<PinAnswerSlot> {
+        if self.0.fetch_add(1, Ordering::AcqRel) >= MOST_PIN_ANSWERS {
+            self.0.fetch_sub(1, Ordering::AcqRel);
+            return None;
+        }
+        Some(PinAnswerSlot(Arc::clone(&self.0)))
+    }
+}
+
+/// One answer's slot, given back when dropped.
+struct PinAnswerSlot(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for PinAnswerSlot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 /// Read the link until it ends: replies to their waiters, events to their
 /// observers. At the end `alive` is cleared and everything still waiting is
 /// woken, as failed.
+#[allow(clippy::too_many_arguments)]
 fn start_reader(
     mut rx: gosub_ipc::EndpointRx,
+    tx: Arc<Mutex<EndpointTx>>,
     waiters: Pending,
+    askers: Askers,
     observers: Reported,
     audit_reply: AuditWaiter,
     ready_tx: std::sync::mpsc::SyncSender<()>,
@@ -636,6 +699,7 @@ fn start_reader(
     std::thread::Builder::new()
         .name("net-process-reader".into())
         .spawn(move || {
+            let pin_answers = PinAnswerSlots::default();
             while let Ok(msg) = rx.recv::<FromNet>() {
                 match msg {
                     FromNet::Pong => {
@@ -644,6 +708,40 @@ fn start_reader(
                     FromNet::Audit { tag, report } => {
                         if let Some(waiter) = audit_reply.lock().remove(&tag) {
                             let _ = waiter.send(report);
+                        }
+                    }
+                    // Answered from the request's own pins, and only those: a request
+                    // that pins nothing, or one past its servers, is refused. Off this
+                    // thread, which must keep reading: the store may be slow, and the
+                    // write can wait on a child that is itself waiting to be read.
+                    FromNet::AskPin { tag, host, port } => {
+                        let Some(slot) = pin_answers.take() else {
+                            log::warn!(
+                                "the network process asked more than {MOST_PIN_ANSWERS} pin questions at once; \
+                                 one goes unanswered"
+                            );
+                            continue;
+                        };
+                        let pins = askers.lock().get(&tag).cloned();
+                        let tx = Arc::clone(&tx);
+                        let host = cut_string(host, MAX_EVENT_STRING);
+                        let answered = std::thread::Builder::new()
+                            .name("net-process-pin".into())
+                            .spawn(move || {
+                                let answer = match pins.map(|pins| pins.lookup(&host, port)) {
+                                    Some(Ok(Some(pin))) => PinAnswer::Pinned(pin.to_string()),
+                                    Some(Ok(None)) => PinAnswer::None,
+                                    Some(Err(e)) => {
+                                        log::warn!("the network process asked for a pin it may not have: {e}");
+                                        PinAnswer::Refused
+                                    }
+                                    None => PinAnswer::Refused,
+                                };
+                                let _ = tx.lock().send(&ToNet::Pin { tag, answer });
+                                drop(slot);
+                            });
+                        if let Err(e) = answered {
+                            log::error!("could not answer the network process's pin question: {e}");
                         }
                     }
                     // Only to an observer this side registered for the tag: a
@@ -694,6 +792,7 @@ fn start_reader(
                         headers,
                         peer_addr,
                         len,
+                        certificates,
                     } => {
                         let reply = match recv_shared_body(&mut rx, len) {
                             Ok(body) => NetReply {
@@ -704,6 +803,7 @@ fn start_reader(
                                     headers,
                                     body,
                                     peer_addr,
+                                    certificates,
                                 },
                                 ring: None,
                                 stream_end: None,
@@ -744,13 +844,17 @@ impl NetProcess {
     pub fn spawn(vault: Option<VaultLine>) -> anyhow::Result<Self> {
         let launched = launch(vault)?;
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+        let askers: Askers = Arc::new(Mutex::new(HashMap::new()));
         let reported: Reported = Arc::new(Mutex::new(HashMap::new()));
         let audit_waiter: AuditWaiter = Arc::new(Mutex::new(HashMap::new()));
         let alive = Arc::new(AtomicBool::new(true));
         let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<()>(1);
+        let tx = Arc::new(Mutex::new(launched.tx));
         start_reader(
             launched.rx,
+            Arc::clone(&tx),
             Arc::clone(&pending),
+            Arc::clone(&askers),
             Arc::clone(&reported),
             Arc::clone(&audit_waiter),
             ready_tx,
@@ -759,8 +863,9 @@ impl NetProcess {
 
         let net = Self {
             reported,
-            tx: Arc::new(Mutex::new(launched.tx)),
+            tx,
             pending,
+            askers,
             next_tag: AtomicU64::new(1),
             child: Mutex::new(Some(launched.child)),
             inflight: Arc::new(tokio::sync::Semaphore::new(MAX_INFLIGHT)),
@@ -858,9 +963,13 @@ impl NetProcess {
         };
         let alive = Arc::new(AtomicBool::new(true));
         let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<()>(1);
+        // Answers go through `self.tx`, which holds this link's sender before any request
+        // goes out on it, so before any can ask.
         if let Err(e) = start_reader(
             launched.rx,
+            Arc::clone(&self.tx),
             Arc::clone(&self.pending),
+            Arc::clone(&self.askers),
             Arc::clone(&self.reported),
             Arc::clone(&self.audit_waiter),
             ready_tx,
@@ -1021,6 +1130,9 @@ impl NetProcess {
             body_preview,
             context,
             no_total_body_timeout,
+            pin,
+            pins,
+            identity,
         } = out;
         let permit = tokio::select! {
             _ = cancel.cancelled() => return NetReply::error("cancelled"),
@@ -1033,6 +1145,13 @@ impl NetProcess {
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel::<NetReply>();
         self.pending.lock().insert(tag, reply_tx);
         let requested = url.clone();
+        let _asking = pins.map(|pins| {
+            self.askers.lock().insert(tag, pins);
+            Asking {
+                askers: Arc::clone(&self.askers),
+                tag,
+            }
+        });
 
         let msg = ToNet::Fetch(Box::new(NetFetch {
             tag,
@@ -1046,6 +1165,8 @@ impl NetProcess {
             body_preview,
             context,
             no_total_body_timeout,
+            pin,
+            identity,
         }));
         // The link write can block on a full pipe (bodies can be large), so it
         // runs on a blocking thread rather than a runtime worker.
@@ -1087,15 +1208,31 @@ impl NetProcess {
     /// asked: a `final_url` must be a web URL, and stay on the requested URL's
     /// scheme family - a redirect chain cannot land on `file:` or an internal
     /// page, whatever the child reports. One of the engine's own protocols
-    /// (`net::protocols`) has no redirects, so its request ends exactly where it
-    /// was asked or not at all. Where it landed within the web is still
-    /// the child's word; only the broker following redirects itself could fix that.
+    /// (`net::protocols`) follows its own redirects, so its request ends on its own
+    /// scheme. Where it landed is still the child's word; only the broker following
+    /// redirects itself could fix that. The certificates the child reports, for the
+    /// broker to pin, must be pins' text form, no more than the servers one request
+    /// reaches, or the reply is refused; which of them are pinned is `RequestPins::record`'s
+    /// call.
     ///
     /// Its size is checked too, since the frame cap is the only other bound: a
     /// failure's message and a status text are cut to [`MAX_EVENT_STRING`], and
     /// a reply past [`MAX_REPLY_HEADERS`], [`MAX_REPLY_HEADER_BYTES`] or
     /// [`MAX_REPLY_URL`] is refused.
     fn plausible_reply(mut reply: NetReply, requested: &str) -> NetReply {
+        {
+            use crate::net::protocols::known_hosts::{CertPin, MOST_OTHER_SERVERS};
+            let certificates = reply.outcome.certificates();
+            if certificates.len() > MOST_OTHER_SERVERS + 1
+                || certificates
+                    .iter()
+                    .any(|seen| CertPin::parse(&seen.pin).is_none() || seen.host.len() > MAX_EVENT_STRING)
+            {
+                return NetReply::error(format!(
+                    "the network process reported malformed certificate pins for {requested}"
+                ));
+            }
+        }
         let (status_text, final_url, headers) = match &mut reply.outcome {
             FetchOutcome::Ok {
                 status_text,
@@ -1109,7 +1246,34 @@ impl NetProcess {
                 headers,
                 ..
             } => (status_text, final_url, headers),
-            FetchOutcome::Error(message) => {
+            FetchOutcome::Error(message) | FetchOutcome::Failed { message, .. } => {
+                *message = cut_string(std::mem::take(message), MAX_EVENT_STRING);
+                return reply;
+            }
+            // An answer from a server the request reached over its own scheme, which pins and
+            // so presents identities: what the user is asked to make one for.
+            FetchOutcome::IdentityAsked {
+                url, status, message, ..
+            } => {
+                let reached = url.len() <= MAX_REPLY_URL
+                    && url::Url::parse(url).is_ok_and(|url| {
+                        crate::net::protocols::lookup(url.scheme()).is_some_and(|p| p.pins_certificates())
+                            && url::Url::parse(requested).is_ok_and(|requested| requested.scheme() == url.scheme())
+                    });
+                if !(60..=69).contains(status) || !reached {
+                    return NetReply::error(format!(
+                        "the network process reported an implausible certificate request for {requested}"
+                    ));
+                }
+                *message = cut_string(std::mem::take(message), MAX_EVENT_STRING);
+                return reply;
+            }
+            FetchOutcome::CertificateChanged { message, seen, .. } => {
+                if crate::net::protocols::known_hosts::CertPin::parse(seen).is_none() {
+                    return NetReply::error(format!(
+                        "the network process reported a malformed certificate pin for {requested}"
+                    ));
+                }
                 *message = cut_string(std::mem::take(message), MAX_EVENT_STRING);
                 return reply;
             }
@@ -1133,7 +1297,19 @@ impl NetProcess {
                 "the network process reported an unparsable final url for {requested}"
             ));
         };
-        let own_protocol = crate::net::protocols::lookup(parsed.scheme()).is_some() && final_url.as_str() == requested;
+        // An engine protocol's page comes from the URL asked for, or from where a redirect on
+        // its scheme led: on the same server, or for a protocol that pins certificates on any,
+        // each server on the way held to the pin the broker gave for it.
+        let own_protocol = crate::net::protocols::lookup(parsed.scheme()).is_some_and(|protocol| {
+            final_url.as_str() == requested
+                || url::Url::parse(requested).is_ok_and(|requested| {
+                    use crate::net::protocols::known_hosts::key;
+                    let server = |url: &url::Url| key(url, protocol.default_port());
+                    requested.scheme() == parsed.scheme()
+                        && server(&requested).is_some()
+                        && (protocol.pins_certificates() || server(&requested) == server(&parsed))
+                })
+        });
         if !matches!(parsed.scheme(), "http" | "https") && !own_protocol {
             return NetReply::error(format!(
                 "the network process reported a non-web final url ({}) for {requested}",
@@ -1198,6 +1374,7 @@ pub fn outcome_to_result(reply: NetReply) -> Result<crate::net::types::FetchResu
             headers,
             body,
             peer_addr,
+            certificates: _,
         } => (status, status_text, final_url, headers, peer_addr, Body::Whole(body)),
         FetchOutcome::Streaming {
             status,
@@ -1219,7 +1396,30 @@ pub fn outcome_to_result(reply: NetReply) -> Result<crate::net::types::FetchResu
                 Body::Ring { peek, ring },
             )
         }
-        FetchOutcome::Error(e) => return Err(net_error(e)),
+        // The broker turns a changed certificate into a TLS error before this, for a request
+        // that pins; for any other it is a failure like the rest.
+        FetchOutcome::Error(e)
+        | FetchOutcome::Failed { message: e, .. }
+        | FetchOutcome::CertificateChanged { message: e, .. } => return Err(net_error(e)),
+        // Checked where the reply was received (`plausible_reply`).
+        FetchOutcome::IdentityAsked {
+            url,
+            status,
+            message,
+            presented,
+            ..
+        } => {
+            return Err(match url::Url::parse(&url) {
+                Ok(url) => crate::net::protocols::identities::IdentityAsked {
+                    url,
+                    status,
+                    message,
+                    presented,
+                }
+                .into_net_error(),
+                Err(_) => net_error(message),
+            })
+        }
     };
 
     let final_url = url::Url::parse(&final_url).map_err(|e| net_error(format!("bad final url: {e}")))?;
@@ -1387,6 +1587,7 @@ mod tests {
             headers: Vec::new(),
             body: b"hi".to_vec(),
             peer_addr: Some(peer),
+            certificates: Vec::new(),
         })
         .unwrap();
         let outcome: FetchOutcome = serde_json::from_slice(&wire).unwrap();
@@ -1412,6 +1613,7 @@ mod tests {
                 headers,
                 body: Vec::new(),
                 peer_addr: None,
+                certificates: Vec::new(),
             },
             ring: None,
             stream_end: None,
@@ -1444,9 +1646,9 @@ mod tests {
         assert_eq!(failed(NetProcess::plausible_reply(error, &url)).len(), MAX_EVENT_STRING);
     }
 
-    /// An engine protocol's reply passes only where it was asked: it has no
-    /// redirects, so a request cannot end on another of its URLs, and a web
-    /// request cannot end on one at all.
+    /// An engine protocol's reply passes only on the server it was asked: a
+    /// redirect it follows stays there (gemini), so a request cannot end on
+    /// another server's URL, and a web request cannot end on one at all.
     #[cfg(feature = "gopher")]
     #[test]
     fn an_own_protocol_reply_ends_where_it_was_asked() {
@@ -1458,6 +1660,7 @@ mod tests {
                 headers: Vec::new(),
                 body: Vec::new(),
                 peer_addr: None,
+                certificates: Vec::new(),
             },
             ring: None,
             stream_end: None,
@@ -1470,9 +1673,124 @@ mod tests {
             )
         };
         assert!(passes("gopher://h/1/", "gopher://h/1/"));
+        assert!(passes("gopher://H/0/other", "gopher://h/1/"));
         assert!(!passes("gopher://127.0.0.1:6379/1/", "gopher://h/1/"));
+        assert!(!passes("gopher://h:71/1/", "gopher://h/1/"));
+        #[cfg(feature = "finger")]
+        assert!(!passes("finger://h/bob", "gopher://h/1/"));
         assert!(!passes("gopher://h/1/", "https://site.test/"));
         assert!(!passes("file:///etc/passwd", "file:///etc/passwd"));
+        // A protocol that holds each server to its pin may end on another server.
+        #[cfg(feature = "gemini")]
+        {
+            assert!(passes("gemini://other.test:7000/x", "gemini://h/"));
+            assert!(!passes("gopher://h/1/", "gemini://h/"));
+        }
+    }
+
+    /// Pin answers past the cap get no slot until one in flight is sent.
+    #[test]
+    fn pin_answers_in_flight_are_bounded() {
+        let slots = PinAnswerSlots::default();
+        let mut taken: Vec<_> = (0..MOST_PIN_ANSWERS).map(|_| slots.take().expect("a slot")).collect();
+        assert!(slots.take().is_none());
+        taken.pop();
+        let again = slots.take();
+        assert!(again.is_some());
+        assert!(slots.take().is_none(), "one given back, one taken");
+    }
+
+    /// The certificates a reply reports pass only as pins, no more than one request reaches.
+    #[test]
+    fn reported_certificates_are_pins_and_few() {
+        use crate::net::process::protocol::SeenCertificate;
+        let ok = |certificates: Vec<SeenCertificate>| NetReply {
+            outcome: FetchOutcome::Ok {
+                status: 200,
+                status_text: "OK".into(),
+                final_url: "gemini://h/".into(),
+                headers: Vec::new(),
+                body: Vec::new(),
+                peer_addr: None,
+                certificates,
+            },
+            ring: None,
+            stream_end: None,
+            redirects: None,
+        };
+        let seen = |host: &str, pin: &str| SeenCertificate {
+            host: host.into(),
+            port: 1965,
+            pin: pin.into(),
+        };
+        let pin = crate::net::protocols::known_hosts::CertPin::of(b"cert").to_string();
+        let refused = |reply: NetReply| {
+            matches!(
+                NetProcess::plausible_reply(reply, "gemini://h/").outcome,
+                FetchOutcome::Error(e) if e.contains("malformed certificate pins")
+            )
+        };
+        let most = crate::net::protocols::known_hosts::MOST_OTHER_SERVERS + 1;
+        assert!(!refused(ok(vec![seen("h", &pin); most])));
+        assert!(refused(ok(vec![seen("h", &pin); most + 1])));
+        assert!(refused(ok(vec![seen("h", "nope")])));
+        assert!(refused(ok(vec![seen(&"h".repeat(MAX_EVENT_STRING + 1), &pin)])));
+
+        // A failure reports them under the same bounds.
+        let failed = |certificates: Vec<SeenCertificate>| NetReply {
+            outcome: FetchOutcome::Failed {
+                message: "failed".into(),
+                certificates,
+            },
+            ring: None,
+            stream_end: None,
+            redirects: None,
+        };
+        let asked = |certificates: Vec<SeenCertificate>| NetReply {
+            outcome: FetchOutcome::IdentityAsked {
+                url: "gemini://h/".into(),
+                status: 60,
+                message: String::new(),
+                presented: false,
+                certificates,
+            },
+            ring: None,
+            stream_end: None,
+            redirects: None,
+        };
+        assert!(!refused(failed(vec![seen("h", &pin)])));
+        assert!(refused(failed(vec![seen("h", "nope")])));
+        assert!(!refused(asked(vec![seen("h", &pin)])));
+        assert!(refused(asked(vec![seen("h", &pin); most + 1])));
+    }
+
+    /// A changed certificate's report passes only with a pin's text form as what was seen:
+    /// it is what the user may be asked to trust.
+    #[test]
+    fn a_changed_certificate_names_a_pin() {
+        let changed = |seen: &str| NetReply {
+            outcome: FetchOutcome::CertificateChanged {
+                message: "x".repeat(MAX_EVENT_STRING * 2),
+                seen: seen.into(),
+                certificates: Vec::new(),
+            },
+            ring: None,
+            stream_end: None,
+            redirects: None,
+        };
+        let url = "gemini://h.test/";
+        let pin = crate::net::protocols::known_hosts::CertPin::of(b"cert").to_string();
+        match NetProcess::plausible_reply(changed(&pin), url).outcome {
+            FetchOutcome::CertificateChanged { message, seen, .. } => {
+                assert_eq!(seen, pin);
+                assert_eq!(message.len(), MAX_EVENT_STRING);
+            }
+            other => panic!("refused: {other:?}"),
+        }
+        assert!(matches!(
+            NetProcess::plausible_reply(changed("AB:CD"), url).outcome,
+            FetchOutcome::Error(e) if e.contains("malformed certificate pin")
+        ));
     }
 
     /// What a request's observer was told, by kind.
@@ -1627,6 +1945,7 @@ mod tests {
             headers: Vec::new(),
             body: vec![1],
             peer_addr: None,
+            certificates: Vec::new(),
         });
         assert!(request.is_closed());
         assert_eq!(

@@ -157,6 +157,56 @@ a renderer.
   onward, past any reach the engine judged. Terminal escape sequences in an
   answer are dropped before it is shown. Mitigation is `net.finger.enabled`
   off where finger is not needed.
+- **Gemini trusts the first certificate a server shows.** Gemini servers
+  mostly sign their own certificates, so no authority is asked: the first
+  visit to a host and port accepts whatever certificate comes, and later
+  visits must show the same one or fail before the request is sent. A first
+  visit on a hostile network can therefore be intercepted, and the address
+  bar shows the same padlock as for an https page an authority vouched for.
+  The certificate's name and dates are not checked; the pin stands in for
+  both. Pins live in the zone, in memory unless the embedder passes a store
+  (`ZoneBuilder::known_hosts`, `SqliteKnownHosts`); with the default every
+  restart is a first visit again. A changed certificate fails with the new
+  one's fingerprint, and the embedder may let the user trust exactly that
+  one; a user who clicks through a real interception has pinned the
+  interceptor. With the network process on, that fingerprint comes from the
+  network process, which a compromised one could choose, but such a process
+  already sees and can change every response. A redirect to another gemini
+  URL is followed, at most five times in all, and every server on the way is
+  held to the zone's pin for it, or on a first visit to the certificate it
+  showed first in that request. Only the server the page was asked for gets a
+  changed certificate offered for trusting. With the network process on, it
+  asks the broker for each other server's pin, for at most five servers per
+  request, and the broker records a first visit's certificate only for a
+  server the request asked about; a compromised network process can still
+  make up a redirect to learn a pin, which is no secret, or have a first
+  visit pinned to a certificate of its choosing, which it could serve anyway.
+  A redirect to another scheme is shown as a link. A server answering `44`,
+  slow down, is left alone for a delay that starts at a second and doubles
+  each time it says so again; the delays are kept per process, for all
+  zones together, so one zone can tell another was told to slow down by the
+  same server. A server may ask for a client certificate (`6x`); the
+  navigation then fails with `LoadError::ClientCertificate`, and the engine
+  never makes one by itself. An identity the embedder adds to the zone
+  (`ZoneBuilder::client_identities`, `SqliteClientIdentities`) goes out on
+  every request to its host and port at or below its path, including hops
+  a redirect leads to, and to no other server. Its key is stored as given:
+  `SqliteClientIdentities` writes it in the clear, so a profile that should
+  protect it needs an encrypted store. With the network process on, the key
+  of the identity for the URL travels into the network process with the
+  request, which a compromised network process can keep and use elsewhere;
+  it gets only the identity the request needs. A handshake presenting an
+  identity is TLS 1.3 only, so the certificate never goes out unencrypted;
+  a server speaking only TLS 1.2 fails with a message saying so. Input a
+  server asks for goes
+  into the URL's query, so a status `11` (sensitive) answer such as a
+  password lands in history and in the server's logs, as with any gemini
+  client. Many servers close without TLS `close_notify`, so a response cut
+  short on the path reads as complete. The request line is the URL alone and
+  goes out only after a handshake, so a plaintext service on a port a link
+  can reach gets a TLS hello it rejects, not a command. Links and forms follow
+  the gopher rules: navigations only, to gemini or the web, within the page's
+  space. Mitigation is `net.gemini.enabled` off where gemini is not needed.
 - **Cross-origin authenticated bytes of embeddable types reach the renderer.**
   No-CORS subresource loads carry the zone's cookies for the URL (`SameSite`
   judged against the tab, so `SameSite=None` ones cross sites), and opaque

@@ -21,9 +21,7 @@ mod render;
 mod request;
 
 use crate::net::protocols::socket::{self, invalid};
-use crate::net::protocols::{Protocol, ProtocolResponse};
-use crate::net::ssrf::AddressSpace;
-use crate::net::types::NetError;
+use crate::net::protocols::{Protocol, ProtocolError, ProtocolRequest, ProtocolResponse};
 use async_trait::async_trait;
 use bytes::Bytes;
 use request::Request;
@@ -51,7 +49,8 @@ impl Protocol for Gopher {
         false
     }
 
-    async fn fetch(&self, url: &Url, reach: AddressSpace) -> Result<ProtocolResponse, NetError> {
+    async fn fetch(&self, request: ProtocolRequest<'_>) -> Result<ProtocolResponse, ProtocolError> {
+        let (url, reach) = (request.url, request.reach);
         let request = Request::from_url(url).map_err(invalid)?;
         let addrs = socket::resolve(self, url, &request.host, request.port, reach).await?;
         if request.needs_search_terms() {
@@ -77,11 +76,15 @@ fn present(request: &Request, url: &Url, body: Vec<u8>, peer: Option<SocketAddr>
             content_type: "text/html".into(),
             body: Bytes::from(body),
             peer_addr: peer,
+            certificates: Vec::new(),
+            final_url: None,
         },
         _ => ProtocolResponse {
             content_type: sniff(&body).into(),
             body: Bytes::from(body),
             peer_addr: peer,
+            certificates: Vec::new(),
+            final_url: None,
         },
     }
 }
@@ -133,6 +136,8 @@ fn html(page: String, peer: Option<SocketAddr>) -> ProtocolResponse {
         content_type: "text/html; charset=utf-8".into(),
         body: Bytes::from(page),
         peer_addr: peer,
+        certificates: Vec::new(),
+        final_url: None,
     }
 }
 
@@ -140,6 +145,8 @@ fn html(page: String, peer: Option<SocketAddr>) -> ProtocolResponse {
 mod tests {
     use super::*;
     use crate::net::protocols::socket::MAX_RESPONSE_BYTES;
+    use crate::net::ssrf::AddressSpace;
+    use crate::net::types::NetError;
     use gosub_sonar::net::types::BlockReason;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
@@ -167,7 +174,16 @@ mod tests {
     }
 
     async fn fetch(url: &str, reach: AddressSpace) -> Result<ProtocolResponse, NetError> {
-        Gopher.fetch(&Url::parse(url).unwrap(), reach).await
+        let url = Url::parse(url).unwrap();
+        Gopher
+            .fetch(ProtocolRequest {
+                url: &url,
+                reach,
+                pins: None,
+                identity: None,
+            })
+            .await
+            .map_err(|e| e.error)
     }
 
     #[tokio::test]

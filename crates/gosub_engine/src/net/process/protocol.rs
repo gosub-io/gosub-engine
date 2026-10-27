@@ -87,6 +87,31 @@ pub enum ToNet {
     /// Run the escape audit under the net lockdown and report it; the reply
     /// echoes `tag`, so a late answer is never taken for a later request's.
     Audit { tag: RequestTag },
+    /// The answer to [`FromNet::AskPin`] for the request with this tag.
+    Pin { tag: RequestTag, answer: PinAnswer },
+}
+
+/// What the broker answers when a request asks for a server's pin.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PinAnswer {
+    /// The certificate the zone has seen there (`CertPin` text).
+    Pinned(String),
+    /// Nothing is pinned there: a first visit.
+    None,
+    /// The broker does not say, for a request that may not ask (one that pins nothing, or
+    /// one past the servers a request may reach): the request must fail, never take this
+    /// for a first visit.
+    Refused,
+}
+
+/// A certificate a server showed on a first visit, by its host and port: what the broker
+/// records for the zone ([`crate::net::protocols::known_hosts::ServerPin`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeenCertificate {
+    pub host: String,
+    pub port: u16,
+    /// `CertPin` text, checked for form where the reply is received.
+    pub pin: String,
 }
 
 /// One request, flattened to what actually has to travel.
@@ -131,6 +156,75 @@ pub struct NetFetch {
     /// would otherwise apply its own.
     #[serde(default)]
     pub no_total_body_timeout: bool,
+    /// For an engine protocol that trusts certificates on first use: the certificate the
+    /// zone has seen at this host and port (`CertPin` text), which the server must show
+    /// again. The broker keeps the pins; this process checks against them, and asks for
+    /// the pin of each other server a redirect leads to ([`FromNet::AskPin`]).
+    #[serde(default)]
+    pub pin: Option<String>,
+    /// The client certificate the request presents, private key and all: this process makes
+    /// the TLS connection, so it signs with the key. Only ever the one identity whose scope
+    /// covers the request (`net::protocols::identities`).
+    #[serde(default)]
+    pub identity: Option<IdentityWire>,
+}
+
+/// A client identity as it travels: its scope, name, certificate and PKCS#8 key, in DER.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdentityWire {
+    pub host: String,
+    pub port: u16,
+    pub path: String,
+    pub name: String,
+    pub certificate: Vec<u8>,
+    pub key: Vec<u8>,
+}
+
+impl std::fmt::Debug for IdentityWire {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IdentityWire")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("path", &self.path)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The key is wiped with the copy that carried it, as `ClientIdentity` wipes its own.
+impl Drop for IdentityWire {
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.key);
+    }
+}
+
+impl From<&crate::net::protocols::identities::ClientIdentity> for IdentityWire {
+    fn from(identity: &crate::net::protocols::identities::ClientIdentity) -> Self {
+        Self {
+            host: identity.scope.host.clone(),
+            port: identity.scope.port,
+            path: identity.scope.path.clone(),
+            name: identity.name.clone(),
+            certificate: identity.certificate.clone(),
+            key: identity.key.to_vec(),
+        }
+    }
+}
+
+impl From<IdentityWire> for crate::net::protocols::identities::ClientIdentity {
+    fn from(mut wire: IdentityWire) -> Self {
+        use std::mem::take;
+        Self {
+            scope: crate::net::protocols::identities::IdentityScope {
+                host: take(&mut wire.host),
+                port: wire.port,
+                path: take(&mut wire.path),
+            },
+            name: take(&mut wire.name),
+            certificate: take(&mut wire.certificate),
+            // The buffer itself moves, so no copy of the key is left behind.
+            key: zeroize::Zeroizing::new(take(&mut wire.key)),
+        }
+    }
 }
 
 /// The parts of a `FetchRequest` that say who is asking, as they travel. Without
@@ -355,11 +449,21 @@ pub enum FromNet {
         headers: HeaderList,
         peer_addr: Option<std::net::SocketAddr>,
         len: u64,
+        /// As `FetchOutcome::Ok::certificates`.
+        #[serde(default)]
+        certificates: Vec<SeenCertificate>,
     },
     /// Answer to [`ToNet::Audit`]; `None` where the audit cannot run.
     Audit {
         tag: RequestTag,
         report: Option<gosub_sandbox::audit::AuditReport>,
+    },
+    /// The request with this tag, for an engine protocol that pins certificates, was
+    /// redirected to another server and needs its pin; answered with [`ToNet::Pin`].
+    AskPin {
+        tag: RequestTag,
+        host: String,
+        port: u16,
     },
     /// Something happened to the request with this tag - a name resolved, a
     /// connection opened, headers in, bytes received, the end. What the
@@ -872,6 +976,10 @@ pub enum FetchOutcome {
         /// Where the response came from (`FetchResultMeta::peer_addr`): what the
         /// broker places the document by on the private-network policy.
         peer_addr: Option<std::net::SocketAddr>,
+        /// The certificates an engine protocol's servers showed on first visits, for the
+        /// broker to pin.
+        #[serde(default)]
+        certificates: Vec<SeenCertificate>,
     },
     /// The response head; the body streams through a shared-memory ring
     /// (`gosub_ipc::ring`) whose fd follows this message on the link, right
@@ -889,11 +997,71 @@ pub enum FetchOutcome {
     /// reports it, and a rich error type would be one more thing whose
     /// deserialization a compromised child could exercise.
     Error(String),
+    /// An engine protocol's request failed after first visits showed certificates, which
+    /// the broker pins as for `Ok`: a server that answered stays pinned.
+    Failed {
+        message: String,
+        certificates: Vec<SeenCertificate>,
+    },
+    /// An engine protocol's server showed another certificate than the pinned one. The
+    /// one failure with a field the broker acts on: `seen` (`CertPin` text) is what the
+    /// user may choose to trust, checked for form where the reply is received.
+    CertificateChanged {
+        message: String,
+        seen: String,
+        /// As `Ok::certificates`.
+        #[serde(default)]
+        certificates: Vec<SeenCertificate>,
+    },
+    /// An engine protocol's server wants a client certificate, or another one
+    /// (`net::protocols::identities::IdentityAsked`): what the navigation fails with, for the
+    /// embedder to ask the user. `url` is checked to stay on the request's scheme.
+    IdentityAsked {
+        url: String,
+        status: u8,
+        message: String,
+        presented: bool,
+        /// As `Ok::certificates`: the server asking was reached, and is pinned.
+        #[serde(default)]
+        certificates: Vec<SeenCertificate>,
+    },
+}
+
+impl FetchOutcome {
+    /// The certificates first visits showed, for the broker to pin.
+    pub fn certificates(&self) -> &[SeenCertificate] {
+        match self {
+            Self::Ok { certificates, .. }
+            | Self::Failed { certificates, .. }
+            | Self::CertificateChanged { certificates, .. }
+            | Self::IdentityAsked { certificates, .. } => certificates,
+            Self::Streaming { .. } | Self::Error(_) => &[],
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An identity crosses whole: what the network process presents is what the zone holds.
+    #[test]
+    fn an_identity_crosses_whole() {
+        use crate::net::protocols::identities::{ClientIdentity, IdentityScope};
+        let identity = ClientIdentity {
+            scope: IdentityScope {
+                host: "h.test".into(),
+                port: 1965,
+                path: "/private/".into(),
+            },
+            name: "Visitor".into(),
+            certificate: b"cert".to_vec(),
+            key: zeroize::Zeroizing::new(b"key".to_vec()),
+        };
+        let wire = IdentityWire::from(&identity);
+        assert_eq!(ClientIdentity::from(wire.clone()), identity);
+        assert_eq!(wire.key, b"key");
+    }
 
     /// Who is asking survives the trip to the network process: origin, referrer,
     /// referrer policy and mixed-content handling all come out as they went in.
