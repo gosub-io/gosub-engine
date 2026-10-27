@@ -9178,7 +9178,7 @@ fn engine_gemini() -> i32 {
             eprintln!("the gemini page did not load as its page: title {title:?}");
             return 1;
         }
-        if known_hosts.pin("127.0.0.1", port) != Some(CertPin::of(A_CERT)) {
+        if known_hosts.pin("127.0.0.1", port) != Ok(Some(CertPin::of(A_CERT))) {
             eprintln!(
                 "the first visit's certificate was not pinned: {:?}",
                 known_hosts.pin("127.0.0.1", port)
@@ -9215,7 +9215,7 @@ fn engine_gemini() -> i32 {
             eprintln!("the refusal names another certificate than the one the server showed");
             return 1;
         }
-        if known_hosts.pin("127.0.0.1", port) != Some(CertPin::of(A_CERT)) {
+        if known_hosts.pin("127.0.0.1", port) != Ok(Some(CertPin::of(A_CERT))) {
             eprintln!("the refused certificate replaced the pin");
             return 1;
         }
@@ -9281,7 +9281,7 @@ fn engine_gemini() -> i32 {
             );
             return 1;
         }
-        if known_hosts.pin("127.0.0.1", there_port) != Some(CertPin::of(A_CERT)) {
+        if known_hosts.pin("127.0.0.1", there_port) != Ok(Some(CertPin::of(A_CERT))) {
             eprintln!(
                 "the other server's first visit was not pinned: {:?}",
                 known_hosts.pin("127.0.0.1", there_port)
@@ -9336,7 +9336,7 @@ fn engine_gemini() -> i32 {
             return 1;
         }
         // The server that asked was reached: the identity goes to the certificate it showed.
-        if known_hosts.pin("127.0.0.1", members_port) != Some(CertPin::of(A_CERT)) {
+        if known_hosts.pin("127.0.0.1", members_port) != Ok(Some(CertPin::of(A_CERT))) {
             eprintln!(
                 "the server asking for a certificate was not pinned: {:?}",
                 known_hosts.pin("127.0.0.1", members_port)

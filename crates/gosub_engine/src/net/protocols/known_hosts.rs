@@ -68,8 +68,9 @@ impl std::fmt::Display for CertPin {
 
 /// Where a zone keeps the certificates it has seen, by host and port.
 pub trait KnownHosts: Send + Sync + std::fmt::Debug {
-    /// The certificate first seen at `host`:`port`, if any.
-    fn pin(&self, host: &str, port: u16) -> Option<CertPin>;
+    /// The certificate first seen at `host`:`port`, if any. An error when the store cannot
+    /// say, which is never taken for a first visit (see [`Pins::pin`]).
+    fn pin(&self, host: &str, port: u16) -> Result<Option<CertPin>, String>;
     /// Record `pin` for `host`:`port`, replacing any there: also how an embedder trusts the
     /// new certificate a refused visit named.
     fn remember(&self, host: &str, port: u16, pin: &CertPin);
@@ -97,11 +98,12 @@ impl InMemoryKnownHosts {
 }
 
 impl KnownHosts for InMemoryKnownHosts {
-    fn pin(&self, host: &str, port: u16) -> Option<CertPin> {
-        self.pins
+    fn pin(&self, host: &str, port: u16) -> Result<Option<CertPin>, String> {
+        Ok(self
+            .pins
             .lock()
             .get(&(host.cow_to_ascii_lowercase().into_owned(), port))
-            .cloned()
+            .cloned())
     }
 
     fn remember(&self, host: &str, port: u16, pin: &CertPin) {
@@ -147,8 +149,9 @@ pub struct RequestPins {
     store: KnownHostsHandle,
     host: String,
     port: u16,
-    /// The certificate the asked-for server must show, if the zone has seen one there.
-    pub pin: Option<CertPin>,
+    /// The certificate the asked-for server must show, if the zone has seen one there; an
+    /// error when the store could not say, which fails the request.
+    pub pin: Result<Option<CertPin>, String>,
     /// The other servers the request asked about, in order.
     others: Mutex<Vec<(String, u16)>>,
 }
@@ -175,7 +178,7 @@ impl RequestPins {
     /// [`MOST_OTHER_SERVERS`]; past it the answer is an error.
     pub fn lookup(&self, host: &str, port: u16) -> Result<Option<CertPin>, String> {
         if self.is_asked_for(host, port) {
-            return Ok(self.pin.clone());
+            return self.pin.clone();
         }
         let server = (host.cow_to_ascii_lowercase().into_owned(), port);
         let mut others = self.others.lock();
@@ -188,7 +191,7 @@ impl RequestPins {
             }
             others.push(server);
         }
-        Ok(self.store.pin(host, port))
+        self.store.pin(host, port)
     }
 
     /// Record the certificates first visits showed, each where nothing is pinned yet: a pin
@@ -202,7 +205,7 @@ impl RequestPins {
                     .others
                     .lock()
                     .contains(&(host.cow_to_ascii_lowercase().into_owned(), *port));
-            if reached && self.store.pin(host, *port).is_none() {
+            if reached && matches!(self.store.pin(host, *port), Ok(None)) {
                 self.store.remember(host, *port, pin);
             }
         }
@@ -253,9 +256,9 @@ mod sqlite {
     use std::path::PathBuf;
 
     /// Pins in a SQLite database, so they outlive the process. Access goes through an `r2d2`
-    /// pool, like the cookie store. A database error is logged and the store behaves as
-    /// empty for that call: a pin that cannot be read makes the visit a first one, which
-    /// the user is no worse off for than with the default store.
+    /// pool, like the cookie store. A pin that cannot be read, or a stored one that is no
+    /// pin, is an error, so the request fails rather than trusting whatever the server
+    /// shows over a pin it has; a failed write or delete is logged.
     pub struct SqliteKnownHosts {
         pool: Pool<SqliteConnectionManager>,
     }
@@ -301,22 +304,26 @@ mod sqlite {
     }
 
     impl KnownHosts for SqliteKnownHosts {
-        fn pin(&self, host: &str, port: u16) -> Option<CertPin> {
+        fn pin(&self, host: &str, port: u16) -> Result<Option<CertPin>, String> {
             let host = host.cow_to_ascii_lowercase();
-            let text = self.run("read a pin", |conn| {
-                conn.query_row(
+            let conn = self
+                .pool
+                .get()
+                .map_err(|e| format!("known hosts: no database connection to read a pin: {e}"))?;
+            let text = conn
+                .query_row(
                     "SELECT pin FROM known_hosts WHERE host = ?1 AND port = ?2",
                     params![&*host, port],
                     |row| row.get::<_, String>(0),
                 )
                 .optional()
-            })??;
-            // A row that is no pin is treated as none, never as a pin of nothing.
-            let pin = CertPin::parse(&text);
-            if pin.is_none() {
-                log::error!("known hosts: the pin stored for {host}:{port} is malformed");
-            }
-            pin
+                .map_err(|e| format!("known hosts: could not read a pin: {e}"))?;
+            // A row that is no pin is neither a pin of nothing nor a first visit.
+            text.map(|text| {
+                CertPin::parse(&text)
+                    .ok_or_else(|| format!("known hosts: the pin stored for {host}:{port} is malformed"))
+            })
+            .transpose()
         }
 
         fn remember(&self, host: &str, port: u16, pin: &CertPin) {
@@ -370,10 +377,10 @@ mod tests {
         let hosts = InMemoryKnownHosts::new();
         let pin = CertPin::of(b"cert");
         hosts.remember("Gemini.Test", 1965, &pin);
-        assert_eq!(hosts.pin("gemini.test", 1965), Some(pin));
-        assert_eq!(hosts.pin("gemini.test", 1966), None);
+        assert_eq!(hosts.pin("gemini.test", 1965), Ok(Some(pin)));
+        assert_eq!(hosts.pin("gemini.test", 1966), Ok(None));
         hosts.forget("gemini.test", 1965);
-        assert_eq!(hosts.pin("gemini.test", 1965), None);
+        assert_eq!(hosts.pin("gemini.test", 1965), Ok(None));
     }
 
     fn seen(host: &str, port: u16, cert: &[u8]) -> ServerPin {
@@ -389,12 +396,44 @@ mod tests {
         let store = InMemoryKnownHosts::handle();
         let url = Url::parse("gemini://host.test/").unwrap();
         let first = RequestPins::for_url(&store, &url, 1965).unwrap();
-        assert_eq!(first.pin, None);
+        assert_eq!(first.pin, Ok(None));
         first.record(&[seen("host.test", 1965, b"one")]);
         let second = RequestPins::for_url(&store, &url, 1965).unwrap();
-        assert_eq!(second.pin, Some(CertPin::of(b"one")));
+        assert_eq!(second.pin, Ok(Some(CertPin::of(b"one"))));
         second.record(&[seen("host.test", 1965, b"two")]);
-        assert_eq!(store.pin("host.test", 1965), Some(CertPin::of(b"one")));
+        assert_eq!(store.pin("host.test", 1965), Ok(Some(CertPin::of(b"one"))));
+    }
+
+    /// A store that cannot read its pins, as a database that is down.
+    #[derive(Debug, Default)]
+    struct Unreadable(InMemoryKnownHosts);
+
+    impl KnownHosts for Unreadable {
+        fn pin(&self, _host: &str, _port: u16) -> Result<Option<CertPin>, String> {
+            Err("the database is down".into())
+        }
+        fn remember(&self, host: &str, port: u16, pin: &CertPin) {
+            self.0.remember(host, port, pin);
+        }
+        fn forget(&self, host: &str, port: u16) {
+            self.0.forget(host, port);
+        }
+    }
+
+    /// A pin that cannot be read is no first visit: the request is refused it, and nothing
+    /// the request saw replaces what the store holds.
+    #[test]
+    fn a_pin_that_cannot_be_read_is_no_first_visit() {
+        let inner = Arc::new(Unreadable::default());
+        inner.0.remember("host.test", 1965, &CertPin::of(b"old"));
+        let store: KnownHostsHandle = inner.clone();
+        let pins = RequestPins::for_url(&store, &Url::parse("gemini://host.test/").unwrap(), 1965).unwrap();
+        assert!(pins.pin.is_err());
+        assert!(pins.lookup("host.test", 1965).is_err());
+        assert!(pins.lookup("other.test", 1965).is_err());
+        pins.record(&[seen("host.test", 1965, b"new"), seen("other.test", 1965, b"new")]);
+        assert_eq!(inner.0.pin("host.test", 1965), Ok(Some(CertPin::of(b"old"))));
+        assert_eq!(inner.0.pin("other.test", 1965), Ok(None));
     }
 
     #[test]
@@ -411,11 +450,11 @@ mod tests {
             seen("never.test", 1965, b"d"),
             seen("other.test", 1966, b"e"),
         ]);
-        assert_eq!(store.pin("host.test", 1965), Some(CertPin::of(b"a")));
-        assert_eq!(store.pin("other.test", 1965), Some(CertPin::of(b"b")));
-        assert_eq!(store.pin("pinned.test", 1965), Some(CertPin::of(b"old")));
-        assert_eq!(store.pin("never.test", 1965), None);
-        assert_eq!(store.pin("other.test", 1966), None);
+        assert_eq!(store.pin("host.test", 1965), Ok(Some(CertPin::of(b"a"))));
+        assert_eq!(store.pin("other.test", 1965), Ok(Some(CertPin::of(b"b"))));
+        assert_eq!(store.pin("pinned.test", 1965), Ok(Some(CertPin::of(b"old"))));
+        assert_eq!(store.pin("never.test", 1965), Ok(None));
+        assert_eq!(store.pin("other.test", 1966), Ok(None));
     }
 
     #[test]
@@ -430,7 +469,7 @@ mod tests {
         assert_eq!(pins.lookup("host.test", 1965), Ok(None));
         assert!(pins.lookup("one-more.test", 1965).is_err());
         pins.record(&[seen("one-more.test", 1965, b"x")]);
-        assert_eq!(store.pin("one-more.test", 1965), None);
+        assert_eq!(store.pin("one-more.test", 1965), Ok(None));
     }
 
     #[test]
@@ -464,7 +503,7 @@ mod tests {
         let (one, two) = (CertPin::of(b"one"), CertPin::of(b"two"));
         {
             let hosts = SqliteKnownHosts::new(path.clone()).unwrap();
-            assert_eq!(hosts.pin("host.test", 1965), None);
+            assert_eq!(hosts.pin("host.test", 1965), Ok(None));
             hosts.remember("Host.Test", 1965, &one);
             hosts.remember("other.test", 1965, &one);
             // Trusting a new certificate replaces the pin.
@@ -472,14 +511,14 @@ mod tests {
             hosts.forget("other.test", 1965);
         }
         let hosts = SqliteKnownHosts::new(path).unwrap();
-        assert_eq!(hosts.pin("host.test", 1965), Some(two));
-        assert_eq!(hosts.pin("host.test", 1966), None);
-        assert_eq!(hosts.pin("other.test", 1965), None);
+        assert_eq!(hosts.pin("host.test", 1965), Ok(Some(two)));
+        assert_eq!(hosts.pin("host.test", 1966), Ok(None));
+        assert_eq!(hosts.pin("other.test", 1965), Ok(None));
     }
 
     #[cfg(feature = "sqlite_known_hosts")]
     #[test]
-    fn a_malformed_stored_pin_is_no_pin() {
+    fn a_malformed_stored_pin_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("known_hosts.db");
         let hosts = SqliteKnownHosts::new(path.clone()).unwrap();
@@ -490,7 +529,9 @@ mod tests {
                 [],
             )
             .unwrap();
-        assert_eq!(hosts.pin("host.test", 1965), None);
+        // Neither a pin nor a first visit, which would replace the row with what the server
+        // shows.
+        assert!(hosts.pin("host.test", 1965).is_err());
     }
 
     #[test]
