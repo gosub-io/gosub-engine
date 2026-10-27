@@ -26,8 +26,9 @@ use r2d2_sqlite::rusqlite::params;
 use r2d2_sqlite::SqliteConnectionManager;
 
 use crate::engine::cookies::cookie_jar::{CookieJar, DefaultCookieJar};
+use crate::engine::cookies::cookies::WeakCookieStore;
 use crate::engine::cookies::store::CookieStore;
-use crate::engine::cookies::{Cookie, CookieJarHandle, CookieStoreHandle};
+use crate::engine::cookies::{Cookie, CookieJarHandle};
 use crate::engine::storage::sqlite_key::{self, SqliteKey};
 use crate::engine::zone::ZoneId;
 use crate::EngineError;
@@ -38,8 +39,9 @@ pub struct SqliteCookieStore {
     pool: Pool<SqliteConnectionManager>,
     /// Cookie jars per zone
     jars: RwLock<HashMap<ZoneId, CookieJarHandle>>,
-    /// Self handle provided to persistent jars for callback persistence.
-    store_self: RwLock<Option<CookieStoreHandle>>,
+    /// Self handle provided to persistent jars for callback persistence. Weak, or the store
+    /// would hold itself and never drop (nor the key its pool holds).
+    store_self: WeakCookieStore,
 }
 
 impl SqliteCookieStore {
@@ -99,18 +101,11 @@ impl SqliteCookieStore {
             let _ = conn.execute_batch("ALTER TABLE cookies ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0;");
         }
 
-        let store = Arc::new(Self {
+        Ok(Arc::new_cyclic(|store_self| Self {
             pool,
             jars: RwLock::new(HashMap::new()),
-            store_self: RwLock::new(None),
-        });
-
-        {
-            let mut self_ref = store.store_self.write();
-            *self_ref = Some(CookieStoreHandle::from(store.clone()));
-        }
-
-        Ok(store)
+            store_self: store_self.clone(),
+        }))
     }
 
     /// Borrows a pooled SQLite connection, logging on failure.

@@ -26,8 +26,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::engine::cookies::cookie_jar::DefaultCookieJar;
+use crate::engine::cookies::cookies::WeakCookieStore;
 use crate::engine::cookies::store::CookieStore;
-use crate::engine::cookies::{CookieJarHandle, CookieStoreHandle};
+use crate::engine::cookies::CookieJarHandle;
 use crate::engine::zone::ZoneId;
 use crate::EngineError;
 use serde::{Deserialize, Serialize};
@@ -62,9 +63,9 @@ pub struct JsonCookieStore {
     /// file). Taken after `jars`, never before.
     file: Mutex<FileState>,
 
-    /// Self handle, so `PersistentCookieJar` can call back into this store.
-    /// Initialized in [`new`](Self::new) and read-only thereafter.
-    store_self: RwLock<Option<CookieStoreHandle>>,
+    /// Self handle, so `PersistentCookieJar` can call back into this store. Weak, or the
+    /// store would hold itself and never drop.
+    store_self: WeakCookieStore,
 }
 
 impl JsonCookieStore {
@@ -85,16 +86,13 @@ impl JsonCookieStore {
             write_private(&path, &bytes).map_err(|e| EngineError::CookieStore(e.into()))?;
         }
 
-        let store = Arc::new(Self {
+        Ok(Arc::new_cyclic(|store_self| Self {
             path,
             jars: RwLock::new(HashMap::new()),
             provisioning: Mutex::new(()),
             file: Mutex::new(FileState::default()),
-            store_self: RwLock::new(None),
-        });
-
-        *store.store_self.write() = Some(CookieStoreHandle::from(store.clone()));
-        Ok(store)
+            store_self: store_self.clone(),
+        }))
     }
 
     /// Loads and deserializes the full cookie store file.

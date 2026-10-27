@@ -1,4 +1,5 @@
 use crate::engine::cookies::cookie_jar::{DefaultCookieJar, SameSiteContext};
+use crate::engine::cookies::cookies::WeakCookieStore;
 use crate::engine::cookies::{CookieJar, CookieJarHandle, CookieStoreHandle};
 use crate::engine::zone::ZoneId;
 use http::HeaderMap;
@@ -9,15 +10,22 @@ pub struct PersistentCookieJar {
     /// Used to address the store.
     zone_id: ZoneId,
     pub inner: CookieJarHandle,
-    store_handle: CookieStoreHandle,
+    /// Weak: the store caches this jar, so a strong handle would keep it alive for good.
+    store: WeakCookieStore,
 }
 
 impl PersistentCookieJar {
+    /// Writes back to `store_handle` without keeping it alive: once the store is dropped,
+    /// changes stay in this jar only.
     pub fn new(zone_id: ZoneId, jar: CookieJarHandle, store_handle: CookieStoreHandle) -> Self {
+        Self::bound_to(zone_id, jar, store_handle.downgrade())
+    }
+
+    pub(crate) fn bound_to(zone_id: ZoneId, jar: CookieJarHandle, store: WeakCookieStore) -> Self {
         Self {
             zone_id,
             inner: jar,
-            store_handle,
+            store,
         }
     }
 
@@ -36,7 +44,14 @@ impl PersistentCookieJar {
             jar.clone()
         };
 
-        self.store_handle.persist_zone_from_snapshot(self.zone_id, &snapshot);
+        let Some(store) = self.store.upgrade() else {
+            log::warn!(
+                "Cookie store for zone {} is gone; skipping cookie persistence",
+                self.zone_id
+            );
+            return;
+        };
+        store.persist_zone_from_snapshot(self.zone_id, &snapshot);
     }
 }
 

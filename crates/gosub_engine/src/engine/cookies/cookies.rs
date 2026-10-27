@@ -50,7 +50,7 @@ use crate::zone::ZoneId;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 /// A reference-counted, read/write-locked pointer to a type-erased [`CookieJar`].
 #[derive(Clone, Debug)]
@@ -144,7 +144,16 @@ impl CookieStoreHandle {
     pub fn jar_for(&self, zone: ZoneId) -> Option<CookieJarHandle> {
         self.0.jar_for(zone)
     }
+    /// A handle that does not keep the store alive.
+    pub(crate) fn downgrade(&self) -> WeakCookieStore {
+        Arc::downgrade(&self.0)
+    }
 }
+
+/// A store held without keeping it alive. A store hands its own jars a way to write back,
+/// and caches them: a strong handle there is a cycle, and the store, with the database key
+/// its pool holds, never drops.
+pub(crate) type WeakCookieStore = Weak<dyn CookieStore + Send + Sync>;
 
 /// A cookie as stored/serialized by the engine.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
