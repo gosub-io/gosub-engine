@@ -1695,6 +1695,88 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A gemini page's link to its own URL loads it again in place of its entry. Its origin is
+    /// opaque, so this goes through the link path that carries the page as initiator.
+    #[cfg(feature = "gemini")]
+    #[tokio::test]
+    async fn a_gemini_self_link_replaces_its_entry() {
+        use crate::events::{Modifiers, NavigationEvent, TabCommand};
+        use crate::net::gemini::testing::{serve_each, A};
+
+        let page: &[u8] = b"20 text/gemini\r\n# Self\r\n=> / again\r\n";
+        let (port, server) = serve_each(&[(A, page), (A, page)], true).await;
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        // The last history snapshot once a navigation finishes.
+        let mut finished = async || {
+            let mut last = None;
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    match events.recv().await {
+                        Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::HistoryChanged { history },
+                            ..
+                        }) => last = Some(history),
+                        Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::Finished { .. },
+                            ..
+                        }) => break,
+                        Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::Failed { error, .. },
+                            ..
+                        }) => panic!("the gemini page failed: {error:?}"),
+                        Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(e) => panic!("event stream closed: {e}"),
+                    }
+                }
+            })
+            .await
+            .expect("timed out waiting for the gemini page");
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            while let Ok(e) = events.try_recv() {
+                if let EngineEvent::Navigation {
+                    event: NavigationEvent::HistoryChanged { history },
+                    ..
+                } = e
+                {
+                    last = Some(history);
+                }
+            }
+            last.expect("a history snapshot")
+        };
+
+        let url = format!("gemini://127.0.0.1:{port}/");
+        tab.navigate(url.clone()).await.expect("navigate");
+        assert_eq!(finished().await.entries.len(), 1);
+
+        for key in ["Tab", "Enter"] {
+            let _ = tab
+                .send(TabCommand::KeyDown {
+                    key: key.into(),
+                    code: key.into(),
+                    modifiers: Modifiers::empty(),
+                })
+                .await;
+        }
+        let h = finished().await;
+        assert_eq!(h.entries.len(), 1, "the self-link pushed an entry");
+        assert_eq!(h.entries[0].url.as_str(), url);
+        let line = Some(format!("{url}\r\n").into_bytes());
+        assert_eq!(
+            server.await.unwrap(),
+            [line.clone(), line],
+            "the link did not load the page again"
+        );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// A gemini server asking for a client certificate fails the navigation with what it
     /// asked; once the embedder adds an identity for that place to the zone's store, the
     /// next visit presents it, and a visit outside its scope does not.
