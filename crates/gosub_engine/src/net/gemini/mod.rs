@@ -778,6 +778,23 @@ mod tests {
         );
     }
 
+    /// A changed certificate is offered for trusting only once the server proved it holds
+    /// its key: a copy of another server's certificate is not.
+    #[tokio::test]
+    async fn a_changed_certificate_shown_without_its_key_is_not_offered_for_trusting() {
+        let (port, server) = serve(&[FORGED], b"20 text/gemini\r\nforged", true).await;
+        let pin = CertPin::of(B_CERT);
+        let err = fetch(&format!("gemini://127.0.0.1:{port}/"), Some(&pin))
+            .await
+            .unwrap_err();
+        let NetError::Tls(tls) = err else {
+            panic!("not a TLS error: {err:?}")
+        };
+        assert!(tls.fingerprint.is_none(), "{tls:?}");
+        assert!(!tls.message.contains("changed since the first visit"), "{tls:?}");
+        assert_eq!(server.await.unwrap(), [None], "the request was sent");
+    }
+
     #[test]
     fn input_is_asked_for_with_a_form_that_replaces_the_query() {
         let at = url("gemini://h.test/search?old#f");
