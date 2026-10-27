@@ -1623,14 +1623,18 @@ impl TaffyLayouter {
         let closing_extra = std::mem::take(&mut cursor.closing_extra);
         // `nowrap` and `pre` leave a run no soft wrap opportunity, so it is one line and is not
         // split between bands. A line too wide for the room beside a float goes below it, as a
-        // line box too small for any of its content does (CSS 2 §9.5).
+        // line box too small for any of its content does (CSS 2 §9.5). A run that cannot be
+        // measured stays in the band it reached, as an unmeasurable run that may wrap does. What
+        // can be measured is still a lower bound: a run whose measured items alone are too wide
+        // goes below the float too.
         if line_style.no_wrap {
-            let width: Option<f64> = items
+            let widths: Vec<Option<f64>> = items
                 .iter()
                 .map(|(id, _)| self.inline_item_width(layout_tree, id))
-                .sum();
-            while (cursor.lines_left(line_height) == 0
-                || width.is_none_or(|width| width > cursor.current().line_width as f64))
+                .collect();
+            let measured = widths.iter().all(Option::is_some);
+            let width: f64 = widths.iter().flatten().sum();
+            while (cursor.lines_left(line_height) == 0 || width > cursor.current().line_width as f64)
                 && cursor.advance()
             {}
             let placement = cursor.placement();
@@ -1643,7 +1647,11 @@ impl TaffyLayouter {
                 line_style,
                 Some(placement),
             );
-            cursor.take_lines_tall_last(1, line_height, closing_extra);
+            if measured {
+                cursor.take_lines_tall_last(1, line_height, closing_extra);
+            } else {
+                cursor.exhaust();
+            }
             return;
         }
         let mut rest = items;
