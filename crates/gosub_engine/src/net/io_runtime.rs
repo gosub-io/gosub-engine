@@ -484,9 +484,11 @@ fn dispatch_to_net_process(
                 net.condemn();
             }
         }
-        if let (Some(pins), FetchOutcome::Ok { certificates, .. }) = (&pins, &reply.outcome) {
+        if let Some(pins) = &pins {
             // Checked for form where the reply was received (`plausible_reply`).
-            let seen: Vec<_> = certificates
+            let seen: Vec<_> = reply
+                .outcome
+                .certificates()
                 .iter()
                 .filter_map(|seen| {
                     Some(crate::net::protocols::known_hosts::ServerPin {
@@ -501,7 +503,9 @@ fn dispatch_to_net_process(
         let _ = reply_tx.send(match reply.outcome {
             FetchOutcome::Error(e) => FetchResult::Error(net_error(e)),
             // Only a request that went out with a pin can meet a changed certificate.
-            FetchOutcome::CertificateChanged { message, seen } if pins.as_ref().is_some_and(|p| p.pin.is_some()) => {
+            FetchOutcome::CertificateChanged { message, seen, .. }
+                if pins.as_ref().is_some_and(|p| p.pin.is_some()) =>
+            {
                 // Checked for form where the reply was received (`plausible_reply`).
                 let seen = crate::net::protocols::known_hosts::CertPin::parse(&seen).map(|pin| pin.digest());
                 FetchResult::Error(crate::net::types::NetError::Tls(gosub_sonar::net::tls::TlsError {

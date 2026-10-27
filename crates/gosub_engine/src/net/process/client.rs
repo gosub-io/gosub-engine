@@ -314,6 +314,7 @@ impl ReportedRequest {
                 }
             }
             FetchOutcome::Error(message)
+            | FetchOutcome::Failed { message, .. }
             | FetchOutcome::CertificateChanged { message, .. }
             | FetchOutcome::IdentityAsked { message, .. } => self.fail(message),
         }
@@ -1180,8 +1181,9 @@ impl NetProcess {
     /// a reply past [`MAX_REPLY_HEADERS`], [`MAX_REPLY_HEADER_BYTES`] or
     /// [`MAX_REPLY_URL`] is refused.
     fn plausible_reply(mut reply: NetReply, requested: &str) -> NetReply {
-        if let FetchOutcome::Ok { certificates, .. } = &reply.outcome {
+        {
             use crate::net::protocols::known_hosts::{CertPin, MOST_OTHER_SERVERS};
+            let certificates = reply.outcome.certificates();
             if certificates.len() > MOST_OTHER_SERVERS + 1
                 || certificates
                     .iter()
@@ -1205,7 +1207,7 @@ impl NetProcess {
                 headers,
                 ..
             } => (status_text, final_url, headers),
-            FetchOutcome::Error(message) => {
+            FetchOutcome::Error(message) | FetchOutcome::Failed { message, .. } => {
                 *message = cut_string(std::mem::take(message), MAX_EVENT_STRING);
                 return reply;
             }
@@ -1227,7 +1229,7 @@ impl NetProcess {
                 *message = cut_string(std::mem::take(message), MAX_EVENT_STRING);
                 return reply;
             }
-            FetchOutcome::CertificateChanged { message, seen } => {
+            FetchOutcome::CertificateChanged { message, seen, .. } => {
                 if crate::net::protocols::known_hosts::CertPin::parse(seen).is_none() {
                     return NetReply::error(format!(
                         "the network process reported a malformed certificate pin for {requested}"
@@ -1357,13 +1359,16 @@ pub fn outcome_to_result(reply: NetReply) -> Result<crate::net::types::FetchResu
         }
         // The broker turns a changed certificate into a TLS error before this, for a request
         // that pins; for any other it is a failure like the rest.
-        FetchOutcome::Error(e) | FetchOutcome::CertificateChanged { message: e, .. } => return Err(net_error(e)),
+        FetchOutcome::Error(e)
+        | FetchOutcome::Failed { message: e, .. }
+        | FetchOutcome::CertificateChanged { message: e, .. } => return Err(net_error(e)),
         // Checked where the reply was received (`plausible_reply`).
         FetchOutcome::IdentityAsked {
             url,
             status,
             message,
             presented,
+            ..
         } => {
             return Err(match url::Url::parse(&url) {
                 Ok(url) => crate::net::protocols::identities::IdentityAsked {
@@ -1679,6 +1684,33 @@ mod tests {
         assert!(refused(ok(vec![seen("h", &pin); most + 1])));
         assert!(refused(ok(vec![seen("h", "nope")])));
         assert!(refused(ok(vec![seen(&"h".repeat(MAX_EVENT_STRING + 1), &pin)])));
+
+        // A failure reports them under the same bounds.
+        let failed = |certificates: Vec<SeenCertificate>| NetReply {
+            outcome: FetchOutcome::Failed {
+                message: "failed".into(),
+                certificates,
+            },
+            ring: None,
+            stream_end: None,
+            redirects: None,
+        };
+        let asked = |certificates: Vec<SeenCertificate>| NetReply {
+            outcome: FetchOutcome::IdentityAsked {
+                url: "gemini://h/".into(),
+                status: 60,
+                message: String::new(),
+                presented: false,
+                certificates,
+            },
+            ring: None,
+            stream_end: None,
+            redirects: None,
+        };
+        assert!(!refused(failed(vec![seen("h", &pin)])));
+        assert!(refused(failed(vec![seen("h", "nope")])));
+        assert!(!refused(asked(vec![seen("h", &pin)])));
+        assert!(refused(asked(vec![seen("h", &pin); most + 1])));
     }
 
     /// A changed certificate's report passes only with a pin's text form as what was seen:
@@ -1689,6 +1721,7 @@ mod tests {
             outcome: FetchOutcome::CertificateChanged {
                 message: "x".repeat(MAX_EVENT_STRING * 2),
                 seen: seen.into(),
+                certificates: Vec::new(),
             },
             ring: None,
             stream_end: None,
@@ -1697,7 +1730,7 @@ mod tests {
         let url = "gemini://h.test/";
         let pin = crate::net::protocols::known_hosts::CertPin::of(b"cert").to_string();
         match NetProcess::plausible_reply(changed(&pin), url).outcome {
-            FetchOutcome::CertificateChanged { message, seen } => {
+            FetchOutcome::CertificateChanged { message, seen, .. } => {
                 assert_eq!(seen, pin);
                 assert_eq!(message.len(), MAX_EVENT_STRING);
             }

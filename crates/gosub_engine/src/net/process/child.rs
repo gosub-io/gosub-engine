@@ -682,6 +682,15 @@ async fn perform_protocol(
     let Some(served) = served else {
         return FetchOutcome::Error("cancelled by the broker".into());
     };
+    let certificates: Vec<SeenCertificate> = served
+        .certificates
+        .into_iter()
+        .map(|seen| SeenCertificate {
+            host: seen.host,
+            port: seen.port,
+            pin: seen.pin.to_string(),
+        })
+        .collect();
     match served.result {
         FetchResult::Buffered { meta, body } => FetchOutcome::Ok {
             status: meta.status,
@@ -690,15 +699,7 @@ async fn perform_protocol(
             headers: flatten_headers(&meta.headers),
             body: body.to_vec(),
             peer_addr: meta.peer_addr,
-            certificates: served
-                .certificates
-                .into_iter()
-                .map(|seen| SeenCertificate {
-                    host: seen.host,
-                    port: seen.port,
-                    pin: seen.pin.to_string(),
-                })
-                .collect(),
+            certificates,
         },
         FetchResult::Error(NetError::Tls(TlsError {
             message,
@@ -707,6 +708,7 @@ async fn perform_protocol(
         })) => FetchOutcome::CertificateChanged {
             message,
             seen: CertPin::from_digest(&seen).to_string(),
+            certificates,
         },
         FetchResult::Error(e) => match crate::net::protocols::identities::IdentityAsked::of(&e) {
             Some(asked) => FetchOutcome::IdentityAsked {
@@ -714,8 +716,13 @@ async fn perform_protocol(
                 status: asked.status,
                 message: asked.message.clone(),
                 presented: asked.presented,
+                certificates,
             },
-            None => FetchOutcome::Error(e.to_string()),
+            None if certificates.is_empty() => FetchOutcome::Error(e.to_string()),
+            None => FetchOutcome::Failed {
+                message: e.to_string(),
+                certificates,
+            },
         },
         FetchResult::Stream { .. } => FetchOutcome::Error(format!("{} answered with a stream", protocol.scheme())),
     }

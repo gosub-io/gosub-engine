@@ -988,10 +988,22 @@ pub enum FetchOutcome {
     /// reports it, and a rich error type would be one more thing whose
     /// deserialization a compromised child could exercise.
     Error(String),
+    /// An engine protocol's request failed after first visits showed certificates, which
+    /// the broker pins as for `Ok`: a server that answered stays pinned.
+    Failed {
+        message: String,
+        certificates: Vec<SeenCertificate>,
+    },
     /// An engine protocol's server showed another certificate than the pinned one. The
     /// one failure with a field the broker acts on: `seen` (`CertPin` text) is what the
     /// user may choose to trust, checked for form where the reply is received.
-    CertificateChanged { message: String, seen: String },
+    CertificateChanged {
+        message: String,
+        seen: String,
+        /// As `Ok::certificates`.
+        #[serde(default)]
+        certificates: Vec<SeenCertificate>,
+    },
     /// An engine protocol's server wants a client certificate, or another one
     /// (`net::protocols::identities::IdentityAsked`): what the navigation fails with, for the
     /// embedder to ask the user. `url` is checked to stay on the request's scheme.
@@ -1000,7 +1012,23 @@ pub enum FetchOutcome {
         status: u8,
         message: String,
         presented: bool,
+        /// As `Ok::certificates`: the server asking was reached, and is pinned.
+        #[serde(default)]
+        certificates: Vec<SeenCertificate>,
     },
+}
+
+impl FetchOutcome {
+    /// The certificates first visits showed, for the broker to pin.
+    pub fn certificates(&self) -> &[SeenCertificate] {
+        match self {
+            Self::Ok { certificates, .. }
+            | Self::Failed { certificates, .. }
+            | Self::CertificateChanged { certificates, .. }
+            | Self::IdentityAsked { certificates, .. } => certificates,
+            Self::Streaming { .. } | Self::Error(_) => &[],
+        }
+    }
 }
 
 #[cfg(test)]

@@ -87,6 +87,24 @@ pub struct ProtocolResponse {
     pub final_url: Option<Url>,
 }
 
+/// What a protocol failed with, and the certificates first visits showed before it did: a
+/// server that answered is pinned even when the request goes on to fail, as one asking for a
+/// client certificate does.
+#[derive(Debug)]
+pub struct ProtocolError {
+    pub error: NetError,
+    pub certificates: Vec<ServerPin>,
+}
+
+impl From<NetError> for ProtocolError {
+    fn from(error: NetError) -> Self {
+        Self {
+            error,
+            certificates: Vec::new(),
+        }
+    }
+}
+
 /// What [`run`] served: the reply for the requester, and the certificates first visits showed.
 #[derive(Debug)]
 pub struct Served {
@@ -126,7 +144,7 @@ pub trait Protocol: Send + Sync {
 
     /// Fetch `request.url`, reaching no address space more private than `request.reach`.
     /// Resolves when the whole body is in; dropping the future abandons the fetch.
-    async fn fetch(&self, request: ProtocolRequest<'_>) -> Result<ProtocolResponse, NetError>;
+    async fn fetch(&self, request: ProtocolRequest<'_>) -> Result<ProtocolResponse, ProtocolError>;
 }
 
 /// Every protocol compiled into this build.
@@ -239,14 +257,14 @@ pub async fn run(
     };
     let response = match fetched {
         Ok(response) => response,
-        Err(err) => {
+        Err(ProtocolError { error, certificates }) => {
             observer.on_event(NetEvent::Failed {
                 url,
-                error: anyhow::anyhow!(err.clone()),
+                error: anyhow::anyhow!(error.clone()),
             });
             return Some(Served {
-                result: FetchResult::Error(err),
-                certificates: Vec::new(),
+                result: FetchResult::Error(error),
+                certificates,
             });
         }
     };
@@ -319,16 +337,24 @@ mod tests {
         fn encrypted(&self) -> bool {
             false
         }
-        async fn fetch(&self, request: ProtocolRequest<'_>) -> Result<ProtocolResponse, NetError> {
+        async fn fetch(&self, request: ProtocolRequest<'_>) -> Result<ProtocolResponse, ProtocolError> {
+            let certificates = vec![ServerPin {
+                host: "host".into(),
+                port: 7,
+                pin: CertPin::of(b"echo"),
+            }];
+            // Fails after the server showed its certificate.
+            if request.url.path() == "/fail" {
+                return Err(ProtocolError {
+                    error: NetError::Other(Arc::new(anyhow::anyhow!("asked to fail"))),
+                    certificates,
+                });
+            }
             Ok(ProtocolResponse {
                 content_type: "text/plain".into(),
                 body: Bytes::from(request.url.path().to_string()),
                 peer_addr: Some("192.0.2.7:70".parse().unwrap()),
-                certificates: vec![ServerPin {
-                    host: "host".into(),
-                    port: 7,
-                    pin: CertPin::of(b"echo"),
-                }],
+                certificates,
                 final_url: None,
             })
         }
@@ -351,7 +377,7 @@ mod tests {
         fn encrypted(&self) -> bool {
             false
         }
-        async fn fetch(&self, _request: ProtocolRequest<'_>) -> Result<ProtocolResponse, NetError> {
+        async fn fetch(&self, _request: ProtocolRequest<'_>) -> Result<ProtocolResponse, ProtocolError> {
             std::future::pending().await
         }
     }
@@ -479,6 +505,22 @@ mod tests {
         let served = run(&Echo, request, &CancellationToken::new(), Arc::new(Recorder::default()))
             .await
             .expect("served");
+        assert_eq!(served.certificates[0].pin, CertPin::of(b"echo"));
+    }
+
+    #[tokio::test]
+    async fn the_certificate_a_failed_fetch_showed_is_served_beside_the_error() {
+        let url = Url::parse("echo://host/fail").unwrap();
+        let request = ProtocolRequest {
+            url: &url,
+            reach: AddressSpace::Loopback,
+            pins: None,
+            identity: None,
+        };
+        let served = run(&Echo, request, &CancellationToken::new(), Arc::new(Recorder::default()))
+            .await
+            .expect("served");
+        assert!(matches!(served.result, FetchResult::Error(_)));
         assert_eq!(served.certificates[0].pin, CertPin::of(b"echo"));
     }
 

@@ -45,7 +45,7 @@ use crate::net::protocols::identities::{ClientIdentity, IdentityAsked};
 use crate::net::protocols::known_hosts::{key, CertPin, ServerPin};
 use crate::net::protocols::page::{self, escape, title_for};
 use crate::net::protocols::socket::{self, invalid, Close};
-use crate::net::protocols::{Protocol, ProtocolRequest, ProtocolResponse};
+use crate::net::protocols::{Protocol, ProtocolError, ProtocolRequest, ProtocolResponse};
 use crate::net::types::NetError;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -106,13 +106,31 @@ impl Protocol for Gemini {
         }
     }
 
-    async fn fetch(&self, request: ProtocolRequest<'_>) -> Result<ProtocolResponse, NetError> {
+    async fn fetch(&self, request: ProtocolRequest<'_>) -> Result<ProtocolResponse, ProtocolError> {
+        // What first visits showed goes back on a failure too: a server that answered is
+        // pinned when a later answer, or a later hop, fails the request.
+        let mut seen = Vec::new();
+        let followed = self.follow(request, &mut seen).await;
+        followed.map_err(|error| ProtocolError {
+            error,
+            certificates: seen,
+        })
+    }
+}
+
+impl Gemini {
+    /// [`Protocol::fetch`] proper: follows the redirects, holding each server to its pin, and
+    /// adds the certificate each first visit showed to `seen`.
+    async fn follow(
+        &self,
+        request: ProtocolRequest<'_>,
+        seen: &mut Vec<ServerPin>,
+    ) -> Result<ProtocolResponse, NetError> {
         let mut url = request.url.clone();
         let asked_for = key(&url, DEFAULT_PORT);
         // The certificate each server reached so far is held to: the zone's pin (`true`), or
         // what it showed first in this request on a first visit.
         let mut held: HashMap<(String, u16), (CertPin, bool)> = HashMap::new();
-        let mut seen = Vec::new();
         let mut hops = 0;
         loop {
             let server = key(&url, DEFAULT_PORT).ok_or_else(|| invalid(format!("gemini URL without a host: {url}")))?;
@@ -122,7 +140,7 @@ impl Protocol for Gemini {
                         content_type: "text/html; charset=utf-8".into(),
                         body: Bytes::from(held_back(&url, wait)),
                         peer_addr: None,
-                        certificates: seen,
+                        certificates: std::mem::take(seen),
                         final_url: (hops > 0).then_some(url),
                     });
                 }
@@ -218,14 +236,12 @@ pinned for it; visit it to decide about it",
                 content_type,
                 body: Bytes::from(body),
                 peer_addr: peer,
-                certificates: seen,
+                certificates: std::mem::take(seen),
                 final_url: (hops > 0).then_some(url),
             });
         }
     }
-}
 
-impl Gemini {
     /// One request and its whole response: connect to `url`'s server, hold its certificate
     /// to `pin`, present `identity` if it asks for one, send the request line and read until
     /// the server closes. Returns the response, the peer and the certificate the server
@@ -555,6 +571,21 @@ mod tests {
                 identity: None,
             })
             .await
+            .map_err(|e| e.error)
+    }
+
+    /// The failure of a fetch as [`fetch_with`] makes it, with what it reports besides its
+    /// error.
+    async fn failure(url: &Url, pins: &ZonePins) -> ProtocolError {
+        Gemini
+            .fetch(ProtocolRequest {
+                url,
+                reach: AddressSpace::Loopback,
+                pins: Some(pins),
+                identity: None,
+            })
+            .await
+            .expect_err("the fetch failed")
     }
 
     fn body(response: &ProtocolResponse) -> &str {
@@ -875,6 +906,30 @@ mod tests {
         assert_eq!(second.await.unwrap(), [None], "the request was sent");
     }
 
+    /// A failure further on does not lose what the servers before it showed.
+    #[tokio::test]
+    async fn a_redirect_that_fails_still_reports_the_first_visits_before_it() {
+        let (there, _second) = serve(&[B], b"20 text/gemini\r\nsecret", true).await;
+        let redirect = format!("30 gemini://127.0.0.1:{there}/\r\n");
+        let (here, _first) = serve(&[A], redirect.into_bytes().leak(), true).await;
+        let url = Url::parse(&format!("gemini://127.0.0.1:{here}/")).unwrap();
+        let pins = ZonePins(vec![pinned("127.0.0.1", there, A_CERT)]);
+        let err = failure(&url, &pins).await;
+        assert!(matches!(err.error, NetError::Tls(_)), "{err:?}");
+        assert_eq!(err.certificates, [pinned("127.0.0.1", here, A_CERT)]);
+    }
+
+    /// A server asking for a client certificate was reached: its certificate is pinned, so
+    /// the visit that presents one goes to the same server.
+    #[tokio::test]
+    async fn a_server_asking_for_a_certificate_reports_its_own() {
+        let (port, _server) = serve(&[A], b"60 Who are you?\r\n", true).await;
+        let url = Url::parse(&format!("gemini://127.0.0.1:{port}/")).unwrap();
+        let err = failure(&url, &ZonePins(Vec::new())).await;
+        assert!(IdentityAsked::of(&err.error).is_some(), "{err:?}");
+        assert_eq!(err.certificates, [pinned("127.0.0.1", port, A_CERT)]);
+    }
+
     #[tokio::test]
     async fn a_redirect_to_another_scheme_is_a_link() {
         let (port, server) = serve(&[A], b"30 https://example.test/elsewhere\r\n", true).await;
@@ -946,6 +1001,7 @@ mod tests {
                 identity: Some(identity),
             })
             .await
+            .map_err(|e| e.error)
     }
 
     #[tokio::test]
@@ -1048,7 +1104,8 @@ mod tests {
                 identity: None,
             })
             .await
-            .unwrap_err();
+            .unwrap_err()
+            .error;
         assert!(matches!(
             err,
             NetError::Blocked {
