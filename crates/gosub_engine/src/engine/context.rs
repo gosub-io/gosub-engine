@@ -350,6 +350,12 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// the tab worker to judge and act on.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     remote_effects: Vec<(InputProvenance, crate::fork_server::protocol::Effect)>,
+    /// Whether a whole page of this document came back already. Its autofocus is taken
+    /// from that first one only: a later whole render (a media change) starts the
+    /// renderer's autofocus afresh, and would take the focus back from where the user put
+    /// it.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_page_adopted: bool,
     /// Why the last out-of-process render could not happen at all - page
     /// content is never rendered in-process instead; the tab worker takes
     /// this and tells the embedder.
@@ -493,6 +499,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             remote_input_queue: std::collections::VecDeque::new(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_effects: Vec::new(),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_page_adopted: false,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_failure: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -717,6 +725,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             // Input queued for the page that is going would land on the next.
             self.remote_input_queue.clear();
             self.remote_effects.clear();
+            self.remote_page_adopted = false;
         }
         // Nothing the last document loaded answers for this one: whether a URL loads at all is
         // the document's call.
@@ -1558,8 +1567,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             tile_list: None,
             tile_pixel_cache: Default::default(),
         });
-        // A whole page's render may say where autofocus put the focus; nothing else a
-        // renderer asks for is taken from a pass no input produced.
+        // The document's first whole page may say where autofocus put the focus; nothing
+        // else a renderer asks for is taken from a pass no input produced.
+        if std::mem::replace(&mut self.remote_page_adopted, true) {
+            return;
+        }
         let unprompted = InputProvenance {
             pointer: false,
             chord: ClipboardChord::None,
@@ -4039,6 +4051,34 @@ mod tests {
                 matches!(effects.as_slice(), [(_, Effect::Focus { focused: true, .. })]),
                 "{effects:?}"
             );
+        }
+
+        /// A media change renders the whole page again, autofocus and all; only the
+        /// document's first page moves the focus, so the user keeps where they put it.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        #[test]
+        fn a_remote_page_autofocuses_once_per_document() {
+            use crate::fork_server::protocol::Effect;
+            let page = || crate::fork_server::client::RenderedPage {
+                summary: Default::default(),
+                tiles: Vec::new(),
+                hit_regions: Vec::new(),
+                evicted: Default::default(),
+                effects: vec![Effect::Focus {
+                    focused: true,
+                    editable: true,
+                    bounds: None,
+                }],
+            };
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.adopt_remote_page(page());
+            assert_eq!(ctx.take_remote_effects().len(), 1, "the first page autofocuses");
+            ctx.adopt_remote_page(page());
+            assert!(ctx.take_remote_effects().is_empty(), "a render again does not");
+
+            ctx.replace_document(None, None, None);
+            ctx.adopt_remote_page(page());
+            assert_eq!(ctx.take_remote_effects().len(), 1, "the next document does");
         }
 
         /// A remotely rendered page has no local layout; the renderer's target
