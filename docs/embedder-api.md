@@ -199,13 +199,14 @@ Failures arrive as a typed [`LoadError`](https://docs.rs/gosub_engine), not an o
 | `Blocked { reason }` | Refused before or instead of loading. `reason` is a `BlockReason`: `Policy`, `MixedContent`, `UrlPolicy`, `UnsupportedScheme`, `Cors`, `NotCached`, `BadPort`. | No |
 | `InvalidUrl { message }` | The URL string did not parse. | No |
 | `Connect { message }` | No connection was established: the name did not resolve, or nothing accepted it. The client does not separate the two. | Maybe |
-| `Tls { kind, host, fingerprint, message }` | The TLS handshake with `host` failed. `kind` is a `TlsFailureKind`: `Expired`, `NotYetValid`, `UnknownIssuer`, `HostnameMismatch`, `Revoked`, `InvalidCertificate` (all `is_certificate_error()`), `Handshake`, `Other`. `fingerprint` is the SHA-256 of the certificate the server presented, when it presented one. | No |
+| `Tls { kind, host, fingerprint, message }` | The TLS handshake with `host` failed. `kind` is a `TlsFailureKind`: `Expired`, `NotYetValid`, `UnknownIssuer`, `HostnameMismatch`, `Revoked`, `InvalidCertificate` (all `is_certificate_error()`), `Handshake`, `Other`. `fingerprint` is set only when a `gemini://` server showed another certificate than the pinned one and proved it holds its key: the SHA-256 of that new certificate. Other failures leave it `None`. | No |
 | `Timeout { message }` | The request did not finish within the time limit. | Maybe |
 | `Transfer { message }` | The connection worked and then broke part way through. | Maybe |
 | `Redirect { message }` | A redirect could not be followed: too many hops, or an invalid target. | No |
 | `Io { message }` | A local I/O failure: writing a download, opening storage. | Maybe |
 | `Cancelled { message }` | A new navigation, the tab closing, or an explicit cancel. | n/a |
 | `Content { message }` | The bytes arrived but could not be made into a document. | No |
+| `ClientCertificate { url, status, message, presented }` | The `gemini://` server at `url` asked for a client certificate, or did not accept the one presented. `status` and `message` are the server's; `presented` says whether the request presented one. | Once the user made an identity for `url` |
 | `Other { message }` | Unclassified. | Unknown |
 
 The same type arrives on both streams: `NavigationEvent::Failed` and `ResourceEvent::Failed` carry a `LoadError`, classified from the network stack's own typed error rather than from its message. It implements `Display`, so code that only prints the error needs no change from the days when this was an `Arc<anyhow::Error>`. It is `#[non_exhaustive]`: match with a `_` arm, because variants will be added as the engine learns to tell failures apart.
