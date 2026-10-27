@@ -682,6 +682,20 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         }
     }
 
+    /// Images the page went without have arrived: lay it out again in full, which asks the
+    /// media store for them again, and ship the window by hash. The DOM stays as the user
+    /// left it.
+    pub fn media_landed(&mut self, scroll_y: f64, known_tiles: &HashSet<u64>) -> InputPass {
+        self.scroll_y = scroll_y;
+        self.dirty = Dirty::Relayout;
+        let (pass, relayouted) = self.finish_dirty(scroll_y, known_tiles, "media", Relayout::Full, RasterBand::Window);
+        InputPass {
+            pass,
+            effects: Vec::new(),
+            relayouted,
+        }
+    }
+
     /// Turn what is dirty into a pass: nothing, a repaint of a rectangle, or a
     /// layout again with the window shipped by content hash. Returns the pass
     /// and whether the page was laid out again (positions and layer ids then
@@ -1428,5 +1442,83 @@ mod tests {
         let mut page = build("https://example.test/#p");
         assert!(page.flush_autofocus().is_none());
         assert_eq!(page.doc.focused_node(), None);
+    }
+
+    /// An image that was still on its way when the page was built lands, and the page is laid
+    /// out again around it: the focus stays where the user put it, autofocus does not run
+    /// again, and the image takes its room.
+    #[test]
+    fn a_landed_image_keeps_the_users_focus() {
+        use crate::html::{DefaultRenderConfig, RenderConfiguration};
+        use crate::net::resource_loader::{LoadError, LoadedResource, LoaderMediaSource, ResourceLoader};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        type Fonts = <DefaultRenderConfig as RenderConfiguration>::FontSystem;
+
+        /// The broker's deferred loader: "not yet" until the image has landed.
+        #[derive(Debug)]
+        struct Landing {
+            landed: AtomicBool,
+            png: Vec<u8>,
+        }
+        impl ResourceLoader for Landing {
+            fn load(&self, _url: &Url, _kind: ResourceKind) -> Result<LoadedResource, LoadError> {
+                if !self.landed.load(Ordering::Acquire) {
+                    return Err(LoadError::Pending);
+                }
+                Ok(LoadedResource {
+                    status: 200,
+                    content_type: Some("image/png".into()),
+                    body: self.png.clone().into(),
+                })
+            }
+        }
+
+        let mut png = Vec::new();
+        image::RgbaImage::new(10, 400)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .expect("encode");
+        let loader = Arc::new(Landing {
+            landed: AtomicBool::new(false),
+            png,
+        });
+        let media_store = Arc::new(gosub_render_pipeline::common::media::MediaStore::new());
+        media_store.set_source(Arc::new(LoaderMediaSource::new(
+            Arc::clone(&loader) as Arc<dyn ResourceLoader>
+        )));
+        media_store.set_synchronous_fetch(true);
+        let fonts: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(Fonts::default()));
+        let known = HashSet::new();
+        let mut page = RetainedPage::<DefaultRenderConfig>::build(
+            PageRequest {
+                html: "<!DOCTYPE html><body style=\"margin:0\"><input id=\"a\" autofocus><input id=\"b\"><br>\
+<img src=\"https://example.test/tall.png\"></body>",
+                page_url: "https://example.test/",
+                viewport_width: 800.0,
+                viewport_height: 600.0,
+                known_tiles: &known,
+                hovered_node: None,
+                dpr: 1,
+                media: MediaPrefs::default(),
+            },
+            fonts,
+            media_store,
+            Arc::clone(&loader) as Arc<dyn ResourceLoader>,
+        );
+        assert!(page.flush_autofocus().is_some());
+        page.render(Some(0.0), &known);
+        let before = page.page_height;
+        let b = page.doc.node_by_named_id("b");
+        assert!(page.with_input(|input, host| input.set_focus(host, b, true)));
+
+        loader.landed.store(true, Ordering::Release);
+        let out = page.media_landed(0.0, &known);
+        assert!(out.relayouted);
+        assert!(out.effects.is_empty(), "{:?}", out.effects);
+        assert_eq!(page.doc.focused_node(), b, "the focus went back to the autofocus field");
+        assert!(
+            page.page_height >= before + 400.0,
+            "the image took no room: {before} -> {}",
+            page.page_height
+        );
     }
 }

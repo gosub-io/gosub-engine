@@ -1442,6 +1442,23 @@ impl ResidentRenderer {
         self.exchange(loader, known_tiles)
     }
 
+    /// Images `tab`'s retained page went without have arrived: the page laid out again,
+    /// its window shipped by hash against what the broker holds.
+    pub fn media_landed(
+        &mut self,
+        tab: &str,
+        scroll_y: f64,
+        loader: &dyn RenderResources,
+        known_tiles: &TileMemory,
+    ) -> anyhow::Result<RenderedPage> {
+        self.send(&ToRenderer::MediaLanded {
+            tab: tab.to_string(),
+            scroll_y,
+            known_tiles: known_tiles.hashes(),
+        })?;
+        self.exchange(loader, known_tiles)
+    }
+
     /// The pointer moved on `tab`'s retained page: collect the repainted tiles.
     pub fn hover(
         &mut self,
