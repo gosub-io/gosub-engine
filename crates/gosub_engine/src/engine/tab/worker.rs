@@ -2129,11 +2129,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
         };
 
         // To the document's own URL, by the user or a page of the same origin, the navigation
-        // takes the current entry's place (HTML's navigate: "replace").
+        // takes the current entry's place (HTML's navigate: "replace"). Only while the cursor
+        // is on that document's entry: a traversal that failed left it on another one, which
+        // the load would overwrite.
         let history = match history {
             HistoryIntent::Push
                 if !self.is_loading
                     && self.current_url.as_ref() == Some(&url)
+                    && self.history.current_entry().is_some_and(|e| e.url == url)
                     && initiator.is_none_or(|from| same_origin(from, &url)) =>
             {
                 HistoryIntent::Replace
