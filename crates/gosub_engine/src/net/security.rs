@@ -157,6 +157,11 @@ impl SecuritySlot {
         self.state.lock().current.clone()
     }
 
+    /// Navigation `nav` started: from now on only its document events are recorded.
+    pub(crate) fn begin(&self, nav: NavigationId) {
+        self.state.lock().pending = Some((nav, Hop::default()));
+    }
+
     /// Navigation `nav` committed a document at `url`: from now on the tab shows it.
     pub(crate) fn commit(&self, nav: NavigationId, url: &Url) -> Arc<SecurityInfo> {
         let mut state = self.state.lock();
@@ -208,7 +213,7 @@ impl SecuritySlot {
         Some(info)
     }
 
-    /// Navigation `nav` ended without changing what the tab shows (a download).
+    /// Navigation `nav` ended without changing what the tab shows (a download, a cancel).
     pub(crate) fn abandon(&self, nav: NavigationId) {
         take_hop(&mut self.state.lock(), nav);
     }
@@ -216,11 +221,8 @@ impl SecuritySlot {
     /// Fold one of navigation `nav`'s document events into its hop.
     fn record_hop(&self, nav: NavigationId, ev: &NetEvent) {
         let mut state = self.state.lock();
-        // A newer navigation's events replace whatever an abandoned one left.
-        if state.pending.as_ref().is_none_or(|(id, _)| *id != nav) {
-            state.pending = Some((nav, Hop::default()));
-        }
-        let Some((_, hop)) = state.pending.as_mut() else {
+        // A cancelled navigation's request can still report after the next one began.
+        let Some((_, hop)) = state.pending.as_mut().filter(|(id, _)| *id == nav) else {
             return;
         };
         match ev {
@@ -401,6 +403,9 @@ mod tests {
         let tab_id = TabId::new();
         let slot = Arc::new(SecuritySlot::default());
         SECURITY.register(tab_id, Arc::clone(&slot));
+        if let Role::Document(nav) = role {
+            slot.begin(nav);
+        }
         let (event_tx, _) = tokio::sync::broadcast::channel(16);
         let recorder = SecurityRecorder::wrap(Arc::new(NullEmitter), tab_id, role, &event_tx);
         (tab_id, slot, recorder)
@@ -564,6 +569,7 @@ mod tests {
         assert_eq!(info.source, ResponseSource::Cache { revalidated: false });
 
         let nav = NavigationId::new();
+        slot.begin(nav);
         let rec = SecurityRecorder::wrap(
             Arc::new(NullEmitter),
             tab_id,
@@ -595,6 +601,7 @@ mod tests {
 
         // The upgraded hop redirected on: the final hop was not upgraded.
         let nav = NavigationId::new();
+        slot.begin(nav);
         let rec = SecurityRecorder::wrap(
             Arc::new(NullEmitter),
             tab_id,
@@ -628,6 +635,43 @@ mod tests {
         });
         let info = slot.commit(NavigationId::new(), &url("http://other.test/"));
         assert_eq!(info.upgrade, None);
+        SECURITY.remove(tab_id);
+    }
+
+    /// A cancelled navigation that reports after the next one began does not wipe its hop.
+    #[test]
+    fn a_cancelled_navigation_reporting_late_is_ignored() {
+        let old = NavigationId::new();
+        let (tab_id, slot, old_rec) = tab(Role::Document(old));
+        old_rec.on_event(accepted("http://old.test/"));
+
+        let nav = NavigationId::new();
+        slot.abandon(old);
+        slot.begin(nav);
+        let rec = SecurityRecorder::wrap(
+            Arc::new(NullEmitter),
+            tab_id,
+            Role::Document(nav),
+            &tokio::sync::broadcast::channel(1).0,
+        );
+        rec.on_event(accepted("http://site.test/"));
+        rec.on_event(NetEvent::SecurityUpgraded {
+            from: url("http://site.test/"),
+            to: url("https://site.test/"),
+            reason: NetUpgradeReason::Hsts,
+        });
+        old_rec.on_event(NetEvent::Redirected {
+            from: url("http://old.test/"),
+            to: url("http://old.test/next"),
+            status: 302,
+        });
+        old_rec.on_event(NetEvent::Cancelled {
+            url: url("http://old.test/next"),
+            reason: "request cancelled",
+        });
+
+        let info = slot.commit(nav, &url("https://site.test/"));
+        assert_eq!(info.upgrade, Some(UpgradeReason::Hsts));
         SECURITY.remove(tab_id);
     }
 
