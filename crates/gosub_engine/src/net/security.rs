@@ -162,6 +162,10 @@ impl SecuritySlot {
         self.state.lock().current.clone()
     }
 
+    fn committed(&self) -> Option<NavigationId> {
+        self.state.lock().committed
+    }
+
     /// Navigation `nav` started: from now on only its document events are recorded.
     pub(crate) fn begin(&self, nav: NavigationId) {
         self.state.lock().pending = Some((nav, Hop::default()));
@@ -357,7 +361,8 @@ pub(crate) enum Role {
     /// The document request of a navigation.
     Document(NavigationId),
     /// Anything a document loads: the navigation it was loaded under, or `None` for loads
-    /// that name only the tab's page (a renderer's, the brokered loader's).
+    /// that name only the tab's page (a renderer's, the brokered loader's), which
+    /// [`SecurityRecorder::wrap`] pins to the page shown when the request starts.
     Subresource(Option<NavigationId>),
 }
 
@@ -384,6 +389,12 @@ impl SecurityRecorder {
     ) -> Arc<dyn NetObserver + Send + Sync> {
         let Some(slot) = SECURITY.get(tab_id) else {
             return inner;
+        };
+        // A load that names only the tab's page is for the page shown now. Pinned to it, a
+        // load still running at the next commit stays out of the new page.
+        let role = match role {
+            Role::Subresource(None) => Role::Subresource(slot.committed()),
+            role => role,
         };
         Arc::new(Self {
             inner,
@@ -785,6 +796,33 @@ mod tests {
             (2, 1, 2),
             "the old page's late load is not this page's"
         );
+        SECURITY.remove(tab_id);
+    }
+
+    /// A renderer's load names only the tab's page; one still running when the next page
+    /// commits belongs to the page it was made for.
+    #[test]
+    fn a_brokered_load_finishing_after_the_next_commit_stays_with_its_page() {
+        let (tab_id, slot, _) = tab(Role::Subresource(None));
+        slot.commit(NavigationId::new(), &url("https://old.test/"));
+        let wrap = || {
+            SecurityRecorder::wrap(
+                Arc::new(NullEmitter),
+                tab_id,
+                Role::Subresource(None),
+                &tokio::sync::broadcast::channel(1).0,
+            )
+        };
+        let slow = wrap();
+
+        let nav = NavigationId::new();
+        slot.begin(nav);
+        slot.commit(nav, &url("https://site.test/"));
+        slow.on_event(finished("http://late.test/a.png"));
+        assert_eq!(slot.get().unwrap().subresources, SubresourceSummary::default());
+
+        wrap().on_event(finished("https://cdn.test/b.png"));
+        assert_eq!(slot.get().unwrap().subresources.over_tls, 1);
         SECURITY.remove(tab_id);
     }
 
