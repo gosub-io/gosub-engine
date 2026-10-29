@@ -137,6 +137,8 @@ struct SlotState {
     /// The navigation in flight and what its document's hops have shown so far.
     pending: Option<(NavigationId, Hop)>,
     current: Option<Arc<SecurityInfo>>,
+    /// The navigation whose document (or error page) `current` describes.
+    committed: Option<NavigationId>,
     /// Hosts the current document's subresources came from.
     hosts: HashSet<String>,
     /// When a subresource update was last announced, and whether one is waiting.
@@ -144,17 +146,24 @@ struct SlotState {
     announce_due: bool,
 }
 
-/// The current hop of a navigation's document request.
+/// The current hop of a navigation's document request, and the subresources its parse
+/// loaded before the document committed.
 #[derive(Default)]
 struct Hop {
     url: Option<Url>,
     upgrade: Option<UpgradeReason>,
     source: ResponseSource,
+    subresources: SubresourceSummary,
+    hosts: HashSet<String>,
 }
 
 impl SecuritySlot {
     pub(crate) fn get(&self) -> Option<Arc<SecurityInfo>> {
         self.state.lock().current.clone()
+    }
+
+    fn committed(&self) -> Option<NavigationId> {
+        self.state.lock().committed
     }
 
     /// Navigation `nav` started: from now on only its document events are recorded.
@@ -172,9 +181,10 @@ impl SecuritySlot {
             outcome: SecurityOutcome::Loaded,
             upgrade: hop.upgrade,
             source: hop.source,
-            subresources: SubresourceSummary::default(),
+            subresources: hop.subresources,
         });
-        state.hosts.clear();
+        state.hosts = hop.hosts;
+        state.committed = Some(nav);
         state.current = Some(Arc::clone(&info));
         info
     }
@@ -209,6 +219,7 @@ impl SecuritySlot {
             subresources: SubresourceSummary::default(),
         });
         state.hosts.clear();
+        state.committed = Some(nav);
         state.current = Some(Arc::clone(&info));
         Some(info)
     }
@@ -228,10 +239,9 @@ impl SecuritySlot {
         match ev {
             NetEvent::Accepted { url, .. } => hop.url = Some(url.clone()),
             NetEvent::Redirected { to, .. } => {
-                *hop = Hop {
-                    url: Some(to.clone()),
-                    ..Hop::default()
-                }
+                hop.url = Some(to.clone());
+                hop.upgrade = None;
+                hop.source = ResponseSource::Network;
             }
             NetEvent::SecurityUpgraded { to, reason, .. } => {
                 hop.url = Some(to.clone());
@@ -246,27 +256,33 @@ impl SecuritySlot {
         }
     }
 
-    /// Count a subresource's end into the current document. `true` when the summary changed.
-    fn count_subresource(&self, ev: &NetEvent) -> bool {
+    /// Count a subresource's end into the document of navigation `nav`, or into the current
+    /// document when the request names none. `true` when the summary the tab shows changed.
+    ///
+    /// The parse loads subresources before its document commits; those are kept with the
+    /// navigation and carried over by [`commit`](Self::commit). An older navigation's are
+    /// dropped.
+    fn count_subresource(&self, nav: Option<NavigationId>, ev: &NetEvent) -> bool {
         let (url, tls_failed) = match ev {
             NetEvent::Finished { url, .. } => (url, false),
             NetEvent::TlsFailed { url, .. } => (url, true),
             _ => return false,
         };
-        let mut state = self.state.lock();
+        let mut guard = self.state.lock();
+        let state = &mut *guard;
+        if let Some((_, hop)) = state.pending.as_mut().filter(|(id, _)| nav == Some(*id)) {
+            tally(&mut hop.subresources, &mut hop.hosts, url, tls_failed);
+            return false;
+        }
+        if nav.is_some() && nav != state.committed {
+            return false;
+        }
         let Some(current) = state.current.clone() else {
             return false;
         };
         let mut summary = current.subresources;
-        match (tls_failed, transport(url)) {
-            (true, _) => summary.failed_tls += 1,
-            (false, Some(Transport::Encrypted)) => summary.over_tls += 1,
-            (false, Some(Transport::Cleartext)) => summary.cleartext += 1,
-            (false, None) => return false,
-        }
-        if let Some(host) = url.host_str() {
-            state.hosts.insert(host.to_string());
-            summary.hosts = state.hosts.len() as u32;
+        if !tally(&mut summary, &mut state.hosts, url, tls_failed) {
+            return false;
         }
         state.current = Some(Arc::new(SecurityInfo {
             subresources: summary,
@@ -314,6 +330,21 @@ impl SecuritySlot {
     }
 }
 
+/// Add a subresource's end to `summary`. `false` for one that did not come over the network.
+fn tally(summary: &mut SubresourceSummary, hosts: &mut HashSet<String>, url: &Url, tls_failed: bool) -> bool {
+    match (tls_failed, transport(url)) {
+        (true, _) => summary.failed_tls += 1,
+        (false, Some(Transport::Encrypted)) => summary.over_tls += 1,
+        (false, Some(Transport::Cleartext)) => summary.cleartext += 1,
+        (false, None) => return false,
+    }
+    if let Some(host) = url.host_str() {
+        hosts.insert(host.to_string());
+        summary.hosts = hosts.len() as u32;
+    }
+    true
+}
+
 /// Take navigation `nav`'s hop, or an empty one when it had none (nothing was fetched).
 fn take_hop(state: &mut SlotState, nav: NavigationId) -> Hop {
     match state.pending.take() {
@@ -329,8 +360,10 @@ fn take_hop(state: &mut SlotState, nav: NavigationId) -> Hop {
 pub(crate) enum Role {
     /// The document request of a navigation.
     Document(NavigationId),
-    /// Anything the committed document loads.
-    Subresource,
+    /// Anything a document loads: the navigation it was loaded under, or `None` for loads
+    /// that name only the tab's page (a renderer's, the brokered loader's), which
+    /// [`SecurityRecorder::wrap`] pins to the page shown when the request starts.
+    Subresource(Option<NavigationId>),
 }
 
 /// [`NetObserver`] decorator that feeds a request's events into its tab's [`SecuritySlot`]
@@ -357,6 +390,12 @@ impl SecurityRecorder {
         let Some(slot) = SECURITY.get(tab_id) else {
             return inner;
         };
+        // A load that names only the tab's page is for the page shown now. Pinned to it, a
+        // load still running at the next commit stays out of the new page.
+        let role = match role {
+            Role::Subresource(None) => Role::Subresource(slot.committed()),
+            role => role,
+        };
         Arc::new(Self {
             inner,
             slot,
@@ -372,8 +411,8 @@ impl NetObserver for SecurityRecorder {
     fn on_event(&self, ev: NetEvent) {
         match self.role {
             Role::Document(nav) => self.slot.record_hop(nav, &ev),
-            Role::Subresource => {
-                if self.slot.count_subresource(&ev) {
+            Role::Subresource(nav) => {
+                if self.slot.count_subresource(nav, &ev) {
                     self.slot.announce(self.tab_id, &self.event_tx, self.runtime.as_ref());
                 }
             }
@@ -463,7 +502,7 @@ mod tests {
     /// Nothing fetched (an internal page): no transport, and nothing from an earlier hop.
     #[test]
     fn a_local_page_has_no_transport() {
-        let (tab_id, slot, _) = tab(Role::Subresource);
+        let (tab_id, slot, _) = tab(Role::Subresource(None));
         let info = slot.commit(NavigationId::new(), &url("about:blank"));
         assert_eq!(info.transport, None);
         assert_eq!(info.outcome, SecurityOutcome::Loaded);
@@ -677,7 +716,7 @@ mod tests {
 
     #[test]
     fn subresources_count_into_the_committed_document() {
-        let (tab_id, slot, sub) = tab(Role::Subresource);
+        let (tab_id, slot, sub) = tab(Role::Subresource(None));
         // Nothing committed yet: nothing to count into.
         sub.on_event(finished("https://cdn.test/a.css"));
         assert_eq!(slot.get(), None);
@@ -709,6 +748,84 @@ mod tests {
         SECURITY.remove(tab_id);
     }
 
+    /// The parse loads subresources before its document commits: they count into that
+    /// document, not the one still shown, and an older navigation's never count.
+    #[test]
+    fn subresources_loaded_before_the_commit_count_into_their_document() {
+        let shown = NavigationId::new();
+        let (tab_id, slot, _) = tab(Role::Subresource(None));
+        slot.commit(shown, &url("https://old.test/"));
+        let old = SecurityRecorder::wrap(
+            Arc::new(NullEmitter),
+            tab_id,
+            Role::Subresource(Some(shown)),
+            &tokio::sync::broadcast::channel(1).0,
+        );
+
+        let nav = NavigationId::new();
+        slot.begin(nav);
+        let preload = SecurityRecorder::wrap(
+            Arc::new(NullEmitter),
+            tab_id,
+            Role::Subresource(Some(nav)),
+            &tokio::sync::broadcast::channel(1).0,
+        );
+        preload.on_event(finished("https://cdn.test/a.css"));
+        preload.on_event(finished("http://img.test/b.png"));
+        assert_eq!(
+            slot.get().unwrap().subresources,
+            SubresourceSummary::default(),
+            "the page still shown is unchanged"
+        );
+
+        let info = slot.commit(nav, &url("https://site.test/"));
+        assert_eq!(
+            (
+                info.subresources.over_tls,
+                info.subresources.cleartext,
+                info.subresources.hosts
+            ),
+            (1, 1, 2)
+        );
+
+        old.on_event(finished("http://late.test/c.png"));
+        preload.on_event(finished("https://cdn.test/d.js"));
+        let summary = slot.get().unwrap().subresources;
+        assert_eq!(
+            (summary.over_tls, summary.cleartext, summary.hosts),
+            (2, 1, 2),
+            "the old page's late load is not this page's"
+        );
+        SECURITY.remove(tab_id);
+    }
+
+    /// A renderer's load names only the tab's page; one still running when the next page
+    /// commits belongs to the page it was made for.
+    #[test]
+    fn a_brokered_load_finishing_after_the_next_commit_stays_with_its_page() {
+        let (tab_id, slot, _) = tab(Role::Subresource(None));
+        slot.commit(NavigationId::new(), &url("https://old.test/"));
+        let wrap = || {
+            SecurityRecorder::wrap(
+                Arc::new(NullEmitter),
+                tab_id,
+                Role::Subresource(None),
+                &tokio::sync::broadcast::channel(1).0,
+            )
+        };
+        let slow = wrap();
+
+        let nav = NavigationId::new();
+        slot.begin(nav);
+        slot.commit(nav, &url("https://site.test/"));
+        slow.on_event(finished("http://late.test/a.png"));
+        assert_eq!(slot.get().unwrap().subresources, SubresourceSummary::default());
+
+        wrap().on_event(finished("https://cdn.test/b.png"));
+        assert_eq!(slot.get().unwrap().subresources.over_tls, 1);
+        SECURITY.remove(tab_id);
+    }
+
     /// The first change is announced at once, the rest of a burst once when the interval
     /// ends.
     #[tokio::test]
@@ -717,7 +834,7 @@ mod tests {
         let slot = Arc::new(SecuritySlot::default());
         SECURITY.register(tab_id, Arc::clone(&slot));
         let (event_tx, mut events) = tokio::sync::broadcast::channel(16);
-        let sub = SecurityRecorder::wrap(Arc::new(NullEmitter), tab_id, Role::Subresource, &event_tx);
+        let sub = SecurityRecorder::wrap(Arc::new(NullEmitter), tab_id, Role::Subresource(None), &event_tx);
         slot.commit(NavigationId::new(), &url("https://site.test/"));
 
         for _ in 0..5 {
@@ -741,7 +858,7 @@ mod tests {
         let slot = Arc::new(SecuritySlot::default());
         SECURITY.register(tab_id, Arc::clone(&slot));
         let (event_tx, mut events) = tokio::sync::broadcast::channel(16);
-        let sub = SecurityRecorder::wrap(Arc::new(NullEmitter), tab_id, Role::Subresource, &event_tx);
+        let sub = SecurityRecorder::wrap(Arc::new(NullEmitter), tab_id, Role::Subresource(None), &event_tx);
         slot.commit(NavigationId::new(), &url("https://site.test/"));
 
         std::thread::spawn(move || {
@@ -763,9 +880,9 @@ mod tests {
     /// With no runtime at all, nothing waits and nothing is swallowed.
     #[test]
     fn without_a_runtime_every_change_is_announced() {
-        let (tab_id, slot, _) = tab(Role::Subresource);
+        let (tab_id, slot, _) = tab(Role::Subresource(None));
         let (event_tx, mut events) = tokio::sync::broadcast::channel(16);
-        let sub = SecurityRecorder::wrap(Arc::new(NullEmitter), tab_id, Role::Subresource, &event_tx);
+        let sub = SecurityRecorder::wrap(Arc::new(NullEmitter), tab_id, Role::Subresource(None), &event_tx);
         slot.commit(NavigationId::new(), &url("https://site.test/"));
 
         for _ in 0..3 {
@@ -782,7 +899,7 @@ mod tests {
     fn a_closed_tab_gets_no_recorder() {
         let (event_tx, _) = tokio::sync::broadcast::channel(1);
         let inner: Arc<dyn NetObserver + Send + Sync> = Arc::new(NullEmitter);
-        let wrapped = SecurityRecorder::wrap(Arc::clone(&inner), TabId::new(), Role::Subresource, &event_tx);
+        let wrapped = SecurityRecorder::wrap(Arc::clone(&inner), TabId::new(), Role::Subresource(None), &event_tx);
         assert!(Arc::ptr_eq(&inner, &wrapped));
     }
 }

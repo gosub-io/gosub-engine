@@ -185,8 +185,8 @@ pub(crate) fn observer_for_request(
         {
             Some(Role::Document(nav_id))
         }
-        crate::net::req_ref_tracker::RequestReference::Navigation(_)
-        | crate::net::req_ref_tracker::RequestReference::Document(_) => Some(Role::Subresource),
+        crate::net::req_ref_tracker::RequestReference::Navigation(nav_id) => Some(Role::Subresource(Some(nav_id))),
+        crate::net::req_ref_tracker::RequestReference::Document(_) => Some(Role::Subresource(None)),
         _ => None,
     };
     let observer = match role {
