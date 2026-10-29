@@ -85,6 +85,19 @@ fn a_gopher_navigation_is_served_from_the_network_process() {
     );
 }
 
+/// A tab's security state with the network process fetching: an http page, a failed
+/// handshake, and one failed on a redirect hop, which the state names.
+#[test]
+fn a_tabs_security_state_through_the_network_process() {
+    let out = run("engine-security");
+    assert!(
+        out.status.success(),
+        "security scenario failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// A gemini navigation is served over TLS from the network process, the certificate it
 /// showed is pinned in the zone, and another certificate on the same port is refused.
 #[cfg(feature = "gemini")]

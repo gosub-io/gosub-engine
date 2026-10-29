@@ -1,5 +1,6 @@
 use crate::engine::types::TabChannel;
 use crate::events::{DownloadOfferId, PendingDownload, TabCommand};
+use crate::net::security::SecurityInfo;
 use crate::tab::sink::TabSink;
 use crate::tab::TabId;
 use crate::EngineError;
@@ -101,6 +102,14 @@ impl TabHandle {
     /// The tab's current title. Empty until the document supplies one.
     pub fn title(&self) -> String {
         self.sink.title.read().clone()
+    }
+
+    /// Security state of what the tab shows: the committed document, or the failed
+    /// navigation's error page. `None` before the first navigation ends.
+    /// [`EngineEvent::SecurityChanged`](crate::events::EngineEvent::SecurityChanged) says when
+    /// it changed.
+    pub fn security(&self) -> Option<Arc<SecurityInfo>> {
+        self.sink.security.get()
     }
 
     /// Whether [`go_back`](Self::go_back) would move anywhere.

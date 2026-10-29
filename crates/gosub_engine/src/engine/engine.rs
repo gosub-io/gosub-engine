@@ -3397,6 +3397,102 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// Serve `head` (a full response head, no body) to every connection on a local port.
+    /// Speaks plain HTTP whatever the client sends, so an `https` client fails its handshake.
+    async fn serve_head(head: String) -> u16 {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = vec![0u8; 4096];
+                let _ = stream.read(&mut buf).await;
+                let _ = stream.write_all(head.as_bytes()).await;
+            }
+        });
+        port
+    }
+
+    /// Navigate `tab` to `url` and return the security state it shows once the navigation
+    /// ends, after checking `SecurityChanged` came before the navigation's end.
+    async fn security_after(
+        tab: &crate::tab::TabHandle,
+        events: &mut tokio::sync::broadcast::Receiver<EngineEvent>,
+        url: String,
+    ) -> Arc<crate::events::SecurityInfo> {
+        use crate::events::NavigationEvent;
+        tab.navigate(url).await.expect("navigate");
+        let mut changed = false;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::SecurityChanged { tab_id }) if tab_id == tab.tab_id => changed = true,
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. } | NavigationEvent::Failed { .. },
+                        ..
+                    }) => return,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for the navigation");
+        assert!(changed, "no SecurityChanged before the navigation ended");
+        tab.security().expect("security state after a navigation")
+    }
+
+    /// A page over http is cleartext and loaded; one whose TLS handshake fails, directly or
+    /// on the hop a redirect sends it to, is a TLS failure that names that hop.
+    #[tokio::test]
+    async fn a_tab_reports_the_security_of_what_it_shows() {
+        use crate::events::SecurityOutcome;
+        use crate::net::protocols::Transport;
+
+        let page = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 0\r\n\
+                    Connection: close\r\n\r\n";
+        let http = serve_head(page.into()).await;
+        // Answers a ClientHello with plain HTTP: the handshake fails.
+        let not_tls = serve_head(page.into()).await;
+        let redirect = serve_head(format!(
+            "HTTP/1.1 302 Found\r\nLocation: https://127.0.0.1:{not_tls}/landing\r\n\
+             Content-Length: 0\r\nConnection: close\r\n\r\n"
+        ))
+        .await;
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        assert_eq!(tab.security(), None, "nothing before the first navigation");
+
+        let info = security_after(&tab, &mut events, format!("http://127.0.0.1:{http}/")).await;
+        assert_eq!(info.transport, Some(Transport::Cleartext));
+        assert_eq!(info.outcome, SecurityOutcome::Loaded);
+        assert_eq!(info.url.as_str(), format!("http://127.0.0.1:{http}/"));
+
+        let info = security_after(&tab, &mut events, format!("https://127.0.0.1:{not_tls}/")).await;
+        assert_eq!(info.transport, Some(Transport::Encrypted));
+        assert!(
+            matches!(&info.outcome, SecurityOutcome::TlsFailed { host, .. } if host == "127.0.0.1"),
+            "{:?}",
+            info.outcome
+        );
+
+        let info = security_after(&tab, &mut events, format!("http://127.0.0.1:{redirect}/")).await;
+        assert_eq!(info.url.as_str(), format!("https://127.0.0.1:{not_tls}/landing"));
+        assert_eq!(info.transport, Some(Transport::Encrypted));
+        assert!(
+            matches!(info.outcome, SecurityOutcome::TlsFailed { .. }),
+            "{:?}",
+            info.outcome
+        );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// A cookie a redirect sets reaches the jar before the redirect is
     /// followed, and rides on the next hop: the login shape, where a `302`
     /// hands out the session and sends the browser to the page that needs it.

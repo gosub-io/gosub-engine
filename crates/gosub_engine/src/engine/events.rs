@@ -965,6 +965,12 @@ pub enum EngineEvent {
         tab_id: TabId,
         title: String,
     },
+    /// The tab's security state changed: a navigation ended, or the document's subresource
+    /// summary moved (at most every 250 ms). Read it with
+    /// [`TabHandle::security`](crate::tab::TabHandle::security).
+    SecurityChanged {
+        tab_id: TabId,
+    },
     /// The page's icon was fetched: raw image bytes (ICO/PNG/SVG… as served) of the first
     /// `<link rel="icon">` (or `shortcut icon` / `apple-touch-icon`) with an `href`, else
     /// `/favicon.ico`. Emitted once per committed navigation when the fetch succeeds; a

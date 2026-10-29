@@ -81,6 +81,7 @@ use crate::engine::types::{EventChannel, ResourceChannel};
 use crate::net::emitter::engine_event_emitter::EngineEventEmitter;
 use crate::net::emitter::null_emitter::NullEmitter;
 use crate::net::req_ref_tracker::{RequestRefTracker, RequestReferenceMap, REF_REGISTRY};
+use crate::net::security::{Role, SecurityRecorder};
 use crate::net::ssrf::AddressSpace;
 use crate::net::types::{Initiator as EngineInitiator, ResourceKind as EngineResourceKind};
 use gosub_sonar::net::observer::NetObserver;
@@ -173,6 +174,25 @@ pub(crate) fn observer_for_request(
     );
     let emitter = if background { emitter.in_background() } else { emitter };
     let observer = Arc::new(emitter) as Arc<dyn NetObserver + Send + Sync>;
+
+    // The tab's security state reads the same events. A navigation's document request
+    // is its document; anything else its page loads is a subresource. A background
+    // revalidation changes neither.
+    let role = match reference {
+        _ if background => None,
+        crate::net::req_ref_tracker::RequestReference::Navigation(nav_id)
+            if matches!(kind, EngineResourceKind::Document) =>
+        {
+            Some(Role::Document(nav_id))
+        }
+        crate::net::req_ref_tracker::RequestReference::Navigation(_)
+        | crate::net::req_ref_tracker::RequestReference::Document(_) => Some(Role::Subresource),
+        _ => None,
+    };
+    let observer = match role {
+        Some(role) => SecurityRecorder::wrap(observer, tab_id, role, event_tx),
+        None => observer,
+    };
 
     // Timing decorates the emitter rather than replacing it: it reads the
     // fetch timings off each event in passing and forwards the event on.

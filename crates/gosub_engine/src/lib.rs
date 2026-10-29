@@ -303,6 +303,7 @@ pub mod events {
     pub use crate::engine::types::RequestId;
     pub use crate::engine::LoadError;
     pub use crate::net::req_ref_tracker::RequestReference;
+    pub use crate::net::security::{ResponseSource, SecurityInfo, SecurityOutcome, SubresourceSummary};
     pub use crate::net::{
         AuthChallenge, AuthTarget, BlockReason, CacheOutcome, CorsFailure, RequestChange, TlsFailureKind, UpgradeReason,
     };

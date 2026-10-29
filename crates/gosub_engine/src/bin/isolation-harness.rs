@@ -171,6 +171,7 @@ fn main() {
         "engine-net-events" => engine_net_events(),
         "engine-gopher" => engine_gopher(),
         "engine-gemini" => engine_gemini(),
+        "engine-security" => engine_security(),
         "oversized" => oversized(),
         "resolve" => resolve(),
         "decode" => decode(),
@@ -9452,6 +9453,158 @@ trusted, redirects followed on the same server and to another, held to its own p
 a client certificate asked for and presented"
         );
         0
+    })
+}
+
+/// A tab's security state with the network process fetching: a page over http is cleartext
+/// and loaded, and a failed handshake, on the first hop or on the one a redirect leads to,
+/// names the hop that failed. The failure crosses the link as a string, so it is a plain
+/// `Failed` here, not `TlsFailed`; GOS-219 types it.
+fn engine_security() -> i32 {
+    use gosub_config::settings::Setting;
+    use gosub_engine::events::{EngineEvent, NavigationEvent, SecurityInfo, SecurityOutcome};
+    use gosub_engine::net::protocols::Transport;
+    use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+    use gosub_engine::zone::ZoneServices;
+    use gosub_engine::GosubEngine;
+    use gosub_render_pipeline::render::backends::null::NullBackend;
+    use gosub_render_pipeline::render::DefaultCompositor;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("could not build a runtime: {e}");
+            return 1;
+        }
+    };
+    runtime.block_on(async move {
+        // Serves `head` to every connection, whatever it is sent: an https client fails its
+        // handshake.
+        async fn serve(head: String) -> Option<u16> {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.ok()?;
+            let port = listener.local_addr().ok()?.port();
+            tokio::spawn(async move {
+                while let Ok((mut stream, _)) = listener.accept().await {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let _ = stream.write_all(head.as_bytes()).await;
+                }
+            });
+            Some(port)
+        }
+        let page = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        let (Some(http), Some(not_tls)) = (serve(page.into()).await, serve(page.into()).await) else {
+            eprintln!("could not start the test servers");
+            return 1;
+        };
+        let Some(redirect) = serve(format!(
+            "HTTP/1.1 302 Found\r\nLocation: https://127.0.0.1:{not_tls}/landing\r\n\
+             Content-Length: 0\r\nConnection: close\r\n\r\n"
+        ))
+        .await
+        else {
+            eprintln!("could not start the redirecting server");
+            return 1;
+        };
+
+        let mut engine: GosubEngine = GosubEngine::new(
+            None,
+            Arc::new(NullBackend::new()),
+            Arc::new(DefaultCompositor::default()),
+        );
+        for (key, on) in [("security.network_process", true), ("security.renderer_process", false)] {
+            if let Err(e) = engine.settings().set(key, Setting::Bool(on)) {
+                eprintln!("could not set {key}: {e}");
+                return 1;
+            }
+        }
+        let mut events = engine.subscribe_events();
+        let Ok(run) = engine.start() else {
+            eprintln!("engine failed to start");
+            return 1;
+        };
+        tokio::spawn(run);
+        if engine.net_process_pid().await.is_none() {
+            eprintln!("the network process is not running: the request would be served in process");
+            return 1;
+        }
+        let services = ZoneServices {
+            storage: Arc::new(StorageService::new(
+                Arc::new(InMemoryLocalStore::new()),
+                Arc::new(InMemorySessionStore::new()),
+            )),
+            cookie_store: None,
+            cookie_jar: None,
+            partition_policy: PartitionPolicy::None,
+            places: None,
+        };
+        let Ok(mut zone) = engine.zone_builder().services(services).create() else {
+            eprintln!("could not create a zone");
+            return 1;
+        };
+        let Ok(tab) = zone.tab_builder().create().await else {
+            eprintln!("could not create a tab");
+            return 1;
+        };
+
+        // The state the tab shows once a navigation to `url` ends, which `SecurityChanged`
+        // announced before the end.
+        async fn security_after(
+            tab: &gosub_engine::tab::TabHandle,
+            events: &mut tokio::sync::broadcast::Receiver<EngineEvent>,
+            url: String,
+        ) -> Result<Arc<SecurityInfo>, String> {
+            tab.navigate(url.clone())
+                .await
+                .map_err(|e| format!("navigate {url}: {e}"))?;
+            let mut changed = false;
+            loop {
+                match tokio::time::timeout(Duration::from_secs(10), events.recv()).await {
+                    Ok(Ok(EngineEvent::SecurityChanged { tab_id })) if tab_id == tab.tab_id => changed = true,
+                    Ok(Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. } | NavigationEvent::Failed { .. },
+                        ..
+                    })) => break,
+                    Ok(Ok(_)) | Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+                    Ok(Err(_)) => return Err("event channel closed".into()),
+                    Err(_) => return Err(format!("timed out waiting for {url}")),
+                }
+            }
+            if !changed {
+                return Err(format!("no SecurityChanged before {url} ended"));
+            }
+            tab.security().ok_or_else(|| format!("no security state after {url}"))
+        }
+
+        let checks = async {
+            let info = security_after(&tab, &mut events, format!("http://127.0.0.1:{http}/")).await?;
+            if info.transport != Some(Transport::Cleartext) || info.outcome != SecurityOutcome::Loaded {
+                return Err(format!("the http page: {info:?}"));
+            }
+            let info = security_after(&tab, &mut events, format!("https://127.0.0.1:{not_tls}/")).await?;
+            if info.transport != Some(Transport::Encrypted) || info.outcome != SecurityOutcome::Failed {
+                return Err(format!("the failed handshake: {info:?}"));
+            }
+            let info = security_after(&tab, &mut events, format!("http://127.0.0.1:{redirect}/")).await?;
+            if info.url.as_str() != format!("https://127.0.0.1:{not_tls}/landing")
+                || info.outcome != SecurityOutcome::Failed
+            {
+                return Err(format!("the failed redirect hop: {info:?}"));
+            }
+            Ok(())
+        };
+        let result = checks.await;
+        engine.close_zone(zone).await;
+        let _ = engine.shutdown().await;
+        match result {
+            Ok(()) => 0,
+            Err(e) => {
+                eprintln!("{e}");
+                1
+            }
+        }
     })
 }
 

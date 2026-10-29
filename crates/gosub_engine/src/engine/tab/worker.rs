@@ -13,6 +13,7 @@ use crate::events::TabCommand;
 use crate::fork_server::protocol::InputEvent;
 use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
+use crate::net::security::SECURITY;
 use crate::net::types::{
     FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator, NetError, Priority, RequestBody, ResourceKind,
     SubresourceOf,
@@ -551,6 +552,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // The run loop's own cleanup never ran: drop the jar reference here,
             // so a fetch the dead tab left behind goes out without cookies.
             tab_identities.remove(tab_id);
+            SECURITY.remove(tab_id);
             request_reference_map.write().retain(|_, owner| *owner != tab_id);
             let _ = event_tx.send(EngineEvent::TabCrashed { tab_id, zone_id, error });
         });
@@ -588,6 +590,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
             self.services.cookie_jar.clone(),
             self.services.certificates.clone(),
         );
+        // And its security slot, which the requests it makes write to.
+        SECURITY.register(self.tab_id, Arc::clone(&self.sink.security));
 
         // Announce creation
         self.send_event(EngineEvent::TabCreated {
@@ -659,6 +663,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // Drop the jar reference before announcing closure: a fetch that outlives
         // the tab then goes out without cookies rather than against a stale jar.
         self.zone_context.tab_identities.remove(self.tab_id);
+        SECURITY.remove(self.tab_id);
         // The references this tab's requests were attributed by go with it.
         {
             let tab_id = self.tab_id;
@@ -785,6 +790,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 referrer_policy,
                 deferred_fonts,
             } => {
+                // Before the document is handed on: its subresources count into this.
+                self.sink.security.commit(nav_id, &final_url);
                 // The I/O side judges this document's loads by where this
                 // navigation's response came from - before a renderer is handed
                 // the document and can ask for anything.
@@ -901,6 +908,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
                 // The handle shows the new page before anyone woken by `Finished` reads it.
                 self.publish_tab_state();
+                self.send_event(EngineEvent::SecurityChanged { tab_id: self.tab_id });
                 self.send_event(EngineEvent::Navigation {
                     tab_id: self.tab_id,
                     event: NavigationEvent::Finished { nav_id, url: final_url },
@@ -914,6 +922,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.remote_focus = None;
             }
             NavigationResult::Download { nav_id, meta, spool } => {
+                self.sink.security.abandon(nav_id);
                 // Not an error and not a page change: the tab stays on its current document
                 // and the shell gets a download offer. The Cancelled event stops spinners.
                 // The navigation ends here, without cancelling it: its token is the fetch's
@@ -967,12 +976,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     .or_else(|| self.pending_url.clone())
                     .unwrap_or_else(about_blank);
 
+                let error = LoadError::from(error);
+                if self.sink.security.fail(nav_id, &url, &error).is_some() {
+                    self.send_event(EngineEvent::SecurityChanged { tab_id: self.tab_id });
+                }
                 self.send_event(EngineEvent::Navigation {
                     tab_id: self.tab_id,
                     event: NavigationEvent::Failed {
                         nav_id: Some(nav_id),
                         url,
-                        error: error.into(),
+                        error,
                     },
                 });
             }
@@ -2225,6 +2238,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             url: url.clone(),
             history,
         });
+        self.sink.security.begin(nav_id);
 
         {
             let mut guard = self.zone_context.request_reference_map.write();
@@ -2587,6 +2601,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             url: url.clone(),
             history,
         });
+        self.sink.security.begin(nav_id);
 
         {
             let mut guard = self.zone_context.request_reference_map.write();
@@ -3360,6 +3375,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 active.nav_id
             );
             active.cancel.cancel();
+            self.sink.security.abandon(active.nav_id);
             // Whatever that navigation preloaded is now for a page nobody will see. Its own
             // entries only: the hand-off is process-wide, and every other tab's preloads are
             // in there too.
