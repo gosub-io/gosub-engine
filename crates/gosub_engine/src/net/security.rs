@@ -24,6 +24,7 @@ use parking_lot::{Mutex, RwLock};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
+use tokio::runtime::Handle;
 use url::Url;
 
 /// Security state of what a tab shows: the committed document, or the error page of a
@@ -273,15 +274,16 @@ impl SecuritySlot {
     }
 
     /// Tell the embedder the summary changed, at most once per [`ANNOUNCE_INTERVAL`]; a change
-    /// inside the interval is announced when it ends.
-    fn announce(self: &Arc<Self>, tab_id: TabId, event_tx: &EventChannel) {
+    /// inside the interval is announced when it ends. Without a `runtime` to wait on, every
+    /// change is announced at once.
+    fn announce(self: &Arc<Self>, tab_id: TabId, event_tx: &EventChannel, runtime: Option<&Handle>) {
         let wait = {
             let mut state = self.state.lock();
             if state.announce_due {
                 return;
             }
             match state.announced.map(|at| at.elapsed()) {
-                Some(since) if since < ANNOUNCE_INTERVAL => {
+                Some(since) if since < ANNOUNCE_INTERVAL && runtime.is_some() => {
                     state.announce_due = true;
                     ANNOUNCE_INTERVAL - since
                 }
@@ -291,12 +293,13 @@ impl SecuritySlot {
                 }
             }
         };
-        if wait.is_zero() || tokio::runtime::Handle::try_current().is_err() {
+        let Some(runtime) = runtime.filter(|_| !wait.is_zero()) else {
             let _ = event_tx.send(EngineEvent::SecurityChanged { tab_id });
             return;
-        }
+        };
         let slot = Arc::clone(self);
         let event_tx = event_tx.clone();
+        let _entered = runtime.enter();
         spawn_named("security-announce", async move {
             tokio::time::sleep(wait).await;
             {
@@ -336,6 +339,9 @@ pub(crate) struct SecurityRecorder {
     role: Role,
     tab_id: TabId,
     event_tx: EventChannel,
+    /// The runtime the request was made on. Events can arrive off it, on the network
+    /// process's reader thread, and a delayed announcement still needs a timer.
+    runtime: Option<Handle>,
 }
 
 impl SecurityRecorder {
@@ -355,6 +361,7 @@ impl SecurityRecorder {
             role,
             tab_id,
             event_tx: event_tx.clone(),
+            runtime: Handle::try_current().ok(),
         })
     }
 }
@@ -365,7 +372,7 @@ impl NetObserver for SecurityRecorder {
             Role::Document(nav) => self.slot.record_hop(nav, &ev),
             Role::Subresource => {
                 if self.slot.count_subresource(&ev) {
-                    self.slot.announce(self.tab_id, &self.event_tx);
+                    self.slot.announce(self.tab_id, &self.event_tx, self.runtime.as_ref());
                 }
             }
         }
@@ -679,6 +686,50 @@ mod tests {
         assert!(matches!(events.try_recv(), Ok(EngineEvent::SecurityChanged { .. })));
         assert!(events.try_recv().is_err());
         assert_eq!(slot.get().unwrap().subresources.over_tls, 5);
+        SECURITY.remove(tab_id);
+    }
+
+    /// The network process's reader thread is not on the runtime; the burst is still
+    /// announced when the interval ends.
+    #[tokio::test]
+    async fn changes_from_a_plain_thread_are_announced_throttled() {
+        let tab_id = TabId::new();
+        let slot = Arc::new(SecuritySlot::default());
+        SECURITY.register(tab_id, Arc::clone(&slot));
+        let (event_tx, mut events) = tokio::sync::broadcast::channel(16);
+        let sub = SecurityRecorder::wrap(Arc::new(NullEmitter), tab_id, Role::Subresource, &event_tx);
+        slot.commit(NavigationId::new(), &url("https://site.test/"));
+
+        std::thread::spawn(move || {
+            for _ in 0..5 {
+                sub.on_event(finished("https://cdn.test/a.css"));
+            }
+        })
+        .join()
+        .unwrap();
+        assert!(matches!(events.try_recv(), Ok(EngineEvent::SecurityChanged { .. })));
+        assert!(events.try_recv().is_err());
+
+        tokio::time::sleep(ANNOUNCE_INTERVAL * 2).await;
+        assert!(matches!(events.try_recv(), Ok(EngineEvent::SecurityChanged { .. })));
+        assert!(events.try_recv().is_err());
+        SECURITY.remove(tab_id);
+    }
+
+    /// With no runtime at all, nothing waits and nothing is swallowed.
+    #[test]
+    fn without_a_runtime_every_change_is_announced() {
+        let (tab_id, slot, _) = tab(Role::Subresource);
+        let (event_tx, mut events) = tokio::sync::broadcast::channel(16);
+        let sub = SecurityRecorder::wrap(Arc::new(NullEmitter), tab_id, Role::Subresource, &event_tx);
+        slot.commit(NavigationId::new(), &url("https://site.test/"));
+
+        for _ in 0..3 {
+            sub.on_event(finished("https://cdn.test/a.css"));
+        }
+        for _ in 0..3 {
+            assert!(matches!(events.try_recv(), Ok(EngineEvent::SecurityChanged { .. })));
+        }
         SECURITY.remove(tab_id);
     }
 
