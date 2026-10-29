@@ -83,6 +83,7 @@ pub mod protocols;
 pub mod req_ref_tracker;
 pub mod resource_loader;
 mod router;
+pub mod security;
 mod shared_body;
 pub mod ssrf;
 pub mod tab_identity;

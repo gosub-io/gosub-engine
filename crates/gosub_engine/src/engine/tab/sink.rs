@@ -1,8 +1,9 @@
 use crate::engine::events::PendingDownload;
 use crate::engine::types::NavigationId;
+use crate::net::security::SecuritySlot;
 use parking_lot::RwLock;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 use url::Url;
 
@@ -28,6 +29,8 @@ pub struct TabSink {
     pub can_go_forward: AtomicBool,
     /// Download offers whose body the tab still holds, oldest first
     pub pending_downloads: RwLock<Vec<PendingDownload>>,
+    /// Security state of what the tab shows; the fetch side writes to it too
+    pub(crate) security: Arc<SecuritySlot>,
 }
 
 impl Default for TabSink {
@@ -49,6 +52,7 @@ impl TabSink {
             can_go_back: AtomicBool::new(false),
             can_go_forward: AtomicBool::new(false),
             pending_downloads: RwLock::new(Vec::new()),
+            security: Arc::new(SecuritySlot::default()),
         }
     }
 
