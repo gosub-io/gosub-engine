@@ -14,6 +14,13 @@ fn key(n: u8) -> SqliteKey {
     SqliteKey::from_bytes([n; 32])
 }
 
+/// Never drop a pooled store. An r2d2 worker can be the one that drops the pool, closing its
+/// connections while the test's process exits, and SQLCipher tears its crypto provider down
+/// at exit under it (GOS-236).
+fn keep<T>(store: T) {
+    std::mem::forget(store);
+}
+
 /// Encrypted on disk, and refused without the key or with another one.
 fn assert_sealed(path: &Path, opens_with: impl Fn(Option<SqliteKey>) -> bool) {
     assert!(path.exists(), "{} not written", path.display());
@@ -43,8 +50,8 @@ fn settings() {
 fn cookies() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("cookies.db");
-    drop(SqliteCookieStore::open(path.clone(), Some(key(1))).unwrap());
-    assert_sealed(&path, |k| SqliteCookieStore::open(path.clone(), k).is_ok());
+    keep(SqliteCookieStore::open(path.clone(), Some(key(1))).unwrap());
+    assert_sealed(&path, |k| SqliteCookieStore::open(path.clone(), k).map(keep).is_ok());
 }
 
 #[test]
@@ -53,10 +60,11 @@ fn places() {
     let path = dir.path().join("places.db");
     let places = SqlitePlaces::open(path.clone(), Some(key(1))).unwrap();
     places.add_bookmark("https://example.org/", "Example");
-    drop(places);
-    assert_sealed(&path, |k| SqlitePlaces::open(path.clone(), k).is_ok());
+    keep(places);
+    assert_sealed(&path, |k| SqlitePlaces::open(path.clone(), k).map(keep).is_ok());
     let places = SqlitePlaces::open(path.clone(), Some(key(1))).unwrap();
     assert_eq!(places.bookmarks().len(), 1);
+    keep(places);
 }
 
 #[test]
@@ -68,8 +76,8 @@ fn local_storage() {
     let origin = url::Url::parse("https://example.org/").unwrap().origin();
     let area = store.area(ZoneId::new(), &Default::default(), &origin).unwrap();
     area.set_item("k", "v").unwrap();
-    drop((area, store));
-    assert_sealed(&path, |k| SqliteLocalStore::open(path_str, k).is_ok());
+    keep((area, store));
+    assert_sealed(&path, |k| SqliteLocalStore::open(path_str, k).map(keep).is_ok());
 }
 
 #[cfg(all(feature = "sqlite_client_identities", feature = "gemini"))]
@@ -83,8 +91,11 @@ fn client_identities() {
     let at = url::Url::parse("gemini://example.org/app/").unwrap();
     let store = SqliteClientIdentities::open(path.clone(), Some(key(1))).unwrap();
     store.add(ClientIdentity::generate(IdentityScope::for_url(&at).unwrap(), "Visitor").unwrap());
-    drop(store);
-    assert_sealed(&path, |k| SqliteClientIdentities::open(path.clone(), k).is_ok());
+    keep(store);
+    assert_sealed(&path, |k| {
+        SqliteClientIdentities::open(path.clone(), k).map(keep).is_ok()
+    });
     let store = SqliteClientIdentities::open(path.clone(), Some(key(1))).unwrap();
     assert_eq!(store.all().len(), 1);
+    keep(store);
 }
