@@ -210,7 +210,10 @@ impl BrokeredLoader {
             Some(handle) => {
                 handle.spawn(relay);
             }
-            None => return Err(LoadError::Failed("no runtime to relay the reply on".into())),
+            None => {
+                REF_REGISTRY.forget_request(req_id);
+                return Err(LoadError::Failed("no runtime to relay the reply on".into()));
+            }
         }
 
         self.io_tx
