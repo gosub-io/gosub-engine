@@ -186,7 +186,9 @@ pub(crate) fn observer_for_request(
             Some(Role::Document(nav_id))
         }
         crate::net::req_ref_tracker::RequestReference::Navigation(nav_id) => Some(Role::Subresource(Some(nav_id))),
-        crate::net::req_ref_tracker::RequestReference::Document(_) => Some(Role::Subresource(None)),
+        crate::net::req_ref_tracker::RequestReference::Document(_) => {
+            Some(Role::Subresource(REF_REGISTRY.request_navigation(req_id)))
+        }
         _ => None,
     };
     let observer = match role {
@@ -705,5 +707,51 @@ mod fetcher_context_tests {
             "lax=1",
             "back from another site, Strict stays home"
         );
+    }
+
+    /// A renderer's load names only the tab's page. One made for page A whose observer is
+    /// built after page B committed counts under A, not B.
+    #[test]
+    fn a_brokered_load_made_for_the_last_page_does_not_count_into_the_next() {
+        use crate::net::security::{SecuritySlot, SECURITY};
+        let tab = TabId::new();
+        let slot = Arc::new(SecuritySlot::default());
+        SECURITY.register(tab, Arc::clone(&slot));
+        let reference = RequestReference::Document(u64::MAX - 0x237);
+        let map = Arc::new(RwLock::new(RequestReferenceMap::new()));
+        map.write().insert(reference, tab);
+        let channel = tokio::sync::broadcast::channel(16).0;
+        let load = |nav: NavigationId, at: &str| {
+            let req_id = RequestId::new();
+            REF_REGISTRY.register_navigation(req_id, nav);
+            let observer = observer_for_request(
+                &tokio::sync::broadcast::channel(16).0,
+                &channel,
+                &map,
+                REF_REGISTRY.to_net(reference),
+                req_id,
+                ResourceKind::Asset,
+                Initiator::Application,
+                false,
+            );
+            observer.on_event(crate::net::events::NetEvent::Finished {
+                received_bytes: 0,
+                elapsed: std::time::Duration::ZERO,
+                url: Url::parse(at).unwrap(),
+            });
+            REF_REGISTRY.forget_request(req_id);
+        };
+
+        let (a, b) = (NavigationId::new(), NavigationId::new());
+        slot.begin(a);
+        slot.commit(a, &Url::parse("https://a.test/").unwrap());
+        slot.begin(b);
+        slot.commit(b, &Url::parse("https://b.test/").unwrap());
+
+        load(a, "http://late.test/a.png");
+        assert_eq!(slot.get().unwrap().subresources, Default::default());
+        load(b, "https://cdn.test/b.png");
+        assert_eq!(slot.get().unwrap().subresources.over_tls, 1);
+        SECURITY.remove(tab);
     }
 }

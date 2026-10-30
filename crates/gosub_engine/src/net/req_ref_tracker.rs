@@ -64,6 +64,9 @@ pub struct RefRegistry {
     /// cannot carry through the fetch pipeline. Registered when a `FetchRequest` is built,
     /// looked up in fetcher callbacks, and dropped again on terminal fetch events.
     request_meta: DashMap<crate::engine::types::RequestId, (ResourceKind, Initiator)>,
+    /// The navigation a request was made for, where its reference does not say: a brokered
+    /// load names only its tab's document. Dropped with `request_meta`.
+    request_navigation: DashMap<crate::engine::types::RequestId, NavigationId>,
 }
 
 impl RefRegistry {
@@ -73,6 +76,7 @@ impl RefRegistry {
             reverse: DashMap::new(),
             next: AtomicU64::new(1),
             request_meta: DashMap::new(),
+            request_navigation: DashMap::new(),
         }
     }
 
@@ -86,9 +90,20 @@ impl RefRegistry {
         self.request_meta.get(&req_id).map(|m| *m)
     }
 
+    /// Remember which navigation's page a request about to be submitted was made for.
+    pub fn register_navigation(&self, req_id: crate::engine::types::RequestId, nav: NavigationId) {
+        self.request_navigation.insert(req_id, nav);
+    }
+
+    /// The navigation registered for a request.
+    pub fn request_navigation(&self, req_id: crate::engine::types::RequestId) -> Option<NavigationId> {
+        self.request_navigation.get(&req_id).map(|n| *n)
+    }
+
     /// Drop the per-request metadata once the fetch has reached a terminal state.
     pub fn forget_request(&self, req_id: crate::engine::types::RequestId) {
         self.request_meta.remove(&req_id);
+        self.request_navigation.remove(&req_id);
     }
 
     /// Intern an engine reference, returning the stable sonar-side tag for it.

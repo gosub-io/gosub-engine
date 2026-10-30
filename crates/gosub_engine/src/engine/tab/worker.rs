@@ -825,6 +825,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     (Some(doc), source) => {
                         self.context.set_document(Arc::clone(&doc), source);
                         self.context.set_document_referrer_policy(referrer_policy);
+                        self.context.set_document_navigation(nav_id);
                         self.context.set_deferred_fonts(deferred_fonts);
                         if let Some(cancel) = &nav_cancel {
                             if let Some(icon) = crate::html::favicon_url::<C>(&doc, &final_url) {
@@ -837,6 +838,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     (None, Some(source)) => {
                         self.context.set_document_source(final_url.clone(), source);
                         self.context.set_document_referrer_policy(referrer_policy);
+                        self.context.set_document_navigation(nav_id);
                     }
                     (None, None) => {
                         log::error!(

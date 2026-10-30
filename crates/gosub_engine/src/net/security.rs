@@ -390,7 +390,8 @@ impl SecurityRecorder {
         let Some(slot) = SECURITY.get(tab_id) else {
             return inner;
         };
-        // A load that names only the tab's page is for the page shown now. Pinned to it, a
+        // A brokered load registers the navigation its render pass was for. One that did not
+        // (a loader bound to no committed page) is for the page shown now, pinned to it so a
         // load still running at the next commit stays out of the new page.
         let role = match role {
             Role::Subresource(None) => Role::Subresource(slot.committed()),

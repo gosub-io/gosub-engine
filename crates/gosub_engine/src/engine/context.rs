@@ -293,6 +293,8 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// The current document's referrer policy: how much of `document_url` its
     /// requests send as `Referer`.
     document_referrer_policy: gosub_sonar::ReferrerPolicy,
+    /// The navigation that committed the current document, if one did.
+    document_navigation: Option<crate::engine::types::NavigationId>,
     /// Title and icon URL the renderer reported for the current document,
     /// not yet handed to the tab.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -469,6 +471,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             document_source: None,
             document_url: None,
             document_referrer_policy: gosub_sonar::ReferrerPolicy::default(),
+            document_navigation: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_document_meta: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -682,6 +685,17 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.document_referrer_policy
     }
 
+    /// Set the navigation that committed the current document. Installing a document clears
+    /// it, so this follows `set_document` or `set_document_source`.
+    pub fn set_document_navigation(&mut self, nav: crate::engine::types::NavigationId) {
+        self.document_navigation = Some(nav);
+    }
+
+    /// The navigation that committed the current document.
+    pub fn document_navigation(&self) -> Option<crate::engine::types::NavigationId> {
+        self.document_navigation
+    }
+
     /// Title and icon URL the renderer reported since the last call.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub fn take_remote_document_meta(&mut self) -> Option<(Option<String>, Option<String>)> {
@@ -740,6 +754,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.viewport.height = self.page_scale.layout_height;
         self.document_url = url;
         self.document_referrer_policy = gosub_sonar::ReferrerPolicy::default();
+        self.document_navigation = None;
         self.document_source = source;
         self.pipeline_cache = None;
         self.scene_cache = None;
@@ -1411,7 +1426,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     fn loader_for_document(&self) -> Arc<dyn crate::net::resource_loader::ResourceLoader> {
         self.loader
-            .for_document(self.document_url.as_ref(), self.document_referrer_policy)
+            .for_document(
+                self.document_url.as_ref(),
+                self.document_referrer_policy,
+                self.document_navigation,
+            )
             .unwrap_or_else(|| Arc::clone(&self.loader))
     }
 
@@ -3959,6 +3978,47 @@ mod tests {
                 "{:?}",
                 ctx.damage.level()
             );
+        }
+
+        /// Records the navigation each render pass binds its loader to.
+        #[derive(Debug, Default)]
+        struct BindingLoader(parking_lot::Mutex<Vec<Option<crate::engine::types::NavigationId>>>);
+
+        impl crate::net::resource_loader::ResourceLoader for BindingLoader {
+            fn load(
+                &self,
+                url: &Url,
+                _: crate::net::types::ResourceKind,
+            ) -> Result<crate::net::resource_loader::LoadedResource, crate::net::resource_loader::LoadError>
+            {
+                Err(crate::net::resource_loader::LoadError::UnsupportedUrl(url.to_string()))
+            }
+
+            fn for_document(
+                &self,
+                _: Option<&Url>,
+                _: gosub_sonar::ReferrerPolicy,
+                navigation: Option<crate::engine::types::NavigationId>,
+            ) -> Option<Arc<dyn crate::net::resource_loader::ResourceLoader>> {
+                self.0.lock().push(navigation);
+                None
+            }
+        }
+
+        /// A render pass binds its loader to the navigation that committed the page it renders,
+        /// and a page installed without one binds none.
+        #[test]
+        fn a_pass_binds_its_loader_to_the_committing_navigation() {
+            let loader = Arc::new(BindingLoader::default());
+            let mut ctx: BrowsingContext<DefaultRenderConfig> =
+                BrowsingContext::with_loader(settings_store::default_config(), loader.clone());
+            let a = crate::engine::types::NavigationId::new();
+            ctx.set_document_source(Url::parse("https://a.test/").unwrap(), "<p>a".into());
+            ctx.set_document_navigation(a);
+            ctx.loader_for_document();
+            ctx.set_document_source(Url::parse("https://b.test/").unwrap(), "<p>b".into());
+            ctx.loader_for_document();
+            assert_eq!(*loader.0.lock(), vec![Some(a), None]);
         }
     }
 
