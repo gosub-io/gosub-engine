@@ -11,7 +11,7 @@
 
 use crate::engine::events::IoCommand;
 use crate::engine::types::IoChannel;
-use crate::engine::types::RequestId;
+use crate::engine::types::{NavigationId, RequestId};
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
 use crate::net::resource_loader::{LoadError, LoadedResource, ResourceLoader};
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult, ResourceKind, SubresourceOf};
@@ -49,6 +49,9 @@ pub struct BrokeredLoader {
     /// judges the request's policies by, and whether `file:` neighbours may be
     /// loaded.
     document: Option<(Url, ReferrerPolicy)>,
+    /// The navigation that committed `document`. `reference` names only the
+    /// tab, so each request registers it to be counted under that page.
+    navigation: Option<NavigationId>,
     /// The tab's `Accept-Language`, as the in-process fetches send it.
     accept_language: Option<String>,
     /// What this loader's requests say they are for: a document reference of
@@ -79,6 +82,7 @@ impl BrokeredLoader {
             cancel: CancellationToken::new(),
             runtime: tokio::runtime::Handle::try_current().ok(),
             document: None,
+            navigation: None,
             accept_language: None,
             reference: next_document_reference(),
         }
@@ -111,9 +115,15 @@ impl ResourceLoader for BrokeredLoader {
         result.and_then(into_loaded)
     }
 
-    fn for_document(&self, url: Option<&Url>, policy: ReferrerPolicy) -> Option<Arc<dyn ResourceLoader>> {
+    fn for_document(
+        &self,
+        url: Option<&Url>,
+        policy: ReferrerPolicy,
+        navigation: Option<NavigationId>,
+    ) -> Option<Arc<dyn ResourceLoader>> {
         Some(Arc::new(Self {
             document: url.map(|url| (url.clone(), policy)),
+            navigation,
             ..self.clone()
         }))
     }
@@ -135,8 +145,12 @@ impl BrokeredLoader {
                 headers.insert(http::header::ACCEPT_LANGUAGE, value);
             }
         }
+        let req_id = RequestId::new();
+        if let Some(nav) = self.navigation {
+            REF_REGISTRY.register_navigation(req_id, nav);
+        }
         let mut builder = FetchRequest::builder(Method::GET, url.clone())
-            .with_req_id(RequestId::new())
+            .with_req_id(req_id)
             .with_reference(REF_REGISTRY.to_net(self.reference))
             .with_headers(headers)
             .with_kind(gosub_sonar::net::types::ResourceKind::Asset)
@@ -168,10 +182,11 @@ impl BrokeredLoader {
         }
         warn_if_current_thread_runtime();
         let req = self.request(url, kind, document);
+        let req_id = req.req_id;
 
         let cancel = self.cancel.child_token();
         let handle = FetchHandle {
-            req_id: req.req_id,
+            req_id,
             cancel: cancel.clone(),
         };
 
@@ -206,7 +221,10 @@ impl BrokeredLoader {
                 handle,
                 reply_tx: io_tx,
             })
-            .map_err(|_| LoadError::Failed("the I/O runtime has shut down".into()))?;
+            .map_err(|_| {
+                REF_REGISTRY.forget_request(req_id);
+                LoadError::Failed("the I/O runtime has shut down".into())
+            })?;
 
         // The blocking wait must not hold this worker's scheduler core: the
         // send above has just woken the I/O task into this worker's LIFO slot,
@@ -305,7 +323,7 @@ mod tests {
         std::fs::write(dir.join("page.css"), b"body{}").unwrap();
         let page = Url::from_file_path(dir.join("index.html")).unwrap();
         let for_page = loader
-            .for_document(Some(&page), ReferrerPolicy::default())
+            .for_document(Some(&page), ReferrerPolicy::default(), None)
             .expect("a brokered loader binds to a document");
         let neighbour = Url::from_file_path(dir.join("page.css")).unwrap();
         let loaded = for_page
@@ -335,7 +353,7 @@ mod tests {
         let loader = BrokeredLoader::new(ZoneId::new(), None, io.subscribe());
         let page = Url::parse("https://site.test/").unwrap();
         let for_page = loader
-            .for_document(Some(&page), ReferrerPolicy::default())
+            .for_document(Some(&page), ReferrerPolicy::default(), None)
             .expect("a brokered loader binds to a document");
 
         for (url, kind) in [
@@ -395,5 +413,29 @@ mod tests {
             req.mixed_content, image.mixed_content,
             "the kind still picks the mixed-content handling"
         );
+    }
+
+    /// A loader bound to a navigation registers it for each request, which is how the
+    /// security state knows the page a load was for.
+    #[test]
+    fn a_bound_loader_registers_its_navigation_per_request() {
+        let (io_tx, _io_rx) = tokio::sync::mpsc::unbounded_channel();
+        let loader = BrokeredLoader::new(ZoneId::new(), None, io_tx);
+        let page = Url::parse("https://a.test/").unwrap();
+        let nav = NavigationId::new();
+        let bound = BrokeredLoader {
+            document: Some((page.clone(), ReferrerPolicy::default())),
+            navigation: Some(nav),
+            ..loader.clone()
+        };
+        let url = Url::parse("https://cdn.test/a.png").unwrap();
+
+        let req = bound.request(&url, ResourceKind::Stylesheet, bound.document.clone());
+        assert_eq!(REF_REGISTRY.request_navigation(req.req_id), Some(nav));
+        REF_REGISTRY.forget_request(req.req_id);
+        assert_eq!(REF_REGISTRY.request_navigation(req.req_id), None);
+
+        let req = loader.request(&url, ResourceKind::Stylesheet, None);
+        assert_eq!(REF_REGISTRY.request_navigation(req.req_id), None);
     }
 }

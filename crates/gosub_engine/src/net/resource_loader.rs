@@ -80,13 +80,16 @@ pub trait ResourceLoader: Send + Sync + fmt::Debug {
     /// that fetches on a page's behalf stamps every request with it: its
     /// `Referer` under `policy`, the document's referrer policy, the document its policies are judged by (a `file:` page may
     /// load `file:` neighbours; a public page may not reach the private
-    /// network). Bound per render pass, never shared and swapped: a pass of
-    /// the page still shown must keep asking as that page while the next one
-    /// loads. Loaders that serve no page answer `None`.
+    /// network), and `navigation`, the one that committed it, which the tab's
+    /// security state counts the loads under. Bound per render pass, never
+    /// shared and swapped: a pass of the page still shown must keep asking as
+    /// that page while the next one loads. Loaders that serve no page answer
+    /// `None`.
     fn for_document(
         &self,
         _url: Option<&Url>,
         _policy: gosub_sonar::ReferrerPolicy,
+        _navigation: Option<crate::engine::types::NavigationId>,
     ) -> Option<Arc<dyn ResourceLoader>> {
         None
     }

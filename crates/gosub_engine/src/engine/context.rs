@@ -293,6 +293,8 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// The current document's referrer policy: how much of `document_url` its
     /// requests send as `Referer`.
     document_referrer_policy: gosub_sonar::ReferrerPolicy,
+    /// The navigation that committed the current document, if one did.
+    document_navigation: Option<crate::engine::types::NavigationId>,
     /// Title and icon URL the renderer reported for the current document,
     /// not yet handed to the tab.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -469,6 +471,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             document_source: None,
             document_url: None,
             document_referrer_policy: gosub_sonar::ReferrerPolicy::default(),
+            document_navigation: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_document_meta: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -682,6 +685,17 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.document_referrer_policy
     }
 
+    /// Set the navigation that committed the current document. Installing a document clears
+    /// it, so this follows `set_document` or `set_document_source`.
+    pub fn set_document_navigation(&mut self, nav: crate::engine::types::NavigationId) {
+        self.document_navigation = Some(nav);
+    }
+
+    /// The navigation that committed the current document.
+    pub fn document_navigation(&self) -> Option<crate::engine::types::NavigationId> {
+        self.document_navigation
+    }
+
     /// Title and icon URL the renderer reported since the last call.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub fn take_remote_document_meta(&mut self) -> Option<(Option<String>, Option<String>)> {
@@ -740,6 +754,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.viewport.height = self.page_scale.layout_height;
         self.document_url = url;
         self.document_referrer_policy = gosub_sonar::ReferrerPolicy::default();
+        self.document_navigation = None;
         self.document_source = source;
         self.pipeline_cache = None;
         self.scene_cache = None;
@@ -1411,7 +1426,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     fn loader_for_document(&self) -> Arc<dyn crate::net::resource_loader::ResourceLoader> {
         self.loader
-            .for_document(self.document_url.as_ref(), self.document_referrer_policy)
+            .for_document(
+                self.document_url.as_ref(),
+                self.document_referrer_policy,
+                self.document_navigation,
+            )
             .unwrap_or_else(|| Arc::clone(&self.loader))
     }
 
