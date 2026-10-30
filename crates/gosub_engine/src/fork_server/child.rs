@@ -21,6 +21,8 @@ pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
     // `ps`; this process itself reads as the fork server on both paths below.
     gosub_sandbox::capture_process_title_region();
     gosub_sandbox::set_process_title("gosub-forksrv", "gosub: renderer fork server");
+    // Inherited by every forked renderer, which could not load them itself.
+    gosub_sandbox::preload_lazy_libraries();
 
     match C::FontSystem::confinement() {
         Confinement::Full => serve_warmed::<C>(link),

@@ -647,6 +647,7 @@ fn render_under_lockdown<F: FontSystem + Default>() -> i32 {
         // SVG text goes through a system fontdb that loads face files lazily;
         // pin them before the lockdown, exactly as the fork server does.
         gosub_render_pipeline::common::media::SvgDecoder::pin_system_fonts();
+        gosub_sandbox::preload_lazy_libraries();
         let media_store = std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::new());
 
         gosub_sandbox::lock_down_renderer();
@@ -1650,6 +1651,7 @@ fn render_file_locked<F: FontSystem + Default>() -> i32 {
         // single-threaded fetches, since a confined renderer cannot create
         // threads.
         gosub_render_pipeline::common::media::SvgDecoder::pin_system_fonts();
+        gosub_sandbox::preload_lazy_libraries();
         let media_store = std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::new());
         media_store.set_synchronous_fetch(true);
 

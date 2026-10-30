@@ -79,6 +79,8 @@ pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
     gosub_sandbox::capture_process_title_region();
     // Parsing SVG finds its stack bounds through /proc/self/maps; do it before that is gone.
     gosub_render_pipeline::common::media::SvgDecoder::prepare_for_confinement();
+    // Before Landlock, which takes the library paths away.
+    gosub_sandbox::preload_lazy_libraries();
 
     // Before the font system, which may start a thread: `TMPDIR` is set here.
     let scratch = match gosub_sandbox::claim_scratch_dir("renderer") {
