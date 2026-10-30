@@ -465,6 +465,14 @@ pub fn exit_now(code: i32) -> ! {
     imp::exit_now(code)
 }
 
+/// Load the shared libraries a renderer's dependencies would otherwise `dlopen`
+/// on first use, which the renderer lockdown cannot allow. Call before any
+/// Landlock or seccomp. A no-op off Linux.
+pub fn preload_lazy_libraries() {
+    #[cfg(all(feature = "multi-process", target_os = "linux"))]
+    imp::preload_lazy_libraries();
+}
+
 /// Record where this process's argv lives, so [`set_process_title`] can
 /// rewrite it later without a syscall. Must run before lockdown (it reads
 /// `/proc`); forked children inherit the capture. A no-op off Linux, so

@@ -491,6 +491,18 @@ pub fn exit_now(code: i32) -> ! {
 /// The argv area of this process (`arg_start`..`arg_end` from
 /// `/proc/self/stat`), captured before any lockdown so [`set_process_title`]
 /// can rewrite it without a syscall. Forked children inherit the capture.
+/// FreeType 2.14 no longer links HarfBuzz: on first use it looks for
+/// `hb_version_atleast` and, when that is missing, `dlopen`s
+/// `libharfbuzz.so.0`. In a locked-down renderer that open is a SIGSYS.
+/// Loaded `RTLD_GLOBAL` here, FreeType's lookup finds it without touching the
+/// filesystem. A host without HarfBuzz just keeps FreeType's own fallback.
+#[cfg(feature = "multi-process")]
+pub fn preload_lazy_libraries() {
+    // SAFETY: a NUL-terminated constant; the handle is never closed, so the
+    // library stays mapped for the life of the process.
+    let _ = unsafe { libc::dlopen(c"libharfbuzz.so.0".as_ptr(), libc::RTLD_NOW | libc::RTLD_GLOBAL) };
+}
+
 #[cfg(feature = "multi-process")]
 static PROCESS_TITLE_REGION: std::sync::OnceLock<(usize, usize)> = std::sync::OnceLock::new();
 
@@ -2740,5 +2752,28 @@ mod pidfd_tests {
         assert!(libc::WIFSIGNALED(status) && libc::WTERMSIG(status) == libc::SIGKILL);
         // After the process is gone the fd still names it: a signal finds nothing.
         assert!(super::pidfd_kill(&fd).is_err());
+    }
+}
+
+#[cfg(all(test, feature = "multi-process"))]
+mod preload_tests {
+    /// After the preload HarfBuzz is resident, so a later `dlopen` by name
+    /// needs no file. Each nextest test is its own process, so nothing else
+    /// loaded it first.
+    #[test]
+    fn harfbuzz_is_resident_after_the_preload() {
+        let name = c"libharfbuzz.so.0";
+        super::preload_lazy_libraries();
+        // SAFETY: NUL-terminated constant; RTLD_NOLOAD only looks up what is loaded.
+        let resident = unsafe { libc::dlopen(name.as_ptr(), libc::RTLD_NOW | libc::RTLD_NOLOAD) };
+        if resident.is_null() {
+            // SAFETY: as above, without NOLOAD.
+            let loadable = unsafe { libc::dlopen(name.as_ptr(), libc::RTLD_NOW) };
+            assert!(
+                loadable.is_null(),
+                "libharfbuzz.so.0 is loadable but the preload did not load it"
+            );
+            eprintln!("skipping: no libharfbuzz.so.0 on this host");
+        }
     }
 }
