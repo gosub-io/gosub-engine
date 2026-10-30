@@ -147,6 +147,10 @@ impl NetObserver for TimingEmitter {
 
         self.inner.on_event(ev);
     }
+
+    fn body_capture_limit(&self, headers: &http::HeaderMap, content_length: Option<u64>) -> Option<usize> {
+        self.inner.body_capture_limit(headers, content_length)
+    }
 }
 
 #[cfg(test)]
@@ -254,6 +258,22 @@ mod test {
             .expect("net.queue recorded");
         assert_eq!(queue.count, 1);
         assert!(queue.total_us >= 20_000, "{}us", queue.total_us);
+    }
+
+    /// The body capture decision belongs to the wrapped observer; the trait default would
+    /// switch capture off for every request.
+    #[test]
+    fn forwards_the_body_capture_limit() {
+        struct Capturing;
+        impl NetObserver for Capturing {
+            fn on_event(&self, _ev: NetEvent) {}
+            fn body_capture_limit(&self, _: &http::HeaderMap, _: Option<u64>) -> Option<usize> {
+                Some(4096)
+            }
+        }
+
+        let em = TimingEmitter::wrap(Arc::new(Capturing), ResourceKind::Document, None);
+        assert_eq!(em.body_capture_limit(&http::HeaderMap::new(), Some(10)), Some(4096));
     }
 
     #[test]
