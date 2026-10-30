@@ -3979,6 +3979,47 @@ mod tests {
                 ctx.damage.level()
             );
         }
+
+        /// Records the navigation each render pass binds its loader to.
+        #[derive(Debug, Default)]
+        struct BindingLoader(parking_lot::Mutex<Vec<Option<crate::engine::types::NavigationId>>>);
+
+        impl crate::net::resource_loader::ResourceLoader for BindingLoader {
+            fn load(
+                &self,
+                url: &Url,
+                _: crate::net::types::ResourceKind,
+            ) -> Result<crate::net::resource_loader::LoadedResource, crate::net::resource_loader::LoadError>
+            {
+                Err(crate::net::resource_loader::LoadError::UnsupportedUrl(url.to_string()))
+            }
+
+            fn for_document(
+                &self,
+                _: Option<&Url>,
+                _: gosub_sonar::ReferrerPolicy,
+                navigation: Option<crate::engine::types::NavigationId>,
+            ) -> Option<Arc<dyn crate::net::resource_loader::ResourceLoader>> {
+                self.0.lock().push(navigation);
+                None
+            }
+        }
+
+        /// A render pass binds its loader to the navigation that committed the page it renders,
+        /// and a page installed without one binds none.
+        #[test]
+        fn a_pass_binds_its_loader_to_the_committing_navigation() {
+            let loader = Arc::new(BindingLoader::default());
+            let mut ctx: BrowsingContext<DefaultRenderConfig> =
+                BrowsingContext::with_loader(settings_store::default_config(), loader.clone());
+            let a = crate::engine::types::NavigationId::new();
+            ctx.set_document_source(Url::parse("https://a.test/").unwrap(), "<p>a".into());
+            ctx.set_document_navigation(a);
+            ctx.loader_for_document();
+            ctx.set_document_source(Url::parse("https://b.test/").unwrap(), "<p>b".into());
+            ctx.loader_for_document();
+            assert_eq!(*loader.0.lock(), vec![Some(a), None]);
+        }
     }
 
     mod point_queries {
