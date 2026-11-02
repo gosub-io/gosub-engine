@@ -382,7 +382,7 @@ fn main() -> Result<()> {
             // "none") or whose third byte is 'A'.
             let b = initial.as_bytes();
             if b.len() >= 3 && (b[0] == b'n' || (b[0] == b'N' && b[1] == b'/' && b[2] == b'a') || b[2] == b'A') {
-                initial = String::new();
+                initial.clear();
             }
 
             descriptors.push(AtRuleDescriptor {

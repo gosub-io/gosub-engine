@@ -2848,7 +2848,7 @@ impl TaffyLayouter {
                 leaf_id,
                 line_justify,
             );
-            current_inline_group = Vec::new();
+            current_inline_group.clear();
             trailing_ws_count = 0;
 
             if let Err(e) = self.tree.add_child(leaf_id, child_taffy_id) {
