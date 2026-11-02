@@ -3136,7 +3136,7 @@ fn pipeline_extend_raster(
         // tile was. A tile at the same origin would be marked `Ready` and handed pixels of the
         // previous size, so the new grid would show the old tiling: gaps where a tile grew,
         // overlap where it shrank, and no repaint to correct either.
-        prev_baked_tiles = Vec::new();
+        prev_baked_tiles.clear();
         prev_tile_cache = TilePixelCache::new();
     }
     timing_stop!(ts4);
