@@ -36,6 +36,7 @@ impl SqliteKey {
     /// when this SQLite has no SQLCipher, or when the file is plaintext or encrypted with a
     /// different key, so a wrong key shows up here and not on first use.
     pub fn apply(&self, conn: &Connection) -> rusqlite::Result<()> {
+        quiet_cipher_log(conn)?;
         let sql = Zeroizing::new(format!("PRAGMA key = {};", self.pragma_value().as_str()));
         conn.execute_batch(&sql)?;
         ensure_sqlcipher(conn)?;
@@ -51,6 +52,7 @@ impl SqliteKey {
         let _ = std::fs::remove_file(&tmp);
         {
             let conn = Connection::open(path)?;
+            quiet_cipher_log(&conn)?;
             ensure_sqlcipher(&conn)?;
             conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
             let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -101,6 +103,14 @@ pub fn is_plaintext_database(path: &Path) -> std::io::Result<bool> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(e) => Err(e),
     }
+}
+
+/// Keep SQLCipher's own log to errors. It writes to stderr, and at its default level on
+/// Windows that is a warning for every page of key memory `VirtualLock` cannot pin once the
+/// working-set quota is used up (hundreds a start). Process-wide, so it is set before the
+/// first key does any locking. A SQLite without SQLCipher ignores the pragma.
+fn quiet_cipher_log(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch("PRAGMA cipher_log_level = ERROR;")
 }
 
 fn ensure_sqlcipher(conn: &Connection) -> rusqlite::Result<()> {
@@ -161,6 +171,14 @@ mod tests {
         key(1).apply(&right).unwrap();
         let v: String = right.query_row("SELECT v FROM t", [], |r| r.get(0)).unwrap();
         assert_eq!(v, "secret");
+    }
+
+    #[test]
+    fn keying_keeps_sqlcipher_s_log_to_errors() {
+        let conn = Connection::open_in_memory().unwrap();
+        key(1).apply(&conn).unwrap();
+        let level: String = conn.query_row("PRAGMA cipher_log_level", [], |r| r.get(0)).unwrap();
+        assert_eq!(level, "ERROR");
     }
 
     #[test]
