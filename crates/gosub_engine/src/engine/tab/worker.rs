@@ -650,7 +650,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     }
                     // If the command (e.g. hover change) requested an immediate render,
                     // call tick_draw now instead of waiting up to 1/fps seconds for the tick.
-                    if std::mem::replace(&mut self.runtime.render_now, false) {
+                    // Not while drawing is suspended; the next tick after a resume draws it.
+                    if std::mem::replace(&mut self.runtime.render_now, false) && self.runtime.drawing_enabled {
                         if let Err(e) = self.tick_draw().await {
                             self.state = TabState::Failed(format!("Tab {:?} immediate render error: {}", self.tab_id, e));
                             self.runtime.dirty = true;

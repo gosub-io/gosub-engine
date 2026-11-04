@@ -4831,6 +4831,92 @@ mod tests {
         assert!(composited.is_ok(), "the zoomed view was never composited");
     }
 
+    /// A tab that was never asked to draw stays off the GPU, also for input that renders
+    /// at once: on a Mali, drawing a page hangs the device (GOS-254).
+    #[tokio::test]
+    async fn input_does_not_draw_a_tab_that_is_not_drawing() {
+        use crate::events::{Modifiers, NavigationEvent, TabCommand};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let body = "<html><body><input><input></body></html>";
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(body.as_bytes()).await;
+                });
+            }
+        });
+
+        let views = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let backend = TileCompositingBackend {
+            inner: NullBackend::new(),
+            views: views.clone(),
+        };
+        let settings = EngineConfig::builder().max_zones(1).build().unwrap();
+        let mut engine: GosubEngine<crate::html::DefaultRenderConfig<TileCompositingBackend>> = GosubEngine::new(
+            Some(settings),
+            Arc::new(backend),
+            Arc::new(DefaultCompositor::default()),
+        );
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.send(TabCommand::SetViewport {
+            x: 0,
+            y: 0,
+            width: 800,
+            height: 600,
+        })
+        .await
+        .expect("viewport");
+        tab.navigate(format!("http://127.0.0.1:{port}/"))
+            .await
+            .expect("navigate");
+        assert!(
+            wait_for(&mut event_rx, |ev| matches!(
+                ev,
+                EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { .. },
+                    ..
+                }
+            ))
+            .await,
+            "the page never finished loading"
+        );
+
+        // Tab moves the focus, which renders at once.
+        tab.send(TabCommand::KeyDown {
+            key: "Tab".into(),
+            code: "Tab".into(),
+            modifiers: Modifiers::empty(),
+        })
+        .await
+        .expect("tab key");
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(views.lock().is_empty(), "a tab that is not drawing composited");
+
+        tab.send(TabCommand::ResumeDrawing { fps: 60 }).await.expect("drawing");
+        let composited = tokio::time::timeout(Duration::from_secs(10), async {
+            while views.lock().is_empty() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(composited.is_ok(), "the tab never composited once drawing");
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// Wait (with timeout) for an event matching `pred`; true when it arrived.
     async fn wait_for(rx: &mut broadcast::Receiver<EngineEvent>, pred: impl Fn(&EngineEvent) -> bool) -> bool {
         tokio::time::timeout(Duration::from_secs(10), async {
