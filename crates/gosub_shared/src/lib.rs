@@ -4,6 +4,7 @@ extern crate core;
 
 pub mod animation;
 pub mod async_executor;
+pub mod attributes;
 pub mod byte_stream;
 pub mod config;
 pub mod css_colors;

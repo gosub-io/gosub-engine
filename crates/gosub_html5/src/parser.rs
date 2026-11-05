@@ -1,7 +1,7 @@
 use core::cell::{Cell, RefCell};
 use core::option::Option::Some;
+use gosub_shared::attributes::Attributes;
 use std::borrow::Cow;
-use std::collections::HashMap;
 #[cfg(all(feature = "debug_parser", test))]
 use std::io::Write;
 use std::rc::Rc;
@@ -448,7 +448,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         // 5. / 6. Create a new html element and append it to the Document node.
         let html_id = parser
             .document
-            .create_element("html", Some(HTML_NAMESPACE), HashMap::new(), start_location);
+            .create_element("html", Some(HTML_NAMESPACE), Attributes::new(), start_location);
         parser.document.attach(html_id, parser.document.root(), None);
 
         // 7.
@@ -894,7 +894,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     let mut token = Token::StartTag {
                         name: "html".to_string(),
                         is_self_closing: false,
-                        attributes: HashMap::new(),
+                        attributes: Attributes::new(),
                         location: current_token.get_location(),
                     };
                     self.insert_document_element(&mut token);
@@ -947,7 +947,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     let mut token = Token::StartTag {
                         name: "head".to_string(),
                         is_self_closing: false,
-                        attributes: HashMap::new(),
+                        attributes: Attributes::new(),
                         location: current_token.get_location(),
                     };
                     let node_id = self.insert_html_element(&mut token);
@@ -1096,7 +1096,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     let mut token = Token::StartTag {
                         name: "body".to_string(),
                         is_self_closing: false,
-                        attributes: HashMap::new(),
+                        attributes: Attributes::new(),
                         location: current_token.get_location(),
                     };
                     self.insert_html_element(&mut token);
@@ -1389,7 +1389,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                         let mut token = Token::StartTag {
                             name: "tr".to_string(),
                             is_self_closing: false,
-                            attributes: HashMap::new(),
+                            attributes: Attributes::new(),
                             location: current_token.get_location(),
                         };
                         self.insert_html_element(&mut token);
@@ -1994,7 +1994,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 .create_element(name, Some(namespace), attributes.clone(), *location),
             Token::EndTag { name, location, .. } => {
                 self.document
-                    .create_element(name, Some(namespace), HashMap::new(), *location)
+                    .create_element(name, Some(namespace), Attributes::new(), *location)
             }
             Token::Comment {
                 comment: value,
@@ -2715,7 +2715,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     let mut token = Token::StartTag {
                         name: "p".to_string(),
                         is_self_closing: false,
-                        attributes: HashMap::new(),
+                        attributes: Attributes::new(),
                         location: token.get_location(),
                     };
                     self.insert_html_element(&mut token);
@@ -3426,7 +3426,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 let mut token = Token::StartTag {
                     name: "colgroup".to_string(),
                     is_self_closing: false,
-                    attributes: HashMap::new(),
+                    attributes: Attributes::new(),
                     location: token.get_location(),
                 };
                 self.insert_html_element(&mut token);
@@ -3447,7 +3447,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 let mut token = Token::StartTag {
                     name: "tbody".to_string(),
                     is_self_closing: false,
-                    attributes: HashMap::new(),
+                    attributes: Attributes::new(),
                     location: token.get_location(),
                 };
                 self.insert_html_element(&mut token);
@@ -3833,7 +3833,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     /// Adjusts attributes names in the given token for SVG
     fn adjust_svg_attributes(&self, token: &mut Token) {
         if let Token::StartTag { attributes, .. } = token {
-            let mut new_attributes = HashMap::new();
+            let mut new_attributes = Attributes::new();
             for (name, value) in attributes.iter() {
                 if let Some(&new_name) = SVG_ADJUSTMENTS_ATTRIBUTES.get(name) {
                     new_attributes.insert(new_name.to_owned(), value.clone());
@@ -3857,7 +3857,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     // Adjust attribute names in the given token for MathML
     fn adjust_mathml_attributes(&self, token: &mut Token) {
         if let Token::StartTag { attributes, .. } = token {
-            let mut new_attributes = HashMap::new();
+            let mut new_attributes = Attributes::new();
             for (name, value) in attributes.iter() {
                 if let Some(&new_name) = MATHML_ADJUSTMENTS.get(name) {
                     new_attributes.insert(new_name.to_owned(), value.clone());
@@ -3871,7 +3871,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
     fn adjust_foreign_attributes(&self, token: &mut Token) {
         if let Token::StartTag { attributes, .. } = token {
-            let mut new_attributes = HashMap::new();
+            let mut new_attributes = Attributes::new();
             for (name, value) in attributes.iter() {
                 if let Some((prefix, local_name, _namespace)) = XML_ADJUSTMENTS.get(name) {
                     new_attributes.insert(format!("{prefix} {local_name}"), value.clone());
@@ -4022,11 +4022,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     /// failed check falls through to `None`, i.e. to ordinary inert-template behavior; that
     /// includes the spec's "catch the `NotSupportedError`" recovery for a parent that is not a
     /// valid shadow host or already has a shadow root.
-    fn attach_declarative_shadow_root(
-        &mut self,
-        attributes: &HashMap<String, String>,
-        location: Location,
-    ) -> Option<NodeId> {
+    fn attach_declarative_shadow_root(&mut self, attributes: &Attributes, location: Location) -> Option<NodeId> {
         if !self.allow_declarative_shadow_roots {
             return None;
         }
@@ -4434,7 +4430,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     /// does not do is logged, not reported as a parse error: none of it is one (the tree
     /// builder's rules for `<link>` have no error case), and a page's report should hold
     /// only what the HTML spec calls an error.
-    fn handle_link_element(&mut self, attributes: HashMap<String, String>) {
+    fn handle_link_element(&mut self, attributes: Attributes) {
         if attributes.contains_key("rel") && attributes.contains_key("itemprop") {
             // cannot have them both
             log::debug!("link element cannot have both 'rel' and 'itemprop' attributes");
@@ -4597,7 +4593,7 @@ mod test {
             let node_id =
                 $self
                     .document
-                    .create_element($name, Some(HTML_NAMESPACE), HashMap::new(), Location::default());
+                    .create_element($name, Some(HTML_NAMESPACE), Attributes::new(), Location::default());
             $self.document.attach(node_id, NodeId::root(), None);
             $self.open_elements.push(node_id);
         }};

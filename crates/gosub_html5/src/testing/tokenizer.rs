@@ -6,6 +6,7 @@ use crate::tokenizer::{
     token::Token,
     {Options, Tokenizer},
 };
+use gosub_shared::attributes::Attributes;
 use gosub_shared::byte_stream::{ByteStream, Config, Encoding, Location};
 use gosub_shared::types::Result;
 use lazy_static::lazy_static;
@@ -15,7 +16,7 @@ use serde::{
     Deserialize, Deserializer,
 };
 use serde_json::Value;
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -97,7 +98,7 @@ where
     let tokens: Vec<Vec<Value>> = Deserialize::deserialize(deserializer)?;
     let mut output = vec![];
 
-    fn attributes(value: &Value) -> HashMap<String, String> {
+    fn attributes(value: &Value) -> Attributes {
         value
             .as_object()
             .unwrap()
@@ -109,7 +110,7 @@ where
                     Some((name.to_owned(), value.as_str().unwrap().to_owned()))
                 }
             })
-            .collect::<HashMap<String, String>>()
+            .collect::<Attributes>()
     }
 
     for values in tokens {
@@ -410,7 +411,7 @@ pub fn fixtures() -> impl Iterator<Item = FixtureFile> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use gosub_shared::attributes::Attributes;
 
     fn parse(i: &str) -> TestSpec {
         serde_json::from_str(i).expect("error parsing")
@@ -432,7 +433,7 @@ mod tests {
             test.output,
             &[Token::StartTag {
                 name: "h".into(),
-                attributes: HashMap::from([("a".into(), "&noti;".into())]),
+                attributes: Attributes::from([("a".into(), "&noti;".into())]),
                 is_self_closing: false,
                 location: Location::default(),
             }],

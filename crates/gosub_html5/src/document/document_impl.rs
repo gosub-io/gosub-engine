@@ -1,6 +1,7 @@
 use core::fmt::Debug;
 use gosub_interface::css3::CssSystem;
 use gosub_interface::document::{ControlEditState, Document, DocumentType, OpenSelect, PendingStylesheet};
+use gosub_shared::attributes::Attributes;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
@@ -112,7 +113,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         &mut self,
         name: &str,
         namespace: Option<&str>,
-        attributes: HashMap<String, String>,
+        attributes: Attributes,
         location: Location,
     ) -> NodeId {
         let class_list = match attributes.get("class") {
@@ -231,7 +232,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         }
     }
 
-    fn attributes(&self, id: NodeId) -> Option<&HashMap<String, String>> {
+    fn attributes(&self, id: NodeId) -> Option<&Attributes> {
         match self.arena.node_ref(id)?.data {
             NodeDataTypeInternal::Element(ref e) => Some(&e.attributes),
             _ => None,
@@ -1028,7 +1029,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     pub fn new_element_node(
         name: &str,
         namespace: Option<&str>,
-        attributes: HashMap<String, String>,
+        attributes: Attributes,
         location: Location,
     ) -> NodeImpl {
         let class_list = match attributes.get("class") {
@@ -1205,7 +1206,7 @@ mod tests {
     }
 
     fn element_with_id(doc: &mut DocumentImpl<Config>, name: &str, parent: NodeId, id: Option<&str>) -> NodeId {
-        let mut attributes = HashMap::new();
+        let mut attributes = Attributes::new();
         if let Some(id) = id {
             attributes.insert("id".to_string(), id.to_string());
         }

@@ -1,9 +1,9 @@
 use crate::config::HasCssSystem;
 use crate::css3::CssSystem;
 use crate::node::{NodeType, QuirksMode, ShadowRootInit};
+use gosub_shared::attributes::Attributes;
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
-use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use url::Url;
 
@@ -44,7 +44,7 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
         &mut self,
         name: &str,
         namespace: Option<&str>,
-        attributes: HashMap<String, String>,
+        attributes: Attributes,
         location: Location,
     ) -> NodeId;
 
@@ -86,7 +86,7 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     fn namespace(&self, id: NodeId) -> Option<&str>;
 
     fn attribute(&self, id: NodeId, name: &str) -> Option<&str>;
-    fn attributes(&self, id: NodeId) -> Option<&HashMap<String, String>>;
+    fn attributes(&self, id: NodeId) -> Option<&Attributes>;
     fn set_attribute(&mut self, id: NodeId, name: &str, value: &str);
     fn remove_attribute(&mut self, id: NodeId, name: &str);
 

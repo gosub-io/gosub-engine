@@ -12,6 +12,7 @@ use gosub_html5::testing::tree_construction::generator::TreeOutputGenerator;
 use gosub_interface::config::{HasDocument, ModuleConfiguration};
 use gosub_interface::document::Document;
 use gosub_interface::node::{NodeType, ShadowRootMode, SlotAssignmentMode};
+use gosub_shared::attributes::Attributes;
 use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
 use gosub_shared::node::NodeId;
 
@@ -216,7 +217,7 @@ fn a_document_level_template_hosts_nothing() {
 fn fragment_parsing_never_builds_shadow_roots() {
     // innerHTML must not create shadow roots; that needs setHTMLUnsafe().
     let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
-    let host = doc.create_element("div", None, std::collections::HashMap::new(), Location::default());
+    let host = doc.create_element("div", None, Attributes::new(), Location::default());
     doc.attach(host, doc.root(), None);
 
     let mut stream = ByteStream::from_str("<template shadowrootmode=open><i>x</i></template>", Encoding::UTF8);

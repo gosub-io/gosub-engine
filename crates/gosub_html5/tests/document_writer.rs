@@ -1,6 +1,6 @@
 //! Escaping and context rules for HTML fragment serialization (#1402).
 
-use std::collections::HashMap;
+use gosub_shared::attributes::Attributes;
 
 use gosub_css3::system::Css3System;
 use gosub_html5::document::builder::DocumentBuilderImpl;
@@ -24,7 +24,7 @@ impl ModuleConfiguration for Config {
 /// Build a subtree directly so parser repair cannot hide a serializer error.
 fn element_with_text(name: &str, namespace: Option<&str>, text: &str) -> (DocumentImpl<Config>, NodeId, NodeId) {
     let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
-    let element = doc.create_element(name, namespace, HashMap::new(), Location::default());
+    let element = doc.create_element(name, namespace, Attributes::new(), Location::default());
     let child = doc.create_text(text, Location::default());
     doc.attach(element, doc.root(), None);
     doc.attach(child, element, None);
@@ -62,7 +62,7 @@ fn escaped_values_reparse_as_data_instead_of_markup_or_extra_attributes() {
     let body = reparsed.children(html)[1];
     let paragraph = reparsed.children(body)[0];
     assert_eq!(reparsed.tag_name(paragraph), Some("p"));
-    assert_eq!(reparsed.attributes(paragraph).map(HashMap::len), Some(1));
+    assert_eq!(reparsed.attributes(paragraph).map(Attributes::len), Some(1));
     assert_eq!(reparsed.attribute(paragraph, "data-value"), Some(value));
     assert_eq!(reparsed.children(paragraph).len(), 1);
     assert_eq!(reparsed.text_value(reparsed.children(paragraph)[0]), Some(value));
@@ -185,4 +185,39 @@ fn xml_mode_closes_html_void_elements_and_keeps_their_children() {
     let (doc, element, _) = element_with_text("br", Some(HTML_NAMESPACE), "&<tag>");
     assert_eq!(doc.write_xml_from_node(element), "<br>&amp;&lt;tag&gt;</br>");
     assert_eq!(doc.write_from_node(element), "<br>");
+}
+
+/// Attributes serialize in source order, including foreign attributes the parser renamed.
+#[test]
+fn attributes_serialize_in_source_order() -> Result<(), Box<dyn std::error::Error>> {
+    let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+    let mut stream = ByteStream::from_str(
+        "<p id=p c=3 a=1 b=2></p><svg id=t width=20 viewbox=\"0 0 2 1\" height=10></svg>",
+        Encoding::UTF8,
+    );
+    assert!(Html5Parser::<Config>::parse_document(&mut stream, &mut doc, None).is_ok());
+
+    let p = doc.node_by_named_id("p").ok_or("p was not parsed")?;
+    assert_eq!(doc.write_from_node(p), "<p id=\"p\" c=\"3\" a=\"1\" b=\"2\"></p>");
+    let svg = doc.node_by_named_id("t").ok_or("svg was not parsed")?;
+    assert_eq!(
+        doc.write_from_node(svg),
+        "<svg id=\"t\" width=\"20\" viewBox=\"0 0 2 1\" height=\"10\"></svg>"
+    );
+    Ok(())
+}
+
+/// A new attribute is appended, a changed one keeps its place, and a removal keeps the rest.
+#[test]
+fn attribute_edits_keep_the_list_order() {
+    let (mut doc, element, _) = element_with_text("p", Some(HTML_NAMESPACE), "");
+    doc.set_attribute(element, "a", "1");
+    doc.set_attribute(element, "b", "2");
+    doc.set_attribute(element, "c", "3");
+    doc.set_attribute(element, "a", "4");
+    assert_eq!(doc.write_from_node(element), "<p a=\"4\" b=\"2\" c=\"3\"></p>");
+
+    doc.remove_attribute(element, "b");
+    doc.set_attribute(element, "d", "5");
+    assert_eq!(doc.write_from_node(element), "<p a=\"4\" c=\"3\" d=\"5\"></p>");
 }
