@@ -786,14 +786,15 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// Cancelled event stops the shell's spinner and puts its address bar back.
     fn end_navigation_in_place(&mut self, nav_id: NavigationId, url: Url, reason: &str) {
         self.sink.security.abandon(nav_id);
+        // A superseded navigation's result: the tab's state is the newer one's.
         if self.active_nav.as_ref().is_some_and(|a| a.nav_id == nav_id) {
             self.active_nav = None;
             self.load = None;
+            self.is_loading = false;
+            self.is_error = false;
+            self.state = TabState::Idle;
+            self.pending_url = None;
         }
-        self.is_loading = false;
-        self.is_error = false;
-        self.state = TabState::Idle;
-        self.pending_url = None;
         self.send_event(EngineEvent::Navigation {
             tab_id: self.tab_id,
             event: NavigationEvent::Cancelled {
