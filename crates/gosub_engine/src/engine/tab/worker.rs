@@ -376,9 +376,10 @@ pub struct TabWorker<C: RenderConfiguration> {
     /// the renders that follow do not fetch it again. Cleared when a navigation
     /// commits a new document.
     remote_favicon: Option<Url>,
-    /// The history entry the shown document was committed to. A traversal
-    /// moves the cursor before its load commits, and a title the renderer
-    /// reports meanwhile is still this document's, not the cursor's.
+    /// The history entry the shown page is on: the one its document was
+    /// committed to, or a fragment navigation's since. A traversal moves the
+    /// cursor before its load commits, and a title the renderer reports
+    /// meanwhile is still this document's, not the cursor's.
     document_entry: Option<HistoryEntryId>,
 }
 
@@ -2095,6 +2096,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
             HistoryIntent::Reload | HistoryIntent::Replace | HistoryIntent::Traverse(_) => {}
         }
+        self.document_entry = self.history.current();
         self.current_url = Some(url.clone());
 
         // Layout already exists, so the target can be scrolled to right away. A traversal to

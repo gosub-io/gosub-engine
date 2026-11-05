@@ -3954,6 +3954,21 @@ mod tests {
         assert!(matches!(next_end(&mut events).await, NavigationEvent::Cancelled { .. }));
         assert_eq!(tab.url().map(|u| u.path().to_string()).as_deref(), Some("/page"));
         assert!(tab.can_go_forward(), "the cursor stayed on /flip");
+
+        // After a fragment navigation the page shown is on the fragment's entry.
+        tab.navigate(format!("http://127.0.0.1:{port}/page#s"))
+            .await
+            .expect("navigate");
+        assert!(matches!(next_end(&mut events).await, NavigationEvent::Finished { .. }));
+        tab.navigate(format!("http://127.0.0.1:{port}/204"))
+            .await
+            .expect("navigate");
+        assert!(matches!(next_end(&mut events).await, NavigationEvent::Cancelled { .. }));
+        assert_eq!(
+            tab.url().and_then(|u| u.fragment().map(str::to_string)).as_deref(),
+            Some("s")
+        );
+        assert!(tab.can_go_back(), "the cursor went back to /page's entry");
     }
 
     /// Session history end to end: two navigations push two entries, GoBack moves the cursor
