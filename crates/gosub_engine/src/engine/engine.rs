@@ -3852,6 +3852,86 @@ mod tests {
         .expect("the page's own stylesheet was refused");
     }
 
+    /// A reload ignoring the cache asks for a fresh copy all the way to the server
+    /// (`Cache-Control` and `Pragma: no-cache`, no validators); a plain reload does not.
+    #[tokio::test]
+    async fn reload_ignoring_cache_sends_no_cache() {
+        use crate::events::{NavigationEvent, TabCommand};
+        use cow_utils::CowUtils;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let (heads_tx, mut heads) = mpsc::unbounded_channel::<String>();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let heads_tx = heads_tx.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 8192];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    let head = String::from_utf8_lossy(&buf[..n]).cow_to_ascii_lowercase().into_owned();
+                    if head.starts_with("get /page ") {
+                        let _ = heads_tx.send(head);
+                    }
+                    let page = "<html><body>page</body></html>";
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCache-Control: max-age=3600\r\nETag: \"v1\"\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n{page}",
+                        page.len()
+                    );
+                    let _ = stream.write_all(response.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        async fn finished(events: &mut broadcast::Receiver<EngineEvent>) {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    match events.recv().await {
+                        Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::Finished { .. },
+                            ..
+                        }) => return,
+                        Ok(_) => continue,
+                        Err(e) => panic!("event stream closed: {e}"),
+                    }
+                }
+            })
+            .await
+            .expect("timed out waiting for the load to finish");
+        }
+        let no_cache = |head: &str| head.contains("cache-control: no-cache") && head.contains("pragma: no-cache");
+
+        tab.navigate(format!("http://127.0.0.1:{port}/page"))
+            .await
+            .expect("navigate");
+        // The server records a request before it answers, so by `Finished` it is queued.
+        finished(&mut events).await;
+        assert!(!no_cache(&heads.try_recv().unwrap()), "a first load is a plain one");
+
+        tab.send(TabCommand::Reload { ignore_cache: true })
+            .await
+            .expect("reload");
+        finished(&mut events).await;
+        let head = heads.try_recv().expect("the hard reload was answered from the cache");
+        assert!(no_cache(&head), "hard reload without no-cache:\n{head}");
+        assert!(!head.contains("if-none-match"), "hard reload sent a validator:\n{head}");
+
+        tab.send(TabCommand::Reload { ignore_cache: false })
+            .await
+            .expect("reload");
+        finished(&mut events).await;
+        if let Ok(head) = heads.try_recv() {
+            assert!(!no_cache(&head), "a plain reload asked for no-cache:\n{head}");
+        }
+    }
+
     /// Session history end to end: two navigations push two entries, GoBack moves the cursor
     /// (announced immediately via HistoryChanged) and refetches the first page, GoForward
     /// returns to the second. Verifies the tree from the embedder's point of view only.
