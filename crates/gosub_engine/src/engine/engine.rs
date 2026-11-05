@@ -3883,6 +3883,125 @@ mod tests {
         .expect("the page's own stylesheet was refused");
     }
 
+    /// A navigation answered 204 or 205 ends without a download offer, an error or a new
+    /// document: the tab gets Cancelled and keeps its page. A traversal answered 204 leaves
+    /// the history cursor on the page that stays.
+    #[tokio::test]
+    async fn navigation_to_no_content_keeps_the_page() {
+        use crate::events::NavigationEvent;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        // `/flip` is a page the first time and 204 after that.
+        let flips = Arc::new(AtomicUsize::new(0));
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let flips = flips.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    let flip = buf[..n].starts_with(b"GET /flip ");
+                    let gone = flip && flips.fetch_add(1, Ordering::SeqCst) > 0;
+                    let head = if buf[..n].starts_with(b"GET /204 ") || gone {
+                        "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n".to_string()
+                    } else if buf[..n].starts_with(b"GET /205 ") {
+                        "HTTP/1.1 205 Reset Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()
+                    } else {
+                        let page = "<html><head><title>kept</title></head><body>page</body></html>";
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\
+                             Content-Length: {}\r\nConnection: close\r\n\r\n{page}",
+                            page.len()
+                        )
+                    };
+                    let _ = stream.write_all(head.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        // Every event up to the end of the next navigation; panics on an offer or a failure.
+        async fn next_end(events: &mut broadcast::Receiver<EngineEvent>) -> NavigationEvent {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    match events.recv().await {
+                        Ok(EngineEvent::DownloadRequested { url, .. }) => panic!("download offered for {url}"),
+                        Ok(EngineEvent::Navigation {
+                            event: event @ (NavigationEvent::Finished { .. } | NavigationEvent::Cancelled { .. }),
+                            ..
+                        }) => return event,
+                        Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::Failed { error, .. },
+                            ..
+                        }) => panic!("navigation failed: {error}"),
+                        Ok(_) => continue,
+                        Err(e) => panic!("event stream closed: {e}"),
+                    }
+                }
+            })
+            .await
+            .expect("timed out waiting for the navigation to end")
+        }
+
+        tab.navigate(format!("http://127.0.0.1:{port}/page"))
+            .await
+            .expect("navigate");
+        assert!(matches!(next_end(&mut events).await, NavigationEvent::Finished { .. }));
+
+        for status in ["204", "205"] {
+            tab.navigate(format!("http://127.0.0.1:{port}/{status}"))
+                .await
+                .expect("navigate");
+            match next_end(&mut events).await {
+                NavigationEvent::Cancelled { url, .. } => assert_eq!(url.path(), format!("/{status}")),
+                other => panic!("{status}: expected Cancelled, got {other:?}"),
+            }
+            assert_eq!(tab.url().map(|u| u.path().to_string()).as_deref(), Some("/page"));
+            assert_eq!(tab.title(), "kept");
+        }
+
+        // Nothing was left pending behind the cancel: the next navigation is a plain one.
+        tab.navigate(format!("http://127.0.0.1:{port}/page"))
+            .await
+            .expect("navigate");
+        assert!(matches!(next_end(&mut events).await, NavigationEvent::Finished { .. }));
+        assert!(tab.pending_downloads().is_empty());
+
+        // Forward to an entry that now answers 204: the cursor stays on the page shown.
+        tab.navigate(format!("http://127.0.0.1:{port}/flip"))
+            .await
+            .expect("navigate");
+        assert!(matches!(next_end(&mut events).await, NavigationEvent::Finished { .. }));
+        tab.go_back().await.expect("go back");
+        assert!(matches!(next_end(&mut events).await, NavigationEvent::Finished { .. }));
+        tab.go_forward().await.expect("go forward");
+        assert!(matches!(next_end(&mut events).await, NavigationEvent::Cancelled { .. }));
+        assert_eq!(tab.url().map(|u| u.path().to_string()).as_deref(), Some("/page"));
+        assert!(tab.can_go_forward(), "the cursor stayed on /flip");
+
+        // After a fragment navigation the page shown is on the fragment's entry.
+        tab.navigate(format!("http://127.0.0.1:{port}/page#s"))
+            .await
+            .expect("navigate");
+        assert!(matches!(next_end(&mut events).await, NavigationEvent::Finished { .. }));
+        tab.navigate(format!("http://127.0.0.1:{port}/204"))
+            .await
+            .expect("navigate");
+        assert!(matches!(next_end(&mut events).await, NavigationEvent::Cancelled { .. }));
+        assert_eq!(
+            tab.url().and_then(|u| u.fragment().map(str::to_string)).as_deref(),
+            Some("s")
+        );
+        assert!(tab.can_go_back(), "the cursor went back to /page's entry");
+    }
+
     /// A reload ignoring the cache asks for a fresh copy all the way to the server
     /// (`Cache-Control` and `Pragma: no-cache`, no validators); a plain reload does not.
     #[tokio::test]
