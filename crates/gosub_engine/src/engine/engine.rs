@@ -3852,6 +3852,89 @@ mod tests {
         .expect("the page's own stylesheet was refused");
     }
 
+    /// A navigation answered 204 or 205 ends without a download offer, an error or a new
+    /// document: the tab gets Cancelled and keeps its page.
+    #[tokio::test]
+    async fn navigation_to_no_content_keeps_the_page() {
+        use crate::events::NavigationEvent;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    let head = if buf[..n].starts_with(b"GET /204 ") {
+                        "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n".to_string()
+                    } else if buf[..n].starts_with(b"GET /205 ") {
+                        "HTTP/1.1 205 Reset Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()
+                    } else {
+                        let page = "<html><body>page</body></html>";
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\
+                             Content-Length: {}\r\nConnection: close\r\n\r\n{page}",
+                            page.len()
+                        )
+                    };
+                    let _ = stream.write_all(head.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        // Every event up to the end of the next navigation; panics on an offer or a failure.
+        async fn next_end(events: &mut broadcast::Receiver<EngineEvent>) -> NavigationEvent {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    match events.recv().await {
+                        Ok(EngineEvent::DownloadRequested { url, .. }) => panic!("download offered for {url}"),
+                        Ok(EngineEvent::Navigation {
+                            event: event @ (NavigationEvent::Finished { .. } | NavigationEvent::Cancelled { .. }),
+                            ..
+                        }) => return event,
+                        Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::Failed { error, .. },
+                            ..
+                        }) => panic!("navigation failed: {error}"),
+                        Ok(_) => continue,
+                        Err(e) => panic!("event stream closed: {e}"),
+                    }
+                }
+            })
+            .await
+            .expect("timed out waiting for the navigation to end")
+        }
+
+        tab.navigate(format!("http://127.0.0.1:{port}/page"))
+            .await
+            .expect("navigate");
+        assert!(matches!(next_end(&mut events).await, NavigationEvent::Finished { .. }));
+
+        for status in ["204", "205"] {
+            tab.navigate(format!("http://127.0.0.1:{port}/{status}"))
+                .await
+                .expect("navigate");
+            match next_end(&mut events).await {
+                NavigationEvent::Cancelled { url, .. } => assert_eq!(url.path(), format!("/{status}")),
+                other => panic!("{status}: expected Cancelled, got {other:?}"),
+            }
+        }
+
+        // Nothing was left pending behind the cancel: the next navigation is a plain one.
+        tab.navigate(format!("http://127.0.0.1:{port}/page"))
+            .await
+            .expect("navigate");
+        assert!(matches!(next_end(&mut events).await, NavigationEvent::Finished { .. }));
+        assert!(tab.pending_downloads().is_empty());
+    }
+
     /// Session history end to end: two navigations push two entries, GoBack moves the cursor
     /// (announced immediately via HistoryChanged) and refetches the first page, GoForward
     /// returns to the second. Verifies the tree from the embedder's point of view only.

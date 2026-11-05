@@ -225,6 +225,8 @@ pub enum NavigationResult<C: RenderConfiguration> {
         meta: FetchResultMeta,
         spool: crate::net::Spool,
     },
+    /// The response was 204 or 205: the navigation ends and the page stays.
+    NoContent { nav_id: NavigationId, url: Url },
 }
 
 // Current active navigation
@@ -780,6 +782,28 @@ impl<C: RenderConfiguration> TabWorker<C> {
         self.context.has_remote_renderer()
     }
 
+    /// End a navigation that leaves the current document showing. Not an error: the
+    /// Cancelled event stops the shell's spinner and puts its address bar back.
+    fn end_navigation_in_place(&mut self, nav_id: NavigationId, url: Url, reason: &str) {
+        self.sink.security.abandon(nav_id);
+        if self.active_nav.as_ref().is_some_and(|a| a.nav_id == nav_id) {
+            self.active_nav = None;
+            self.load = None;
+        }
+        self.is_loading = false;
+        self.is_error = false;
+        self.state = TabState::Idle;
+        self.pending_url = None;
+        self.send_event(EngineEvent::Navigation {
+            tab_id: self.tab_id,
+            event: NavigationEvent::Cancelled {
+                nav_id,
+                url,
+                reason: crate::engine::events::CancelReason::Custom(reason.into()),
+            },
+        });
+    }
+
     fn on_nav_result(&mut self, res: NavigationResult<C>) {
         match res {
             NavigationResult::Ok {
@@ -924,29 +948,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.remote_capture = false;
                 self.remote_focus = None;
             }
+            NavigationResult::NoContent { nav_id, url } => {
+                self.end_navigation_in_place(nav_id, url, "no content");
+            }
             NavigationResult::Download { nav_id, meta, spool } => {
-                self.sink.security.abandon(nav_id);
                 // Not an error and not a page change: the tab stays on its current document
-                // and the shell gets a download offer. The Cancelled event stops spinners.
+                // and the shell gets a download offer.
                 // The navigation ends here, without cancelling it: its token is the fetch's
                 // parent, so the next navigation or a CancelNavigation would stop the body
                 // under an accepted download. The spool owns the fetch from now on.
-                if self.active_nav.as_ref().is_some_and(|a| a.nav_id == nav_id) {
-                    self.active_nav = None;
-                    self.load = None;
-                }
-                self.is_loading = false;
-                self.is_error = false;
-                self.state = TabState::Idle;
-                self.pending_url = None;
-                self.send_event(EngineEvent::Navigation {
-                    tab_id: self.tab_id,
-                    event: NavigationEvent::Cancelled {
-                        nav_id,
-                        url: meta.final_url.clone(),
-                        reason: crate::engine::events::CancelReason::Custom("download".into()),
-                    },
-                });
+                self.end_navigation_in_place(nav_id, meta.final_url.clone(), "download");
                 let info = crate::net::types::ResponseInfo::from(&meta);
                 self.next_offer += 1;
                 let pending = PendingDownload {
@@ -2436,6 +2447,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         nav_id,
                         meta: *meta,
                         spool,
+                    });
+                }
+                Ok(RoutedOutcome::NoContent) => {
+                    let _ = tx_done.send(NavigationResult::NoContent {
+                        nav_id,
+                        url: document_final_url,
                     });
                 }
                 Ok(RoutedOutcome::ViewerRendered(_doc)) => {

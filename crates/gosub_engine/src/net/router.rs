@@ -55,6 +55,10 @@ pub enum RoutedOutcome<C: RenderConfiguration> {
         meta: Box<crate::net::types::FetchResultMeta>,
         spool: Spool,
     },
+
+    /// A top-level navigation answered 204 or 205: the navigation ends and the current
+    /// document stays (HTML, "process a navigate response").
+    NoContent,
 }
 
 /// The disk held by download spools across every tab of an engine.
@@ -478,6 +482,11 @@ pub async fn route_response_for<C: RenderConfiguration>(
             return Err(anyhow!(e));
         }
     };
+
+    if dest == RequestDestination::Document && matches!(meta.status, 204 | 205) {
+        handle.cancel.cancel();
+        return Ok(RoutedOutcome::NoContent);
+    }
 
     let outcome = decide_handling(&meta, dest, peek_buf.clone(), policy);
 
