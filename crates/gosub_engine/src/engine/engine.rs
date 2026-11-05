@@ -3867,9 +3867,16 @@ mod tests {
             while let Ok((mut stream, _)) = listener.accept().await {
                 let heads_tx = heads_tx.clone();
                 tokio::spawn(async move {
-                    let mut buf = vec![0u8; 8192];
-                    let n = stream.read(&mut buf).await.unwrap_or(0);
-                    let head = String::from_utf8_lossy(&buf[..n]).cow_to_ascii_lowercase().into_owned();
+                    // The whole head: the test reads its headers, not only the request line.
+                    let mut buf = Vec::new();
+                    let mut chunk = [0u8; 4096];
+                    while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                        match stream.read(&mut chunk).await {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                        }
+                    }
+                    let head = String::from_utf8_lossy(&buf).cow_to_ascii_lowercase().into_owned();
                     if head.starts_with("get /page ") {
                         let _ = heads_tx.send(head);
                     }
