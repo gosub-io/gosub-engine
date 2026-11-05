@@ -794,6 +794,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             self.is_error = false;
             self.state = TabState::Idle;
             self.pending_url = None;
+            self.return_to_document_entry();
         }
         self.send_event(EngineEvent::Navigation {
             tab_id: self.tab_id,
@@ -803,6 +804,17 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 reason: crate::engine::events::CancelReason::Custom(reason.into()),
             },
         });
+    }
+
+    /// Undo what the start of a navigation did to the page that stays: a traversal moved the
+    /// history cursor.
+    fn return_to_document_entry(&mut self) {
+        let Some(entry) = self.document_entry else {
+            return;
+        };
+        if self.history.current() != Some(entry) && self.history.go_to(entry).is_some() {
+            self.emit_history_changed();
+        }
     }
 
     fn on_nav_result(&mut self, res: NavigationResult<C>) {

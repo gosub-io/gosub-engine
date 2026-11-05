@@ -3853,20 +3853,27 @@ mod tests {
     }
 
     /// A navigation answered 204 or 205 ends without a download offer, an error or a new
-    /// document: the tab gets Cancelled and keeps its page.
+    /// document: the tab gets Cancelled and keeps its page. A traversal answered 204 leaves
+    /// the history cursor on the page that stays.
     #[tokio::test]
     async fn navigation_to_no_content_keeps_the_page() {
         use crate::events::NavigationEvent;
+        use std::sync::atomic::{AtomicUsize, Ordering};
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
+        // `/flip` is a page the first time and 204 after that.
+        let flips = Arc::new(AtomicUsize::new(0));
         tokio::spawn(async move {
             while let Ok((mut stream, _)) = listener.accept().await {
+                let flips = flips.clone();
                 tokio::spawn(async move {
                     let mut buf = vec![0u8; 4096];
                     let n = stream.read(&mut buf).await.unwrap_or(0);
-                    let head = if buf[..n].starts_with(b"GET /204 ") {
+                    let flip = buf[..n].starts_with(b"GET /flip ");
+                    let gone = flip && flips.fetch_add(1, Ordering::SeqCst) > 0;
+                    let head = if buf[..n].starts_with(b"GET /204 ") || gone {
                         "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n".to_string()
                     } else if buf[..n].starts_with(b"GET /205 ") {
                         "HTTP/1.1 205 Reset Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()
@@ -3933,6 +3940,18 @@ mod tests {
             .expect("navigate");
         assert!(matches!(next_end(&mut events).await, NavigationEvent::Finished { .. }));
         assert!(tab.pending_downloads().is_empty());
+
+        // Forward to an entry that now answers 204: the cursor stays on the page shown.
+        tab.navigate(format!("http://127.0.0.1:{port}/flip"))
+            .await
+            .expect("navigate");
+        assert!(matches!(next_end(&mut events).await, NavigationEvent::Finished { .. }));
+        tab.go_back().await.expect("go back");
+        assert!(matches!(next_end(&mut events).await, NavigationEvent::Finished { .. }));
+        tab.go_forward().await.expect("go forward");
+        assert!(matches!(next_end(&mut events).await, NavigationEvent::Cancelled { .. }));
+        assert_eq!(tab.url().map(|u| u.path().to_string()).as_deref(), Some("/page"));
+        assert!(tab.can_go_forward(), "the cursor stayed on /flip");
     }
 
     /// Session history end to end: two navigations push two entries, GoBack moves the cursor
