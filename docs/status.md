@@ -3,14 +3,15 @@
 One section per component: what works, and what does not work yet. The README's Status list is
 the short version.
 
-Measured on 2026-09-22 against `new-css-delcaration-design`. Where a number can be regenerated,
-the command is next to it. Anything without a command is a reading of the code and will drift.
+Measured on 2026-11-05 against `main` at 0991001d, except the CSS benchmark, memory and WPT
+figures, which date from 2026-09-22. Where a number can be regenerated, the command is next to
+it. Anything without a command is a reading of the code and will drift.
 
-1,547 tests pass, none fail (`cargo test --workspace`).
+2,663 tests pass, none fail, 9 ignored (`cargo test --workspace`).
 
-The CSS parser validates 666 properties against generated grammars. Only 96 reach layout and
-paint. Accepting a declaration and acting on it are different things, so the sections below say
-which of the two they mean.
+The CSS parser validates 666 properties against generated grammars. 108 typed fields reach
+layout and paint. Accepting a declaration and acting on it are different things, so the sections
+below say which of the two they mean.
 
 
 ## HTML5 parser - `gosub_html5`
@@ -109,11 +110,10 @@ are stored as their text and fall to the matcher's catch-all
 rule, which never matches, where the spec drops the rule.
 `:active` is hardcoded false.
 `:visited` is hardcoded false to avoid leaking browsing history. CSS Nesting's `&` selector is
-the one selector form the AST converter has no arm for, so a nested rule is dropped. Six computed-value questions are still answered when the typed struct
-is built rather than in the crate's computed stage - system colours, the `font-size` keyword
-scale, `ch`/`ex`/`lh`/`ic`, `currentColor` on a property other than `color`, `outline-color:
-auto` and the physical-to-logical inset mapping - so `getComputedStyle` reports the unresolved
-form for those, and a relative `font-size` keyword is re-applied on every descendant. A hovered
+the one selector form the AST converter has no arm for, so a nested rule is dropped. Four computed-value questions are still answered when the typed struct
+is built rather than in the crate's computed stage - `ch`/`ex`/`lh`/`ic`, `currentColor` on a
+property other than `color`, `outline-color: auto` and the physical-to-logical inset mapping -
+so `getComputedStyle` reports the unresolved form for those. A hovered
 element whose inherited `color` changes leaves its descendants' cached styles stale: subtree
 invalidation compares only custom properties. `<svg>` is on the list of elements that never get
 a computed style, so no selector reaches one. `getComputedStyle` exists and is cached per
@@ -124,14 +124,17 @@ document; the CSS WPT component stands at 3,349 of 5,759 subtests
 
 ## Layout and paint - `gosub_render_pipeline`
 
-**Works.** 96 CSS properties reach layout and paint. The list is the fields of `ComputedStyle`
-in `crates/gosub_interface/src/style.rs` - grep that for the current set. It
+**Works.** 108 typed fields reach layout and paint. The list is the `pub` fields of the group
+structs behind `ComputedStyle` in `crates/gosub_interface/src/style.rs` - grep that for the
+current set. It
 covers the box model, flex, grid (including `grid-template-areas`), `order` for both, floats
 with document-order band resolution, absolute and fixed positioning, `position: sticky`, overflow
 and scrolling, borders and radii, backgrounds and gradients, `box-shadow`, outlines, opacity and
 `mix-blend-mode`, `visibility` (paint and hit testing; `collapse` does not drop table tracks),
-`display: contents` (not among table parts, where it keeps a block box) and `flow-root`, and the
-text properties. Block layout, flex and grid come from Taffy; inline content is emulated with
+`display: contents` (not among table parts, where it keeps a block box) and `flow-root`, list
+markers, and the text properties, `overflow-wrap`, `word-break` and `text-overflow` included.
+Pages lay out at their `<meta name="viewport">` width on mobile, and a visual viewport gives
+pinch zoom over the composited GPU tiles. Block layout, flex and grid come from Taffy; inline content is emulated with
 anonymous flex containers; CSS tables go to `gosub_lattice` through the `TableTree` adapter.
 After layout: paint, layer promotion, tiling, rasterization, and compositing.
 
@@ -177,7 +180,7 @@ video - `TabCommand::PlayMedia` and `PauseMedia` are declared in the API and not
 tab worker.
 
 
-## Networking - `gosub-sonar` 0.7 (external crate)
+## Networking - `gosub-sonar` 0.16 (external crate)
 
 The networking stack lives in its own project and is consumed from crates.io, where it carries
 its own documentation.
@@ -189,8 +192,13 @@ redirect hop: CORS with preflights and response tainting, referrer policy, mixed
 `Sec-Fetch-*`, HSTS, and credential stripping across origins. HTTP caching per RFC 9111 with
 `ETag`/`Last-Modified` revalidation and `Vary`. Auth challenges, pluggable DNS for SSRF
 policies, proxies, TLS error overrides. It also compiles for wasm on top of the browser's
-`fetch()`. Inside the engine, `http`, `https`, `data` and `file` URLs all resolve, and there is
-a decision hub for asking the embedder about TLS failures and downloads. A document's referrer
+`fetch()`. Inside the engine, `http`, `https`, `data` and `file` URLs all resolve, and so do
+`gemini` (certificates trusted on first use and pinned per zone, client certificates the
+embedder adds), `gopher` and `finger`; each of the last three has a `net.<scheme>.enabled`
+setting. There is a decision hub for asking the embedder about TLS failures and downloads. A
+download is offered at the response headers, spooled while the user decides, and can be
+cancelled while it runs. The engine adds an SSRF policy over three address spaces, so a page
+cannot reach a more private one, and opaque-response blocking (ORB). A document's referrer
 policy comes from its `Referrer-Policy` header and its `<meta name="referrer">`, and every
 request it makes - subresources, links and forms - sends the `Referer` that policy allows. A
 link's `referrerpolicy` and `rel="noreferrer"`, a form's `rel="noreferrer"`, and the
@@ -204,11 +212,22 @@ or on `<area>`; a fetch a stylesheet makes uses the document, not the sheet, as 
 
 ## Process isolation
 
-**Not in `main`.** The engine runs single-process today. The multi-process work (network
-process, decoder process, per-navigation renderer) lives on `origin/process-isolation-docs` and
-the `upstream/stack/*` branches and has not merged. There is no `docs/process-isolation.md` on
-`main`, and the sandboxing, wire protocol and crash isolation described on those branches are
-not in this tree.
+**Works, on Linux.** Untrusted parsing and rendering run in sandboxed child processes of the
+embedder's process (the broker): a network process, a cookie vault, a localStorage process, a
+throwaway process per decoded image, and a fork server that forks one resident renderer per
+(zone, site). They are on by default on Linux for an embedder that calls
+`child_process::dispatch()`; `security.process_isolation` and the five `security.*` settings
+under it turn them off or on one by one. A renderer that crashes leaves its tab blank and raises
+`EngineEvent::RendererCrashed`; page content never falls back to rendering in the broker. The
+whole design, and how to observe and test it, is in [process-isolation.md](process-isolation.md);
+[security-assessment.md](security-assessment.md) reads it as an attacker would.
+
+**Not yet.** Renderer processes are Linux only. The network and decoder processes have macOS and
+Windows sandbox backends but stay off there until those have run in CI; set them explicitly to
+try them. Android has no sandbox backend, so everything runs in-process there. Font systems that
+read font files while shaping (Pango, Skia) get a fresh renderer per render rather than a
+resident one, and only when the embedder opts in. Same-site tabs share a renderer and wait on
+each other's renders. Tiles cross the process boundary as CPU pixels.
 
 
 ## JavaScript
@@ -230,13 +249,16 @@ holds no DOM logic of its own.
 **Works.** `GosubEngine` is generic over a configuration type naming every swappable component,
 with `DefaultRenderConfig<Backend, FontSystem, Compositor>` as the ready-made choice. Underneath
 it: zones as isolated profiles with their own cookies and storage, tabs as independent async
-worker tasks, and an event bus. 35 `EngineEvent` variants flow out and 34 `TabCommand` variants
+worker tasks, and an event bus. 40 `EngineEvent` variants flow out and 38 `TabCommand` variants
 flow in. Navigation, history, hit testing, mouse and keyboard input, text editing, downloads,
 clipboard, cursor and focus changes, and the picker protocol for `<input type=color|date|time>`
 all work end to end - the embedder opens the platform's own picker and answers with
-`PickerChanged`/`PickerClosed`.
+`PickerChanged`/`PickerClosed`. Each document carries its own security state, reported with
+`SecurityChanged`; page scale and the visual viewport are reported with `PageScaleChanged` and
+`VisualViewportChanged`; a navigation reports its HTML parse errors and the CSS it dropped
+(`NavigationEvent::Diagnostics`). `Zone::detach_tab` frees a tab's slot without waiting for its worker.
 
-**Not yet.** Nine of the 34 `TabCommand` variants are declared and never handled; they reach the
+**Not yet.** Nine of the 38 `TabCommand` variants are declared and never handled; they reach the
 worker's catch-all and log `received unhandled command`. They are `SetCookie`, `ClearCookies`,
 `SetStorageItem`, `RemoveStorageItem`, `ClearStorage`, `ExecuteScript`, `PlayMedia`,
 `PauseMedia` and `DumpDomTree`. Cookies and storage are reachable through the zone services
@@ -252,6 +274,11 @@ Form controls render and accept input for `text`, `password`, `checkbox`, `radio
 **Works.** A cookie jar with a persistent SQLite-backed store and per-zone isolation, with
 partitioning policy configurable per zone. localStorage and sessionStorage both have in-memory
 implementations; localStorage also has a SQLite store. Storage changes raise `StorageChanged`.
+Cookie dates and lifetimes follow RFC 6265bis: `Expires` by its cookie-date algorithm,
+`Max-Age` as delta-seconds, a past date deletes the cookie, and no cookie lives past 400 days.
+Every SQLite store - cookies, localStorage, places, the config store, gemini's known hosts and
+client identities - opens with an optional SQLCipher key (feature `sqlcipher`). On Linux the
+cookie jars and file-backed localStorage live in their own processes (see Process isolation).
 
 
 ## Conformance
