@@ -216,10 +216,11 @@ or on `<area>`; a fetch a stylesheet makes uses the document, not the sheet, as 
 embedder's process (the broker): a network process, a cookie vault, a localStorage process, a
 throwaway process per decoded image, and a fork server that forks one resident renderer per
 (zone, site). They are on by default on Linux for an embedder that calls
-`child_process::dispatch()`; `security.process_isolation` and the five `security.*` settings
-under it turn them off or on one by one. A renderer that crashes leaves its tab blank and raises
-`EngineEvent::RendererCrashed`; page content never falls back to rendering in the broker. The
-whole design, and how to observe and test it, is in [process-isolation.md](process-isolation.md);
+`child_process::dispatch_with::<C>()` (plain `dispatch()` cannot run the fork server);
+`security.process_isolation` and the five `security.*` settings under it turn them off or on one
+by one. A renderer that crashes leaves its tab blank and raises `EngineEvent::RendererCrashed`;
+page content never falls back to rendering in the broker. The whole design, and how to observe
+and test it, is in [process-isolation.md](process-isolation.md);
 [security-assessment.md](security-assessment.md) reads it as an attacker would.
 
 **Not yet.** Renderer processes are Linux only. The network and decoder processes have macOS and
