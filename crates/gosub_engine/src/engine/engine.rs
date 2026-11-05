@@ -3878,7 +3878,7 @@ mod tests {
                     } else if buf[..n].starts_with(b"GET /205 ") {
                         "HTTP/1.1 205 Reset Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()
                     } else {
-                        let page = "<html><body>page</body></html>";
+                        let page = "<html><head><title>kept</title></head><body>page</body></html>";
                         format!(
                             "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\
                              Content-Length: {}\r\nConnection: close\r\n\r\n{page}",
@@ -3932,6 +3932,8 @@ mod tests {
                 NavigationEvent::Cancelled { url, .. } => assert_eq!(url.path(), format!("/{status}")),
                 other => panic!("{status}: expected Cancelled, got {other:?}"),
             }
+            assert_eq!(tab.url().map(|u| u.path().to_string()).as_deref(), Some("/page"));
+            assert_eq!(tab.title(), "kept");
         }
 
         // Nothing was left pending behind the cancel: the next navigation is a plain one.
