@@ -12,27 +12,31 @@ the [contribution guide](CONTRIBUTING.md).
 Gosub is a modular, embeddable browser engine. The primary entry point is `GosubEngine` in the
 [`gosub_engine`](crates/gosub_engine) crate. You provide a render backend and a compositor; the
 engine owns a multi-zone/tab model, an async networking stack, cookie and storage isolation per
-zone, and an event bus. Your user-agent (UA) drives everything via `TabCommand` and reacts to
+zone, sandboxed child processes for parsing and rendering, and an event bus. Your user-agent (UA) drives everything via `TabCommand` and reacts to
 `EngineEvent`.
 
 **Core components:**
 
 | Crate | Role |
 |---|---|
-| `gosub_engine` | `GosubEngine` — the unified entry point |
+| `gosub_engine` | `GosubEngine` - the unified entry point |
 | `gosub_interface` | Shared traits wiring the components together (the config system) |
 | `gosub_html5` | HTML5 tokenizer / parser |
 | `gosub_css3` | CSS3 tokenizer / parser |
-| [`gosub-sonar`](https://github.com/gosub-io/gosub-sonar) | Networking stack (async, streaming, priority-scheduled) — external crate |
+| [`gosub-sonar`](https://github.com/gosub-io/gosub-sonar) | Networking stack (async, streaming, priority-scheduled) - external crate |
 | `gosub_lattice` | CSS table layout |
-| `gosub_render_pipeline` | Render pipeline — layout (Taffy), stages, tiling, compositor |
+| `gosub_render_pipeline` | Render pipeline - layout (Taffy), stages, tiling, compositor |
 | `gosub_renderer_cairo` | Cairo render backend (CPU) |
 | `gosub_renderer_skia` | Skia render backend (CPU / GPU) |
 | `gosub_renderer_vello` | Vello / wgpu render backend (GPU) |
-| `gosub_fontmanager` | Font system — text shaping and measurement |
-| `gosub_jsapi` | Browser Web API implementations (console, fetch, DOM, …) |
+| `gosub_renderer_dynamic` | Picks one of the render backends at runtime |
+| `gosub_svg` | SVG rendering |
+| `gosub_fontmanager` | Font system - text shaping and measurement |
+| `gosub_jsapi` | Browser Web API implementations (console, fetch, DOM, ...) |
 | `gosub_v8` | V8 JavaScript engine bindings |
 | `gosub_config` | Configuration store |
+| `gosub_sandbox` | OS-level sandboxing: syscall filters, namespaces, child-process spawning |
+| `gosub_ipc` | Transport between the engine and its child processes |
 
 For the full crate listing see [`docs/crates.md`](docs/crates.md).
 
@@ -41,22 +45,33 @@ For the full crate listing see [`docs/crates.md`](docs/crates.md).
 
 The engine is under active development. What works today:
 
-- **Multi-zone / multi-tab model** — zones isolate cookies and storage; tabs are controlled via `TabCommand`
-- **Async networking** — streaming HTTP fetcher with priority queues, inflight coalescing, redirect handling, and per-zone cookie isolation
-- **Event-driven UA interface** — `TabCommand` flows in; `EngineEvent` (navigation, downloads, redraw, crashes) flows out on a control bus, with per-resource detail on a separate opt-in stream
-- **HTML5 and CSS3 parsing** — spec-compliant parsers for both, including shadow DOM (parsing, flat-tree traversal, CSS scoping)
-- **Resource pipeline** — parser-driven sub-resource discovery; stylesheets, images, web fonts and data URLs all fetched through one fetcher, with hierarchical cancellation
-- **Layout and paint** — block, inline, flex and grid via Taffy, floats, absolute and fixed positioning, and CSS tables via `gosub_lattice`
-- **Form controls** — text editing, and colour / date / time pickers opened by the embedder through `EngineEvent::PickerRequested`
-- **Pluggable render backends** — Null (headless), Cairo (GTK4), Skia (CPU / GPU), Vello (wgpu)
-- **Conformance measurement** — a gated web-platform-tests run in CI, plus a reftest runner; see [docs/wpt.md](docs/wpt.md) for where the numbers stand
+- **Multi-zone / multi-tab model** - zones isolate cookies and storage; tabs are controlled via `TabCommand`
+- **Async networking** - streaming HTTP fetcher with priority queues, inflight coalescing, redirect handling, and per-zone cookie isolation; `gemini`, `gopher` and `finger` next to `http(s)`, `data` and `file`
+- **Process isolation** - on Linux, networking, cookies, image decoding, file-backed `localStorage` and rendering (with Parley or cosmic-text fonts) run in sandboxed child processes, on by default once the embedder calls `child_process::dispatch_with::<C>()` first in `main`; see [docs/process-isolation.md](docs/process-isolation.md)
+- **Web security policies** - CORS, mixed content, referrer policy, ORB, an SSRF policy over address spaces, and per-document security state
+- **Encrypted storage** - every SQLite store (cookies, localStorage, places, config) opens with an optional SQLCipher key
+- **Event-driven UA interface** - `TabCommand` flows in; `EngineEvent` (navigation, downloads, redraw, crashes) flows out on a control bus, with per-resource detail on a separate opt-in stream
+- **HTML5 and CSS3 parsing** - spec-compliant parsers for both, including shadow DOM (parsing, flat-tree traversal, CSS scoping)
+- **Resource pipeline** - parser-driven sub-resource discovery; stylesheets, images, web fonts and data URLs all fetched through one fetcher, with hierarchical cancellation
+- **Layout and paint** - block, inline, flex and grid via Taffy, floats, absolute and fixed positioning, and CSS tables via `gosub_lattice`
+- **Mobile** - `<meta name="viewport">` layout width and pinch zoom through a visual viewport; the engine runs on Android, in-process
+- **Form controls** - text editing, and colour / date / time pickers opened by the embedder through `EngineEvent::PickerRequested`
+- **Pluggable render backends** - Null (headless), Cairo (GTK4), Skia (CPU / GPU), Vello (wgpu)
+- **Conformance measurement** - a gated web-platform-tests run in CI, plus a reftest runner; see [docs/wpt.md](docs/wpt.md) for where the numbers stand
 
-**[`docs/status.md`](docs/status.md) is the detailed version of this list** — per component,
+**[`docs/status.md`](docs/status.md) is the detailed version of this list** - per component,
 what works and what does not, with the numbers.
 
 Not there yet: scripting is not wired into the engine. The V8 and web-API crates exist and
-build, but no page runs JavaScript — see [docs/javascript.md](docs/javascript.md). WPT drives
+build, but no page runs JavaScript - see [docs/javascript.md](docs/javascript.md). WPT drives
 the DOM through a separate test-only QuickJS binding (`gosub_domjs`).
+
+
+## Gosub Beacon
+
+[Gosub Beacon](https://github.com/gosub-io/gosub-beacon) is the browser built on this engine,
+for Linux, macOS, Windows and Android. It builds against this repository's `beacon` branch, not
+`main`. Builds are on its [releases page](https://github.com/gosub-io/gosub-beacon/releases).
 
 
 ## Documentation
@@ -66,51 +81,56 @@ ones worth reading first.
 
 **Getting started**
 
-- [Tutorial](docs/tutorial.md) — start the engine, open a tab, navigate, handle events
-- [Configuration](docs/configuration.md) — choosing a render backend and font system
-- [Running the examples](docs/examples.md) — headless, GUI (winit / GTK4 / egui), and component tools
-- [Headless usage](docs/headless.md) — rendering real pages without a window
-- [WebAssembly](docs/webassembly.md) — compile and run the engine in the browser
-- [Development](docs/development.md) — tests and benchmarks
+- [Tutorial](docs/tutorial.md) - start the engine, open a tab, navigate, handle events
+- [Configuration](docs/configuration.md) - choosing a render backend and font system
+- [Running the examples](docs/examples.md) - headless, GUI (winit / GTK4 / egui), and component tools
+- [Headless usage](docs/headless.md) - rendering real pages without a window
+- [WebAssembly](docs/webassembly.md) - compile and run the engine in the browser
+- [Development](docs/development.md) - tests and benchmarks
 
 **Reference**
 
-- [What the engine can do today](docs/status.md) — per-component capability and gaps
-- [Crates](docs/crates.md) — the workspace crate layout, and where to find anything
-- [Component tools](docs/binaries.md) — the standalone `cargo run --bin …` tools
+- [Embedder API](docs/embedder-api.md) - every `TabCommand` and `EngineEvent`, and what to do
+  with each
+- [What the engine can do today](docs/status.md) - per-component capability and gaps
+- [Crates](docs/crates.md) - the workspace crate layout, and where to find anything
+- [Component tools](docs/binaries.md) - the standalone `cargo run --bin ...` tools
 
 **Architecture**
 
-- [The two worlds](docs/two-worlds.md) — the two parallel document/style models and the seam
+- [The two worlds](docs/two-worlds.md) - the two parallel document/style models and the seam
   that joins them. Read this before diving into either.
-- [Interface trait families](docs/interface.md) — `ModuleConfiguration` and the `Has*` traits
+- [Interface trait families](docs/interface.md) - `ModuleConfiguration` and the `Has*` traits
   that wire the workspace together
-- [Module configuration](docs/moduleconfig.md) — the same picture from an embedder's side:
+- [Module configuration](docs/moduleconfig.md) - the same picture from an embedder's side:
   what `DefaultRenderConfig` wires for you and how to go fully custom
-- [Zones and tabs](docs/zones-and-tabs.md) — zones as isolated profiles, tabs as independent
+- [Zones and tabs](docs/zones-and-tabs.md) - zones as isolated profiles, tabs as independent
   worker tasks, and the command/event flow between them
-- [Resource pipelines](docs/resource-pipeline.md) — how fetched bytes become typed assets
-- [CSS internals](docs/css.md) — `gosub_css3` from text to computed value
-- [HTML5 parsing](docs/html5.md) — tokenizer, tree builder, arena DOM
+- [Process isolation](docs/process-isolation.md) - the broker, its sandboxed children, and
+  the embedder contract that turns them on; [security assessment](docs/security-assessment.md)
+  reads the same design as an attacker would
+- [Resource pipelines](docs/resource-pipeline.md) - how fetched bytes become typed assets
+- [CSS internals](docs/css.md) - `gosub_css3` from text to computed value
+- [HTML5 parsing](docs/html5.md) - tokenizer, tree builder, arena DOM
 - [Render pipeline](docs/render-pipeline/README.md)
-- [Lattice table layout](docs/lattice.md) · [Fonts](docs/fonts.md) · [JavaScript stack](docs/javascript.md)
-- [Networking — architecture](docs/network/net-architecture.md) and [design notes](docs/network/net-design.md)
+- [Lattice table layout](docs/lattice.md) - [Fonts](docs/fonts.md) - [JavaScript stack](docs/javascript.md)
+- [Networking - architecture](docs/network/net-architecture.md) and [design notes](docs/network/net-design.md)
 - [Cookies](docs/cookies.md)
 - [Storage (local / session)](docs/datastores.md)
-- [Pump](docs/network/pump.md) — moving HTTP stream data to targets
+- [Pump](docs/network/pump.md) - moving HTTP stream data to targets
 
 **Conformance**
 
-- [**WPT quickstart**](docs/wpt-quickstart.md) — clone to a fixed test in about ten minutes.
+- [**WPT quickstart**](docs/wpt-quickstart.md) - clone to a fixed test in about ten minutes.
   The fastest way to make a first contribution.
-- [Web-platform-tests](docs/wpt.md) — the harness in full: what is bound, the expectations
+- [Web-platform-tests](docs/wpt.md) - the harness in full: what is bound, the expectations
   format, the reftest runner, and what CI does
 
 
 ## Contributing
 
 We welcome contributions. Because the engine is still taking shape, a lot of work is exploratory
-— building proofs-of-concept, reading specs, and making architectural decisions — rather than
+- building proofs-of-concept, reading specs, and making architectural decisions - rather than
 pure coding.
 
 Join us on [Zulip](https://chat.developer.gosub.io) or [Discord](https://chat.gosub.io) before

@@ -82,6 +82,20 @@ The async networking stack: streaming HTTP fetcher with priority queues, infligh
 
 ------------------------------------------------------------------------
 
+## Process isolation
+
+See [`process-isolation.md`](process-isolation.md) for the process model these crates serve. Both are optional dependencies of `gosub_engine`.
+
+### gosub_sandbox
+
+OS-level privilege capping for the engine's child processes: syscall filters, namespaces, Landlock and child-process spawning, with backends for Linux, macOS and Windows. Elsewhere (Android included) its lockdowns exit any child rather than run it unconfined, and the engine keeps everything in-process.
+
+### gosub_ipc
+
+The transport between the broker and its children: byte channels, length-framed messages, file descriptor passing, and shared memory for rendered tiles and response bodies.
+
+------------------------------------------------------------------------
+
 ## JavaScript
 
 See [`javascript.md`](javascript.md) for how these crates stack together. Note: the whole scripting stack is currently **built but not wired** — no page script is executed yet.
@@ -156,6 +170,8 @@ flowchart TD
     webinterop("gosub_webinterop")
     jsapi("gosub_jsapi")
     webplatform("gosub_web_platform")
+    ipc("gosub_ipc")
+    sandbox("gosub_sandbox")
 
     shared --> interface
     net --> interface
@@ -189,6 +205,9 @@ flowchart TD
     interface --> engine
     fontmgr --> engine
     pipeline --> engine
+    ipc --> sandbox
+    ipc --> engine
+    sandbox --> engine
 
     shared --> webexec
     webexec --> v8
