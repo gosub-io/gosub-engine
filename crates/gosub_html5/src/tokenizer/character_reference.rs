@@ -74,7 +74,7 @@ impl Tokenizer<'_> {
                         }
 
                         // find_entity() only returns keys of TOKEN_NAMED_CHARS, so the lookup cannot miss
-                        let entity_chars = TOKEN_NAMED_CHARS.get(entity.as_str()).copied().unwrap_or_default();
+                        let entity_chars = TOKEN_NAMED_CHARS.get(entity).copied().unwrap_or_default();
 
                         // Flush codepoints consumed as character reference
                         for c in entity_chars.chars() {
@@ -326,20 +326,27 @@ impl Tokenizer<'_> {
     }
 
     /// Finds the longest entity from the current position in the stream. Returns the entity
-    /// replacement OR None when no entity has been found.
-    fn find_entity(&mut self) -> Option<String> {
+    /// name OR None when no entity has been found.
+    fn find_entity(&mut self) -> Option<&'static str> {
         let chars = self.stream.get_slice(*LONGEST_ENTITY_LENGTH);
 
-        for i in (0..=chars.len()).rev() {
-            if let Some(slice) = chars.get(0..i) {
-                let entity: String = slice.iter().map(std::string::ToString::to_string).collect();
-                if TOKEN_NAMED_CHARS.contains_key(entity.as_str()) {
-                    return Some(entity);
+        // Entity names are ASCII alphanumerics with an optional trailing ';', so only a
+        // prefix of that run can match.
+        let mut candidate = String::with_capacity(chars.len());
+        for c in chars {
+            match c {
+                Ch(ch) if ch.is_ascii_alphanumeric() => candidate.push(ch),
+                Ch(';') => {
+                    candidate.push(';');
+                    break;
                 }
+                _ => break,
             }
         }
 
-        None
+        (1..=candidate.len())
+            .rev()
+            .find_map(|i| TOKEN_NAMED_CHARS.get_key(&candidate[..i]).copied())
     }
 }
 
@@ -419,6 +426,10 @@ mod tests {
         entity_114: ("&copy&", "©&")
         entity_115: ("&copya ", "©a ")
         entity_116: ("&#169X ", "©X ")
+        entity_117: ("&copyé", "©é")
+        entity_118: ("&CounterClockwiseContourIntegral;", "∳")
+        entity_119: ("&amp;amp;", "&amp;")
+        entity_120: ("&notén;", "¬én;")
 
         // // ChatGPT generated tests
         entity_200: ("&copy;", "©")

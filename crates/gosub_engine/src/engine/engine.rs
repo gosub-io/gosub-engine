@@ -1373,6 +1373,37 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A detached tab gives its `max_tabs` slot back at once, before its worker has
+    /// stopped, so a zone that keeps opening and closing tabs never runs out.
+    #[tokio::test]
+    async fn detached_tab_frees_its_slot() {
+        let mut engine = engine_with_max_zones(1);
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let max = ZoneConfig::default().max_tabs;
+
+        let mut tabs = Vec::new();
+        for _ in 0..max {
+            tabs.push(zone.tab_builder().create().await.expect("tab"));
+        }
+        assert!(matches!(
+            zone.tab_builder().create().await,
+            Err(EngineError::TabLimitExceeded)
+        ));
+
+        for _ in 0..max * 2 {
+            let closing = zone.detach_tab(tabs.remove(0).tab_id).expect("known tab");
+            assert!(zone.detach_tab(crate::tab::TabId::new()).is_none(), "unknown id");
+            tabs.push(zone.tab_builder().create().await.expect("the slot is free"));
+            tokio::time::timeout(Duration::from_secs(10), closing)
+                .await
+                .expect("the worker stops");
+        }
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// A page served as an attachment is offered as a download; `RenderDownload` overrides
     /// that and loads the already-spooled body as the page. No second request is made.
     #[tokio::test(flavor = "current_thread")]
@@ -3969,6 +4000,93 @@ mod tests {
             Some("s")
         );
         assert!(tab.can_go_back(), "the cursor went back to /page's entry");
+    }
+
+    /// A reload ignoring the cache asks for a fresh copy all the way to the server
+    /// (`Cache-Control` and `Pragma: no-cache`, no validators); a plain reload does not.
+    #[tokio::test]
+    async fn reload_ignoring_cache_sends_no_cache() {
+        use crate::events::{NavigationEvent, TabCommand};
+        use cow_utils::CowUtils;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let (heads_tx, mut heads) = mpsc::unbounded_channel::<String>();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let heads_tx = heads_tx.clone();
+                tokio::spawn(async move {
+                    // The whole head: the test reads its headers, not only the request line.
+                    let mut buf = Vec::new();
+                    let mut chunk = [0u8; 4096];
+                    while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                        match stream.read(&mut chunk).await {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                        }
+                    }
+                    let head = String::from_utf8_lossy(&buf).cow_to_ascii_lowercase().into_owned();
+                    if head.starts_with("get /page ") {
+                        let _ = heads_tx.send(head);
+                    }
+                    let page = "<html><body>page</body></html>";
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCache-Control: max-age=3600\r\nETag: \"v1\"\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n{page}",
+                        page.len()
+                    );
+                    let _ = stream.write_all(response.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        async fn finished(events: &mut broadcast::Receiver<EngineEvent>) {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    match events.recv().await {
+                        Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::Finished { .. },
+                            ..
+                        }) => return,
+                        Ok(_) => continue,
+                        Err(e) => panic!("event stream closed: {e}"),
+                    }
+                }
+            })
+            .await
+            .expect("timed out waiting for the load to finish");
+        }
+        let no_cache = |head: &str| head.contains("cache-control: no-cache") && head.contains("pragma: no-cache");
+
+        tab.navigate(format!("http://127.0.0.1:{port}/page"))
+            .await
+            .expect("navigate");
+        // The server records a request before it answers, so by `Finished` it is queued.
+        finished(&mut events).await;
+        assert!(!no_cache(&heads.try_recv().unwrap()), "a first load is a plain one");
+
+        tab.send(TabCommand::Reload { ignore_cache: true })
+            .await
+            .expect("reload");
+        finished(&mut events).await;
+        let head = heads.try_recv().expect("the hard reload was answered from the cache");
+        assert!(no_cache(&head), "hard reload without no-cache:\n{head}");
+        assert!(!head.contains("if-none-match"), "hard reload sent a validator:\n{head}");
+
+        tab.send(TabCommand::Reload { ignore_cache: false })
+            .await
+            .expect("reload");
+        finished(&mut events).await;
+        if let Ok(head) = heads.try_recv() {
+            assert!(!no_cache(&head), "a plain reload asked for no-cache:\n{head}");
+        }
     }
 
     /// Session history end to end: two navigations push two entries, GoBack moves the cursor
