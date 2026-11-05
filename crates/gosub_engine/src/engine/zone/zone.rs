@@ -427,23 +427,35 @@ impl<C: RenderConfiguration> Zone<C> {
     /// The worker performs its own teardown on exit (emits `TabClosed`, drops the
     /// tab's session storage). Returns `false` when the tab is unknown.
     pub async fn close_tab(&mut self, tab_id: TabId) -> bool {
-        let Some(info) = self.tabs.remove(&tab_id) else {
-            return false;
-        };
-
-        // A send error means the worker already exited; awaiting the join handle is
-        // still correct in that case.
-        let _ = info.cmd_tx.send(TabCommand::CloseTab).await;
-
-        let secs = self.context.config_store.get_uint("engine.io_shutdown_secs") as u64;
-        match tokio::time::timeout(std::time::Duration::from_secs(secs), info.join_handle).await {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => log::warn!("Tab {tab_id} worker join error: {e}"),
-            // The worker keeps running detached and cleans up whenever it exits.
-            Err(_) => log::warn!("Tab {tab_id} worker did not stop within {secs}s"),
+        match self.detach_tab(tab_id) {
+            Some(closing) => {
+                closing.await;
+                true
+            }
+            None => false,
         }
+    }
 
-        true
+    /// Takes a tab out of the zone, so it no longer counts against `max_tabs`, and
+    /// returns the stopping of it: a future that asks the worker to stop and waits for
+    /// it to exit. For a caller that cannot wait, such as a UI thread, which spawns it.
+    /// Returns `None` when the tab is unknown.
+    pub fn detach_tab(&mut self, tab_id: TabId) -> Option<impl std::future::Future<Output = ()> + Send + 'static> {
+        let info = self.tabs.remove(&tab_id)?;
+        let secs = self.context.config_store.get_uint("engine.io_shutdown_secs") as u64;
+
+        Some(async move {
+            // A send error means the worker already exited; awaiting the join handle is
+            // still correct in that case.
+            let _ = info.cmd_tx.send(TabCommand::CloseTab).await;
+
+            match tokio::time::timeout(std::time::Duration::from_secs(secs), info.join_handle).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => log::warn!("Tab {tab_id} worker join error: {e}"),
+                // The worker keeps running detached and cleans up whenever it exits.
+                Err(_) => log::warn!("Tab {tab_id} worker did not stop within {secs}s"),
+            }
+        })
     }
 
     /// Closes every tab in this zone. Used by `GosubEngine::close_zone`.

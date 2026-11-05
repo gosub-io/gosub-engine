@@ -1373,6 +1373,37 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A detached tab gives its `max_tabs` slot back at once, before its worker has
+    /// stopped, so a zone that keeps opening and closing tabs never runs out.
+    #[tokio::test]
+    async fn detached_tab_frees_its_slot() {
+        let mut engine = engine_with_max_zones(1);
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let max = ZoneConfig::default().max_tabs;
+
+        let mut tabs = Vec::new();
+        for _ in 0..max {
+            tabs.push(zone.tab_builder().create().await.expect("tab"));
+        }
+        assert!(matches!(
+            zone.tab_builder().create().await,
+            Err(EngineError::TabLimitExceeded)
+        ));
+
+        for _ in 0..max * 2 {
+            let closing = zone.detach_tab(tabs.remove(0).tab_id).expect("known tab");
+            assert!(zone.detach_tab(crate::tab::TabId::new()).is_none(), "unknown id");
+            tabs.push(zone.tab_builder().create().await.expect("the slot is free"));
+            tokio::time::timeout(Duration::from_secs(10), closing)
+                .await
+                .expect("the worker stops");
+        }
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// A page served as an attachment is offered as a download; `RenderDownload` overrides
     /// that and loads the already-spooled body as the page. No second request is made.
     #[tokio::test(flavor = "current_thread")]
