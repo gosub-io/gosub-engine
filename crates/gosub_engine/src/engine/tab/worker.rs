@@ -807,13 +807,17 @@ impl<C: RenderConfiguration> TabWorker<C> {
     }
 
     /// Undo what the start of a navigation did to the page that stays: a traversal moved the
-    /// history cursor.
+    /// history cursor, and every navigation scrolled to the top. The offset is the one saved
+    /// on the document's entry when the navigation began.
     fn return_to_document_entry(&mut self) {
         let Some(entry) = self.document_entry else {
             return;
         };
         if self.history.current() != Some(entry) && self.history.go_to(entry).is_some() {
             self.emit_history_changed();
+        }
+        if let Some((x, y)) = self.history.entry(entry).map(|e| e.scroll) {
+            self.apply_scroll(x, y);
         }
     }
 
