@@ -183,21 +183,21 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         }
     }
 
-    pub(crate) fn insert_html_element(&mut self, token: &Token) -> NodeId {
+    pub(crate) fn insert_html_element(&mut self, token: &mut Token) -> NodeId {
         self.insert_element_from_token(token, None, Some(HTML_NAMESPACE))
     }
 
-    pub(crate) fn insert_foreign_element(&mut self, token: &Token, namespace: &str) -> NodeId {
+    pub(crate) fn insert_foreign_element(&mut self, token: &mut Token, namespace: &str) -> NodeId {
         self.insert_element_from_token(token, None, Some(namespace))
     }
 
     pub(crate) fn insert_element_from_token(
         &mut self,
-        token: &Token,
+        token: &mut Token,
         override_node: Option<NodeId>,
         namespace: Option<&str>,
     ) -> NodeId {
-        let node_id = self.create_node(token, namespace.unwrap_or(HTML_NAMESPACE));
+        let node_id = self.create_element_node(token, namespace.unwrap_or(HTML_NAMESPACE));
         self.insert_element(node_id, override_node)
     }
 
@@ -222,8 +222,8 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         self.document.attach(node_id, NodeId::root(), None);
     }
 
-    pub(crate) fn insert_document_element(&mut self, token: &Token) {
-        let node_id = self.create_node(token, HTML_NAMESPACE);
+    pub(crate) fn insert_document_element(&mut self, token: &mut Token) {
+        let node_id = self.create_element_node(token, HTML_NAMESPACE);
         self.document.attach(node_id, NodeId::root(), None);
         self.open_elements.push(node_id);
     }
