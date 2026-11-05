@@ -34,6 +34,7 @@ use gosub_render_pipeline::render::backend::{
     CompositeView, CompositorSink, ErasedSurface, ExternalHandle, PresentMode, RenderBackend, SurfaceSize,
 };
 use gosub_render_pipeline::render::Viewport;
+use gosub_sonar::CacheMode;
 use http::{HeaderMap, Method};
 use std::sync::Arc;
 use tokio::select;
@@ -1944,6 +1945,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         HistoryIntent::Push,
                         initiator.as_ref(),
                         referrer_policy,
+                        CacheMode::Default,
                     );
                 }
                 Ok(Action::Picker {
@@ -2006,6 +2008,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             HistoryIntent::Push,
             initiator.as_ref(),
             sub.referrer_policy,
+            CacheMode::Default,
         );
     }
 
@@ -2105,9 +2108,15 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
     /// Navigate to a new URL, cancelling any in-flight navigation. `history` says what the
     /// navigation does to session history once it commits.
+    /// `ignore_cache` goes to the network without revalidating and asks every cache on the
+    /// way to do the same (Fetch's "reload" cache mode: `Cache-Control` and `Pragma: no-cache`).
     fn navigate_to(&mut self, url: impl Into<String>, ignore_cache: bool, history: HistoryIntent) {
-        let _ = ignore_cache;
-        self.navigate_request(url, Method::GET, None, history, None, None);
+        let cache_mode = if ignore_cache {
+            CacheMode::Reload
+        } else {
+            CacheMode::Default
+        };
+        self.navigate_request(url, Method::GET, None, history, None, None, cache_mode);
     }
 
     /// Follow a link the loaded document offered: the document is the navigation's
@@ -2122,6 +2131,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             HistoryIntent::Push,
             initiator.as_ref(),
             referrer_policy,
+            CacheMode::Default,
         );
     }
 
@@ -2130,6 +2140,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// form - and `None` for the user's own navigations (address bar, reload, history).
     /// `referrer_policy` is the one the link or form asks for (`rel="noreferrer"`,
     /// `referrerpolicy`), else the document's applies.
+    #[allow(clippy::too_many_arguments)]
     fn navigate_request(
         &mut self,
         url: impl Into<String>,
@@ -2138,6 +2149,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         history: HistoryIntent,
         initiator: Option<&Url>,
         referrer_policy: Option<gosub_sonar::ReferrerPolicy>,
+        cache_mode: CacheMode,
     ) {
         let url = match self.parse_url(url.into()) {
             Ok(u) => u,
@@ -2296,7 +2308,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // A navigation can turn out to be a download, which takes as long as it takes;
             // the idle timeout still ends a body that stalls.
             .without_total_body_timeout()
-            .with_auto_decode(true);
+            .with_auto_decode(true)
+            .with_cache_mode(cache_mode);
         req = navigation(req, initiator, referrer_policy.unwrap_or(self.referrer_policy));
         if let Some(body) = body {
             req = req.with_body(body);
