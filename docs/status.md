@@ -249,8 +249,9 @@ holds no DOM logic of its own.
 **Works.** `GosubEngine` is generic over a configuration type naming every swappable component,
 with `DefaultRenderConfig<Backend, FontSystem, Compositor>` as the ready-made choice. Underneath
 it: zones as isolated profiles with their own cookies and storage, tabs as independent async
-worker tasks, and an event bus. 40 `EngineEvent` variants flow out and 38 `TabCommand` variants
-flow in. Navigation, history, hit testing, mouse and keyboard input, text editing, downloads,
+worker tasks, and an event bus. 27 `EngineEvent` variants flow out and 28 `TabCommand` variants
+flow in; `unstable-api` adds 13 and 9 more, and test builds add `TabCommand::CrashForTest`.
+Navigation, history, hit testing, mouse and keyboard input, text editing, downloads,
 clipboard, cursor and focus changes, and the picker protocol for `<input type=color|date|time>`
 all work end to end - the embedder opens the platform's own picker and answers with
 `PickerChanged`/`PickerClosed`. Each document carries its own security state, reported with
@@ -258,11 +259,12 @@ all work end to end - the embedder opens the platform's own picker and answers w
 `VisualViewportChanged`; a navigation reports its HTML parse errors and the CSS it dropped
 (`NavigationEvent::Diagnostics`). `Zone::detach_tab` frees a tab's slot without waiting for its worker.
 
-**Not yet.** Nine of the 38 `TabCommand` variants are declared and never handled; they reach the
-worker's catch-all and log `received unhandled command`. They are `SetCookie`, `ClearCookies`,
-`SetStorageItem`, `RemoveStorageItem`, `ClearStorage`, `ExecuteScript`, `PlayMedia`,
-`PauseMedia` and `DumpDomTree`. Cookies and storage are reachable through the zone services
-instead, so only the per-tab shortcut is missing. Script and media have nothing behind them.
+**Not yet.** The nine `TabCommand` variants behind `unstable-api` are declared and never
+handled; they reach the worker's catch-all and log `received unhandled command`. They are
+`SetCookie`, `ClearCookies`, `SetStorageItem`, `RemoveStorageItem`, `ClearStorage`,
+`ExecuteScript`, `PlayMedia`, `PauseMedia` and `DumpDomTree`. Cookies and storage are
+reachable through the zone services instead, so only the per-tab shortcut is missing. Script
+and media have nothing behind them.
 Regenerate the list by diffing the enum against the arms in `engine/tab/worker.rs`.
 
 Form controls render and accept input for `text`, `password`, `checkbox`, `radio`, `button`,
