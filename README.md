@@ -47,7 +47,7 @@ The engine is under active development. What works today:
 
 - **Multi-zone / multi-tab model** - zones isolate cookies and storage; tabs are controlled via `TabCommand`
 - **Async networking** - streaming HTTP fetcher with priority queues, inflight coalescing, redirect handling, and per-zone cookie isolation; `gemini`, `gopher` and `finger` next to `http(s)`, `data` and `file`
-- **Process isolation** - on Linux, networking, cookies, storage, image decoding and rendering run in sandboxed child processes, on by default once the embedder calls `child_process::dispatch_with::<C>()` first in `main`; see [docs/process-isolation.md](docs/process-isolation.md)
+- **Process isolation** - on Linux, networking, cookies, image decoding, file-backed `localStorage` and rendering (with Parley or cosmic-text fonts) run in sandboxed child processes, on by default once the embedder calls `child_process::dispatch_with::<C>()` first in `main`; see [docs/process-isolation.md](docs/process-isolation.md)
 - **Web security policies** - CORS, mixed content, referrer policy, ORB, an SSRF policy over address spaces, and per-document security state
 - **Encrypted storage** - every SQLite store (cookies, localStorage, places, config) opens with an optional SQLCipher key
 - **Event-driven UA interface** - `TabCommand` flows in; `EngineEvent` (navigation, downloads, redraw, crashes) flows out on a control bus, with per-resource detail on a separate opt-in stream
