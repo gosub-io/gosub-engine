@@ -796,6 +796,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
             self.is_error = false;
             self.state = TabState::Idle;
             self.pending_url = None;
+            // The I/O side has had the target as the tab's document since the navigation
+            // began; requests without a document of their own go back to the page that stays.
+            if let Some(shown) = self.current_url.clone() {
+                self.announce_top_level(&shown);
+            }
             self.return_to_document_entry();
         }
         self.send_event(EngineEvent::Navigation {

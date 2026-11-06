@@ -3965,6 +3965,22 @@ mod tests {
             }
             assert_eq!(tab.url().map(|u| u.path().to_string()).as_deref(), Some("/page"));
             assert_eq!(tab.title(), "kept");
+            // The I/O side judges requests without a document against the page again. The
+            // announcement is queued, so wait for it.
+            let top_level_back = tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let top_level = engine.context.tab_identities.get(tab.tab_id).and_then(|i| i.top_level);
+                    if top_level.is_some_and(|u| u.path() == "/page") {
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await;
+            assert!(
+                top_level_back.is_ok(),
+                "{status}: the tab's top-level is still the {status}"
+            );
         }
 
         // Nothing was left pending behind the cancel: the next navigation is a plain one.
