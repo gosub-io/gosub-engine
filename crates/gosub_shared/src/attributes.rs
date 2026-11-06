@@ -11,7 +11,7 @@
 use crate::memory::{HeapSize, Walk};
 use indexmap::IndexMap;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Attributes {
     entries: IndexMap<String, String>,
 }
@@ -83,14 +83,6 @@ impl Attributes {
         self.entries.retain(|n, v| keep(n, v));
     }
 }
-
-impl PartialEq for Attributes {
-    fn eq(&self, other: &Self) -> bool {
-        self.len() == other.len() && self.iter().all(|(n, v)| other.get(n) == Some(v))
-    }
-}
-
-impl Eq for Attributes {}
 
 impl Extend<(String, String)> for Attributes {
     fn extend<I: IntoIterator<Item = (String, String)>>(&mut self, iter: I) {
