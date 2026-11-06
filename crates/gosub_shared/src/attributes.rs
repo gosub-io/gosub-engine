@@ -2,17 +2,18 @@
 //!
 //! DOM keeps attributes as an ordered list: a new attribute is appended, a changed value stays
 //! where it is, and removing one keeps the order of the rest. Serialization and enumeration
-//! (`element.attributes`, `getAttributeNames()`) follow that order. Elements rarely carry more
-//! than a handful, so a `Vec` with a linear lookup is cheaper than a map.
+//! (`element.attributes`, `getAttributeNames()`) follow that order. Lookups are hashed: a tag
+//! can carry any number of attributes, and the tokenizer looks each one up as it reads it.
 //!
 //! Equality ignores order: "the same attributes" in DOM (`isEqualNode`) and in the parser's
 //! list of active formatting elements compares them as a set.
 
 use crate::memory::{HeapSize, Walk};
+use indexmap::IndexMap;
 
 #[derive(Clone, Debug, Default)]
 pub struct Attributes {
-    entries: Vec<(String, String)>,
+    entries: IndexMap<String, String>,
 }
 
 impl Attributes {
@@ -33,32 +34,27 @@ impl Attributes {
 
     #[must_use]
     pub fn get(&self, name: &str) -> Option<&String> {
-        self.entries.iter().find(|(n, _)| n == name).map(|(_, v)| v)
+        self.entries.get(name)
     }
 
     pub fn get_mut(&mut self, name: &str) -> Option<&mut String> {
-        self.entries.iter_mut().find(|(n, _)| n == name).map(|(_, v)| v)
+        self.entries.get_mut(name)
     }
 
     #[must_use]
     pub fn contains_key(&self, name: &str) -> bool {
-        self.entries.iter().any(|(n, _)| n == name)
+        self.entries.contains_key(name)
     }
 
     /// Appends a new attribute, or replaces the value of an existing one in place. Returns the
     /// old value.
     pub fn insert(&mut self, name: String, value: String) -> Option<String> {
-        if let Some(existing) = self.get_mut(&name) {
-            return Some(std::mem::replace(existing, value));
-        }
-        self.entries.push((name, value));
-        None
+        self.entries.insert(name, value)
     }
 
     /// Removes an attribute, keeping the order of the rest. Returns its value.
     pub fn remove(&mut self, name: &str) -> Option<String> {
-        let pos = self.entries.iter().position(|(n, _)| n == name)?;
-        Some(self.entries.remove(pos).1)
+        self.entries.shift_remove(name)
     }
 
     pub fn clear(&mut self) {
@@ -67,24 +63,24 @@ impl Attributes {
 
     /// Attributes in list order.
     pub fn iter(&self) -> impl ExactSizeIterator<Item = (&String, &String)> {
-        self.entries.iter().map(|(n, v)| (n, v))
+        self.entries.iter()
     }
 
     pub fn keys(&self) -> impl ExactSizeIterator<Item = &String> {
-        self.entries.iter().map(|(n, _)| n)
+        self.entries.keys()
     }
 
     pub fn values(&self) -> impl ExactSizeIterator<Item = &String> {
-        self.entries.iter().map(|(_, v)| v)
+        self.entries.values()
     }
 
     pub fn values_mut(&mut self) -> impl ExactSizeIterator<Item = &mut String> {
-        self.entries.iter_mut().map(|(_, v)| v)
+        self.entries.values_mut()
     }
 
     /// Keeps the attributes for which `keep` returns true, in order.
     pub fn retain(&mut self, mut keep: impl FnMut(&String, &mut String) -> bool) {
-        self.entries.retain_mut(|(n, v)| keep(n, v));
+        self.entries.retain(|n, v| keep(n, v));
     }
 }
 
@@ -120,7 +116,7 @@ impl<const N: usize> From<[(String, String); N]> for Attributes {
 
 impl IntoIterator for Attributes {
     type Item = (String, String);
-    type IntoIter = std::vec::IntoIter<(String, String)>;
+    type IntoIter = indexmap::map::IntoIter<String, String>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.entries.into_iter()
@@ -129,17 +125,17 @@ impl IntoIterator for Attributes {
 
 impl<'a> IntoIterator for &'a Attributes {
     type Item = (&'a String, &'a String);
-    type IntoIter =
-        std::iter::Map<std::slice::Iter<'a, (String, String)>, fn(&'a (String, String)) -> (&'a String, &'a String)>;
+    type IntoIter = indexmap::map::Iter<'a, String, String>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.entries.iter().map(|(n, v)| (n, v))
+        self.entries.iter()
     }
 }
 
 impl HeapSize for Attributes {
     fn heap_size(&self, walk: &mut Walk) {
-        walk.bytes(self.entries.capacity() * size_of::<(String, String)>());
+        // Each entry also keeps its hash, and the table an index for it.
+        walk.bytes(self.entries.capacity() * (size_of::<(String, String)>() + 2 * size_of::<usize>()));
         for (name, value) in &self.entries {
             name.heap_size(walk);
             value.heap_size(walk);
