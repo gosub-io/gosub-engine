@@ -13,11 +13,11 @@ use crate::parser::errors::{ErrorLogger, ParserError};
 use crate::tokenizer::state::State;
 use crate::tokenizer::token::Token;
 use cow_utils::CowUtils;
+use gosub_shared::attributes::Attributes;
 use gosub_shared::byte_stream::Character::{Ch, StreamEnd};
 use gosub_shared::byte_stream::{ByteStream, Character, Location, Stream};
 use gosub_shared::types::Result;
 use std::cell::{Ref, RefCell};
-use std::collections::HashMap;
 use std::rc::Rc;
 
 /// Constants that are not directly captured as visible chars
@@ -42,7 +42,7 @@ pub struct Tokenizer<'tokens> {
     /// Current attribute value that we need to store temporary in case we are parsing attributes
     pub current_attr_value: String,
     /// Current attributes
-    pub current_attrs: HashMap<String, String>,
+    pub current_attrs: Attributes,
     /// Token that is currently in the making (if any)
     pub current_token: Option<Token>,
     /// Temporary buffer
@@ -126,7 +126,7 @@ impl<'stream> Tokenizer<'stream> {
             token_queue: vec![],
             current_attr_name: String::new(),
             current_attr_value: String::new(),
-            current_attrs: HashMap::new(),
+            current_attrs: Attributes::new(),
             temporary_buffer: String::new(),
             last_char: StreamEnd,
             error_logger,
@@ -272,7 +272,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::StartTag {
                                 name: String::new(),
                                 is_self_closing: false,
-                                attributes: HashMap::new(),
+                                attributes: Attributes::new(),
                                 location: self.last_token_location,
                             });
                             self.stream_prev();

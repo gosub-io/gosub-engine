@@ -1,6 +1,6 @@
 use gosub_interface::document::Document;
 use gosub_interface::node::NodeType;
-use std::collections::HashMap;
+use gosub_shared::attributes::Attributes;
 
 use crate::parser::tree_builder::TreeBuilder;
 use gosub_interface::config::HasDocument;
@@ -85,7 +85,7 @@ impl DocumentTaskQueue {
                     position,
                     location,
                 } => {
-                    let node_id = doc.create_element(name, Some(namespace), HashMap::new(), *location);
+                    let node_id = doc.create_element(name, Some(namespace), Attributes::new(), *location);
                     doc.attach(node_id, *parent_id, *position);
                 }
                 DocumentTask::CreateText {

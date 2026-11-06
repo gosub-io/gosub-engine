@@ -16,6 +16,7 @@
 
 use crate::stylesheet::{CssRule, CssSelectorPart};
 use cow_utils::CowUtils as _;
+use gosub_shared::attributes::Attributes;
 use std::collections::HashMap;
 
 /// How many bucket slices the merge keeps on the stack. An element falls into one bucket per
@@ -69,7 +70,7 @@ pub struct ElementKeys<'a> {
     pub classes: &'a str,
     pub tag: Option<&'a str>,
     /// The element's attributes. Only the names are read, for the attribute buckets.
-    pub attributes: Option<&'a HashMap<String, String>>,
+    pub attributes: Option<&'a Attributes>,
     /// The pseudo-element the cascade is being asked for, if any.
     pub pseudo: Option<&'a str>,
 }
@@ -161,7 +162,7 @@ impl Buckets {
             .attributes
             .filter(|_| !self.by_attr.is_empty())
             .into_iter()
-            .flat_map(HashMap::keys)
+            .flat_map(Attributes::keys)
             .filter_map(|name| self.by_attr.get(name.cow_to_lowercase().as_ref()));
         let mut lists = id
             .into_iter()
@@ -435,9 +436,9 @@ mod tests {
         ];
         let index = SelectorIndex::build(&rules);
 
-        let mut with = HashMap::new();
+        let mut with = Attributes::new();
         with.insert("data-x".to_string(), String::new());
-        let mut without = HashMap::new();
+        let mut without = Attributes::new();
         without.insert("href".to_string(), String::new());
 
         let has_attr = ElementKeys {
@@ -453,7 +454,7 @@ mod tests {
         assert!(candidates(&index, &no_attr).is_empty());
 
         // Both sides are lowercased, so an oddly cased selector still reaches the element.
-        let mut upper = HashMap::new();
+        let mut upper = Attributes::new();
         upper.insert("data-y".to_string(), String::new());
         let has_upper = ElementKeys {
             attributes: Some(&upper),

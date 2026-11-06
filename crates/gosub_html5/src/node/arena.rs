@@ -132,13 +132,13 @@ impl Default for NodeArena {
 mod tests {
     use super::*;
     use crate::node::HTML_NAMESPACE;
+    use gosub_shared::attributes::Attributes;
     use gosub_shared::byte_stream::Location;
-    use std::collections::HashMap;
 
     #[test]
     fn register_node() {
         let mut arena = NodeArena::new();
-        let node = NodeImpl::new_element(Location::default(), "test", Some(HTML_NAMESPACE), HashMap::new());
+        let node = NodeImpl::new_element(Location::default(), "test", Some(HTML_NAMESPACE), Attributes::new());
         let id = arena.register_node(node);
         assert_eq!(arena.node_count(), 1);
         assert_eq!(id, NodeId::from(0_usize));
@@ -148,7 +148,7 @@ mod tests {
     #[should_panic(expected = "Node is already attached to an arena")]
     fn register_node_twice() {
         let mut arena = NodeArena::new();
-        let node = NodeImpl::new_element(Location::default(), "test", Some(HTML_NAMESPACE), HashMap::new());
+        let node = NodeImpl::new_element(Location::default(), "test", Some(HTML_NAMESPACE), Attributes::new());
         let id = arena.register_node(node);
         let node = arena.node(id).unwrap();
         arena.register_node(node);
@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn get_node() {
         let mut arena = NodeArena::new();
-        let node = NodeImpl::new_element(Location::default(), "test", Some(HTML_NAMESPACE), HashMap::new());
+        let node = NodeImpl::new_element(Location::default(), "test", Some(HTML_NAMESPACE), Attributes::new());
         let id = arena.register_node(node);
         let node = arena.node(id);
         assert!(node.is_some());
@@ -167,14 +167,14 @@ mod tests {
     #[test]
     fn delete_node_leaves_tombstone() {
         let mut arena = NodeArena::new();
-        let node = NodeImpl::new_element(Location::default(), "test", Some(HTML_NAMESPACE), HashMap::new());
+        let node = NodeImpl::new_element(Location::default(), "test", Some(HTML_NAMESPACE), Attributes::new());
         let id = arena.register_node(node);
         assert_eq!(arena.node_count(), 1);
         arena.delete_node(id);
         assert_eq!(arena.node_count(), 0);
         assert!(arena.node_ref(id).is_none());
         // ids are not reused
-        let node = NodeImpl::new_element(Location::default(), "test2", Some(HTML_NAMESPACE), HashMap::new());
+        let node = NodeImpl::new_element(Location::default(), "test2", Some(HTML_NAMESPACE), Attributes::new());
         let id2 = arena.register_node(node);
         assert_ne!(id, id2);
     }

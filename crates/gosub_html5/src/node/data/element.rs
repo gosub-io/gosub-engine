@@ -3,6 +3,7 @@ use crate::node::elements::{
 };
 use crate::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use core::fmt::{Debug, Formatter};
+use gosub_shared::attributes::Attributes;
 use gosub_shared::node::NodeId;
 use std::collections::hash_map::IntoIter;
 use std::collections::HashMap;
@@ -128,7 +129,7 @@ pub struct ElementData {
     pub node_id: Option<NodeId>,
     pub name: String,
     pub namespace: Option<String>,
-    pub attributes: HashMap<String, String>,
+    pub attributes: Attributes,
     pub class_list: ClassListImpl,
     pub force_async: bool,
     /// Template contents: NodeId of the fragment root in the same arena (template elements only)
@@ -149,12 +150,7 @@ impl Debug for ElementData {
 }
 
 impl ElementData {
-    pub(crate) fn new(
-        name: &str,
-        namespace: Option<&str>,
-        attributes: HashMap<String, String>,
-        classlist: ClassListImpl,
-    ) -> Self {
+    pub(crate) fn new(name: &str, namespace: Option<&str>, attributes: Attributes, classlist: ClassListImpl) -> Self {
         Self {
             node_id: None,
             name: name.into(),
@@ -205,7 +201,7 @@ impl ElementData {
         self.attributes.get(name)
     }
 
-    pub fn attributes(&self) -> &HashMap<String, String> {
+    pub fn attributes(&self) -> &Attributes {
         &self.attributes
     }
 

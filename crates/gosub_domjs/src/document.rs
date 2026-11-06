@@ -2,11 +2,11 @@
 
 use cow_utils::CowUtils;
 use gosub_interface::document::Document as _;
+use gosub_shared::attributes::Attributes;
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
 use rquickjs::class::Trace;
 use rquickjs::{Ctx, Exception, JsLifetime, Result, Value};
-use std::collections::HashMap;
 
 use crate::node::wrap_list;
 use crate::{select, wrap, wrap_opt, Doc, DocHandle};
@@ -44,7 +44,7 @@ impl GosubDocument {
         let id = self.doc.borrow_mut().create_element(
             &name.cow_to_ascii_lowercase(),
             Some(gosub_html5::node::HTML_NAMESPACE),
-            HashMap::new(),
+            Attributes::new(),
             Location::default(),
         );
         crate::style_cache::invalidate();

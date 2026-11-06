@@ -1,6 +1,6 @@
 use crate::tokenizer::CHAR_NUL;
+use gosub_shared::attributes::Attributes;
 use gosub_shared::byte_stream::Location;
-use std::collections::HashMap;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Attribute {
@@ -21,7 +21,7 @@ pub enum Token {
     StartTag {
         name: String,
         is_self_closing: bool,
-        attributes: HashMap<String, String>,
+        attributes: Attributes,
         location: Location,
     },
     EndTag {
@@ -251,7 +251,7 @@ mod tests {
         let token = Token::StartTag {
             name: "html".to_string(),
             is_self_closing: false,
-            attributes: HashMap::new(),
+            attributes: Attributes::new(),
             location: Location::new(2, 4, 10),
         };
         assert_eq!(token.get_location(), Location::new(2, 4, 10));
@@ -291,7 +291,7 @@ mod tests {
         let mut token = Token::StartTag {
             name: "html".to_string(),
             is_self_closing: false,
-            attributes: HashMap::new(),
+            attributes: Attributes::new(),
             location: Location::default(),
         };
         token.set_location(Location::new(2, 4, 10));
@@ -401,12 +401,12 @@ mod tests {
         let token = Token::StartTag {
             name: "html".to_string(),
             is_self_closing: false,
-            attributes: HashMap::new(),
+            attributes: Attributes::new(),
             location: Location::default(),
         };
         assert_eq!(format!("{token}"), "<html>");
 
-        let mut attributes = HashMap::new();
+        let mut attributes = Attributes::new();
         attributes.insert("foo".to_string(), "bar".to_string());
 
         let token = Token::StartTag {
@@ -420,7 +420,7 @@ mod tests {
         let token = Token::StartTag {
             name: "br".to_string(),
             is_self_closing: true,
-            attributes: HashMap::new(),
+            attributes: Attributes::new(),
             location: Location::default(),
         };
         assert_eq!(format!("{token}"), "<br />");
@@ -449,7 +449,7 @@ mod tests {
         let token = Token::StartTag {
             name: "div".to_string(),
             is_self_closing: false,
-            attributes: HashMap::new(),
+            attributes: Attributes::new(),
             location: Location::default(),
         };
         assert!(token.is_start_tag("div"));
@@ -461,7 +461,7 @@ mod tests {
         let start_tag = Token::StartTag {
             name: "div".to_string(),
             is_self_closing: false,
-            attributes: HashMap::new(),
+            attributes: Attributes::new(),
             location: Location::default(),
         };
         let other_tag = Token::Text {
@@ -481,7 +481,7 @@ mod tests {
         let other_token = Token::StartTag {
             name: "div".to_string(),
             is_self_closing: false,
-            attributes: HashMap::new(),
+            attributes: Attributes::new(),
             location: Location::default(),
         };
         assert!(text_token.is_text_token());

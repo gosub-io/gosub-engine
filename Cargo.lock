@@ -3623,6 +3623,7 @@ dependencies = [
  "encoding_rs",
  "futures",
  "getrandom 0.4.2",
+ "indexmap",
  "js-sys",
  "lazy_static",
  "memchr",

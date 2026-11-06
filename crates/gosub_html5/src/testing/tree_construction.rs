@@ -10,12 +10,12 @@ use gosub_interface::config::{HasDocument, HasHtmlParser};
 use gosub_interface::document::Document;
 
 use gosub_interface::html5::{Html5Parser, ParserOptions};
+use gosub_shared::attributes::Attributes;
 use gosub_shared::byte_stream::{ByteStream, Config, Encoding, Location};
 use gosub_shared::types::{ParseError, Result};
 use parser::{ScriptMode, TestSpec};
 use result::TestResult;
 use result::{ResultStatus, TreeLineResult};
-use std::collections::HashMap;
 
 type ParseResult<T> = Result<(T, Vec<ParseError>)>;
 
@@ -152,7 +152,7 @@ impl Harness {
         // can look it up by NodeId. It is only used for parser initialization (tokenizer
         // state, form element pointer); it is not inserted into the parsed tree.
         let context_node_id =
-            document.create_element(element.as_str(), Some(namespace), HashMap::new(), start_location);
+            document.create_element(element.as_str(), Some(namespace), Attributes::new(), start_location);
 
         let parser_errors = C::HtmlParser::parse_fragment(
             &mut stream,

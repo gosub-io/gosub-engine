@@ -5,9 +5,9 @@ use crate::node::data::element::ElementData;
 use crate::node::data::shadow_root::ShadowRootData;
 use crate::node::data::text::TextData;
 use gosub_interface::node::{NodeType, QuirksMode, ShadowRootInit};
+use gosub_shared::attributes::Attributes;
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
-use std::collections::HashMap;
 
 /// Node data variants
 #[derive(Debug, Clone, PartialEq)]
@@ -86,12 +86,7 @@ impl NodeImpl {
     }
 
     #[must_use]
-    pub fn new_element(
-        location: Location,
-        name: &str,
-        namespace: Option<&str>,
-        attributes: HashMap<String, String>,
-    ) -> Self {
+    pub fn new_element(location: Location, name: &str, namespace: Option<&str>, attributes: Attributes) -> Self {
         Self::new(
             location,
             NodeDataTypeInternal::Element(ElementData::new(name, namespace, attributes, Default::default())),
@@ -264,7 +259,7 @@ mod tests {
     use crate::node::HTML_NAMESPACE;
     use crate::node::MATHML_NAMESPACE;
     use crate::node::SVG_NAMESPACE;
-    use std::collections::HashMap;
+    use gosub_shared::attributes::Attributes;
 
     #[test]
     fn new_document() {
@@ -277,7 +272,7 @@ mod tests {
 
     #[test]
     fn new_element() {
-        let mut attributes = HashMap::new();
+        let mut attributes = Attributes::new();
         attributes.insert("id".to_string(), "test".to_string());
 
         let node = NodeImpl::new_element(Location::default(), "div", Some(HTML_NAMESPACE), attributes);
@@ -320,7 +315,7 @@ mod tests {
 
     #[test]
     fn is_special() {
-        let mut attributes = HashMap::new();
+        let mut attributes = Attributes::new();
         attributes.insert("id".to_string(), "test".to_string());
 
         let node = NodeImpl::new_element(Location::default(), "div", Some(HTML_NAMESPACE), attributes);
@@ -335,7 +330,7 @@ mod tests {
         assert_eq!(node.type_of(), NodeType::TextNode);
         let node = NodeImpl::new_comment(Location::default(), "test");
         assert_eq!(node.type_of(), NodeType::CommentNode);
-        let mut attributes = HashMap::new();
+        let mut attributes = Attributes::new();
         attributes.insert("id".to_string(), "test".to_string());
         let node = NodeImpl::new_element(Location::default(), "div", Some(HTML_NAMESPACE), attributes);
         assert_eq!(node.type_of(), NodeType::ElementNode);
@@ -344,7 +339,7 @@ mod tests {
     #[test]
     fn special_html_elements() {
         for element in &SPECIAL_HTML_ELEMENTS {
-            let mut attributes = HashMap::new();
+            let mut attributes = Attributes::new();
             attributes.insert("id".to_string(), "test".to_string());
             let node = NodeImpl::new_element(Location::default(), element, Some(HTML_NAMESPACE), attributes);
             assert!(node.get_element_data().unwrap().is_special());
@@ -354,7 +349,7 @@ mod tests {
     #[test]
     fn special_mathml_elements() {
         for element in &SPECIAL_MATHML_ELEMENTS {
-            let mut attributes = HashMap::new();
+            let mut attributes = Attributes::new();
             attributes.insert("id".to_string(), "test".to_string());
             let node = NodeImpl::new_element(Location::default(), element, Some(MATHML_NAMESPACE), attributes.clone());
             assert!(node.get_element_data().unwrap().is_special());
@@ -364,7 +359,7 @@ mod tests {
     #[test]
     fn special_svg_elements() {
         for element in &SPECIAL_SVG_ELEMENTS {
-            let mut attributes = HashMap::new();
+            let mut attributes = Attributes::new();
             attributes.insert("id".to_string(), "test".to_string());
             let node = NodeImpl::new_element(Location::default(), element, Some(SVG_NAMESPACE), attributes);
             assert!(node.get_element_data().unwrap().is_special());
@@ -379,7 +374,7 @@ mod tests {
         assert_eq!(node.type_of(), NodeType::TextNode);
         let node = NodeImpl::new_comment(Location::default(), "test");
         assert_eq!(node.type_of(), NodeType::CommentNode);
-        let mut attributes = HashMap::new();
+        let mut attributes = Attributes::new();
         attributes.insert("id".to_string(), "test".to_string());
         let node = NodeImpl::new_element(Location::default(), "div", Some(HTML_NAMESPACE), attributes);
         assert_eq!(node.type_of(), NodeType::ElementNode);
