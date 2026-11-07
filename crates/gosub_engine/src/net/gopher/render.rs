@@ -105,6 +105,8 @@ fn menu_line(item: &Item, host: &str, port: u16, encoding: &'static Encoding) ->
     match item.item_type {
         'i' => format!("{:<5} {display}", ""),
         '3' => format!("{tag} <span class=\"e\">{display}</span>"),
+        // CSO phone books are left out on purpose.
+        '2' => format!("{tag} {display} <span class=\"t\">(not supported)</span>"),
         '8' | 'T' => match session_for(item, host, port, encoding) {
             Some(session) => format!("{tag} {display} <span class=\"t\">{}</span>", escape(&session)),
             None => format!("{tag} {display}"),
@@ -319,6 +321,13 @@ mod tests {
             assert!(!html.contains("telnet"), "{html}");
             assert!(html.contains("TEL</span>   X"), "{html}");
         }
+    }
+
+    #[test]
+    fn a_cso_item_is_marked_unsupported_and_not_linked() {
+        let html = menu_page(&url("gopher://h/"), b"2Phone book\t\tns.example\t105\r\n");
+        assert!(!html.contains("<a "));
+        assert!(html.contains("CSO</span>   Phone book <span class=\"t\">(not supported)</span>"));
     }
 
     #[test]
