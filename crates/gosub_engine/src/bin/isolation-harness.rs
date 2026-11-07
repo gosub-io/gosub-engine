@@ -8727,12 +8727,13 @@ fn engine_net_events() -> i32 {
     code
 }
 
-/// A gopher navigation served from the network process: the menu loads as a page, and
-/// turning `net.gopher.enabled` off refuses the next one before it reaches the server.
+/// A gopher navigation served from the network process: the menu loads as a page, a binary
+/// over the socket's 4 MiB cap streams across to a download saved whole, and turning
+/// `net.gopher.enabled` off refuses the next one before it reaches the server.
 #[cfg(feature = "gopher")]
 fn engine_gopher() -> i32 {
     use gosub_config::settings::Setting;
-    use gosub_engine::events::{EngineEvent, NavigationEvent};
+    use gosub_engine::events::{DownloadId, EngineEvent, NavigationEvent, TabCommand};
     use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
     use gosub_engine::zone::ZoneServices;
     use gosub_engine::GosubEngine;
@@ -8740,7 +8741,9 @@ fn engine_gopher() -> i32 {
     use gosub_render_pipeline::render::DefaultCompositor;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    // A gopher server answering every connection with the same menu, counting requests.
+    // A gopher server answering `/big` with a binary of `BIG` bytes and anything else with the
+    // same menu, counting requests.
+    const BIG: usize = 5 * 1024 * 1024;
     let Ok(listener) = TcpListener::bind("127.0.0.1:0") else {
         eprintln!("could not start the test server");
         return 1;
@@ -8756,6 +8759,12 @@ fn engine_gopher() -> i32 {
             let mut buf = [0u8; 1024];
             let _ = stream.read(&mut buf);
             served.fetch_add(1, Ordering::SeqCst);
+            if buf.starts_with(b"/big") {
+                std::thread::spawn(move || {
+                    let _ = stream.write_all(&vec![7u8; BIG]);
+                });
+                continue;
+            }
             let _ = stream.write_all(b"iFrom the network process\t\t\t\r\n1Sub\t/sub\t127.0.0.1\t70\r\n.\r\n");
         }
     });
@@ -8860,6 +8869,88 @@ fn engine_gopher() -> i32 {
             return 1;
         }
 
+        // A binary over the cap: offered as a download, its body spooled across the ring.
+        if tab.navigate(format!("gopher://127.0.0.1:{port}/9/big")).await.is_err() {
+            eprintln!("navigate failed");
+            return 1;
+        }
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+        let offered = loop {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            match tokio::time::timeout(remaining, events.recv()).await {
+                Ok(Ok(EngineEvent::DownloadRequested { url, offer, .. })) => break Ok((url, offer)),
+                Ok(Ok(EngineEvent::Navigation {
+                    event: NavigationEvent::Failed { error, .. },
+                    ..
+                })) => break Err(format!("the gopher binary failed: {error}")),
+                Ok(Ok(_)) | Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+                Ok(Err(_)) => break Err("event channel closed".into()),
+                Err(_) => break Err("timed out waiting for the download offer".into()),
+            }
+        };
+        let (url, offer) = match offered {
+            Ok(offered) => offered,
+            Err(e) => {
+                eprintln!("{e}");
+                return 1;
+            }
+        };
+        let Ok(dir) = tempfile::tempdir() else {
+            eprintln!("could not make a scratch dir");
+            return 1;
+        };
+        let target = dir.path().join("big");
+        let start = TabCommand::StartDownload {
+            id: DownloadId(1),
+            url: url.to_string(),
+            target_path: target.clone(),
+            offer: Some(offer),
+        };
+        if tab.send(start).await.is_err() {
+            eprintln!("could not start the download");
+            return 1;
+        }
+        let saved = loop {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            match tokio::time::timeout(remaining, events.recv()).await {
+                Ok(Ok(EngineEvent::DownloadFinished {
+                    id: DownloadId(1),
+                    received_bytes,
+                    ..
+                })) => break Ok(received_bytes),
+                Ok(Ok(EngineEvent::DownloadFailed {
+                    id: DownloadId(1),
+                    error,
+                    ..
+                })) => break Err(format!("the download failed: {error}")),
+                Ok(Ok(_)) | Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+                Ok(Err(_)) => break Err("event channel closed".into()),
+                Err(_) => break Err("timed out waiting for the download".into()),
+            }
+        };
+        match saved {
+            Ok(received) if received == BIG as u64 => {}
+            Ok(received) => {
+                eprintln!("the download ended at {received} bytes, not {BIG}");
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                return 1;
+            }
+        }
+        match std::fs::metadata(&target) {
+            Ok(file) if file.len() == BIG as u64 => {}
+            other => {
+                eprintln!("the saved file is not {BIG} bytes: {other:?}");
+                return 1;
+            }
+        }
+        if requests.load(Ordering::SeqCst) != 2 {
+            eprintln!("the server saw {} requests, not 2", requests.load(Ordering::SeqCst));
+            return 1;
+        }
+
         // Off: refused by the broker, before anything reaches the server.
         if let Err(e) = engine.settings().set("net.gopher.enabled", Setting::Bool(false)) {
             eprintln!("could not turn gopher off: {e}");
@@ -8880,14 +8971,14 @@ fn engine_gopher() -> i32 {
                 return 1;
             }
         }
-        if requests.load(Ordering::SeqCst) != 1 {
+        if requests.load(Ordering::SeqCst) != 2 {
             eprintln!("a refused gopher request reached the server");
             return 1;
         }
 
         engine.close_zone(zone).await;
         let _ = engine.shutdown().await;
-        println!("gopher served from the network process, and refused when off");
+        println!("gopher served from the network process, a large binary streamed, and refused when off");
         0
     })
 }

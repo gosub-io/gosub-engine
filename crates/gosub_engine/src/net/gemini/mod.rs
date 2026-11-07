@@ -142,6 +142,7 @@ impl Gemini {
                         peer_addr: None,
                         certificates: std::mem::take(seen),
                         final_url: (hops > 0).then_some(url),
+                        rest: None,
                     });
                 }
                 tokio::time::sleep(wait).await;
@@ -238,6 +239,7 @@ pinned for it; visit it to decide about it",
                 peer_addr: peer,
                 certificates: std::mem::take(seen),
                 final_url: (hops > 0).then_some(url),
+                rest: None,
             });
         }
     }

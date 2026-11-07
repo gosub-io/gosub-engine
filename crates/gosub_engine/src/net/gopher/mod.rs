@@ -7,7 +7,10 @@
 //! - text files (`0`) become a `<pre>` page,
 //! - HTML (`h`) is served as it is,
 //! - everything else is served raw under a sniffed media type, so images display and
-//!   anything unknown goes to the download offer.
+//!   anything unknown goes to the download offer. Such a body streams: RFC 1436 reads it until
+//!   the server closes and gives it no size limit, so it has none here either, and no deadline
+//!   for the whole, only one between bytes. The other types are pages built in memory and keep
+//!   the socket's cap.
 //!
 //! The connection is [`socket`]'s: the caller's `reach` is judged on every address the host
 //! resolves to, and ports the Fetch standard blocks are refused whatever the reach. Both
@@ -20,8 +23,9 @@ mod menu;
 mod render;
 mod request;
 
-use crate::net::protocols::socket::{self, invalid};
+use crate::net::protocols::socket::{self, invalid, Limits, Opened};
 use crate::net::protocols::{Protocol, ProtocolError, ProtocolRequest, ProtocolResponse};
+use crate::net::types::NetError;
 use async_trait::async_trait;
 use bytes::Bytes;
 use request::Request;
@@ -50,17 +54,46 @@ impl Protocol for Gopher {
     }
 
     async fn fetch(&self, request: ProtocolRequest<'_>) -> Result<ProtocolResponse, ProtocolError> {
-        let (url, reach) = (request.url, request.reach);
-        let request = Request::from_url(url).map_err(invalid)?;
-        let addrs = socket::resolve(self, url, &request.host, request.port, reach).await?;
-        if request.needs_search_terms() {
-            // The prompt needs no server, but it is placed by where its server is: the form
-            // submits from it, and that search may reach only as far as the prompt's space.
-            return Ok(html(render::search_page(url), socket::most_public(&addrs)));
-        }
-        let (body, peer) = socket::exchange(url, &request.host, &addrs, reach, &request.wire_line()).await?;
-        Ok(present(&request, url, body, peer))
+        Ok(fetch_within(request, &Limits::DEFAULT).await?)
     }
+}
+
+/// [`Gopher::fetch`] under `limits`.
+async fn fetch_within(request: ProtocolRequest<'_>, limits: &Limits) -> Result<ProtocolResponse, NetError> {
+    let (url, reach) = (request.url, request.reach);
+    let request = Request::from_url(url).map_err(invalid)?;
+    let addrs = socket::resolve(&Gopher, url, &request.host, request.port, reach).await?;
+    if request.needs_search_terms() {
+        // The prompt needs no server, but it is placed by where its server is: the form
+        // submits from it, and that search may reach only as far as the prompt's space.
+        return Ok(html(render::search_page(url), socket::most_public(&addrs)));
+    }
+    let line = request.wire_line();
+    if !streams(request.item_type) {
+        let (body, peer) = socket::exchange_within(url, &request.host, &addrs, reach, &line, limits).await?;
+        return Ok(present(&request, url, body, peer));
+    }
+    let Opened { peek, rest, peer } = socket::open(url, &request.host, &addrs, reach, &line, limits).await?;
+    let Some(rest) = rest else {
+        return Ok(present(&request, url, peek, peer));
+    };
+    if is_error_menu(&peek) {
+        let body = socket::read_rest(peek, rest, &request.host, limits).await?;
+        return Ok(present(&request, url, body, peer));
+    }
+    Ok(ProtocolResponse {
+        content_type: sniff(&peek).into(),
+        body: Bytes::from(peek),
+        rest: Some(rest),
+        peer_addr: peer,
+        certificates: Vec::new(),
+        final_url: None,
+    })
+}
+
+/// Whether an item type's body streams: everything but the types shown as a page.
+fn streams(item_type: char) -> bool {
+    !matches!(item_type, '1' | request::SEARCH_TYPE | '3' | '0' | 'h')
 }
 
 /// What the response is, by the item type the URL asked for.
@@ -75,6 +108,7 @@ fn present(request: &Request, url: &Url, body: Vec<u8>, peer: Option<SocketAddr>
         'h' => ProtocolResponse {
             content_type: "text/html".into(),
             body: Bytes::from(body),
+            rest: None,
             peer_addr: peer,
             certificates: Vec::new(),
             final_url: None,
@@ -82,6 +116,7 @@ fn present(request: &Request, url: &Url, body: Vec<u8>, peer: Option<SocketAddr>
         _ => ProtocolResponse {
             content_type: sniff(&body).into(),
             body: Bytes::from(body),
+            rest: None,
             peer_addr: peer,
             certificates: Vec::new(),
             final_url: None,
@@ -135,6 +170,7 @@ fn html(page: String, peer: Option<SocketAddr>) -> ProtocolResponse {
     ProtocolResponse {
         content_type: "text/html; charset=utf-8".into(),
         body: Bytes::from(page),
+        rest: None,
         peer_addr: peer,
         certificates: Vec::new(),
         final_url: None,
@@ -144,10 +180,13 @@ fn html(page: String, peer: Option<SocketAddr>) -> ProtocolResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::net::protocols::socket::MAX_RESPONSE_BYTES;
+    use crate::net::protocols::{self, socket::MAX_RESPONSE_BYTES};
     use crate::net::ssrf::AddressSpace;
     use crate::net::types::NetError;
     use gosub_sonar::net::types::BlockReason;
+    use gosub_sonar::types::PeekBuf;
+    use std::sync::Arc;
+    use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
@@ -184,6 +223,48 @@ mod tests {
             })
             .await
             .map_err(|e| e.error)
+    }
+
+    async fn fetch_under(url: &str, limits: &Limits) -> Result<ProtocolResponse, NetError> {
+        let url = Url::parse(url).unwrap();
+        let request = ProtocolRequest {
+            url: &url,
+            reach: AddressSpace::Loopback,
+            pins: None,
+            identity: None,
+        };
+        fetch_within(request, limits).await
+    }
+
+    /// The whole body of a response, read through the stream it is served as.
+    async fn whole_body(response: ProtocolResponse) -> Result<Bytes, NetError> {
+        let Some(rest) = response.rest else {
+            return Ok(response.body);
+        };
+        let url = Url::parse("gopher://test/").unwrap();
+        let observer = Arc::new(gosub_sonar::net::null_emitter::NullEmitter);
+        let shared = protocols::stream_body(rest, 0, url, std::time::Instant::now(), observer);
+        protocols::collect(PeekBuf::from_vec(response.body.to_vec()), shared, usize::MAX - 1).await
+    }
+
+    /// A gopher server on loopback that answers the first connection with `chunks`, `pause`
+    /// apart, and then holds the connection open for `hold`.
+    async fn serve_slowly(chunks: Vec<Vec<u8>>, pause: Duration, hold: Duration) -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut line = [0u8; 256];
+            let _ = socket.read(&mut line).await;
+            for chunk in chunks {
+                if socket.write_all(&chunk).await.is_err() {
+                    return;
+                }
+                tokio::time::sleep(pause).await;
+            }
+            tokio::time::sleep(hold).await;
+        });
+        port
     }
 
     #[tokio::test]
@@ -313,13 +394,103 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_response_over_the_cap_fails() {
+    async fn a_menu_over_the_cap_fails() {
         let big: &'static [u8] = Box::leak(vec![b'x'; MAX_RESPONSE_BYTES + 1].into_boxed_slice());
         let (port, _server) = serve_once(big).await;
-        let err = fetch(&format!("gopher://127.0.0.1:{port}/9/big"), AddressSpace::Loopback)
+        let err = fetch(&format!("gopher://127.0.0.1:{port}/1/big"), AddressSpace::Loopback)
             .await
             .unwrap_err();
         assert!(err.to_string().contains("larger than"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_binary_over_the_cap_streams_in_full() {
+        let big: &'static [u8] = Box::leak(vec![b'x'; MAX_RESPONSE_BYTES + 4096].into_boxed_slice());
+        let (port, _server) = serve_once(big).await;
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/9/big"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        assert!(response.rest.is_some(), "a binary this size streams");
+        assert_eq!(response.content_type, "application/octet-stream");
+        assert_eq!(whole_body(response).await.unwrap().len(), big.len());
+    }
+
+    #[tokio::test]
+    async fn a_streamed_binary_is_sniffed_by_its_first_bytes() {
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        png.resize(3 * socket::PEEK_BYTES, 0);
+        let png: &'static [u8] = Box::leak(png.into_boxed_slice());
+        let (port, _server) = serve_once(png).await;
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/I/pic"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        assert_eq!(response.content_type, "image/png");
+        assert_eq!(&whole_body(response).await.unwrap()[..], png);
+    }
+
+    #[tokio::test]
+    async fn a_binary_that_keeps_coming_outlasts_the_response_timeout() {
+        let limits = Limits {
+            response: Duration::from_millis(100),
+            idle: Duration::from_millis(500),
+            max_bytes: 64,
+        };
+        let chunks: Vec<Vec<u8>> = (0..30u8).map(|i| vec![i; 256]).collect();
+        let port = serve_slowly(chunks, Duration::from_millis(20), Duration::ZERO).await;
+        let started = std::time::Instant::now();
+        let response = fetch_under(&format!("gopher://127.0.0.1:{port}/9/slow"), &limits)
+            .await
+            .unwrap();
+        let body = whole_body(response).await.unwrap();
+        assert!(started.elapsed() > limits.response);
+        assert_eq!(body.len(), 30 * 256);
+        assert_eq!(body[29 * 256], 29);
+    }
+
+    #[tokio::test]
+    async fn a_stalled_binary_times_out() {
+        let limits = Limits {
+            response: Duration::from_secs(60),
+            idle: Duration::from_millis(200),
+            max_bytes: MAX_RESPONSE_BYTES,
+        };
+        // Stalls after the peek: the body ends in the timeout.
+        let port = serve_slowly(
+            vec![vec![b'x'; 2 * socket::PEEK_BYTES]],
+            Duration::ZERO,
+            Duration::from_secs(10),
+        )
+        .await;
+        let response = fetch_under(&format!("gopher://127.0.0.1:{port}/9/stall"), &limits)
+            .await
+            .unwrap();
+        let started = std::time::Instant::now();
+        let err = whole_body(response).await.unwrap_err();
+        assert!(matches!(err, NetError::Timeout(_)), "{err:?}");
+        assert!(started.elapsed() < Duration::from_secs(5));
+
+        // Stalls within the peek: the fetch does.
+        let port = serve_slowly(vec![b"GIF89a".to_vec()], Duration::ZERO, Duration::from_secs(10)).await;
+        let err = fetch_under(&format!("gopher://127.0.0.1:{port}/I/stall"), &limits)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, NetError::Timeout(_)), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn an_error_menu_for_a_binary_item_is_an_error_page() {
+        // Longer than the peek, so the rest is read after it.
+        let mut menu = b"3'/nope' does not exist\t\terror.host\t1\r\n".to_vec();
+        menu.extend(b"1Home\t/\terror.host\t70\r\n".repeat(100));
+        let menu: &'static [u8] = Box::leak(menu.into_boxed_slice());
+        assert!(menu.len() > socket::PEEK_BYTES);
+        let (port, _server) = serve_once(menu).await;
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/9/nope"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        assert!(response.rest.is_none());
+        let page = std::str::from_utf8(&response.body).unwrap();
+        assert!(page.contains("class=\"e\">'/nope' does not exist</pre>"));
     }
 
     #[tokio::test]

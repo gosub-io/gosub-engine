@@ -1572,6 +1572,88 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A gopher binary over the socket's 4 MiB cap is offered as a download and saved whole.
+    #[cfg(feature = "gopher")]
+    #[tokio::test]
+    async fn a_gopher_binary_over_the_cap_downloads_in_full() {
+        use crate::events::{DownloadId, NavigationEvent, TabCommand};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        const SIZE: usize = 5 * 1024 * 1024;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 1024];
+                    let _ = stream.read(&mut buf).await;
+                    let _ = stream.write_all(&vec![7u8; SIZE]).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        tab.navigate(format!("gopher://127.0.0.1:{port}/9/big.bin"))
+            .await
+            .expect("navigate");
+        let (url, offer) = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadRequested { url, offer, .. }) => return (url, offer),
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Failed { error, .. },
+                        ..
+                    }) => panic!("gopher navigation failed: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("no offer");
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("big.bin");
+        tab.send(TabCommand::StartDownload {
+            id: DownloadId(31),
+            url: url.to_string(),
+            target_path: target.clone(),
+            offer: Some(offer),
+        })
+        .await
+        .expect("start download");
+        let received = tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadFinished {
+                        id: DownloadId(31),
+                        received_bytes,
+                        ..
+                    }) => return received_bytes,
+                    Ok(EngineEvent::DownloadFailed {
+                        id: DownloadId(31),
+                        error,
+                        ..
+                    }) => panic!("the download failed: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for DownloadFinished");
+        assert_eq!(received, SIZE as u64);
+        assert_eq!(std::fs::metadata(&target).unwrap().len(), SIZE as u64);
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// A finger answer goes through the whole tab pipeline and lands as a page of text, titled
     /// like a page from the web.
     #[cfg(feature = "finger")]

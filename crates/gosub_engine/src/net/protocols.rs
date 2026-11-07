@@ -39,7 +39,9 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use gosub_sonar::net::events::NetEvent;
 use gosub_sonar::net::observer::NetObserver;
+use gosub_sonar::net::shared_body::{ReaderOptions, SharedBody};
 use gosub_sonar::net::types::{BlockReason, ResourceKind as NetResourceKind};
+use gosub_sonar::types::PeekBuf;
 use http::HeaderMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -72,11 +74,14 @@ impl std::fmt::Debug for ProtocolRequest<'_> {
 }
 
 /// What a protocol answered with.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ProtocolResponse {
     /// Media type of `body`, as the rest of the pipeline routes on it.
     pub content_type: String,
+    /// The whole body, or its first bytes when `rest` follows.
     pub body: Bytes,
+    /// The rest of the body, still arriving: served as a stream ([`stream_body`]).
+    pub rest: Option<BodyStream>,
     /// The peer the body was read from: what the document is placed by on the
     /// private-network policy, as for an http response.
     pub peer_addr: Option<SocketAddr>,
@@ -85,6 +90,21 @@ pub struct ProtocolResponse {
     /// Where `body` came from, when a redirect the protocol followed led elsewhere than the
     /// request's URL: what the page commits under and resolves its links against.
     pub final_url: Option<Url>,
+}
+
+/// The rest of a response body, read as it arrives.
+pub struct BodyStream {
+    pub reader: Box<dyn tokio::io::AsyncRead + Send + Unpin>,
+    /// Longest the body may go without a byte before it ends in a timeout.
+    pub idle: std::time::Duration,
+}
+
+impl std::fmt::Debug for BodyStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BodyStream")
+            .field("idle", &self.idle)
+            .finish_non_exhaustive()
+    }
 }
 
 /// What a protocol failed with, and the certificates first visits showed before it did: a
@@ -143,7 +163,8 @@ pub trait Protocol: Send + Sync {
     }
 
     /// Fetch `request.url`, reaching no address space more private than `request.reach`.
-    /// Resolves when the whole body is in; dropping the future abandons the fetch.
+    /// Resolves when the whole body is in, or its first bytes for a body that streams
+    /// ([`ProtocolResponse::rest`]); dropping the future abandons the fetch.
     async fn fetch(&self, request: ProtocolRequest<'_>) -> Result<ProtocolResponse, ProtocolError>;
 }
 
@@ -227,8 +248,11 @@ pub fn refuse(
 }
 
 /// Serve a request [`refuse`] let through, emitting the observer events a network fetch
-/// would, and return the buffered response (or error) for the reply channel. `None` when the
-/// fetch was cancelled: the reply channel is dropped then, as the zone fetcher drops it.
+/// would, and return the response (or error) for the reply channel: buffered, or a stream
+/// when the protocol left the rest of the body to arrive. `None` when the fetch was
+/// cancelled: the reply channel is dropped then, as the zone fetcher drops it. A stream
+/// outlives `cancel`, which covers the fetch up to its first bytes, as an http body outlives
+/// its navigation: it stops once nobody holds it.
 pub async fn run(
     protocol: &dyn Protocol,
     request: ProtocolRequest<'_>,
@@ -270,7 +294,34 @@ pub async fn run(
     };
 
     let len = response.body.len() as u64;
-    let headers = synthesized_headers(&response.content_type, len);
+    if let Some(rest) = response.rest {
+        let headers = synthesized_headers(&response.content_type, None);
+        observer.on_event(NetEvent::ResponseHeaders {
+            url: url.clone(),
+            status: 200,
+            headers: headers.clone(),
+        });
+        observer.on_event(NetEvent::Progress {
+            received_bytes: len,
+            expected_length: None,
+            elapsed: started.elapsed(),
+        });
+        let mut meta = FetchResultMeta::synthetic(response.final_url.unwrap_or_else(|| url.clone()));
+        meta.headers = headers;
+        meta.content_type = Some(response.content_type);
+        meta.has_body = true;
+        meta.peer_addr = response.peer_addr;
+        let shared = stream_body(rest, len, url, started, observer);
+        return Some(Served {
+            result: FetchResult::Stream {
+                meta,
+                peek_buf: PeekBuf::from_vec(response.body.to_vec()),
+                shared,
+            },
+            certificates: response.certificates,
+        });
+    }
+    let headers = synthesized_headers(&response.content_type, Some(len));
     observer.on_event(NetEvent::ResponseHeaders {
         url: url.clone(),
         status: 200,
@@ -302,16 +353,107 @@ pub async fn run(
     })
 }
 
-/// The `Content-Type` and `Content-Length` a protocol response is presented with.
-pub fn synthesized_headers(content_type: &str, len: u64) -> HeaderMap {
+/// The `Content-Type` and `Content-Length` a protocol response is presented with; no length
+/// for a body that streams.
+pub fn synthesized_headers(content_type: &str, len: Option<u64>) -> HeaderMap {
     let mut headers = HeaderMap::new();
     if let Ok(v) = content_type.parse() {
         headers.insert(http::header::CONTENT_TYPE, v);
     }
-    if let Ok(v) = len.to_string().parse() {
+    if let Some(Ok(v)) = len.map(|len| len.to_string().parse()) {
         headers.insert(http::header::CONTENT_LENGTH, v);
     }
     headers
+}
+
+/// The body `rest` is read into, after the `received` bytes the response already holds:
+/// with no cap on its size and no deadline for the whole, ending in a timeout after
+/// `rest.idle` without a byte. Reading starts when the body is first subscribed to and stops
+/// once nobody holds it. Its progress and its end are reported to `observer` as a fetch's.
+pub fn stream_body(
+    rest: BodyStream,
+    received: u64,
+    url: Url,
+    started: std::time::Instant,
+    observer: Arc<dyn NetObserver + Send + Sync>,
+) -> Arc<SharedBody> {
+    let reader = Observed {
+        inner: rest.reader,
+        received,
+        url,
+        started,
+        observer,
+    };
+    SharedBody::from_reader(
+        reader,
+        ReaderOptions {
+            buf_size: 64 * 1024,
+            idle_timeout: Some(rest.idle),
+            ..ReaderOptions::default()
+        },
+    )
+}
+
+/// The whole of a streamed body, `peek` first, or an error when it is over `cap` bytes.
+pub async fn collect(peek: PeekBuf, shared: Arc<SharedBody>, cap: usize) -> Result<Bytes, NetError> {
+    use tokio::io::AsyncReadExt;
+    let mut body = Vec::new();
+    SharedBody::combined_reader_lossless(peek, shared)
+        .take(cap as u64 + 1)
+        .read_to_end(&mut body)
+        .await
+        .map_err(NetError::from)?;
+    if body.len() > cap {
+        return Err(socket::invalid(format!("response is larger than {cap} bytes")));
+    }
+    Ok(Bytes::from(body))
+}
+
+/// A body's reader that reports what it reads: progress on each read, the end at EOF, and a
+/// read that fails.
+struct Observed {
+    inner: Box<dyn tokio::io::AsyncRead + Send + Unpin>,
+    received: u64,
+    url: Url,
+    started: std::time::Instant,
+    observer: Arc<dyn NetObserver + Send + Sync>,
+}
+
+impl tokio::io::AsyncRead for Observed {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let this = &mut *self;
+        let before = buf.filled().len();
+        let polled = std::pin::Pin::new(&mut this.inner).poll_read(cx, buf);
+        match &polled {
+            std::task::Poll::Ready(Ok(())) => {
+                let read = (buf.filled().len() - before) as u64;
+                if read == 0 {
+                    this.observer.on_event(NetEvent::Finished {
+                        received_bytes: this.received,
+                        elapsed: this.started.elapsed(),
+                        url: this.url.clone(),
+                    });
+                } else {
+                    this.received += read;
+                    this.observer.on_event(NetEvent::Progress {
+                        received_bytes: this.received,
+                        expected_length: None,
+                        elapsed: this.started.elapsed(),
+                    });
+                }
+            }
+            std::task::Poll::Ready(Err(e)) => this.observer.on_event(NetEvent::Failed {
+                url: this.url.clone(),
+                error: anyhow::anyhow!(e.to_string()),
+            }),
+            std::task::Poll::Pending => {}
+        }
+        polled
+    }
 }
 
 #[cfg(test)]
@@ -355,6 +497,39 @@ mod tests {
                 body: Bytes::from(request.url.path().to_string()),
                 peer_addr: Some("192.0.2.7:70".parse().unwrap()),
                 certificates,
+                final_url: None,
+                rest: None,
+            })
+        }
+    }
+
+    /// Answers with a body whose rest streams.
+    struct Trickle;
+
+    #[async_trait]
+    impl Protocol for Trickle {
+        fn scheme(&self) -> &'static str {
+            "trickle"
+        }
+        fn setting(&self) -> &'static str {
+            "net.trickle.enabled"
+        }
+        fn default_port(&self) -> u16 {
+            7
+        }
+        fn encrypted(&self) -> bool {
+            false
+        }
+        async fn fetch(&self, _request: ProtocolRequest<'_>) -> Result<ProtocolResponse, ProtocolError> {
+            Ok(ProtocolResponse {
+                content_type: "application/octet-stream".into(),
+                body: Bytes::from_static(b"head-"),
+                rest: Some(BodyStream {
+                    reader: Box::new(&b"rest"[..]),
+                    idle: std::time::Duration::from_secs(5),
+                }),
+                peer_addr: None,
+                certificates: Vec::new(),
                 final_url: None,
             })
         }
@@ -491,6 +666,34 @@ mod tests {
             events,
             ["Accepted", "Started", "ResponseHeaders", "Progress", "Finished"]
         );
+    }
+
+    #[tokio::test]
+    async fn a_body_that_streams_is_served_as_a_stream_and_finishes_when_read() {
+        let url = Url::parse("trickle://host/").unwrap();
+        let request = ProtocolRequest {
+            url: &url,
+            reach: AddressSpace::Loopback,
+            pins: None,
+            identity: None,
+        };
+        let recorder = Arc::new(Recorder::default());
+        let served = run(&Trickle, request, &CancellationToken::new(), recorder.clone())
+            .await
+            .expect("served");
+        let FetchResult::Stream { meta, peek_buf, shared } = served.result else {
+            panic!("expected a stream");
+        };
+        assert_eq!(meta.content_length, None);
+        assert!(meta.headers.get(http::header::CONTENT_LENGTH).is_none());
+        assert_eq!(
+            *recorder.0.lock(),
+            ["Accepted", "Started", "ResponseHeaders", "Progress"]
+        );
+
+        let body = collect(peek_buf, shared, 64).await.unwrap();
+        assert_eq!(&body[..], b"head-rest");
+        assert_eq!(recorder.0.lock().last().map(String::as_str), Some("Finished"));
     }
 
     #[tokio::test]
