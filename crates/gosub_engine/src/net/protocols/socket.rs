@@ -8,7 +8,7 @@
 //! Ports the Fetch standard blocks are refused whatever the reach, except the protocol's own
 //! port ([`port_refused`]).
 
-use crate::net::protocols::Protocol;
+use crate::net::protocols::{BodyStream, Protocol};
 use crate::net::ssrf::{classify_ip, parse_ip_literal, AddressSpace};
 use crate::net::types::NetError;
 use gosub_sonar::net::types::BlockReason;
@@ -25,13 +25,41 @@ use url::Url;
 /// protocol's own error rather than the broker giving up on the child.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Longest the whole exchange may take once connected: a protocol with no length to wait for
-/// would otherwise be held forever by a server that never closes.
+/// Longest the whole exchange may take once connected, for a response read whole: a protocol
+/// with no length to wait for would otherwise be held forever by a server that never closes.
 pub const RESPONSE_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Most bytes of one response. Without a length any server could fill memory. Kept under
-/// what one network-process reply carries in-band.
+/// Most bytes of a response read whole. Without a length any server could fill memory. Kept
+/// under what one network-process reply carries in-band.
 pub const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
+
+/// Longest a streamed response may go without a byte. Under the broker's patience with a
+/// silent body stream (`client::RING_IDLE_TIMEOUT`, 60 s), so a stalled server ends in the
+/// protocol's own error.
+pub const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Bytes [`open`] reads before handing a response on: enough to sniff a media type and to see
+/// a whole first menu line.
+pub const PEEK_BYTES: usize = 1024;
+
+/// What a response is read under.
+#[derive(Debug, Clone, Copy)]
+pub struct Limits {
+    /// The whole exchange, for a response read whole.
+    pub response: Duration,
+    /// Between bytes, for a response streamed.
+    pub idle: Duration,
+    /// Most bytes of a response read whole.
+    pub max_bytes: usize,
+}
+
+impl Limits {
+    pub const DEFAULT: Limits = Limits {
+        response: RESPONSE_TIMEOUT,
+        idle: IDLE_TIMEOUT,
+        max_bytes: MAX_RESPONSE_BYTES,
+    };
+}
 
 /// Whether `port` is refused to `protocol`: port 0, and the ports the Fetch standard blocks
 /// for http, which are other services a line of text could be a command to. A protocol's own
@@ -117,10 +145,90 @@ pub async fn exchange(
     reach: AddressSpace,
     line: &[u8],
 ) -> Result<(Vec<u8>, Option<SocketAddr>), NetError> {
+    exchange_within(url, host, addrs, reach, line, &Limits::DEFAULT).await
+}
+
+/// [`exchange`] under `limits`.
+pub async fn exchange_within(
+    url: &Url,
+    host: &str,
+    addrs: &[SocketAddr],
+    reach: AddressSpace,
+    line: &[u8],
+    limits: &Limits,
+) -> Result<(Vec<u8>, Option<SocketAddr>), NetError> {
     let mut stream = connect(url, host, addrs, reach).await?;
     let peer = stream.peer_addr().ok();
-    let body = talk(&mut stream, host, line, Close::Clean).await?;
+    let body = talk_within(&mut stream, host, line, Close::Clean, limits).await?;
     Ok((body, peer))
+}
+
+/// A response [`open`] began to read.
+#[derive(Debug)]
+pub struct Opened {
+    /// Its first bytes: [`PEEK_BYTES`] of them, or all there were.
+    pub peek: Vec<u8>,
+    /// The rest, still arriving. `None` when the server closed within the peek.
+    pub rest: Option<BodyStream>,
+    pub peer: Option<SocketAddr>,
+}
+
+/// Send `line` on a connection to `addrs` and read the first bytes of the response, leaving
+/// the rest to arrive as it is read: no cap on its size and no deadline for the whole, only
+/// `limits.idle` between bytes, the peek included.
+pub async fn open(
+    url: &Url,
+    host: &str,
+    addrs: &[SocketAddr],
+    reach: AddressSpace,
+    line: &[u8],
+    limits: &Limits,
+) -> Result<Opened, NetError> {
+    let mut stream = connect(url, host, addrs, reach).await?;
+    let peer = stream.peer_addr().ok();
+    let waiting = || NetError::Timeout(format!("waiting for {host}"));
+    let send = async {
+        stream.write_all(line).await?;
+        stream.flush().await
+    };
+    tokio::time::timeout(limits.idle, send)
+        .await
+        .map_err(|_| waiting())?
+        .map_err(io)?;
+    let mut peek = vec![0u8; PEEK_BYTES];
+    let mut len = 0;
+    while len < PEEK_BYTES {
+        let n = tokio::time::timeout(limits.idle, stream.read(&mut peek[len..]))
+            .await
+            .map_err(|_| waiting())?
+            .map_err(io)?;
+        if n == 0 {
+            peek.truncate(len);
+            return Ok(Opened { peek, rest: None, peer });
+        }
+        len += n;
+    }
+    let rest = BodyStream {
+        reader: Box::new(stream),
+        idle: limits.idle,
+    };
+    Ok(Opened {
+        peek,
+        rest: Some(rest),
+        peer,
+    })
+}
+
+/// The whole of a response [`open`] began: `peek` and then `rest` to its end, within
+/// `limits.response` and at most `limits.max_bytes` in all.
+pub async fn read_rest(mut peek: Vec<u8>, rest: BodyStream, host: &str, limits: &Limits) -> Result<Vec<u8>, NetError> {
+    let max = limits.max_bytes as u64 + 1;
+    let mut reader = rest.reader.take(max.saturating_sub(peek.len() as u64));
+    tokio::time::timeout(limits.response, reader.read_to_end(&mut peek))
+        .await
+        .map_err(|_| NetError::Timeout(format!("waiting for {host}")))?
+        .map_err(io)?;
+    capped(peek, host, limits)
 }
 
 /// How a response may end.
@@ -140,12 +248,26 @@ pub async fn talk<S>(stream: &mut S, host: &str, line: &[u8], close: Close) -> R
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
+    talk_within(stream, host, line, close, &Limits::DEFAULT).await
+}
+
+/// [`talk`] under `limits`.
+pub async fn talk_within<S>(
+    stream: &mut S,
+    host: &str,
+    line: &[u8],
+    close: Close,
+    limits: &Limits,
+) -> Result<Vec<u8>, NetError>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
     let talk = async {
         stream.write_all(line).await?;
         stream.flush().await?;
         let mut body = Vec::new();
         let read = (&mut *stream)
-            .take(MAX_RESPONSE_BYTES as u64 + 1)
+            .take(limits.max_bytes as u64 + 1)
             .read_to_end(&mut body)
             .await;
         match read {
@@ -154,13 +276,19 @@ where
             Err(e) => Err(e),
         }
     };
-    let body = tokio::time::timeout(RESPONSE_TIMEOUT, talk)
+    let body = tokio::time::timeout(limits.response, talk)
         .await
         .map_err(|_| NetError::Timeout(format!("waiting for {host}")))?
         .map_err(io)?;
-    if body.len() > MAX_RESPONSE_BYTES {
+    capped(body, host, limits)
+}
+
+/// `body`, or a refusal when it is over `limits.max_bytes`.
+fn capped(body: Vec<u8>, host: &str, limits: &Limits) -> Result<Vec<u8>, NetError> {
+    if body.len() > limits.max_bytes {
         return Err(invalid(format!(
-            "response from {host} is larger than {MAX_RESPONSE_BYTES} bytes"
+            "response from {host} is larger than {} bytes",
+            limits.max_bytes
         )));
     }
     Ok(body)

@@ -62,6 +62,7 @@ impl Protocol for Finger {
             peer_addr: peer,
             certificates: Vec::new(),
             final_url: None,
+            rest: None,
         })
     }
 }

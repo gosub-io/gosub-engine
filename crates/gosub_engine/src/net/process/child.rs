@@ -207,9 +207,7 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
                     .and_then(|(scheme, _)| crate::net::protocols::lookup(scheme));
                 let handle = runtime.spawn(async move {
                     let performed = match protocol {
-                        Some(protocol) => {
-                            Performed::Done(perform_protocol(protocol, fetch, token, &link_tx, &pin_answers).await)
-                        }
+                        Some(protocol) => perform_protocol(protocol, fetch, token, &link_tx, &pin_answers).await,
                         None => perform(&fetcher, fetch, token, &tickets, &attached, &previews).await,
                     };
                     cancels.lock().remove(&tag);
@@ -640,10 +638,12 @@ async fn perform_protocol(
     cancel: CancellationToken,
     link_tx: &Arc<Mutex<gosub_ipc::EndpointTx>>,
     answers: &PinAnswers,
-) -> FetchOutcome {
+) -> Performed {
+    let done = Performed::Done;
+    let streaming = fetch.streaming && platform::STREAMING;
     let url = match Url::parse(&fetch.url) {
         Ok(u) => u,
-        Err(e) => return FetchOutcome::Error(format!("bad url {}: {e}", fetch.url)),
+        Err(e) => return done(FetchOutcome::Error(format!("bad url {}: {e}", fetch.url))),
     };
     let observer = Arc::new(LinkObserver {
         tag: fetch.tag,
@@ -656,7 +656,7 @@ async fn perform_protocol(
     let pin = match fetch.pin.as_deref().map(CertPin::parse) {
         None => None,
         Some(Some(pin)) => Some(pin),
-        Some(None) => return FetchOutcome::Error(format!("malformed certificate pin for {url}")),
+        Some(None) => return done(FetchOutcome::Error(format!("malformed certificate pin for {url}"))),
     };
     let pins = LinkPins {
         tag: fetch.tag,
@@ -680,7 +680,7 @@ async fn perform_protocol(
     let served = crate::net::protocols::run(protocol, request, &cancel, observer).await;
     answers.lock().remove(&fetch.tag);
     let Some(served) = served else {
-        return FetchOutcome::Error("cancelled by the broker".into());
+        return done(FetchOutcome::Error("cancelled by the broker".into()));
     };
     let certificates: Vec<SeenCertificate> = served
         .certificates
@@ -691,7 +691,34 @@ async fn perform_protocol(
             pin: seen.pin.to_string(),
         })
         .collect();
-    match served.result {
+    let result = match served.result {
+        // A streamed reply carries no certificates; none of the protocols that pin streams.
+        FetchResult::Stream { meta, peek_buf, shared } if streaming && certificates.is_empty() => {
+            let head = FetchOutcome::Streaming {
+                status: meta.status,
+                status_text: meta.status_text,
+                final_url: meta.final_url.to_string(),
+                headers: flatten_headers(&meta.headers),
+                peek: peek_buf.as_ref().to_vec(),
+                peer_addr: meta.peer_addr,
+            };
+            return match platform::begin_stream(head, None, shared) {
+                Ok(streamed) => Performed::Streaming(streamed),
+                Err(e) => done(FetchOutcome::Error(format!("could not set up a body stream: {e}"))),
+            };
+        }
+        // Where the body cannot follow the reply, it travels in it, under the socket's cap.
+        FetchResult::Stream { meta, peek_buf, shared } => {
+            match crate::net::protocols::collect(peek_buf, shared, crate::net::protocols::socket::MAX_RESPONSE_BYTES)
+                .await
+            {
+                Ok(body) => FetchResult::Buffered { meta, body },
+                Err(e) => FetchResult::Error(e),
+            }
+        }
+        result => result,
+    };
+    done(match result {
         FetchResult::Buffered { meta, body } => FetchOutcome::Ok {
             status: meta.status,
             status_text: meta.status_text,
@@ -725,7 +752,7 @@ async fn perform_protocol(
             },
         },
         FetchResult::Stream { .. } => FetchOutcome::Error(format!("{} answered with a stream", protocol.scheme())),
-    }
+    })
 }
 
 /// [`perform`] proper; split so the preview and ticket entries are removed on
