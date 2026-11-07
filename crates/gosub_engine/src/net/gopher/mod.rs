@@ -30,7 +30,7 @@ mod render;
 mod request;
 mod stream;
 
-use crate::net::protocols::socket::{self, invalid, Limits, Opened};
+use crate::net::protocols::socket::{self, invalid, Destination, Limits, Opened};
 use crate::net::protocols::{BodyStream, Protocol, ProtocolError, ProtocolRequest, ProtocolResponse};
 use crate::net::ssrf::AddressSpace;
 use crate::net::types::NetError;
@@ -134,13 +134,13 @@ async fn fetch_within(request: ProtocolRequest<'_>, limits: &Limits) -> Result<P
 async fn decoded(
     request: &Request,
     url: &Url,
-    addrs: &[SocketAddr],
+    to: &Destination,
     reach: AddressSpace,
     line: &[u8],
     limits: &Limits,
     encoding: Encoding,
 ) -> Result<ProtocolResponse, NetError> {
-    let Opened { peek, rest, peer } = socket::open(url, &request.host, addrs, reach, line, limits).await?;
+    let Opened { peek, rest, peer } = socket::open(url, &request.host, to, reach, line, limits).await?;
     if is_error_menu(&peek) {
         let body = match rest {
             Some(rest) => socket::read_rest(peek, rest, &request.host, limits).await?,
