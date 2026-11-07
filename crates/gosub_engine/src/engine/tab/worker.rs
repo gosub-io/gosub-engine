@@ -1018,6 +1018,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
             NavigationResult::Err { nav_id, error } => {
                 self.is_loading = false;
                 self.is_error = true;
+                // The zoom stays reset, and a later navigation keeps the zoom from then on. Not
+                // for a superseded navigation's result: the newer one is keeping the page's zoom.
+                if self.active_nav.as_ref().is_some_and(|a| a.nav_id == nav_id) {
+                    self.document_visual = None;
+                }
                 self.state = TabState::Failed(error.to_string());
                 self.runtime.dirty = true;
 
@@ -2583,8 +2588,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
         self.scroll_anim_last = None;
         self.context.reset_scroll();
         // A new page starts unzoomed. The page's own zoom is kept for a navigation that ends
-        // without one.
-        self.document_visual = Some(self.visual);
+        // without one; a navigation that replaces one still loading finds it already kept.
+        self.document_visual.get_or_insert(self.visual);
         self.visual.reset();
         self.report_visual_viewport();
     }

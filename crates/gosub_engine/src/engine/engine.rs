@@ -5088,6 +5088,30 @@ mod tests {
     /// the unzoom at the start of the navigation is undone.
     #[tokio::test]
     async fn a_no_content_navigation_keeps_the_zoom() {
+        no_content_after(Before204::Nothing).await;
+    }
+
+    /// Also when the 204 replaced a navigation still loading, which had unzoomed the page first.
+    #[tokio::test]
+    async fn a_no_content_navigation_over_a_loading_one_keeps_the_zoom() {
+        no_content_after(Before204::Loading).await;
+    }
+
+    /// After a failed navigation the page stays unzoomed; a 204 then keeps the zoom made since.
+    #[tokio::test]
+    async fn a_no_content_navigation_after_a_failed_one_keeps_the_later_zoom() {
+        no_content_after(Before204::Failed).await;
+    }
+
+    enum Before204 {
+        Nothing,
+        Loading,
+        Failed,
+    }
+
+    /// Zoom a page in by 2, do what `before` says, then navigate to a 204 and check the zoom
+    /// the page is left with.
+    async fn no_content_after(before: Before204) {
         use crate::events::{NavigationEvent, TabCommand};
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -5097,6 +5121,10 @@ mod tests {
                 tokio::spawn(async move {
                     let mut buf = vec![0u8; 4096];
                     let n = stream.read(&mut buf).await.unwrap_or(0);
+                    if buf[..n].starts_with(b"GET /slow ") {
+                        tokio::time::sleep(Duration::from_secs(60)).await;
+                        return;
+                    }
                     let response = if buf[..n].starts_with(b"GET /204 ") {
                         "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n".to_string()
                     } else {
@@ -5167,6 +5195,47 @@ mod tests {
             "no VisualViewportChanged for the pinch"
         );
 
+        let mut zoomed = zoomed;
+        match before {
+            Before204::Nothing => {}
+            Before204::Loading => {
+                tab.navigate(format!("http://127.0.0.1:{port}/slow"))
+                    .await
+                    .expect("navigate");
+            }
+            Before204::Failed => {
+                // Nothing listens on port 1.
+                tab.navigate("http://127.0.0.1:1/").await.expect("navigate");
+                assert!(
+                    wait_for(&mut event_rx, |ev| matches!(
+                        ev,
+                        EngineEvent::Navigation {
+                            event: NavigationEvent::Failed { .. },
+                            ..
+                        }
+                    ))
+                    .await,
+                    "the navigation to port 1 did not fail"
+                );
+                tab.send(TabCommand::PinchZoom {
+                    focus_x: 180.0,
+                    focus_y: 390.0,
+                    factor: 1.5,
+                })
+                .await
+                .expect("pinch");
+                zoomed = 1.5 * 360.0 / 980.0;
+                assert!(
+                    wait_for(&mut event_rx, |ev| matches!(
+                        ev,
+                        EngineEvent::VisualViewportChanged { scale, .. } if (scale - zoomed).abs() < 1e-9
+                    ))
+                    .await,
+                    "no VisualViewportChanged for the pinch after the failure"
+                );
+            }
+        }
+
         tab.navigate(format!("http://127.0.0.1:{port}/204"))
             .await
             .expect("navigate");
@@ -5177,9 +5246,9 @@ mod tests {
                 match event_rx.recv().await {
                     Ok(EngineEvent::VisualViewportChanged { scale, offset_x, .. }) => last = Some((scale, offset_x)),
                     Ok(EngineEvent::Navigation {
-                        event: NavigationEvent::Cancelled { .. },
+                        event: NavigationEvent::Cancelled { url, .. },
                         ..
-                    }) => return last,
+                    }) if url.path() == "/204" => return last,
                     Ok(_) => continue,
                     Err(e) => panic!("event stream closed: {e}"),
                 }
@@ -5189,7 +5258,9 @@ mod tests {
         .expect("timed out waiting for the 204 to end");
         let (scale, offset_x) = last.expect("the navigation reported no visual viewport");
         assert!((scale - zoomed).abs() < 1e-9, "zoom after the 204: {scale}");
-        assert!((offset_x - 245.0).abs() < 1e-6, "pan after the 204: {offset_x}");
+        if !matches!(before, Before204::Failed) {
+            assert!((offset_x - 245.0).abs() < 1e-6, "pan after the 204: {offset_x}");
+        }
     }
 
     /// A tab that was never asked to draw stays off the GPU, also for input that renders
