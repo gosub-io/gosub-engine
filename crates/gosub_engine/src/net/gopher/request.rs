@@ -39,6 +39,9 @@ pub struct Request {
     pub selector: Vec<u8>,
     /// Search terms of a type `7` request; `None` before the user has entered any.
     pub search: Option<Vec<u8>>,
+    /// The Gopher+ string after a second `%09` (RFC 4266 §2.1). Kept, never sent: a client
+    /// without Gopher+ sends the plain request.
+    pub gopher_plus: Option<Vec<u8>>,
 }
 
 impl Request {
@@ -62,11 +65,19 @@ impl Request {
             Some(_) => return Err(format!("gopher URL with an invalid item type: {url}")),
         };
 
-        // `%09` ends the selector and starts the search terms (RFC 4266 §2.1). A second tab
-        // would begin a Gopher+ string, which is not spoken here.
+        // `%09` ends the selector and starts the search terms, a second `%09` ends those and
+        // starts the Gopher+ string (RFC 4266 §2.1). Search terms left empty there are a
+        // placeholder, not a search.
         let mut search = None;
+        let mut gopher_plus = None;
         if let Some(tab) = selector.iter().position(|&b| b == b'\t') {
-            search = Some(selector.split_off(tab)[1..].to_vec());
+            let mut terms = selector.split_off(tab)[1..].to_vec();
+            if let Some(tab) = terms.iter().position(|&b| b == b'\t') {
+                gopher_plus = Some(terms.split_off(tab)[1..].to_vec());
+            }
+            if !(terms.is_empty() && gopher_plus.is_some()) {
+                search = Some(terms);
+            }
         }
 
         if let Some(query) = url.query() {
@@ -85,6 +96,9 @@ impl Request {
         if let Some(terms) = &search {
             check_line_safe(terms, "search")?;
         }
+        if let Some(plus) = &gopher_plus {
+            check_line_safe(plus, "Gopher+ string")?;
+        }
 
         Ok(Self {
             host,
@@ -92,6 +106,7 @@ impl Request {
             item_type,
             selector,
             search,
+            gopher_plus,
         })
     }
 
@@ -101,6 +116,7 @@ impl Request {
     }
 
     /// The bytes sent to the server: the selector, the search terms after a tab, then CRLF.
+    /// The Gopher+ string is left off until Gopher+ is spoken (GOS-213).
     pub fn wire_line(&self) -> Vec<u8> {
         let mut line = self.selector.clone();
         if let Some(terms) = &self.search {
@@ -216,7 +232,31 @@ mod tests {
     #[test]
     fn line_breaks_in_the_search_are_refused() {
         assert!(parse("gopher://example/7/find?q=a%0D%0Ab").is_err());
-        assert!(parse("gopher://example/7/find%09a%09b").is_err());
+        assert!(parse("gopher://example/7/find%09a%0Ab").is_err());
+    }
+
+    #[test]
+    fn a_gopher_plus_string_is_kept_but_not_sent() {
+        let r = parse("gopher://example/7sel%09terms%09+").unwrap();
+        assert_eq!(r.selector, b"sel");
+        assert_eq!(r.search.as_deref(), Some(&b"terms"[..]));
+        assert_eq!(r.gopher_plus.as_deref(), Some(&b"+"[..]));
+        assert_eq!(r.wire_line(), b"sel\tterms\r\n");
+    }
+
+    #[test]
+    fn an_empty_search_before_a_gopher_plus_string_is_no_search() {
+        let r = parse("gopher://example/1sel%09%09+").unwrap();
+        assert_eq!(r.search, None);
+        assert_eq!(r.gopher_plus.as_deref(), Some(&b"+"[..]));
+        assert_eq!(r.wire_line(), b"sel\r\n");
+    }
+
+    #[test]
+    fn line_breaks_in_the_gopher_plus_string_are_refused() {
+        assert!(parse("gopher://example/1sel%09%09+%0D%0Ax").is_err());
+        assert!(parse("gopher://example/1sel%09%09+%00").is_err());
+        assert!(parse("gopher://example/1sel%09%09+%09x").is_err());
     }
 
     #[test]
