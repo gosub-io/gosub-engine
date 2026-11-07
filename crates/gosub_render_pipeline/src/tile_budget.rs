@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 
 use parking_lot::Mutex;
 
-use crate::common::geo::Rect;
+use crate::common::geo::{Dimension, Rect};
 use crate::common::texture::TilePixels;
 use crate::rasterizer::{BakedTile, TilePixelCache};
 use crate::render::backend::{anchored_tile_pos, TileAnchor};
@@ -44,8 +44,8 @@ struct BudgetState {
     last_used: HashMap<TilePosKey, u64>,
     /// Page-space rects whose tiles were evicted; scrolling near one requires a re-render.
     evicted: Vec<Rect>,
-    /// Page-space `(lo, hi)` band last rasterized, clamped to the page. `None` before first raster.
-    rastered: Option<(f64, f64)>,
+    /// Page-space rect last rasterized, clamped to the page. `None` before first raster.
+    rastered: Option<Rect>,
 }
 
 /// LRU bookkeeping and budget enforcement for one browsing context's tile caches.
@@ -55,49 +55,76 @@ pub struct TileBudget {
     state: Mutex<BudgetState>,
 }
 
-/// Viewport heights rasterized above and below the viewport, so scrolling reveals ready tiles.
+/// Viewports rasterized on each side of the viewport, so scrolling reveals ready tiles.
 pub const RASTER_MARGIN_VIEWPORTS: f64 = 1.0;
 
-/// Viewport heights of slack before the window is re-rastered. Smaller than
+/// Viewports of slack before the window is re-rastered. Smaller than
 /// [`RASTER_MARGIN_VIEWPORTS`], so the re-raster is scheduled while ready tiles remain ahead.
 pub const REFRESH_MARGIN_VIEWPORTS: f64 = 0.5;
 
-/// The rasterized band in page space. It spans the full page width, so horizontal scrolling
-/// cannot land on a hole.
+/// The rasterized rows in page space.
 pub fn raster_window(scroll_y: f64, vp_h: f64) -> (f64, f64) {
     let margin = RASTER_MARGIN_VIEWPORTS * vp_h;
     (scroll_y - margin, scroll_y + vp_h + margin)
 }
 
-/// The tiles a pass around `scroll_y` needs: the [`raster_window`]. Nothing outside it gets a
-/// tile, so a pass allocates for the viewport, however long the page is.
+/// The rasterized columns in page space. Bounded like the rows: one unbroken line can make a
+/// page millions of pixels wide.
+pub fn raster_columns(scroll_x: f64, vp_w: f64) -> (f64, f64) {
+    let margin = RASTER_MARGIN_VIEWPORTS * vp_w;
+    (scroll_x - margin, scroll_x + vp_w + margin)
+}
+
+/// The rows a pass around `scroll_y` tiles: the [`raster_window`]. Rows outside it get no tile;
+/// columns outside [`raster_columns`] get one, but [`defer_tiles_outside_window`] parks it.
 pub fn window_band(scroll_y: f64, vp_h: f64) -> TileBand {
     let (lo, hi) = raster_window(scroll_y, vp_h);
     TileBand::Rows { lo, hi, vp_h }
 }
 
-/// The band that must be resident before the next frame; escaping it triggers a re-raster.
-fn refresh_window(scroll_y: f64, vp_h: f64) -> (f64, f64) {
-    let margin = REFRESH_MARGIN_VIEWPORTS * vp_h;
-    (scroll_y - margin, scroll_y + vp_h + margin)
+/// The page-space rect rasterized around `view`, the viewport in page space. A viewport with
+/// no width yet keeps every column.
+fn raster_rect(view: Rect) -> Rect {
+    let (x0, x1) = if view.width > 0.0 {
+        raster_columns(view.x, view.width)
+    } else {
+        (f64::MIN, f64::MAX)
+    };
+    let (y0, y1) = raster_window(view.y, view.height);
+    Rect::new(x0, y0, x1 - x0, y1 - y0)
 }
 
-fn clamp_to_page(window: (f64, f64), page_height: f64) -> (f64, f64) {
-    let page_bottom = page_height.max(0.0);
-    (window.0.max(0.0), window.1.min(page_bottom).max(0.0))
+/// The rect that must be resident before the next frame; escaping it triggers a re-raster.
+fn refresh_rect(view: Rect) -> Rect {
+    let mx = REFRESH_MARGIN_VIEWPORTS * view.width;
+    let my = REFRESH_MARGIN_VIEWPORTS * view.height;
+    Rect::new(view.x - mx, view.y - my, view.width + 2.0 * mx, view.height + 2.0 * my)
 }
 
-/// Park dirty tiles outside the raster window in [`TileState::Deferred`] so stages 5 and 6 skip
-/// them; returns how many were parked. Viewport-pinned layers are exempt: their page positions
-/// do not track scroll, so a page-space window says nothing about whether they are on screen.
-pub fn defer_tiles_outside_window(tile_list: &mut TileList, scroll_y: f64, vp_h: f64) -> usize {
-    let (lo, hi) = raster_window(scroll_y, vp_h);
-    defer_tiles_outside_band(tile_list, lo, hi)
+fn clamp_to_page(window: Rect, page: Dimension) -> Rect {
+    // Scroll x is not clamped to the page, so the window can start past its right edge.
+    let x0 = window.x.max(0.0).min(page.width.max(0.0));
+    let y0 = window.y.max(0.0);
+    let x1 = (window.x + window.width).min(page.width.max(0.0)).max(x0);
+    let y1 = (window.y + window.height).min(page.height.max(0.0)).max(y0);
+    Rect::new(x0, y0, x1 - x0, y1 - y0)
 }
 
-/// [`defer_tiles_outside_window`] for an explicit band of page-space rows: `lo..hi`.
-/// A resize rasterizes only the viewport itself, so the band is the viewport.
-pub fn defer_tiles_outside_band(tile_list: &mut TileList, lo: f64, hi: f64) -> usize {
+fn overlaps(a: Rect, b: Rect) -> bool {
+    a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+}
+
+/// Park dirty tiles outside the raster window around `view` (the viewport in page space) in
+/// [`TileState::Deferred`] so stages 5 and 6 skip them; returns how many were parked.
+/// Viewport-pinned layers are exempt: their page positions do not track scroll, so a page-space
+/// window says nothing about whether they are on screen.
+pub fn defer_tiles_outside_window(tile_list: &mut TileList, view: Rect) -> usize {
+    defer_tiles_outside_band(tile_list, raster_rect(view))
+}
+
+/// [`defer_tiles_outside_window`] for an explicit page-space rect. A resize rasterizes only the
+/// viewport itself, so the band is the viewport.
+pub fn defer_tiles_outside_band(tile_list: &mut TileList, band: Rect) -> usize {
     let layer_list = std::sync::Arc::clone(&tile_list.layer_list);
     let mut deferred = 0;
 
@@ -108,7 +135,7 @@ pub fn defer_tiles_outside_band(tile_list: &mut TileList, lo: f64, hi: f64) -> u
         if layer_list.layer_anchor(tile.layer_id) != TileAnchor::Scroll {
             continue;
         }
-        if tile.rect.y < hi && tile.rect.y + tile.rect.height > lo {
+        if overlaps(tile.rect, band) {
             continue;
         }
         tile.state = TileState::Deferred;
@@ -138,22 +165,22 @@ impl TileBudget {
         self.state.lock().evicted.clear();
     }
 
-    /// Record the window that is now rasterized; [`Self::needs_rerender`] measures against it.
-    pub fn note_rastered_window(&self, scroll_y: f64, vp_h: f64, page_height: f64) {
-        let window = clamp_to_page(raster_window(scroll_y, vp_h), page_height);
-        self.state.lock().rastered = Some(window);
+    /// Record the window around `view` as rasterized; [`Self::needs_rerender`] measures
+    /// against it.
+    pub fn note_rastered_window(&self, view: Rect, page: Dimension) {
+        self.state.lock().rastered = Some(clamp_to_page(raster_rect(view), page));
     }
 
-    /// Record an explicit band of page-space rows as rasterized, when a render covered less
-    /// than the window around the viewport: a resize pass rasterizes the viewport alone.
-    pub fn note_rastered_band(&self, lo: f64, hi: f64, page_height: f64) {
-        self.state.lock().rastered = Some(clamp_to_page((lo, hi), page_height));
+    /// Record an explicit page-space rect as rasterized, when a render covered less than the
+    /// window around the viewport: a resize pass rasterizes the viewport alone.
+    pub fn note_rastered_band(&self, band: Rect, page: Dimension) {
+        self.state.lock().rastered = Some(clamp_to_page(band, page));
     }
 
     /// The page-space rows last noted as rasterized, if any. Scrolling inside them composites
     /// what is baked without a new pass, so a pass that repaints in place has to cover them.
     pub fn rastered_band(&self) -> Option<(f64, f64)> {
-        self.state.lock().rastered
+        self.state.lock().rastered.map(|r| (r.y, r.y + r.height))
     }
 
     /// Stamp the tiles visible at the given scroll position as most-recently composited.
@@ -173,11 +200,11 @@ impl TileBudget {
 
     /// True when content the viewport is about to need was never rastered or has been evicted.
     /// Compositing cannot conjure either back, so the caller must re-raster the window.
-    pub fn needs_rerender(&self, scroll_y: f64, vp_h: f64, page_height: f64) -> bool {
-        let (lo, hi) = clamp_to_page(refresh_window(scroll_y, vp_h), page_height);
+    pub fn needs_rerender(&self, view: Rect, page: Dimension) -> bool {
+        let need = clamp_to_page(refresh_rect(view), page);
         let st = self.state.lock();
 
-        if st.evicted.iter().any(|r| r.y < hi && r.y + r.height > lo) {
+        if st.evicted.iter().any(|r| overlaps(*r, need)) {
             return true;
         }
 
@@ -185,14 +212,19 @@ impl TileBudget {
         const EPS: f64 = 0.5;
         match st.rastered {
             None => false,
-            Some((rlo, rhi)) => lo < rlo - EPS || hi > rhi + EPS,
+            Some(r) => {
+                need.x < r.x - EPS
+                    || need.x + need.width > r.x + r.width + EPS
+                    || need.y < r.y - EPS
+                    || need.y + need.height > r.y + r.height + EPS
+            }
         }
     }
 
     /// Evict least-recently-composited tile positions until resident pixel bytes fit
     /// `budget_bytes` (`0` disables enforcement).
     ///
-    /// Never evicted: tiles overlapping the [`raster_window`], fixed/sticky tiles
+    /// Never evicted: tiles overlapping the raster window around `view`, fixed/sticky tiles
     /// (viewport-pinned regardless of scroll), and GPU-resident tiles
     /// (their memory lives in the backend's texture store, not here). Ties in LRU age evict
     /// the position farthest from the viewport first.
@@ -200,8 +232,7 @@ impl TileBudget {
         &self,
         tiles: &mut Vec<BakedTile>,
         pixel_cache: &mut TilePixelCache,
-        scroll_y: f64,
-        vp_h: f64,
+        view: Rect,
         budget_bytes: usize,
     ) -> EvictionReport {
         struct PosInfo {
@@ -211,7 +242,7 @@ impl TileBudget {
         }
 
         let mut st = self.state.lock();
-        let (band_lo, band_hi) = raster_window(scroll_y, vp_h);
+        let band = raster_rect(view);
 
         // Aggregate resident bytes per tile position. Pixel buffers are `Bytes` and shared
         // between a BakedTile, its CachedTile and its pixel-cache entry, so identical buffers
@@ -227,7 +258,7 @@ impl TileBudget {
                     }
                     TilePixels::Gpu(_) => (0, true),
                 };
-                let in_band = rect.y < band_hi && rect.y + rect.height > band_lo;
+                let in_band = overlaps(rect, band);
                 let entry = positions.entry(key).or_insert(PosInfo {
                     bytes: 0,
                     protected: false,
@@ -262,12 +293,12 @@ impl TileBudget {
 
         // Oldest tick first (never-composited tiles carry tick 0), then farthest from the
         // viewport, then position key for determinism.
-        let band_center = scroll_y + vp_h / 2.0;
+        let (cx, cy) = (view.x + view.width / 2.0, view.y + view.height / 2.0);
         let mut candidates: Vec<(u64, f64, TilePosKey, usize, Rect)> = positions
             .iter()
             .filter(|(_, p)| !p.protected && p.bytes > 0)
             .map(|(k, p)| {
-                let dist = (p.rect.y + p.rect.height / 2.0 - band_center).abs();
+                let dist = (p.rect.x + p.rect.width / 2.0 - cx).hypot(p.rect.y + p.rect.height / 2.0 - cy);
                 (st.last_used.get(k).copied().unwrap_or(0), dist, *k, p.bytes, p.rect)
             })
             .collect();
@@ -323,6 +354,16 @@ mod tests {
         (0..n).map(|i| tile(0.0, i as f64 * TILE, 0)).collect()
     }
 
+    /// A viewport one tile wide at the left edge of the page, scrolled to `y`.
+    fn view(y: f64, height: f64) -> Rect {
+        Rect::new(0.0, y, TILE, height)
+    }
+
+    /// A page one tile wide.
+    fn page(height: f64) -> Dimension {
+        Dimension::new(TILE, height)
+    }
+
     fn has_tile_at(tiles: &[BakedTile], y: f64) -> bool {
         tiles.iter().any(|t| t.page_y == y)
     }
@@ -333,7 +374,7 @@ mod tests {
         let mut tiles = column(8);
         let mut cache = TilePixelCache::new();
 
-        let report = budget.enforce(&mut tiles, &mut cache, 0.0, TILE, 0);
+        let report = budget.enforce(&mut tiles, &mut cache, view(0.0, TILE), 0);
 
         assert_eq!(report.evicted_tiles, 0);
         assert_eq!(tiles.len(), 8);
@@ -347,7 +388,7 @@ mod tests {
         let mut tiles = column(8);
         let mut cache = TilePixelCache::new();
 
-        let report = budget.enforce(&mut tiles, &mut cache, 0.0, TILE, 3 * TILE_BYTES);
+        let report = budget.enforce(&mut tiles, &mut cache, view(0.0, TILE), 3 * TILE_BYTES);
 
         assert!(report.resident_bytes <= 3 * TILE_BYTES);
         assert_eq!(report.evicted_tiles, 5);
@@ -364,7 +405,7 @@ mod tests {
         let mut tiles = column(2); // both rows inside the band
         let mut cache = TilePixelCache::new();
 
-        let report = budget.enforce(&mut tiles, &mut cache, 0.0, TILE, 1);
+        let report = budget.enforce(&mut tiles, &mut cache, view(0.0, TILE), 1);
 
         assert_eq!(report.evicted_tiles, 0);
         assert_eq!(tiles.len(), 2);
@@ -384,7 +425,7 @@ mod tests {
         budget.touch_composited(&tiles, 0.0, 4256.0, TILE, TILE);
 
         // Viewport back at the top; budget keeps one of the three.
-        let report = budget.enforce(&mut tiles, &mut cache, 0.0, TILE, TILE_BYTES);
+        let report = budget.enforce(&mut tiles, &mut cache, view(0.0, TILE), TILE_BYTES);
 
         assert_eq!(report.evicted_tiles, 2);
         assert!(has_tile_at(&tiles, 4256.0), "most recently composited must survive");
@@ -410,11 +451,11 @@ mod tests {
         let mut tiles = vec![near, far];
 
         // Shared buffers: resident is 2 tiles' worth, not 4.
-        let report = budget.enforce(&mut tiles, &mut cache, 0.0, TILE, 10 * TILE_BYTES);
+        let report = budget.enforce(&mut tiles, &mut cache, view(0.0, TILE), 10 * TILE_BYTES);
         assert_eq!(report.resident_bytes, 2 * TILE_BYTES);
 
         // Force eviction of the far tile; its pixel-cache entry must go with it.
-        let report = budget.enforce(&mut tiles, &mut cache, 0.0, TILE, TILE_BYTES);
+        let report = budget.enforce(&mut tiles, &mut cache, view(0.0, TILE), TILE_BYTES);
         assert_eq!(report.evicted_tiles, 1);
         assert!(!has_tile_at(&tiles, 4000.0));
         assert_eq!(cache.len(), 1);
@@ -432,7 +473,7 @@ mod tests {
             (256, 256, orphan.pixels.clone()),
         );
 
-        let report = budget.enforce(&mut tiles, &mut cache, 0.0, TILE, 1);
+        let report = budget.enforce(&mut tiles, &mut cache, view(0.0, TILE), 1);
 
         assert_eq!(report.evicted_tiles, 1);
         assert!(cache.is_empty());
@@ -450,7 +491,7 @@ mod tests {
         let mut tiles = vec![fixed, gpu];
         let mut cache = TilePixelCache::new();
 
-        let report = budget.enforce(&mut tiles, &mut cache, 0.0, TILE, 1);
+        let report = budget.enforce(&mut tiles, &mut cache, view(0.0, TILE), 1);
 
         assert_eq!(report.evicted_tiles, 0);
         assert_eq!(tiles.len(), 2);
@@ -465,19 +506,22 @@ mod tests {
         let mut cache = TilePixelCache::new();
 
         // Pretend the whole page was rastered, so only eviction can create a hole.
-        budget.note_rastered_window(PAGE / 2.0, PAGE, PAGE);
-        budget.enforce(&mut tiles, &mut cache, 0.0, TILE, 2 * TILE_BYTES);
+        budget.note_rastered_window(view(PAGE / 2.0, PAGE), page(PAGE));
+        budget.enforce(&mut tiles, &mut cache, view(0.0, TILE), 2 * TILE_BYTES);
         assert!(!has_tile_at(&tiles, 4000.0));
 
-        assert!(!budget.needs_rerender(0.0, TILE, PAGE), "evicted region is far away");
         assert!(
-            budget.needs_rerender(3900.0, TILE, PAGE),
+            !budget.needs_rerender(view(0.0, TILE), page(PAGE)),
+            "evicted region is far away"
+        );
+        assert!(
+            budget.needs_rerender(view(3900.0, TILE), page(PAGE)),
             "refresh window reaches the evicted region"
         );
 
         budget.note_full_raster();
         assert!(
-            !budget.needs_rerender(3900.0, TILE, PAGE),
+            !budget.needs_rerender(view(3900.0, TILE), page(PAGE)),
             "full re-raster restores everything"
         );
     }
@@ -488,23 +532,26 @@ mod tests {
         let budget = TileBudget::new();
 
         // Nothing rastered yet: the caller is about to render anyway, so don't ask for another.
-        assert!(!budget.needs_rerender(0.0, TILE, PAGE));
+        assert!(!budget.needs_rerender(view(0.0, TILE), page(PAGE)));
 
         // Rastered around the top: window [0, 512]; the refresh window at scroll 0 is [0, 384].
-        budget.note_rastered_window(0.0, TILE, PAGE);
-        assert!(!budget.needs_rerender(0.0, TILE, PAGE), "fresh window needs nothing");
+        budget.note_rastered_window(view(0.0, TILE), page(PAGE));
         assert!(
-            !budget.needs_rerender(100.0, TILE, PAGE),
+            !budget.needs_rerender(view(0.0, TILE), page(PAGE)),
+            "fresh window needs nothing"
+        );
+        assert!(
+            !budget.needs_rerender(view(100.0, TILE), page(PAGE)),
             "small scroll stays inside the slack"
         );
         assert!(
-            budget.needs_rerender(300.0, TILE, PAGE),
+            budget.needs_rerender(view(300.0, TILE), page(PAGE)),
             "scrolling past the slack must extend the window"
         );
 
         // Extending around the new position satisfies the demand again.
-        budget.note_rastered_window(300.0, TILE, PAGE);
-        assert!(!budget.needs_rerender(300.0, TILE, PAGE));
+        budget.note_rastered_window(view(300.0, TILE), page(PAGE));
+        assert!(!budget.needs_rerender(view(300.0, TILE), page(PAGE)));
     }
 
     #[test]
@@ -515,11 +562,53 @@ mod tests {
         // At either page edge the windows run past the page; clamping both to the page is what
         // stops a permanent "needs re-raster" there.
         let bottom = PAGE - TILE;
-        budget.note_rastered_window(bottom, TILE, PAGE);
-        assert!(!budget.needs_rerender(bottom, TILE, PAGE));
+        budget.note_rastered_window(view(bottom, TILE), page(PAGE));
+        assert!(!budget.needs_rerender(view(bottom, TILE), page(PAGE)));
 
-        budget.note_rastered_window(0.0, TILE, PAGE);
-        assert!(!budget.needs_rerender(0.0, TILE, PAGE));
+        budget.note_rastered_window(view(0.0, TILE), page(PAGE));
+        assert!(!budget.needs_rerender(view(0.0, TILE), page(PAGE)));
+    }
+
+    #[test]
+    fn needs_rerender_follows_a_horizontal_scroll() {
+        let budget = TileBudget::new();
+        let page = Dimension::new(1_000_000.0, TILE);
+        let at = |x: f64| Rect::new(x, 0.0, TILE, TILE);
+
+        // Rastered columns [0, 512]; the refresh window at x 0 is [0, 384].
+        budget.note_rastered_window(at(0.0), page);
+        assert!(
+            !budget.needs_rerender(at(100.0), page),
+            "small scroll stays inside the slack"
+        );
+        assert!(budget.needs_rerender(at(300.0), page), "scrolling right past the slack");
+
+        budget.note_rastered_window(at(300.0), page);
+        assert!(!budget.needs_rerender(at(300.0), page));
+    }
+
+    #[test]
+    fn a_scroll_past_the_right_edge_does_not_re_raster_forever() {
+        let budget = TileBudget::new();
+        // The page narrowed under a scroll offset that is now off its right edge.
+        let page = Dimension::new(1000.0, TILE);
+        let at = Rect::new(5000.0, 0.0, TILE, TILE);
+
+        budget.note_rastered_window(at, page);
+        assert!(!budget.needs_rerender(at, page));
+    }
+
+    #[test]
+    fn tiles_left_and_right_of_the_window_are_evictable() {
+        let budget = TileBudget::new();
+        let mut tiles = vec![tile(0.0, 0.0, 0), tile(10.0 * TILE, 0.0, 0)];
+        let mut cache = TilePixelCache::new();
+
+        let report = budget.enforce(&mut tiles, &mut cache, view(0.0, TILE), 1);
+
+        assert_eq!(report.evicted_tiles, 1);
+        assert_eq!(tiles.len(), 1);
+        assert_eq!(tiles[0].page_x, 0.0, "the tile in the window stays");
     }
 
     /// Tiles a real 6 000 px layout, so the deferral policy is exercised against the actual
@@ -527,7 +616,6 @@ mod tests {
     mod deferral {
         use super::*;
         use crate::common::document::pipeline_doc::GosubDocumentAdapter;
-        use crate::common::geo::Dimension;
         use crate::layering::layer::LayerList;
         use crate::layouter::taffy::TaffyLayouter;
         use crate::layouter::CanLayout;
@@ -700,7 +788,7 @@ mod tests {
             let total = tile_list.arena.len();
             assert!(total > 20, "a 6 000 px page must produce many tiles, got {total}");
 
-            let deferred = defer_tiles_outside_window(&mut tile_list, 0.0, TILE);
+            let deferred = defer_tiles_outside_window(&mut tile_list, Rect::new(0.0, 0.0, 512.0, TILE));
             let dirty = count(&tile_list, TileState::Dirty);
 
             assert_eq!(deferred + dirty, total, "every tile is either deferred or paintable");
@@ -725,7 +813,7 @@ mod tests {
         #[test]
         fn deferral_follows_the_scroll_position() {
             let mut tile_list = tall_page_tiles();
-            defer_tiles_outside_window(&mut tile_list, 3000.0, TILE);
+            defer_tiles_outside_window(&mut tile_list, Rect::new(0.0, 3000.0, 512.0, TILE));
 
             let (lo, hi) = raster_window(3000.0, TILE);
             let dirty_ys: Vec<f64> = tile_list
@@ -740,6 +828,32 @@ mod tests {
                 dirty_ys.iter().all(|&y| y + TILE > lo && y < hi),
                 "only tiles around the scrolled viewport stay paintable: {dirty_ys:?}"
             );
+        }
+
+        /// One unbroken line makes the page far wider than the viewport; only the columns
+        /// around it stay paintable (GOS-285).
+        #[test]
+        fn defers_tiles_beside_the_window() {
+            let mut tile_list = page_grid(&format!("<p>{}</p>", "x".repeat(20_000)));
+            tile_list.cover(window_band(0.0, TILE));
+            let page_width = tile_list.layer_list.layout_tree.root_dimension.width;
+            assert!(page_width > 20.0 * 512.0, "the line overflows: {page_width}");
+
+            defer_tiles_outside_window(&mut tile_list, Rect::new(0.0, 0.0, 512.0, TILE));
+
+            let (lo, hi) = raster_columns(0.0, 512.0);
+            let dirty_xs: Vec<f64> = tile_list
+                .arena
+                .values()
+                .filter(|t| t.state == TileState::Dirty)
+                .map(|t| t.rect.x)
+                .collect();
+            assert!(!dirty_xs.is_empty());
+            assert!(
+                dirty_xs.iter().all(|&x| x + TILE > lo && x < hi),
+                "only columns around the viewport stay paintable: {dirty_xs:?}"
+            );
+            assert!(count(&tile_list, TileState::Deferred) > 30);
         }
     }
 }

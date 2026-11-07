@@ -123,6 +123,7 @@ pub fn serve<C: RenderConfiguration>(
                 viewport_height,
                 dpr,
                 media,
+                scroll_x,
                 scroll_y,
                 known_tiles,
                 hovered_node,
@@ -154,7 +155,7 @@ pub fn serve<C: RenderConfiguration>(
                 );
                 // The page's first update of the rendering: autofocus, then the frame.
                 let focus = page.flush_autofocus();
-                let pass = page.render(Some(scroll_y), &known_tiles);
+                let pass = page.render(Some((scroll_x, scroll_y)), &known_tiles);
                 let hit_regions = page.hit_regions.clone();
                 touch(&mut recent, &tab);
                 pages.insert(tab, page);
@@ -178,6 +179,7 @@ pub fn serve<C: RenderConfiguration>(
             }
             ToRenderer::Input {
                 tab,
+                scroll_x,
                 scroll_y,
                 known_tiles,
                 event,
@@ -190,7 +192,7 @@ pub fn serve<C: RenderConfiguration>(
                 let (pass, hit_regions, effects) = match pages.get_mut(&tab) {
                     Some(page) => {
                         touch(&mut recent, &tab);
-                        let out = page.input(scroll_y, &known, event);
+                        let out = page.input((scroll_x, scroll_y), &known, event);
                         // The geometry changed only when the page was laid out again;
                         // the broker keeps the regions it has otherwise.
                         let regions = if out.relayouted {
@@ -218,6 +220,7 @@ pub fn serve<C: RenderConfiguration>(
                 viewport_width,
                 viewport_height,
                 dpr,
+                scroll_x,
                 scroll_y,
                 known_tiles,
             } => {
@@ -230,7 +233,7 @@ pub fn serve<C: RenderConfiguration>(
                 let (pass, hit_regions) = match pages.get_mut(&tab) {
                     Some(page) => {
                         touch(&mut recent, &tab);
-                        let out = page.resize((viewport_width, viewport_height), dpr, scroll_y, &known);
+                        let out = page.resize((viewport_width, viewport_height), dpr, (scroll_x, scroll_y), &known);
                         (out.pass, page.hit_regions.clone())
                     }
                     None => (no_page_pass(), Vec::new()),
@@ -248,6 +251,7 @@ pub fn serve<C: RenderConfiguration>(
             }
             ToRenderer::MediaLanded {
                 tab,
+                scroll_x,
                 scroll_y,
                 known_tiles,
             } => {
@@ -260,7 +264,7 @@ pub fn serve<C: RenderConfiguration>(
                 let (pass, hit_regions) = match pages.get_mut(&tab) {
                     Some(page) => {
                         touch(&mut recent, &tab);
-                        let out = page.media_landed(scroll_y, &known);
+                        let out = page.media_landed((scroll_x, scroll_y), &known);
                         (out.pass, page.hit_regions.clone())
                     }
                     None => (no_page_pass(), Vec::new()),
@@ -276,9 +280,13 @@ pub fn serve<C: RenderConfiguration>(
                     gosub_sandbox::exit_now(1);
                 }
             }
-            ToRenderer::Scroll { tab, scroll_y } => {
+            ToRenderer::Scroll {
+                tab,
+                scroll_x,
+                scroll_y,
+            } => {
                 media_store.set_partition(documents.get(&tab).copied().unwrap_or_default());
-                let run: PagePass<C> = Box::new(move |page| page.render(Some(scroll_y), &HashSet::new()));
+                let run: PagePass<C> = Box::new(move |page| page.render(Some((scroll_x, scroll_y)), &HashSet::new()));
                 incremental_pass(&link, &mut pages, &mut recent, tab, run);
             }
             ToRenderer::Hover { tab, node } => {

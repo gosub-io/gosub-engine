@@ -8,7 +8,8 @@ use std::sync::Arc;
 pub struct Text {
     pub rect: Rect,
     pub font_info: FontInfo,
-    pub text: String,
+    /// Shared for the same reason as `shaped`: the painter hands each tile a clone.
+    pub text: Arc<str>,
     pub brush: Brush,
     /// Word-wrap limit (CSS px) the layouter used. Renderers must prefer this over `rect.width`
     /// to avoid metric-mismatch wrapping.
@@ -33,7 +34,7 @@ impl Text {
     ) -> Self {
         Text {
             rect,
-            text: text.to_string(),
+            text: Arc::from(text),
             font_info: font_info.clone(),
             brush,
             available_width,
