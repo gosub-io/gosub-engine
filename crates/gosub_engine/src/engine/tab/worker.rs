@@ -312,6 +312,9 @@ pub struct TabWorker<C: RenderConfiguration> {
     reported_page_scale: Option<crate::engine::viewport_meta::PageScale>,
     /// The part of the layout viewport on screen, and how large: what a pinch zoom changes.
     visual: VisualViewport,
+    /// The visual viewport of the page shown, kept from the start of a navigation until that
+    /// commits.
+    document_visual: Option<VisualViewport>,
     /// Scale and offset last reported with [`EngineEvent::VisualViewportChanged`]; `None` while
     /// nothing has been reported since the layout viewport was last set up.
     reported_visual: Option<(f64, f64, f64)>,
@@ -477,6 +480,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             desired_viewport: Default::default(),
             reported_page_scale: None,
             visual: VisualViewport::new(0, 0, PageScale::identity(0, 0)),
+            document_visual: None,
             reported_visual: None,
             display_scale: None,
             committed_view: None,
@@ -814,9 +818,18 @@ impl<C: RenderConfiguration> TabWorker<C> {
     }
 
     /// Undo what the start of a navigation did to the page that stays: a traversal moved the
-    /// history cursor, and every navigation scrolled to the top. The offset is the one saved
-    /// on the document's entry when the navigation began.
+    /// history cursor, and every navigation scrolled to the top and unzoomed. The offset is the
+    /// one saved on the document's entry when the navigation began.
     fn return_to_document_entry(&mut self) {
+        // Not when the screen or the layout viewport changed meanwhile: that rebuilt the
+        // visual viewport for them, unzoomed.
+        if let Some(saved) = self.document_visual.take() {
+            let (width, height) = (self.desired_viewport.width, self.desired_viewport.height);
+            if saved.shows(width, height, &self.context.page_scale()) {
+                self.visual = saved;
+                self.report_visual_viewport();
+            }
+        }
         let Some(entry) = self.document_entry else {
             return;
         };
@@ -939,6 +952,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     }
                 };
                 self.document_entry = self.history.current();
+                self.document_visual = None;
                 // Where to land once layout exists: a saved offset wins (returning to an entry
                 // the user scrolled), otherwise the URL's fragment, otherwise the top.
                 self.pending_scroll = match restore_scroll {
@@ -2568,7 +2582,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
         self.scroll.reset(0.0, 0.0);
         self.scroll_anim_last = None;
         self.context.reset_scroll();
-        // A new page starts unzoomed.
+        // A new page starts unzoomed. The page's own zoom is kept for a navigation that ends
+        // without one.
+        self.document_visual = Some(self.visual);
         self.visual.reset();
         self.report_visual_viewport();
     }

@@ -5084,6 +5084,114 @@ mod tests {
         assert!(composited.is_ok(), "the zoomed view was never composited");
     }
 
+    /// A navigation answered 204 keeps the page, and so keeps it zoomed where the user had it:
+    /// the unzoom at the start of the navigation is undone.
+    #[tokio::test]
+    async fn a_no_content_navigation_keeps_the_zoom() {
+        use crate::events::{NavigationEvent, TabCommand};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    let response = if buf[..n].starts_with(b"GET /204 ") {
+                        "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n".to_string()
+                    } else {
+                        let body = "<html><body><div style='height:5000px'>written for a desktop</div></body></html>";
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                    };
+                    let _ = stream.write_all(response.as_bytes()).await;
+                });
+            }
+        });
+
+        let backend = TileCompositingBackend {
+            inner: NullBackend::new(),
+            views: Arc::new(parking_lot::Mutex::new(Vec::new())),
+        };
+        let settings = EngineConfig::builder().max_zones(1).build().unwrap();
+        let mut engine: GosubEngine<crate::html::DefaultRenderConfig<TileCompositingBackend>> = GosubEngine::new(
+            Some(settings),
+            Arc::new(backend),
+            Arc::new(DefaultCompositor::default()),
+        );
+        engine
+            .settings()
+            .set_transient("useragent.viewport.mobile", gosub_config::settings::Setting::Bool(true))
+            .expect("the setting is known");
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.send(TabCommand::SetViewport {
+            x: 0,
+            y: 0,
+            width: 360,
+            height: 780,
+        })
+        .await
+        .expect("viewport");
+        tab.send(TabCommand::ResumeDrawing { fps: 60 }).await.expect("drawing");
+        tab.navigate(format!("http://127.0.0.1:{port}/"))
+            .await
+            .expect("navigate");
+        assert!(
+            wait_for(&mut event_rx, |ev| matches!(
+                ev,
+                EngineEvent::PageScaleChanged { layout_width: 980, .. }
+            ))
+            .await,
+            "no PageScaleChanged for a 980px layout"
+        );
+
+        tab.send(TabCommand::PinchZoom {
+            focus_x: 180.0,
+            focus_y: 390.0,
+            factor: 2.0,
+        })
+        .await
+        .expect("pinch");
+        let zoomed = 2.0 * 360.0 / 980.0;
+        assert!(
+            wait_for(&mut event_rx, |ev| matches!(
+                ev,
+                EngineEvent::VisualViewportChanged { scale, .. } if (scale - zoomed).abs() < 1e-9
+            ))
+            .await,
+            "no VisualViewportChanged for the pinch"
+        );
+
+        tab.navigate(format!("http://127.0.0.1:{port}/204"))
+            .await
+            .expect("navigate");
+        // The last visual viewport the embedder hears of before the navigation ends.
+        let last = tokio::time::timeout(Duration::from_secs(10), async {
+            let mut last = None;
+            loop {
+                match event_rx.recv().await {
+                    Ok(EngineEvent::VisualViewportChanged { scale, offset_x, .. }) => last = Some((scale, offset_x)),
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Cancelled { .. },
+                        ..
+                    }) => return last,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for the 204 to end");
+        let (scale, offset_x) = last.expect("the navigation reported no visual viewport");
+        assert!((scale - zoomed).abs() < 1e-9, "zoom after the 204: {scale}");
+        assert!((offset_x - 245.0).abs() < 1e-6, "pan after the 204: {offset_x}");
+    }
+
     /// A tab that was never asked to draw stays off the GPU, also for input that renders
     /// at once: on a Mali, drawing a page hangs the device (GOS-254).
     #[tokio::test]
