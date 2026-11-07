@@ -6,6 +6,8 @@
 //! - menus (`1`) and search results (`7`) become an HTML page of links,
 //! - text files (`0`) become a `<pre>` page,
 //! - HTML (`h`) is served as it is,
+//! - BinHex (`4`) and uuencoded (`6`) files are served decoded, under the name they carry
+//!   ([`decode`]),
 //! - everything else is served raw under a sniffed media type, so images display and
 //!   anything unknown goes to the download offer.
 //!
@@ -21,6 +23,7 @@
 //!
 //! [protocols]: crate::net::protocols
 
+mod decode;
 mod menu;
 mod render;
 mod request;
@@ -28,13 +31,16 @@ mod stream;
 
 use crate::net::protocols::socket::{self, invalid, Limits, Opened};
 use crate::net::protocols::{BodyStream, Protocol, ProtocolError, ProtocolRequest, ProtocolResponse};
+use crate::net::ssrf::AddressSpace;
 use crate::net::types::NetError;
 use async_trait::async_trait;
 use bytes::Bytes;
+use decode::{Decoding, Encoding};
 use render::Lines;
 use request::Request;
 use std::net::SocketAddr;
 use stream::PageStream;
+use tokio::io::{AsyncRead, AsyncReadExt};
 use url::Url;
 
 /// The gopher protocol.
@@ -74,6 +80,9 @@ async fn fetch_within(request: ProtocolRequest<'_>, limits: &Limits) -> Result<P
         return Ok(html(render::search_page(url), socket::most_public(&addrs)));
     }
     let line = request.wire_line();
+    if let Some(encoding) = Encoding::of(request.item_type) {
+        return decoded(&request, url, &addrs, reach, &line, limits, encoding).await;
+    }
     if request.item_type == '3' {
         let (body, peer) = socket::exchange_within(url, &request.host, &addrs, reach, &line, limits).await?;
         return Ok(present(&request, url, body, peer));
@@ -114,6 +123,65 @@ async fn fetch_within(request: ProtocolRequest<'_>, limits: &Limits) -> Result<P
         peer_addr: peer,
         certificates: Vec::new(),
         final_url: None,
+        filename: None,
+    })
+}
+
+/// A file sent as text, served decoded as it arrives: its first bytes, sniffed, and the rest
+/// to stream. A file that does not decode within those first bytes is an error here; past
+/// them, it fails the body.
+async fn decoded(
+    request: &Request,
+    url: &Url,
+    addrs: &[SocketAddr],
+    reach: AddressSpace,
+    line: &[u8],
+    limits: &Limits,
+    encoding: Encoding,
+) -> Result<ProtocolResponse, NetError> {
+    let Opened { peek, rest, peer } = socket::open(url, &request.host, addrs, reach, line, limits).await?;
+    if is_error_menu(&peek) {
+        let body = match rest {
+            Some(rest) => socket::read_rest(peek, rest, &request.host, limits).await?,
+            None => peek,
+        };
+        return Ok(present(request, url, body, peer));
+    }
+    let encoded: Box<dyn AsyncRead + Send + Unpin> = match rest {
+        Some(rest) => Box::new(std::io::Cursor::new(peek).chain(rest.reader)),
+        None => Box::new(std::io::Cursor::new(peek)),
+    };
+    let mut reader = Decoding::new(encoding, encoded);
+    let mut head = vec![0u8; socket::PEEK_BYTES];
+    let mut len = 0;
+    let mut ended = false;
+    while len < head.len() {
+        let n = tokio::time::timeout(limits.idle, reader.read(&mut head[len..]))
+            .await
+            .map_err(|_| NetError::Timeout(format!("waiting for {}", request.host)))?
+            .map_err(|e| match e.kind() {
+                std::io::ErrorKind::InvalidData => invalid(format!("{url} does not decode: {e}")),
+                _ => socket::io(e),
+            })?;
+        if n == 0 {
+            ended = true;
+            break;
+        }
+        len += n;
+    }
+    head.truncate(len);
+    let filename = reader.name().map(|name| String::from_utf8_lossy(name).into_owned());
+    Ok(ProtocolResponse {
+        content_type: sniff(&head).into(),
+        body: Bytes::from(head),
+        rest: (!ended).then(|| BodyStream {
+            reader: Box::new(reader),
+            idle: limits.idle,
+        }),
+        peer_addr: peer,
+        certificates: Vec::new(),
+        final_url: None,
+        filename,
     })
 }
 
@@ -133,6 +201,7 @@ fn present(request: &Request, url: &Url, body: Vec<u8>, peer: Option<SocketAddr>
             peer_addr: peer,
             certificates: Vec::new(),
             final_url: None,
+            filename: None,
         },
         _ => ProtocolResponse {
             content_type: sniff(&body).into(),
@@ -141,6 +210,7 @@ fn present(request: &Request, url: &Url, body: Vec<u8>, peer: Option<SocketAddr>
             peer_addr: peer,
             certificates: Vec::new(),
             final_url: None,
+            filename: None,
         },
     }
 }
@@ -195,6 +265,7 @@ fn html(page: String, peer: Option<SocketAddr>) -> ProtocolResponse {
         peer_addr: peer,
         certificates: Vec::new(),
         final_url: None,
+        filename: None,
     }
 }
 
@@ -202,7 +273,6 @@ fn html(page: String, peer: Option<SocketAddr>) -> ProtocolResponse {
 mod tests {
     use super::*;
     use crate::net::protocols::{self, socket::MAX_RESPONSE_BYTES};
-    use crate::net::ssrf::AddressSpace;
     use crate::net::types::NetError;
     use gosub_sonar::net::types::BlockReason;
     use gosub_sonar::types::PeekBuf;
@@ -644,6 +714,65 @@ mod tests {
         assert!(response.rest.is_none());
         let page = std::str::from_utf8(&response.body).unwrap();
         assert!(page.contains("class=\"e\">'/nope' does not exist</pre>"));
+    }
+
+    #[tokio::test]
+    async fn a_uuencoded_item_is_served_decoded_under_its_name() {
+        let gif = b"GIF89a\x01\x00\x01\x00\x80\x00\x00";
+        let text: &'static [u8] = Box::leak(decode::encode::uuencode("dot.gif", gif).into_boxed_slice());
+        let (port, _server) = serve_once(text).await;
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/6/dot.uue"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        assert_eq!(response.content_type, "image/gif");
+        assert_eq!(response.filename.as_deref(), Some("dot.gif"));
+        assert!(response.rest.is_none());
+        assert_eq!(&response.body[..], gif);
+    }
+
+    #[tokio::test]
+    async fn a_large_encoded_item_streams_decoded() {
+        let data: Vec<u8> = (0..MAX_RESPONSE_BYTES + 4096).map(|i| (i % 251) as u8).collect();
+        let text = decode::encode::binhex("big.bin", &data, b"fork", false);
+        let text: &'static [u8] = Box::leak(text.into_boxed_slice());
+        let (port, _server) = serve_once(text).await;
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/4/big.hqx"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        assert!(response.rest.is_some(), "a file this size streams");
+        assert_eq!(response.filename.as_deref(), Some("big.bin"));
+        assert_eq!(whole_body(response).await.unwrap(), data);
+    }
+
+    #[tokio::test]
+    async fn an_encoded_item_whose_crc_fails_at_the_end_fails_its_body() {
+        let data = vec![b'x'; 64 * 1024];
+        let text = decode::encode::binhex("bad.bin", &data, b"", true);
+        let text: &'static [u8] = Box::leak(text.into_boxed_slice());
+        let (port, _server) = serve_once(text).await;
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/4/bad.hqx"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        let err = whole_body(response).await.unwrap_err();
+        assert!(err.to_string().contains("CRC"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn an_item_that_does_not_decode_is_an_error() {
+        let (port, _server) = serve_once(b"begin 644 a\r\nnot uuencode at all\r\n").await;
+        let err = fetch(&format!("gopher://127.0.0.1:{port}/6/a"), AddressSpace::Loopback)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("does not decode"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn an_error_menu_for_an_encoded_item_is_an_error_page() {
+        let (port, _server) = serve_once(b"3'/nope' does not exist\t\terror.host\t1\r\n.\r\n").await;
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/6/nope"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        assert!(std::str::from_utf8(&response.body).unwrap().contains("does not exist"));
     }
 
     #[tokio::test]

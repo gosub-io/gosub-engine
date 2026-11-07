@@ -90,6 +90,9 @@ pub struct ProtocolResponse {
     /// Where `body` came from, when a redirect the protocol followed led elsewhere than the
     /// request's URL: what the page commits under and resolves its links against.
     pub final_url: Option<Url>,
+    /// The name the body is saved under, when the protocol knows one: offered as
+    /// `Content-Disposition`.
+    pub filename: Option<String>,
 }
 
 /// The rest of a response body, read as it arrives.
@@ -295,7 +298,7 @@ pub async fn run(
 
     let len = response.body.len() as u64;
     if let Some(rest) = response.rest {
-        let headers = synthesized_headers(&response.content_type, None);
+        let headers = synthesized_headers(&response.content_type, None, response.filename.as_deref());
         observer.on_event(NetEvent::ResponseHeaders {
             url: url.clone(),
             status: 200,
@@ -321,7 +324,7 @@ pub async fn run(
             certificates: response.certificates,
         });
     }
-    let headers = synthesized_headers(&response.content_type, Some(len));
+    let headers = synthesized_headers(&response.content_type, Some(len), response.filename.as_deref());
     observer.on_event(NetEvent::ResponseHeaders {
         url: url.clone(),
         status: 200,
@@ -353,9 +356,10 @@ pub async fn run(
     })
 }
 
-/// The `Content-Type` and `Content-Length` a protocol response is presented with; no length
-/// for a body that streams.
-pub fn synthesized_headers(content_type: &str, len: Option<u64>) -> HeaderMap {
+/// The `Content-Type` and `Content-Length` a protocol response is presented with, and the
+/// `Content-Disposition` naming it when the protocol knows a `filename`; no length for a body
+/// that streams.
+pub fn synthesized_headers(content_type: &str, len: Option<u64>, filename: Option<&str>) -> HeaderMap {
     let mut headers = HeaderMap::new();
     if let Ok(v) = content_type.parse() {
         headers.insert(http::header::CONTENT_TYPE, v);
@@ -363,7 +367,27 @@ pub fn synthesized_headers(content_type: &str, len: Option<u64>) -> HeaderMap {
     if let Some(Ok(v)) = len.map(|len| len.to_string().parse()) {
         headers.insert(http::header::CONTENT_LENGTH, v);
     }
+    if let Some(Ok(v)) = filename.and_then(disposition).map(|d| d.parse()) {
+        headers.insert(http::header::CONTENT_DISPOSITION, v);
+    }
     headers
+}
+
+/// `attachment; filename="name"` for a name a server sent: a header value holds visible ASCII
+/// only, so anything else, the quote and backslash, and the path separators of any system
+/// become `_`; control characters are dropped. `None` when nothing is left.
+fn disposition(name: &str) -> Option<String> {
+    let name: String = name
+        .chars()
+        .filter(|c| !c.is_control())
+        .map(|c| match c {
+            '"' | '\\' | '/' | ':' | ';' => '_',
+            ' '..='~' => c,
+            _ => '_',
+        })
+        .collect();
+    let name = name.trim();
+    (!name.is_empty()).then(|| format!("attachment; filename=\"{name}\""))
 }
 
 /// The body `rest` is read into, after the `received` bytes the response already holds:
@@ -499,6 +523,7 @@ mod tests {
                 certificates,
                 final_url: None,
                 rest: None,
+                filename: None,
             })
         }
     }
@@ -531,6 +556,7 @@ mod tests {
                 peer_addr: None,
                 certificates: Vec::new(),
                 final_url: None,
+                filename: None,
             })
         }
     }
@@ -770,5 +796,23 @@ mod tests {
         let (result, events) = serve(&Stall, &req, true, &cancel).await;
         assert!(result.is_none());
         assert_eq!(events, ["Accepted", "Started", "Cancelled"]);
+    }
+
+    #[test]
+    fn a_filename_is_offered_as_the_name_to_save_under() {
+        let saved = |name: &str| {
+            let mut meta = FetchResultMeta::synthetic(Url::parse("gopher://host/6/x.uue").unwrap());
+            meta.headers = synthesized_headers("application/octet-stream", None, Some(name));
+            crate::net::types::ResponseInfo::from(&meta).suggested_filename()
+        };
+        assert_eq!(saved("photo.gif"), "photo.gif");
+        assert_eq!(saved("../etc/passwd"), ".._etc_passwd");
+        assert_eq!(saved("a\\b:c;d\"e"), "a_b_c_d_e");
+        assert_eq!(saved("caf\u{e9}\r\n.txt"), "caf_.txt");
+        // Nothing left: the URL names it.
+        assert_eq!(saved("\x01"), "x.uue");
+        assert!(synthesized_headers("text/plain", None, None)
+            .get(http::header::CONTENT_DISPOSITION)
+            .is_none());
     }
 }
