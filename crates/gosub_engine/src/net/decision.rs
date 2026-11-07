@@ -10,7 +10,7 @@ use crate::net::types::FetchResultMeta;
 use cow_utils::CowUtils;
 
 mod sniff;
-pub(crate) use sniff::ResponseClass;
+pub(crate) use sniff::{sniff_mime, ResponseClass};
 pub mod types;
 
 /// Decide how the user agent should handle a fetched response, weighing UA
