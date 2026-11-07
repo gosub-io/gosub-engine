@@ -1,5 +1,5 @@
-//! Length-framed bincode messaging: every frame is a little-endian u32 payload
-//! length followed by the bincode-encoded message.
+//! Length-framed postcard messaging: every frame is a little-endian u32 payload
+//! length followed by the postcard-encoded message.
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -24,7 +24,9 @@ pub const MAX_FRAME_LEN: u32 = 16 * 1024 * 1024;
 /// The payload length `msg` would be sent as, to compare with
 /// [`MAX_FRAME_LEN`] before a send that must not fail.
 pub fn frame_len<T: Serialize>(msg: &T) -> io::Result<u64> {
-    bincode::serialized_size(msg).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    postcard::experimental::serialized_size(msg)
+        .map(|len| len as u64)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
 /// Send half of an IPC link.
@@ -118,7 +120,7 @@ impl EndpointTx {
             },
             EndpointTx::Broken => Err(broken_link()),
             EndpointTx::Local(tx) => {
-                let payload = bincode::serialize(msg).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+                let payload = postcard::to_stdvec(msg).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
                 if payload.len() > MAX_FRAME_LEN as usize {
                     return Err(io::Error::new(io::ErrorKind::InvalidData, "frame too large"));
                 }
@@ -215,7 +217,7 @@ impl EndpointRx {
                 let payload = rx
                     .recv()
                     .map_err(|_| io::Error::new(io::ErrorKind::UnexpectedEof, "peer gone"))?;
-                bincode::deserialize(&payload).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+                postcard::from_bytes(&payload).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
             }
         }
     }
@@ -224,7 +226,7 @@ impl EndpointRx {
 /// One end of a duplex IPC link. Components are written against this type
 /// only, so the exact same renderer/net code runs either as a child *process*
 /// (Socket) or as an in-process *thread* (Local). Both variants carry
-/// identical bincode frames, so the protocol - and every policy check built
+/// identical postcard frames, so the protocol - and every policy check built
 /// on it - behaves the same in both modes.
 pub struct Endpoint {
     pub tx: EndpointTx,
@@ -342,7 +344,7 @@ pub fn send_msg<T: Serialize>(w: &mut impl Write, msg: &T) -> io::Result<()> {
 #[cfg(feature = "multi-process")]
 fn send_frame<T: Serialize>(w: &mut impl Write, msg: &T) -> Result<(), FrameError> {
     let payload =
-        bincode::serialize(msg).map_err(|e| FrameError::clean(io::Error::new(io::ErrorKind::InvalidData, e)))?;
+        postcard::to_stdvec(msg).map_err(|e| FrameError::clean(io::Error::new(io::ErrorKind::InvalidData, e)))?;
     let len = u32::try_from(payload.len())
         .ok()
         .filter(|len| *len <= MAX_FRAME_LEN)
@@ -423,7 +425,7 @@ fn recv_frame<T: DeserializeOwned>(r: &mut impl Read) -> Result<T, FrameError> {
     let mut payload = vec![0u8; len as usize];
     r.read_exact(&mut payload)
         .map_err(|error| FrameError { error, desynced: true })?;
-    bincode::deserialize(&payload).map_err(|e| FrameError::clean(io::Error::new(io::ErrorKind::InvalidData, e)))
+    postcard::from_bytes(&payload).map_err(|e| FrameError::clean(io::Error::new(io::ErrorKind::InvalidData, e)))
 }
 
 /// A control-message buffer aligned for `cmsghdr`. `CMSG_FIRSTHDR` hands back a
@@ -587,6 +589,23 @@ mod tests {
         let mut cur = std::io::Cursor::new(buf);
         let back: TestMsg = recv_msg(&mut cur).unwrap();
         assert_eq!(back, msg);
+    }
+
+    /// `frame_len` is what a send checks against `MAX_FRAME_LEN`, so it must
+    /// match the length prefix the frame goes out with.
+    #[cfg(feature = "multi-process")]
+    #[test]
+    fn frame_len_matches_the_sent_prefix() {
+        let msg = TestMsg::Reply {
+            request_id: u64::MAX,
+            status: 404,
+            body: vec![7; 300],
+        };
+        let mut buf: Vec<u8> = Vec::new();
+        send_msg(&mut buf, &msg).unwrap();
+        let prefix = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
+        assert_eq!(frame_len(&msg).unwrap(), u64::from(prefix));
+        assert_eq!(buf.len(), 4 + prefix as usize);
     }
 
     /// Hand-rolled sendmsg attaching `fds` to ONE SCM_RIGHTS cmsg - what a

@@ -16,7 +16,7 @@ multi-process = []
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
-bincode = { workspace = true }
+postcard = { workspace = true }
 
 # libc: socketpair fd passing (all Unix) plus the memfd/futex primitives behind
 # the sealed tiles and the body ring (Linux).
