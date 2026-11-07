@@ -71,8 +71,8 @@ pub fn page_end() -> String {
 }
 
 /// A menu or a text file turned into its page a line at a time, so the page can be served as
-/// its lines arrive. The text is read in the encoding given, until a line is not valid UTF-8
-/// in it: that line and the rest are read as windows-1252.
+/// its lines arrive. The text is read in the encoding given, and as windows-1252 from the
+/// first line that is not valid UTF-8 on.
 pub struct Lines {
     menu: Option<(String, u16)>,
     encoding: &'static Encoding,
