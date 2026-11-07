@@ -125,7 +125,7 @@ fn painted_texts(html: &str, id: &str) -> Vec<String> {
         .into_iter()
         .flat_map(|(id, _)| painter.paint_element(id, &state))
         .filter_map(|command| match command {
-            PaintCommand::Text(text) => Some(text.text),
+            PaintCommand::Text(text) => Some(text.text.to_string()),
             _ => None,
         })
         .collect()
