@@ -44,7 +44,7 @@ fn peniko_font(run: &ShapedRun) -> FontData {
 pub fn do_paint_text(
     scene: &mut Scene,
     cmd: &Text,
-    _tile_size: Dimension,
+    surface: Dimension,
     affine: Affine,
     device_scale: f64,
     media_store: &MediaStore,
@@ -63,6 +63,12 @@ pub fn do_paint_text(
 
     for run in &shaped.runs {
         let font = peniko_font(run);
+        // Only the glyphs that land on the surface. A command is culled whole when it misses
+        // the surface, but one that touches it brings every glyph it has, and a single run can
+        // hold millions (one unbroken 1 MB line): Vello then dispatches more workgroups than
+        // the GPU allows. A glyph reaches about its font size past its origin either way.
+        let pad = f64::from(run.font_size) * 2.0;
+        let visible = KurboRect::new(0.0, 0.0, surface.width, surface.height).inflate(pad, pad);
         scene
             .draw_glyphs(&font)
             .brush(&vello_brush)
@@ -71,10 +77,14 @@ pub fn do_paint_text(
             .transform(affine)
             .draw(
                 Fill::NonZero,
-                run.glyphs.iter().map(|g| {
-                    let (x, y) = snap(grid, cmd.rect.x + f64::from(g.x), cmd.rect.y + f64::from(g.y));
-                    vello::Glyph { id: g.id, x, y }
-                }),
+                run.glyphs
+                    .iter()
+                    .map(|g| (g, cmd.rect.x + f64::from(g.x), cmd.rect.y + f64::from(g.y)))
+                    .filter(|&(_, x, y)| visible.contains(affine * Point::new(x, y)))
+                    .map(|(g, x, y)| {
+                        let (x, y) = snap(grid, x, y);
+                        vello::Glyph { id: g.id, x, y }
+                    }),
             );
 
         // Decorations are a filled rect per run, using the run font's own metrics.
@@ -184,5 +194,54 @@ mod tests {
             &MediaStore::new(),
         );
         assert!(res.is_ok(), "painting failed: {res:?}");
+    }
+
+    /// One unbroken line far wider than the surface encodes only the glyphs that land on it.
+    /// All of a 1 MB line went into the scene once, and Vello dispatched more workgroups than
+    /// the GPU allows (GOS-287).
+    #[test]
+    fn encodes_only_the_glyphs_on_the_surface() {
+        let mut fs = ParleyFontSystem::new();
+        let font_info = FontInfo {
+            family: "sans-serif".to_string(),
+            size: 16.0,
+            weight: 400,
+            width: 100,
+            slant: 0,
+            line_height: Some(20.0),
+            letter_spacing: 0.0,
+            alignment: FontAlignment::Start,
+            underline: false,
+            line_through: false,
+            word_break: gosub_interface::style::WordBreak::Normal,
+            overflow_wrap: gosub_interface::style::OverflowWrap::Normal,
+        };
+        let text = "x".repeat(100_000);
+        let shaped = std::sync::Arc::new(fs.shape(&text, &TextStyle::new("sans-serif", 16.0)));
+        let total: usize = shaped.runs.iter().map(|r| r.glyphs.len()).sum();
+        assert_eq!(total, 100_000);
+        let cmd = Text::new(
+            GeoRect::new(0.0, 0.0, f64::from(shaped.width), 20.0),
+            &text,
+            &font_info,
+            Brush::Solid(Color::BLACK),
+            1_000_000_000.0,
+            shaped,
+        );
+
+        // Scrolled halfway along the line: the glyphs there, and none of the rest.
+        let mut scene = Scene::new();
+        let scrolled = Affine::translate((-f64::from(cmd.shaped.width) / 2.0, 0.0));
+        do_paint_text(
+            &mut scene,
+            &cmd,
+            Dimension::new(200.0, 60.0),
+            scrolled,
+            1.0,
+            &MediaStore::new(),
+        )
+        .unwrap();
+        let encoded = scene.encoding().resources.glyphs.len();
+        assert!(encoded > 0 && encoded < 100, "{encoded} glyphs encoded");
     }
 }
