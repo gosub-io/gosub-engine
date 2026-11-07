@@ -102,7 +102,8 @@ fn refresh_rect(view: Rect) -> Rect {
 }
 
 fn clamp_to_page(window: Rect, page: Dimension) -> Rect {
-    let x0 = window.x.max(0.0);
+    // Scroll x is not clamped to the page, so the window can start past its right edge.
+    let x0 = window.x.max(0.0).min(page.width.max(0.0));
     let y0 = window.y.max(0.0);
     let x1 = (window.x + window.width).min(page.width.max(0.0)).max(x0);
     let y1 = (window.y + window.height).min(page.height.max(0.0)).max(y0);
@@ -584,6 +585,17 @@ mod tests {
 
         budget.note_rastered_window(at(300.0), page);
         assert!(!budget.needs_rerender(at(300.0), page));
+    }
+
+    #[test]
+    fn a_scroll_past_the_right_edge_does_not_re_raster_forever() {
+        let budget = TileBudget::new();
+        // The page narrowed under a scroll offset that is now off its right edge.
+        let page = Dimension::new(1000.0, TILE);
+        let at = Rect::new(5000.0, 0.0, TILE, TILE);
+
+        budget.note_rastered_window(at, page);
+        assert!(!budget.needs_rerender(at, page));
     }
 
     #[test]
