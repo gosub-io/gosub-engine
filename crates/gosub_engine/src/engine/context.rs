@@ -347,7 +347,7 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// offset it was measured against, in order. Pointer moves and wheel
     /// notches coalesce; nothing else does. A keystroke is never dropped.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-    remote_input_queue: std::collections::VecDeque<(crate::fork_server::protocol::InputEvent, f64)>,
+    remote_input_queue: std::collections::VecDeque<(crate::fork_server::protocol::InputEvent, (f64, f64))>,
     /// What input passes asked of the broker, with what produced each, for
     /// the tab worker to judge and act on.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -373,8 +373,8 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
 struct InflightPass {
     what: PassKind,
     generation: u64,
-    /// The scroll position the pass was asked for: what its window covers.
-    scroll_y: f64,
+    /// The scroll position `(x, y)` the pass was asked for: what its window covers.
+    scroll: (f64, f64),
     page_url: String,
     rx: std::sync::mpsc::Receiver<(
         anyhow::Result<crate::fork_server::client::RenderedPage>,
@@ -919,13 +919,23 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.scroll_dirty = true;
         // Compositing cannot conjure up tiles that were never rastered or were evicted, so ask
         // for a window extension rather than a full (re-laying-out) render.
-        let page_height = self.active_page_height().unwrap_or(0.0);
-        if self
-            .tile_budget
-            .needs_rerender(y, self.viewport.height as f64, page_height)
-        {
+        if self.tile_budget.needs_rerender(self.page_view(), self.page_size()) {
             self.raster_dirty = true;
         }
+    }
+
+    /// The viewport in page space, at the current scroll position.
+    fn page_view(&self) -> PipelineRect {
+        self.view_at(self.scroll_x, self.scroll_y)
+    }
+
+    /// The viewport in page space, scrolled to `(x, y)`.
+    fn view_at(&self, x: f64, y: f64) -> PipelineRect {
+        PipelineRect::new(x, y, self.viewport.width as f64, self.viewport.height as f64)
+    }
+
+    fn page_size(&self) -> PipelineDimension {
+        PipelineDimension::new(self.page_width(), self.active_page_height().unwrap_or(0.0))
     }
 
     /// How many device pixels a CSS pixel of the page is drawn over, when that is more than the
@@ -1239,7 +1249,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 layer_list,
                 page_height,
                 &self.viewport,
-                self.scroll_y,
+                (self.scroll_x, self.scroll_y),
                 self.rasterizer.as_deref(),
                 self.raster_strategy,
                 prev_tile_cache,
@@ -1307,7 +1317,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             page_height,
             tiles,
             &self.viewport,
-            self.scroll_y,
+            (self.scroll_x, self.scroll_y),
             self.rasterizer.as_deref(),
             self.raster_strategy,
             tile_pixel_cache,
@@ -1338,10 +1348,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// then what it moved into still needs rendering. Call after
     /// `note_full_raster`, which the check depends on.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-    fn note_pass_window(&mut self, rendered_at: f64) {
+    fn note_pass_window(&mut self, rendered_at: (f64, f64)) {
         if let Some(cache) = self.pipeline_cache.as_ref() {
+            let page = PipelineDimension::new(cache.page_width, cache.page_height);
             self.tile_budget
-                .note_rastered_window(rendered_at, self.viewport.height as f64, cache.page_height);
+                .note_rastered_window(self.view_at(rendered_at.0, rendered_at.1), page);
         }
         self.recheck_viewport();
     }
@@ -1353,13 +1364,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// next resize replaces every tile anyway, and a scroll pass in between
     /// would cost what the tight band saved.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-    fn note_resize_band(&mut self, rendered_at: f64) {
+    fn note_resize_band(&mut self, rendered_at: (f64, f64)) {
         if let Some(cache) = self.pipeline_cache.as_ref() {
-            self.tile_budget.note_rastered_band(
-                rendered_at,
-                rendered_at + self.viewport.height as f64,
-                cache.page_height,
-            );
+            let page = PipelineDimension::new(cache.page_width, cache.page_height);
+            self.tile_budget
+                .note_rastered_band(self.view_at(rendered_at.0, rendered_at.1), page);
         }
         if self.remote_resize_pending.is_none() {
             self.recheck_viewport();
@@ -1370,11 +1379,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// rastered (or was evicted), ask for the window to be extended.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     fn recheck_viewport(&mut self) {
-        let page_height = self.active_page_height().unwrap_or(0.0);
-        if self
-            .tile_budget
-            .needs_rerender(self.scroll_y, self.viewport.height as f64, page_height)
-        {
+        if self.tile_budget.needs_rerender(self.page_view(), self.page_size()) {
             self.raster_dirty = true;
         }
     }
@@ -1384,8 +1389,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let Some(cache) = self.pipeline_cache.as_ref() else {
             return;
         };
-        self.tile_budget
-            .note_rastered_window(self.scroll_y, self.viewport.height as f64, cache.page_height);
+        let page = PipelineDimension::new(cache.page_width, cache.page_height);
+        self.tile_budget.note_rastered_window(self.page_view(), page);
     }
 
     /// Apply the `renderer.tile.cache_budget_mb` budget to the current pipeline cache, evicting
@@ -1395,6 +1400,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         if full_raster {
             self.tile_budget.note_full_raster();
         }
+        let view = self.page_view();
         let Some(cache) = self.pipeline_cache.as_mut() else {
             return;
         };
@@ -1402,8 +1408,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let report = self.tile_budget.enforce(
             &mut cache.tiles,
             &mut cache.tile_pixel_cache,
-            self.scroll_y,
-            self.viewport.height as f64,
+            view,
             budget_mb.saturating_mul(1024 * 1024),
         );
         if report.evicted_tiles > 0 {
@@ -1491,7 +1496,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     &page_url,
                     &self.remote_tab,
                     viewport,
-                    self.scroll_y,
+                    (self.scroll_x, self.scroll_y),
                     &resources,
                     &self.remote_tile_memory,
                     self.hover_leaf.map(|id| id.into()),
@@ -1642,7 +1647,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         if self.remote_inflight.is_some() {
             match what {
                 RemotePass::Hover => self.remote_hover_pending = true,
-                RemotePass::Input(event, scroll_y) => self.queue_remote_input(event, scroll_y),
+                RemotePass::Input(event, scroll) => self.queue_remote_input(event, scroll),
                 RemotePass::Resize(size) => self.remote_resize_pending = Some(size),
                 RemotePass::Scroll | RemotePass::Media => {}
             }
@@ -1661,11 +1666,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             loader: self.loader_for_document(),
             media: Arc::clone(&self.remote_media),
         };
-        let scroll_y = match &what {
+        let scroll = match &what {
             // Measured against the viewport the event was sent for, which the
             // page may have scrolled away from since.
-            RemotePass::Input(_, scroll_y) => *scroll_y,
-            _ => self.scroll_y,
+            RemotePass::Input(_, scroll) => *scroll,
+            _ => (self.scroll_x, self.scroll_y),
         };
         let hovered = self.hover_leaf.map(|id| id.into());
         let url = page_url.clone();
@@ -1702,13 +1707,13 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                         anyhow::bail!("superseded by a newer page");
                     }
                     match what {
-                        RemotePass::Scroll => renderer.scroll(&remote_tab, scroll_y, &resources, &known),
+                        RemotePass::Scroll => renderer.scroll(&remote_tab, scroll, &resources, &known),
                         RemotePass::Hover => renderer.hover(&remote_tab, hovered, &resources, &known),
-                        RemotePass::Input(event, _) => renderer.input(&remote_tab, scroll_y, event, &resources, &known),
-                        RemotePass::Resize(size) => renderer.resize(&remote_tab, size, scroll_y, &resources, &known),
+                        RemotePass::Input(event, _) => renderer.input(&remote_tab, scroll, event, &resources, &known),
+                        RemotePass::Resize(size) => renderer.resize(&remote_tab, size, scroll, &resources, &known),
                         // The page laid out again, not built again: what the user did
                         // on it (focus, typed text) stays.
-                        RemotePass::Media => renderer.media_landed(&remote_tab, scroll_y, &resources, &known),
+                        RemotePass::Media => renderer.media_landed(&remote_tab, scroll, &resources, &known),
                     }
                 })();
                 let _ = tx.send((result, started.elapsed()));
@@ -1727,7 +1732,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.remote_inflight = Some(InflightPass {
             what: kind,
             generation: started_for,
-            scroll_y,
+            scroll,
             page_url,
             rx,
         });
@@ -1806,7 +1811,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                         inflight.what.event_kind(),
                         &self.remote_tab,
                         &inflight.page_url,
-                        inflight.scroll_y,
+                        inflight.scroll.1,
                         &page,
                         exchange,
                     );
@@ -1842,16 +1847,16 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                         inflight.what.event_kind(),
                         &self.remote_tab,
                         &inflight.page_url,
-                        inflight.scroll_y,
+                        inflight.scroll.1,
                         &page,
                         exchange,
                     );
                     self.adopt_remote_page(page);
                     self.tile_budget.note_full_raster();
                     if matches!(inflight.what, PassKind::Resize) {
-                        self.note_resize_band(inflight.scroll_y);
+                        self.note_resize_band(inflight.scroll);
                     } else {
-                        self.note_pass_window(inflight.scroll_y);
+                        self.note_pass_window(inflight.scroll);
                     }
                     self.scroll_dirty = true;
                 } else {
@@ -1859,7 +1864,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                         inflight.what.event_kind(),
                         &self.remote_tab,
                         &inflight.page_url,
-                        inflight.scroll_y,
+                        inflight.scroll.1,
                         &page,
                         exchange,
                     );
@@ -1867,7 +1872,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     if matches!(inflight.what, PassKind::Scroll) {
                         // Before the check: a fresh raster makes evicted regions live again.
                         self.tile_budget.note_full_raster();
-                        self.note_pass_window(inflight.scroll_y);
+                        self.note_pass_window(inflight.scroll);
                     } else {
                         // A hover renders no new window, but a scroll that
                         // came while it ran was not issued (one pass at a
@@ -1918,8 +1923,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             }
         }
         if self.remote_inflight.is_none() {
-            if let Some((event, scroll_y)) = self.remote_input_queue.pop_front() {
-                self.try_remote_pass(RemotePass::Input(event, scroll_y));
+            if let Some((event, scroll)) = self.remote_input_queue.pop_front() {
+                self.try_remote_pass(RemotePass::Input(event, scroll));
             }
         }
         if self.remote_hover_pending {
@@ -1938,7 +1943,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         if !self.remote_input_available() {
             return false;
         }
-        self.try_remote_pass(RemotePass::Input(event, self.scroll_y))
+        self.try_remote_pass(RemotePass::Input(event, (self.scroll_x, self.scroll_y)))
     }
 
     /// Whether input goes out of process: a resident renderer retains this
@@ -1953,13 +1958,13 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// only the last and consecutive wheel notches add up: what matters is
     /// where the pointer is and how far the wheel turned, not every step.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-    fn queue_remote_input(&mut self, event: crate::fork_server::protocol::InputEvent, scroll_y: f64) {
+    fn queue_remote_input(&mut self, event: crate::fork_server::protocol::InputEvent, scroll: (f64, f64)) {
         use crate::fork_server::protocol::InputEvent;
         if let Some((last, last_scroll)) = self.remote_input_queue.back_mut() {
             match (last, &event) {
                 (InputEvent::PointerMove { x, y }, InputEvent::PointerMove { x: nx, y: ny }) => {
                     (*x, *y) = (*nx, *ny);
-                    *last_scroll = scroll_y;
+                    *last_scroll = scroll;
                     return;
                 }
                 (
@@ -1972,13 +1977,13 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 ) => {
                     (*x, *y) = (*nx, *ny);
                     *delta_y += nd;
-                    *last_scroll = scroll_y;
+                    *last_scroll = scroll;
                     return;
                 }
                 _ => {}
             }
         }
-        self.remote_input_queue.push_back((event, scroll_y));
+        self.remote_input_queue.push_back((event, scroll));
     }
 
     /// What input passes asked of the broker since the last call, each with
@@ -3022,7 +3027,7 @@ fn pipeline_build_cache(
     layer_list: Arc<LayerList>,
     page_height: f64,
     viewport: &Viewport,
-    scroll_y: f64,
+    (scroll_x, scroll_y): (f64, f64),
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
     strategy: RasterStrategy,
     prev_tile_cache: TilePixelCache,
@@ -3040,7 +3045,8 @@ fn pipeline_build_cache(
 
     // Park the rest of the page: stages 5 and 6 below only touch dirty tiles.
     // Scrolling past the window's slack re-rasters around the new position.
-    defer_tiles_outside_window(&mut tile_list, scroll_y, viewport.height as f64);
+    let view = PipelineRect::new(scroll_x, scroll_y, viewport.width as f64, viewport.height as f64);
+    defer_tiles_outside_window(&mut tile_list, view);
 
     let render_height = page_height;
     let ts5 = timing_start!(gosub_shared::timing::Timing::PipelinePainting);
@@ -3103,7 +3109,7 @@ fn pipeline_extend_raster(
     page_height: f64,
     mut prev_baked_tiles: Vec<BakedTile>,
     viewport: &Viewport,
-    scroll_y: f64,
+    (scroll_x, scroll_y): (f64, f64),
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
     strategy: RasterStrategy,
     mut prev_tile_cache: TilePixelCache,
@@ -3160,7 +3166,8 @@ fn pipeline_extend_raster(
     // are still good: keep them until the budget evicts them, so scrolling back composites them
     // instead of rastering again.
     clean_baked.extend(prev_by_pos.into_values());
-    defer_tiles_outside_window(&mut tile_list, scroll_y, viewport.height as f64);
+    let view = PipelineRect::new(scroll_x, scroll_y, viewport.width as f64, viewport.height as f64);
+    defer_tiles_outside_window(&mut tile_list, view);
 
     // Paint across the full tile-grid width, not the viewport width: the grid's column count
     // comes from the LAYOUT width (`root_dimension.width`), so a viewport narrower than the
@@ -3226,9 +3233,9 @@ enum RemotePass {
     /// Images the renderer went without have arrived: render the page again
     /// off the tab thread, so the next navigation is not queued behind it.
     Media,
-    /// The user acted on the retained page, at the scroll offset the event's
-    /// viewport coordinates were measured against.
-    Input(crate::fork_server::protocol::InputEvent, f64),
+    /// The user acted on the retained page, at the scroll offset `(x, y)` the
+    /// event's viewport coordinates were measured against.
+    Input(crate::fork_server::protocol::InputEvent, (f64, f64)),
     /// The viewport changed size: lay the retained page out again at it.
     Resize((f64, f64)),
 }
@@ -3772,7 +3779,7 @@ mod tests {
             ctx.remote_inflight = Some(InflightPass {
                 what: what.kind(),
                 generation: ctx.remote_epoch.load(std::sync::atomic::Ordering::Acquire),
-                scroll_y,
+                scroll: (0.0, scroll_y),
                 page_url: "https://site.test/".into(),
                 rx,
             });
@@ -3815,7 +3822,10 @@ mod tests {
                 height: 600,
             });
             ctx.adopt_remote_page(tall());
-            ctx.tile_budget.note_rastered_window(0.0, 600.0, 5000.0);
+            ctx.tile_budget.note_rastered_window(
+                PipelineRect::new(0.0, 0.0, 400.0, 600.0),
+                PipelineDimension::new(400.0, 5000.0),
+            );
             ctx.scroll_y = 3000.0;
             ctx.raster_dirty = false;
             ctx.poll_remote_passes();
@@ -5401,6 +5411,13 @@ mod tests {
         /// A context on a 10 000 px page: ~40 tile rows if fully rastered (~20 MiB), against a
         /// raster window three viewports tall.
         fn tall_page_context(budget_mb: usize) -> (BrowsingContext<DefaultRenderConfig>, Arc<AtomicUsize>) {
+            page_context(
+                budget_mb,
+                r#"<html><body style="margin:0"><div style="height:10000px;background:#ddd"></div></body></html>"#,
+            )
+        }
+
+        fn page_context(budget_mb: usize, html: &str) -> (BrowsingContext<DefaultRenderConfig>, Arc<AtomicUsize>) {
             let config = settings_store::default_config();
             assert!(config
                 .set("renderer.tile.cache_budget_mb", Setting::UInt(budget_mb))
@@ -5421,8 +5438,6 @@ mod tests {
                 height: VP_H,
             });
 
-            let html =
-                r#"<html><body style="margin:0"><div style="height:10000px;background:#ddd"></div></body></html>"#;
             let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
             doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
             ctx.set_document(Arc::new(doc), None);
@@ -5504,6 +5519,46 @@ mod tests {
                 "extending rastered {extend_pass} tiles, expected a window"
             );
             assert_eq!(ctx.page_height(), page_height, "extending must reuse the cached layout");
+            assert!(!ctx.raster_dirty, "the extension must satisfy the scroll");
+        }
+
+        /// A page far wider than the viewport rasters only the columns around it, and a sideways
+        /// scroll past the slack extends the window there (GOS-285).
+        #[test]
+        fn a_sideways_scroll_extends_the_window_on_a_wide_page() {
+            let (mut ctx, raster_calls) = page_context(
+                128,
+                r#"<html><body style="margin:0"><div style="width:20000px;height:256px;background:#ddd"></div></body></html>"#,
+            );
+            ctx.rebuild_pipeline_cache_if_needed();
+            let first_pass = raster_calls.swap(0, Ordering::Relaxed);
+            assert!(ctx.page_width() >= 20_000.0, "page must lay out wide");
+            // Three viewports of 512 px are 6 tile columns; the whole row would be ~80.
+            assert!((1..=8).contains(&first_pass), "first paint rastered {first_pass} tiles");
+            let has_column = |ctx: &BrowsingContext<DefaultRenderConfig>, x: f64| {
+                ctx.pipeline_cache
+                    .as_ref()
+                    .is_some_and(|c| c.tiles.iter().any(|t| (t.page_x - x).abs() <= 256.0))
+            };
+            assert!(
+                !has_column(&ctx, 10_000.0),
+                "content far to the right must stay deferred"
+            );
+
+            ctx.set_scroll(100.0, 0.0);
+            assert!(!ctx.raster_dirty, "small scroll must not schedule rasterization");
+
+            ctx.set_scroll(10_000.0, 0.0);
+            assert!(ctx.raster_dirty, "scrolling sideways to unbaked content must raster");
+            assert!(!ctx.damage.level().needs_geometry(), "extending must not re-lay out");
+
+            ctx.rebuild_pipeline_cache_if_needed();
+            let extend_pass = raster_calls.swap(0, Ordering::Relaxed);
+            assert!(has_column(&ctx, 10_000.0), "the new viewport must be baked");
+            assert!(
+                extend_pass <= 8,
+                "extending rastered {extend_pass} tiles, expected a window"
+            );
             assert!(!ctx.raster_dirty, "the extension must satisfy the scroll");
         }
 

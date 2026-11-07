@@ -230,7 +230,7 @@ fn first_window(fixture: &Fixture) -> usize {
     tile_list.cover(window_band(0.0, VIEWPORT.1));
 
     let layer_ids = tile_list.layer_list.layer_ids.read().clone();
-    defer_tiles_outside_window(&mut tile_list, 0.0, VIEWPORT.1);
+    defer_tiles_outside_window(&mut tile_list, Rect::new(0.0, 0.0, VIEWPORT.0, VIEWPORT.1));
     paint_dirty(fixture, &mut tile_list, &layer_ids, full_page_rect(fixture)).len()
 }
 
@@ -240,7 +240,7 @@ fn at_top(fixture: &Fixture) -> (TileList, HashSet<TilePos>) {
     tile_list.cover(window_band(0.0, VIEWPORT.1));
 
     let layer_ids = tile_list.layer_list.layer_ids.read().clone();
-    defer_tiles_outside_window(&mut tile_list, 0.0, VIEWPORT.1);
+    defer_tiles_outside_window(&mut tile_list, Rect::new(0.0, 0.0, VIEWPORT.0, VIEWPORT.1));
     let painted = paint_dirty(fixture, &mut tile_list, &layer_ids, full_page_rect(fixture));
     let done = painted.into_iter().filter_map(|id| tile_pos(&tile_list, id)).collect();
     (tile_list, done)
@@ -261,7 +261,7 @@ fn extend_pass(fixture: &Fixture, tile_list: &mut TileList, done: &mut HashSet<T
             tile.state = TileState::Ready;
         }
     }
-    defer_tiles_outside_window(tile_list, scroll_y, VIEWPORT.1);
+    defer_tiles_outside_window(tile_list, Rect::new(0.0, scroll_y, VIEWPORT.0, VIEWPORT.1));
 
     let layer_ids = tile_list.layer_list.layer_ids.read().clone();
     let painted = paint_dirty(fixture, tile_list, &layer_ids, full_page_rect(fixture));

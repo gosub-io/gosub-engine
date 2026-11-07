@@ -29,7 +29,7 @@ use gosub_render_pipeline::layouter::LayoutElementId;
 use gosub_render_pipeline::rasterizer::{BakedTile, Rasterable};
 use gosub_render_pipeline::render::backend::TileAnchor;
 use gosub_render_pipeline::tile_budget::{
-    defer_tiles_outside_band, defer_tiles_outside_window, raster_window, window_band, TilePosKey,
+    defer_tiles_outside_band, defer_tiles_outside_window, raster_columns, raster_window, window_band, TilePosKey,
 };
 use gosub_render_pipeline::tiler::{TileBand, TileList, TileState};
 use gosub_shared::byte_stream::{ByteStream, Encoding};
@@ -193,6 +193,7 @@ pub struct RetainedPage<C: RenderConfiguration> {
     /// pass need not produce, and the pool eviction draws from.
     shipped: HashMap<TilePosKey, Shipped>,
     /// Where the viewport was last: a hover repaint stays within that window.
+    scroll_x: f64,
     scroll_y: f64,
     /// The DOM node under the pointer, as the broker last told us.
     hovered: Option<NodeId>,
@@ -418,6 +419,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             hit_regions,
             fragment_targets,
             shipped: HashMap::new(),
+            scroll_x: 0.0,
             scroll_y: 0.0,
             hovered,
             input: PageInput::default(),
@@ -461,16 +463,16 @@ impl<C: RenderConfiguration> RetainedPage<C> {
     }
 
     /// Stages 4-6 over one window of the page: the raster window around
-    /// `scroll_y`, or the whole page for `None`. Tiles the broker already
+    /// `scroll` (x, y), or the whole page for `None`. Tiles the broker already
     /// holds - from an earlier pass of this page, or (by content hash) from
     /// `known_tiles` - are neither rasterized nor shipped. With a window,
     /// shipped tiles that now lie further than [`EVICT_MARGIN_VIEWPORTS`]
     /// from it are given up and reported as evicted.
-    pub fn render(&mut self, scroll_y: Option<f64>, known_tiles: &HashSet<u64>) -> RenderPass {
-        if let Some(scroll_y) = scroll_y {
-            self.scroll_y = scroll_y;
+    pub fn render(&mut self, scroll: Option<(f64, f64)>, known_tiles: &HashSet<u64>) -> RenderPass {
+        if let Some((x, y)) = scroll {
+            (self.scroll_x, self.scroll_y) = (x, y);
         }
-        self.pass(scroll_y, known_tiles, None, RasterBand::Window)
+        self.pass(scroll, known_tiles, None, RasterBand::Window)
     }
 
     /// The pointer moved to `node` (a DOM node id, or nothing): restyle the
@@ -524,7 +526,12 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         let Some(repaint) = repaint else {
             return self.empty_pass();
         };
-        self.pass(Some(self.scroll_y), &HashSet::new(), Some(repaint), RasterBand::Window)
+        self.pass(
+            Some((self.scroll_x, self.scroll_y)),
+            &HashSet::new(),
+            Some(repaint),
+            RasterBand::Window,
+        )
     }
 
     /// The user acted on this page: apply `event` to the document through the
@@ -535,8 +542,8 @@ impl<C: RenderConfiguration> RetainedPage<C> {
     /// broker's), as a navigate does - the tile bookkeeping by position does
     /// not survive a layout. What the input asked of the broker travels as
     /// effects.
-    pub fn input(&mut self, scroll_y: f64, known_tiles: &HashSet<u64>, event: InputEvent) -> InputPass {
-        self.scroll_y = scroll_y;
+    pub fn input(&mut self, scroll: (f64, f64), known_tiles: &HashSet<u64>, event: InputEvent) -> InputPass {
+        (self.scroll_x, self.scroll_y) = scroll;
         self.dirty = Dirty::None;
         let focus_before = self.doc.focused_node();
         let capture_before = self.holds_pointer();
@@ -650,7 +657,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             });
         }
 
-        let (pass, relayouted) = self.finish_dirty(scroll_y, known_tiles, "input", Relayout::Full, RasterBand::Window);
+        let (pass, relayouted) = self.finish_dirty(scroll, known_tiles, "input", Relayout::Full, RasterBand::Window);
         InputPass {
             pass,
             effects,
@@ -662,14 +669,20 @@ impl<C: RenderConfiguration> RetainedPage<C> {
     /// out again at the new size and ship the window by hash, as an input that
     /// moved the boxes would. The one path a window resize takes; nothing is
     /// parsed or fetched again.
-    pub fn resize(&mut self, viewport: (f64, f64), dpr: u32, scroll_y: f64, known_tiles: &HashSet<u64>) -> InputPass {
+    pub fn resize(
+        &mut self,
+        viewport: (f64, f64),
+        dpr: u32,
+        scroll: (f64, f64),
+        known_tiles: &HashSet<u64>,
+    ) -> InputPass {
         self.viewport_width = viewport.0;
         self.viewport_height = viewport.1;
         self.dpr = dpr;
-        self.scroll_y = scroll_y;
+        (self.scroll_x, self.scroll_y) = scroll;
         self.dirty = Dirty::Relayout;
         let (pass, relayouted) = self.finish_dirty(
-            scroll_y,
+            scroll,
             known_tiles,
             "resize",
             Relayout::GeometryIfUnchanged,
@@ -685,10 +698,10 @@ impl<C: RenderConfiguration> RetainedPage<C> {
     /// Images the page went without have arrived: lay it out again in full, which asks the
     /// media store for them again, and ship the window by hash. The DOM stays as the user
     /// left it.
-    pub fn media_landed(&mut self, scroll_y: f64, known_tiles: &HashSet<u64>) -> InputPass {
-        self.scroll_y = scroll_y;
+    pub fn media_landed(&mut self, scroll: (f64, f64), known_tiles: &HashSet<u64>) -> InputPass {
+        (self.scroll_x, self.scroll_y) = scroll;
         self.dirty = Dirty::Relayout;
-        let (pass, relayouted) = self.finish_dirty(scroll_y, known_tiles, "media", Relayout::Full, RasterBand::Window);
+        let (pass, relayouted) = self.finish_dirty(scroll, known_tiles, "media", Relayout::Full, RasterBand::Window);
         InputPass {
             pass,
             effects: Vec::new(),
@@ -702,7 +715,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
     /// mean nothing across the two).
     fn finish_dirty(
         &mut self,
-        scroll_y: f64,
+        scroll: (f64, f64),
         known_tiles: &HashSet<u64>,
         pass_name: &str,
         relayout: Relayout,
@@ -710,7 +723,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
     ) -> (RenderPass, bool) {
         match std::mem::replace(&mut self.dirty, Dirty::None) {
             Dirty::None => (self.empty_pass(), false),
-            Dirty::Paint(rect) => (self.pass(Some(scroll_y), &HashSet::new(), Some(rect), band), false),
+            Dirty::Paint(rect) => (self.pass(Some(scroll), &HashSet::new(), Some(rect), band), false),
             Dirty::Relayout => {
                 let (layout_us, geometry_only) = self.lay_out_again(relayout);
                 // `<pass>.layout` is the full re-layout, `<pass>.geometry` taffy over the kept tree.
@@ -721,7 +734,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
                 // held that this pass did not account for.
                 let held: HashSet<u64> = self.shipped.values().map(|s| s.hash).collect();
                 self.shipped.clear();
-                let mut pass = self.pass(Some(scroll_y), known_tiles, None, band);
+                let mut pass = self.pass(Some(scroll), known_tiles, None, band);
                 let now: HashSet<u64> = self.shipped.values().map(|s| s.hash).collect();
                 pass.evicted.extend(held.difference(&now).copied());
                 (pass, true)
@@ -900,7 +913,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
     /// broker already holds by position needs nothing.
     fn pass(
         &mut self,
-        scroll_y: Option<f64>,
+        scroll: Option<(f64, f64)>,
         known_tiles: &HashSet<u64>,
         repaint: Option<Rect>,
         band: RasterBand,
@@ -920,7 +933,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         // Stage 4: tiling, from the retained layer list.
         // Only the band gets tiles; the whole page only for a one-shot render that has no viewport.
         let mut tile_list = TileList::from_arc(Arc::clone(&self.layer_list), Dimension::new(TILE_SIZE, TILE_SIZE));
-        match (scroll_y, band) {
+        match (scroll.map(|(_, y)| y), band) {
             (Some(scroll_y), RasterBand::Window) => tile_list.cover(window_band(scroll_y, self.viewport_height)),
             (Some(scroll_y), RasterBand::Viewport) => tile_list.cover(TileBand::Rows {
                 lo: scroll_y,
@@ -929,12 +942,11 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             }),
             (None, _) => tile_list.generate(),
         }
-        if let Some(scroll_y) = scroll_y {
+        if let Some((scroll_x, scroll_y)) = scroll {
+            let view = Rect::new(scroll_x, scroll_y, self.viewport_width, self.viewport_height);
             match band {
-                RasterBand::Window => defer_tiles_outside_window(&mut tile_list, scroll_y, self.viewport_height),
-                RasterBand::Viewport => {
-                    defer_tiles_outside_band(&mut tile_list, scroll_y, scroll_y + self.viewport_height)
-                }
+                RasterBand::Window => defer_tiles_outside_window(&mut tile_list, view),
+                RasterBand::Viewport => defer_tiles_outside_band(&mut tile_list, view),
             };
         }
 
@@ -1093,13 +1105,17 @@ impl<C: RenderConfiguration> RetainedPage<C> {
 
         // Let go of what drifted out of reach. Whole-page passes keep
         // everything: there is no viewport to measure distance from.
-        if let Some(scroll_y) = scroll_y {
+        if let Some((scroll_x, scroll_y)) = scroll {
             let (lo, hi) = raster_window(scroll_y, self.viewport_height);
             let margin = EVICT_MARGIN_VIEWPORTS * self.viewport_height;
             let (keep_lo, keep_hi) = (lo - margin, hi + margin);
+            let (left, right) = raster_columns(scroll_x, self.viewport_width);
+            let margin_x = EVICT_MARGIN_VIEWPORTS * self.viewport_width;
+            let (keep_left, keep_right) = (left - margin_x, right + margin_x);
             self.shipped.retain(|_, shipped| {
-                let far =
-                    shipped.scrolls && (shipped.rect.y + shipped.rect.height <= keep_lo || shipped.rect.y >= keep_hi);
+                let r = shipped.rect;
+                let far = shipped.scrolls
+                    && (r.y + r.height <= keep_lo || r.y >= keep_hi || r.x + r.width <= keep_left || r.x >= keep_right);
                 if far {
                     evicted.push(shipped.hash);
                 }
@@ -1383,7 +1399,7 @@ mod tests {
         );
 
         let first = page
-            .render(Some(0.0), &known)
+            .render(Some((0.0, 0.0)), &known)
             .summary
             .diagnostics
             .expect("with the first pass");
@@ -1393,7 +1409,7 @@ mod tests {
             "{first:?}"
         );
         assert!(
-            page.render(Some(0.0), &known).summary.diagnostics.is_none(),
+            page.render(Some((0.0, 0.0)), &known).summary.diagnostics.is_none(),
             "only once"
         );
     }
@@ -1537,13 +1553,13 @@ mod tests {
         );
         let known = HashSet::new();
         assert!(page.flush_autofocus().is_some());
-        page.render(Some(0.0), &known);
+        page.render(Some((0.0, 0.0)), &known);
         let before = page.page_height;
         let b = page.doc.node_by_named_id("b");
         assert!(page.with_input(|input, host| input.set_focus(host, b, true)));
 
         loader.landed.store(true, std::sync::atomic::Ordering::Release);
-        let out = page.media_landed(0.0, &known);
+        let out = page.media_landed((0.0, 0.0), &known);
         assert!(out.relayouted);
         assert!(out.effects.is_empty(), "{:?}", out.effects);
         assert_eq!(page.doc.focused_node(), b, "the focus went back to the autofocus field");
@@ -1566,18 +1582,18 @@ mod tests {
             RenderedTile::Fresh { hash, .. } | RenderedTile::Unchanged { hash, .. } => *hash,
         };
         page.rasterizer = Some(Box::new(Solid));
-        let first = page.render(Some(0.0), &HashSet::new());
+        let first = page.render(Some((0.0, 0.0)), &HashSet::new());
         let held: HashSet<u64> = first.tiles.iter().map(hash).collect();
         assert!(!held.is_empty());
         let before = page.page_height;
-        let still_waiting = page.media_landed(0.0, &held);
+        let still_waiting = page.media_landed((0.0, 0.0), &held);
         assert!(
             still_waiting.pass.tiles.iter().all(|tile| held.contains(&hash(tile))),
             "nothing changed yet"
         );
 
         loader.landed.store(true, std::sync::atomic::Ordering::Release);
-        let out = page.media_landed(0.0, &held);
+        let out = page.media_landed((0.0, 0.0), &held);
         assert_eq!(page.page_height, before, "a fixed size moves nothing");
         assert!(
             out.pass.tiles.iter().any(|tile| !held.contains(&hash(tile))),
