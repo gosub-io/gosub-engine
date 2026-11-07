@@ -1349,7 +1349,7 @@ impl ResidentRenderer {
         self.send(&ToRenderer::CloseTab { tab: tab.to_string() })
     }
 
-    /// Render `html` for `tab` - the raster window around `scroll_y` of it -
+    /// Render `html` for `tab` - the raster window around `scroll` of it -
     /// and have the renderer retain the page for later [`Self::scroll`]s.
     /// Any failure marks the renderer dead: the exchange strictly alternates,
     /// so a broken one leaves the link in no state a later request could
@@ -1361,7 +1361,7 @@ impl ResidentRenderer {
         url: &str,
         tab: &str,
         viewport: (f64, f64),
-        scroll_y: f64,
+        (scroll_x, scroll_y): (f64, f64),
         loader: &dyn RenderResources,
         known_tiles: &TileMemory,
         hovered_node: Option<u64>,
@@ -1375,6 +1375,7 @@ impl ResidentRenderer {
             viewport_height: viewport.1,
             dpr: gosub_render_pipeline::render::DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed),
             media: media_prefs(),
+            scroll_x,
             scroll_y,
             known_tiles: known_tiles.hashes(),
             hovered_node,
@@ -1389,12 +1390,13 @@ impl ResidentRenderer {
     pub fn scroll(
         &mut self,
         tab: &str,
-        scroll_y: f64,
+        (scroll_x, scroll_y): (f64, f64),
         loader: &dyn RenderResources,
         known_tiles: &TileMemory,
     ) -> anyhow::Result<RenderedPage> {
         self.send(&ToRenderer::Scroll {
             tab: tab.to_string(),
+            scroll_x,
             scroll_y,
         })?;
         self.exchange(loader, known_tiles)
@@ -1407,13 +1409,14 @@ impl ResidentRenderer {
     pub fn input(
         &mut self,
         tab: &str,
-        scroll_y: f64,
+        (scroll_x, scroll_y): (f64, f64),
         event: InputEvent,
         loader: &dyn RenderResources,
         known_tiles: &TileMemory,
     ) -> anyhow::Result<RenderedPage> {
         self.send(&ToRenderer::Input {
             tab: tab.to_string(),
+            scroll_x,
             scroll_y,
             known_tiles: known_tiles.hashes(),
             event,
@@ -1427,7 +1430,7 @@ impl ResidentRenderer {
         &mut self,
         tab: &str,
         viewport: (f64, f64),
-        scroll_y: f64,
+        (scroll_x, scroll_y): (f64, f64),
         loader: &dyn RenderResources,
         known_tiles: &TileMemory,
     ) -> anyhow::Result<RenderedPage> {
@@ -1436,6 +1439,7 @@ impl ResidentRenderer {
             viewport_width: viewport.0,
             viewport_height: viewport.1,
             dpr: gosub_render_pipeline::render::DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed),
+            scroll_x,
             scroll_y,
             known_tiles: known_tiles.hashes(),
         })?;
@@ -1447,12 +1451,13 @@ impl ResidentRenderer {
     pub fn media_landed(
         &mut self,
         tab: &str,
-        scroll_y: f64,
+        (scroll_x, scroll_y): (f64, f64),
         loader: &dyn RenderResources,
         known_tiles: &TileMemory,
     ) -> anyhow::Result<RenderedPage> {
         self.send(&ToRenderer::MediaLanded {
             tab: tab.to_string(),
+            scroll_x,
             scroll_y,
             known_tiles: known_tiles.hashes(),
         })?;
@@ -1578,7 +1583,7 @@ mod tests {
                 url,
                 "tab",
                 (800.0, 600.0),
-                0.0,
+                (0.0, 0.0),
                 &Nothing,
                 &TileMemory::default(),
                 None,

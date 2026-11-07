@@ -1730,7 +1730,7 @@ fn renderer_lifecycle<F: FontSystem + Default>() -> i32 {
                     &format!("{site}/"),
                     &tab.to_string(),
                     (1280.0, 720.0),
-                    0.0,
+                    (0.0, 0.0),
                     &loader,
                     &memory,
                     None,
@@ -1887,7 +1887,16 @@ fn renderer_scroll_window<F: FontSystem + Default>() -> i32 {
         let tab_name = tab.to_string();
 
         // First render, at the top: a window's worth of tiles, not the page's.
-        let page = match renderer.navigate(tall, "https://tall.test/", &tab_name, VP, 0.0, &loader, &memory, None) {
+        let page = match renderer.navigate(
+            tall,
+            "https://tall.test/",
+            &tab_name,
+            VP,
+            (0.0, 0.0),
+            &loader,
+            &memory,
+            None,
+        ) {
             Ok(page) => page,
             Err(e) => {
                 eprintln!("navigate failed: {e}");
@@ -1919,7 +1928,7 @@ fn renderer_scroll_window<F: FontSystem + Default>() -> i32 {
         println!("first render shipped {first} tiles for a {PAGE}px page (lowest at y={max_y})");
 
         // Scroll to the middle: new tiles arrive, the top ones are evicted.
-        let page = match renderer.scroll(&tab_name, 6000.0, &loader, &memory) {
+        let page = match renderer.scroll(&tab_name, (0.0, 6000.0), &loader, &memory) {
             Ok(page) => page,
             Err(e) => {
                 eprintln!("scroll failed: {e}");
@@ -1943,7 +1952,7 @@ fn renderer_scroll_window<F: FontSystem + Default>() -> i32 {
         println!("scroll to 6000: {fresh} tiles shipped, {} evicted", page.evicted.len());
 
         // Staying put ships nothing.
-        let page = match renderer.scroll(&tab_name, 6000.0, &loader, &memory) {
+        let page = match renderer.scroll(&tab_name, (0.0, 6000.0), &loader, &memory) {
             Ok(page) => page,
             Err(e) => {
                 eprintln!("repeat scroll failed: {e}");
@@ -1960,7 +1969,7 @@ fn renderer_scroll_window<F: FontSystem + Default>() -> i32 {
         }
 
         // Back to the top: the evicted tiles come back as fresh pixels.
-        let page = match renderer.scroll(&tab_name, 0.0, &loader, &memory) {
+        let page = match renderer.scroll(&tab_name, (0.0, 0.0), &loader, &memory) {
             Ok(page) => page,
             Err(e) => {
                 eprintln!("scroll back failed: {e}");
@@ -2047,7 +2056,7 @@ fn renderer_hover<F: FontSystem + Default>() -> i32 {
             "https://hover.test/",
             &tab_name,
             (1280.0, 720.0),
-            0.0,
+            (0.0, 0.0),
             &loader,
             &memory,
             None,
@@ -2203,7 +2212,7 @@ fn renderer_input<F: FontSystem + Default>() -> i32 {
             "https://input.test/",
             &tab_name,
             (1280.0, 720.0),
-            0.0,
+            (0.0, 0.0),
             &loader,
             &memory,
             None,
@@ -2254,7 +2263,7 @@ fn renderer_input<F: FontSystem + Default>() -> i32 {
         let input =
             |renderer: &mut ResidentRenderer, memory: &mut TileMemory, event: InputEvent| -> Result<Outcome, String> {
                 let page: RenderedPage = renderer
-                    .input(&tab_name, 0.0, event, &loader, memory)
+                    .input(&tab_name, (0.0, 0.0), event, &loader, memory)
                     .map_err(|e| e.to_string())?;
                 let fresh = page
                     .tiles
@@ -2558,11 +2567,11 @@ fn renderer_input<F: FontSystem + Default>() -> i32 {
 
         // The renderer is still itself: a scroll pass works and a tab it never saw
         // says so.
-        if let Err(e) = renderer.scroll(&tab_name, 300.0, &loader, &memory) {
+        if let Err(e) = renderer.scroll(&tab_name, (0.0, 300.0), &loader, &memory) {
             eprintln!("a scroll after input failed: {e}");
             return 1;
         }
-        match renderer.input("no-such-tab", 0.0, InputEvent::Blur, &loader, &memory) {
+        match renderer.input("no-such-tab", (0.0, 0.0), InputEvent::Blur, &loader, &memory) {
             Ok(page) if page.summary.no_page && page.effects.is_empty() => {}
             Ok(page) => {
                 eprintln!("input for an unknown tab should answer no_page, got {:?}", page.summary);
@@ -3452,7 +3461,7 @@ fn renderer_resize<F: FontSystem + Default>() -> i32 {
             "https://resize.test/",
             &tab_name,
             (1280.0, 720.0),
-            0.0,
+            (0.0, 0.0),
             &loader,
             &memory,
             None,
@@ -3467,7 +3476,7 @@ fn renderer_resize<F: FontSystem + Default>() -> i32 {
         let wide_height = wide.summary.page_height;
         println!("at 1280 px the page is {wide_height} px tall");
 
-        let narrow = match renderer.resize(&tab_name, (600.0, 720.0), 0.0, &loader, &memory) {
+        let narrow = match renderer.resize(&tab_name, (600.0, 720.0), (0.0, 0.0), &loader, &memory) {
             Ok(page) => page,
             Err(e) => {
                 eprintln!("resize to 600 failed: {e}");
@@ -3513,7 +3522,7 @@ fn renderer_resize<F: FontSystem + Default>() -> i32 {
         }
         memory.apply_pass(&narrow.evicted, narrow.tiles.iter().map(PageTile::keep));
 
-        let back = match renderer.resize(&tab_name, (1280.0, 720.0), 0.0, &loader, &memory) {
+        let back = match renderer.resize(&tab_name, (1280.0, 720.0), (0.0, 0.0), &loader, &memory) {
             Ok(page) => page,
             Err(e) => {
                 eprintln!("resize back to 1280 failed: {e}");
@@ -3552,7 +3561,7 @@ fn renderer_resize<F: FontSystem + Default>() -> i32 {
 
         // 1000 px flips no condition and no sheet reads the viewport: taffy
         // over the kept tree, with the paragraph wrapping more than at 1280.
-        let mid = match renderer.resize(&tab_name, (1000.0, 720.0), 0.0, &loader, &memory) {
+        let mid = match renderer.resize(&tab_name, (1000.0, 720.0), (0.0, 0.0), &loader, &memory) {
             Ok(page) => page,
             Err(e) => {
                 eprintln!("resize to 1000 failed: {e}");
@@ -3656,7 +3665,7 @@ fn renderer_input_tall<F: FontSystem + Default>() -> i32 {
             "https://tall.test/",
             &tab_name,
             (1280.0, 720.0),
-            0.0,
+            (0.0, 0.0),
             &loader,
             &memory,
             None,
@@ -3668,7 +3677,7 @@ fn renderer_input_tall<F: FontSystem + Default>() -> i32 {
             }
         };
         memory.replace_with(page.tiles.iter().map(PageTile::keep));
-        let page = match renderer.scroll(&tab_name, 6000.0, &loader, &memory) {
+        let page = match renderer.scroll(&tab_name, (0.0, 6000.0), &loader, &memory) {
             Ok(page) => page,
             Err(e) => {
                 eprintln!("scroll failed: {e}");
@@ -3696,7 +3705,7 @@ fn renderer_input_tall<F: FontSystem + Default>() -> i32 {
                 "Space",
             ),
         ] {
-            let page = match renderer.input(&tab_name, 6000.0, event, &loader, &memory) {
+            let page = match renderer.input(&tab_name, (0.0, 6000.0), event, &loader, &memory) {
                 Ok(page) => page,
                 Err(e) => {
                     eprintln!("{what} failed: {e}");
@@ -3801,7 +3810,7 @@ fn renderer_input_retained<F: FontSystem + Default>() -> i32 {
                 "https://retained.test/",
                 &tab.to_string(),
                 (1280.0, 720.0),
-                0.0,
+                (0.0, 0.0),
                 &loader,
                 &memory,
                 None,
@@ -3823,7 +3832,13 @@ fn renderer_input_retained<F: FontSystem + Default>() -> i32 {
         };
         let mut renderer = renderer.lock();
         // The first tab's page is the least recently used of four, one past the cap.
-        match renderer.input(&tabs[0].to_string(), 0.0, InputEvent::Blur, &loader, &memories[0]) {
+        match renderer.input(
+            &tabs[0].to_string(),
+            (0.0, 0.0),
+            InputEvent::Blur,
+            &loader,
+            &memories[0],
+        ) {
             Ok(page) if page.summary.no_page && page.effects.is_empty() => {
                 println!("input for the page let go of answers no_page with no effects");
             }
@@ -3836,7 +3851,7 @@ fn renderer_input_retained<F: FontSystem + Default>() -> i32 {
                 return 1;
             }
         }
-        match renderer.scroll(&tabs[3].to_string(), 0.0, &loader, &memories[3]) {
+        match renderer.scroll(&tabs[3].to_string(), (0.0, 0.0), &loader, &memories[3]) {
             Ok(page) if !page.summary.no_page => println!("the newest tab still scrolls"),
             Ok(_) => {
                 eprintln!("the newest tab's page should still be retained");
@@ -3905,7 +3920,7 @@ fn renderer_input_hostile<F: FontSystem + Default>() -> i32 {
                 return 1;
             }
         };
-        match renderer.input("t", 0.0, InputEvent::Blur, &loader, &memory) {
+        match renderer.input("t", (0.0, 0.0), InputEvent::Blur, &loader, &memory) {
             Err(e) if renderer.is_dead() => println!("{} effects ended the exchange: {e}", MAX_EFFECTS + 1),
             Err(e) => {
                 eprintln!("the exchange ended ({e}) but the handle is not dead");
@@ -3945,7 +3960,7 @@ fn renderer_input_hostile<F: FontSystem + Default>() -> i32 {
                 return 1;
             }
         };
-        match renderer.input("t", 0.0, InputEvent::Blur, &loader, &memory) {
+        match renderer.input("t", (0.0, 0.0), InputEvent::Blur, &loader, &memory) {
             Ok(page)
                 if page.effects.len() == 1
                     && matches!(
@@ -4302,7 +4317,7 @@ fn renderer_crash<F: FontSystem + Default>() -> i32 {
                 "https://crash.test/",
                 &tab_name,
                 (1280.0, 720.0),
-                0.0,
+                (0.0, 0.0),
                 &loader,
                 &memory,
                 None,
@@ -4329,7 +4344,7 @@ fn renderer_crash<F: FontSystem + Default>() -> i32 {
                 }
             };
             let mut renderer = renderer.lock();
-            match renderer.scroll(&tab_name, 100.0, &loader, &memory) {
+            match renderer.scroll(&tab_name, (0.0, 100.0), &loader, &memory) {
                 Ok(_) => {
                     eprintln!("an exchange with a dead renderer should fail");
                     return 1;
@@ -4364,7 +4379,7 @@ fn renderer_crash<F: FontSystem + Default>() -> i32 {
             "https://crash.test/",
             &tab_name,
             (1280.0, 720.0),
-            0.0,
+            (0.0, 0.0),
             &loader,
             &memory,
             None,
@@ -5441,7 +5456,7 @@ fn renderer_soak<F: FontSystem + Default>() -> i32 {
                 &format!("{site}/{round}"),
                 &tab_name,
                 (1280.0, 720.0),
-                0.0,
+                (0.0, 0.0),
                 &loader,
                 &memory,
                 None,
@@ -5455,7 +5470,7 @@ fn renderer_soak<F: FontSystem + Default>() -> i32 {
             memory.replace_with(page.tiles.iter().map(PageTile::keep));
             // Scroll down and back: passes, evictions, re-ships.
             for y in [1500.0, 3000.0, 0.0] {
-                match renderer.scroll(&tab_name, y, &loader, &memory) {
+                match renderer.scroll(&tab_name, (0.0, y), &loader, &memory) {
                     Ok(page) => memory.apply_pass(&page.evicted, page.tiles.iter().map(PageTile::keep)),
                     Err(e) => {
                         eprintln!("round {round}: scroll failed: {e}");
@@ -5526,7 +5541,7 @@ fn renderer_soak<F: FontSystem + Default>() -> i32 {
                     &format!("{site}/tab"),
                     &t.to_string(),
                     (640.0, 480.0),
-                    0.0,
+                    (0.0, 0.0),
                     &loader,
                     &Default::default(),
                     None,

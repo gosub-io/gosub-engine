@@ -126,6 +126,7 @@ pub enum ToRenderer {
         media: MediaPrefs,
         /// Where the viewport is: only the raster window around it is
         /// rasterized and shipped (see [`ToRenderer::Scroll`]).
+        scroll_x: f64,
         scroll_y: f64,
         known_tiles: Vec<u64>,
         hovered_node: Option<u64>,
@@ -135,7 +136,7 @@ pub enum ToRenderer {
     /// ([`FromRenderer::Evict`]) tiles that drifted too far to keep. Answered
     /// with the same streamed sequence as `Navigate`; the summary's tile
     /// counts cover this pass only.
-    Scroll { tab: String, scroll_y: f64 },
+    Scroll { tab: String, scroll_x: f64, scroll_y: f64 },
     /// The pointer moved to `node` (a DOM node id the broker hit-tested, or
     /// nothing) on a page this renderer retains: restyle the hover chains and
     /// repaint just the tiles they cover. Same streamed answer as `Scroll`.
@@ -151,6 +152,7 @@ pub enum ToRenderer {
         tab: String,
         /// Where the viewport is; viewport coordinates in `event` are
         /// measured against it.
+        scroll_x: f64,
         scroll_y: f64,
         known_tiles: Vec<u64>,
         event: InputEvent,
@@ -166,6 +168,7 @@ pub enum ToRenderer {
         viewport_width: f64,
         viewport_height: f64,
         dpr: u32,
+        scroll_x: f64,
         scroll_y: f64,
         known_tiles: Vec<u64>,
     },
@@ -174,6 +177,7 @@ pub enum ToRenderer {
     /// the one the user is on, focus and typed text included; nothing is parsed again.
     MediaLanded {
         tab: String,
+        scroll_x: f64,
         scroll_y: f64,
         known_tiles: Vec<u64>,
     },
