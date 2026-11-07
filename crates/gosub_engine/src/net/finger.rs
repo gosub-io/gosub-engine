@@ -63,6 +63,7 @@ impl Protocol for Finger {
             certificates: Vec::new(),
             final_url: None,
             rest: None,
+            filename: None,
         })
     }
 }
