@@ -53,13 +53,14 @@ pub fn menu_page(url: &Url, body: &[u8]) -> String {
 
 /// A text file (item type `0`), with the gopher terminator and dot-stuffing undone.
 pub fn text_page(url: &Url, body: &[u8]) -> String {
+    let encoding = menu::encoding_for(body);
     let mut text = String::new();
     for line in menu::lines(body) {
         if line == b"." {
             break;
         }
         let line = line.strip_prefix(b".").filter(|l| l.starts_with(b".")).unwrap_or(line);
-        text.push_str(&String::from_utf8_lossy(line));
+        text.push_str(&menu::decode(encoding, line));
         text.push('\n');
     }
     page(&title_for(url), &format!("<pre>{}</pre>", escape(&text)))
@@ -281,6 +282,24 @@ mod tests {
         let html = text_page(&url("gopher://h/0/x"), b"<b>bold</b>\r\n..dot\r\n.\r\nafter\r\n");
         assert!(html.contains("&lt;b&gt;bold&lt;/b&gt;\n.dot\n</pre>"));
         assert!(!html.contains("after"));
+    }
+
+    #[test]
+    fn a_latin1_text_file_keeps_its_characters() {
+        let html = text_page(&url("gopher://h/0/x"), b"Gr\xfc\xdfe aus K\xf6ln\r\n.\r\n");
+        assert!(html.contains("<pre>Gr\u{fc}\u{df}e aus K\u{f6}ln\n</pre>"));
+    }
+
+    #[test]
+    fn a_utf8_text_file_is_unchanged() {
+        let html = text_page(&url("gopher://h/0/x"), "Gr\u{fc}\u{df}e \u{2603}\r\n".as_bytes());
+        assert!(html.contains("<pre>Gr\u{fc}\u{df}e \u{2603}\n</pre>"));
+    }
+
+    #[test]
+    fn a_latin1_menu_keeps_its_characters() {
+        let html = menu_page(&url("gopher://h/"), b"0Caf\xe9\t/c\th\t70\r\n");
+        assert!(html.contains(">Caf\u{e9}</a>"));
     }
 
     #[test]
