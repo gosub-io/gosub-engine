@@ -1110,9 +1110,14 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             let (lo, hi) = raster_window(scroll_y, self.viewport_height);
             let margin = EVICT_MARGIN_VIEWPORTS * self.viewport_height;
             let (keep_lo, keep_hi) = (lo - margin, hi + margin);
-            let (left, right) = raster_columns(scroll_x, self.viewport_width);
-            let margin_x = EVICT_MARGIN_VIEWPORTS * self.viewport_width;
-            let (keep_left, keep_right) = (left - margin_x, right + margin_x);
+            // No width yet keeps every column, as the raster window does.
+            let (keep_left, keep_right) = if self.viewport_width > 0.0 {
+                let (left, right) = raster_columns(scroll_x, self.viewport_width);
+                let margin_x = EVICT_MARGIN_VIEWPORTS * self.viewport_width;
+                (left - margin_x, right + margin_x)
+            } else {
+                (f64::MIN, f64::MAX)
+            };
             self.shipped.retain(|_, shipped| {
                 let r = shipped.rect;
                 let far = shipped.scrolls
@@ -1457,6 +1462,44 @@ mod tests {
         let mut page = build("https://example.test/#p");
         assert!(page.flush_autofocus().is_none());
         assert_eq!(page.doc.focused_node(), None);
+    }
+
+    /// A viewport with no width yet keeps every column, so what the broker holds stays there.
+    #[test]
+    fn a_zero_width_viewport_evicts_nothing_sideways() {
+        use crate::html::{DefaultRenderConfig, RenderConfiguration};
+        type Fonts = <DefaultRenderConfig as RenderConfiguration>::FontSystem;
+        let fonts: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(Fonts::default()));
+        let known = HashSet::new();
+        let mut page = RetainedPage::<DefaultRenderConfig>::build(
+            PageRequest {
+                html: "<!DOCTYPE html><body style=\"margin:0\"><div style=\"width:600px;height:50px\"></div></body>",
+                page_url: "https://example.test/",
+                viewport_width: 0.0,
+                viewport_height: 600.0,
+                known_tiles: &known,
+                hovered_node: None,
+                dpr: 1,
+                media: MediaPrefs::default(),
+            },
+            fonts,
+            Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
+            Arc::new(crate::net::resource_loader::NoResourceLoader),
+        );
+
+        let key = (256f64.to_bits(), 0f64.to_bits(), u64::MAX);
+        page.shipped.insert(
+            key,
+            Shipped {
+                hash: 1,
+                rect: Rect::new(256.0, 0.0, 256.0, 256.0),
+                scrolls: true,
+            },
+        );
+
+        let pass = page.render(Some((0.0, 0.0)), &known);
+        assert!(!pass.evicted.contains(&1), "{:?}", pass.evicted);
+        assert!(page.shipped.contains_key(&key));
     }
 
     /// A click on a page scrolled sideways hits what is under the pointer there, and the
