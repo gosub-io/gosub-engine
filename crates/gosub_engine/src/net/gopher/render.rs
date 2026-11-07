@@ -7,6 +7,7 @@
 use super::menu::{self, Item};
 use super::request::{DEFAULT_PORT, SEARCH_FIELD, SEARCH_TYPE};
 use crate::net::protocols::page::{self, escape, title_for};
+use encoding_rs::Encoding;
 use percent_encoding::{percent_encode, AsciiSet, CONTROLS};
 use url::Url;
 
@@ -41,9 +42,10 @@ pub fn menu_page(url: &Url, body: &[u8]) -> String {
     let host = url.host_str().unwrap_or_default();
     let host = host.trim_start_matches('[').trim_end_matches(']');
     let port = url.port().unwrap_or(DEFAULT_PORT);
+    let encoding = menu::encoding_for(body);
     let mut out = String::new();
     for item in menu::parse(body) {
-        out.push_str(&menu_line(&item, host, port));
+        out.push_str(&menu_line(&item, host, port, encoding));
         // `<br>`, not a newline: the engine loses a preserved newline between inline
         // elements, and a browser renders either as a line break.
         out.push_str("<br>");
@@ -94,7 +96,7 @@ pub fn error_page(url: &Url, message: &str) -> String {
 
 /// One menu item as a line of the menu page: a type tag, then the display string, linked
 /// when the item is something the engine can go to.
-fn menu_line(item: &Item, host: &str, port: u16) -> String {
+fn menu_line(item: &Item, host: &str, port: u16, encoding: &'static Encoding) -> String {
     let display = escape(&item.display);
     // The padding sits outside the span: the engine drops preserved spaces at the end of an
     // inline element.
@@ -103,6 +105,10 @@ fn menu_line(item: &Item, host: &str, port: u16) -> String {
     match item.item_type {
         'i' => format!("{:<5} {display}", ""),
         '3' => format!("{tag} <span class=\"e\">{display}</span>"),
+        '8' | 'T' => match session_for(item, host, port, encoding) {
+            Some(session) => format!("{tag} {display} <span class=\"t\">{}</span>", escape(&session)),
+            None => format!("{tag} {display}"),
+        },
         _ => match link_for(item, host, port) {
             Some(href) => format!("{tag} <a href=\"{}\">{display}</a>", escape(&href)),
             None => format!("{tag} {display}"),
@@ -130,6 +136,30 @@ fn link_for(item: &Item, host: &str, port: u16) -> Option<String> {
             gopher_url(host, port?, t, &item.selector).map(|u| u.to_string())
         }
     }
+}
+
+/// What a telnet (`8`) or tn3270 (`T`) item opens, as text: the engine opens no sessions.
+/// `None` when the host is not one `gopher_url` would link to. The selector, when set, is the
+/// login name.
+fn session_for(item: &Item, host: &str, port: u16, encoding: &'static Encoding) -> Option<String> {
+    let (host, port) = if item.host.is_empty() {
+        (host, port)
+    } else {
+        (item.host.as_str(), item.port?)
+    };
+    gopher_url(host, port, item.item_type, b"")?;
+    let protocol = if item.item_type == 'T' { "tn3270" } else { "telnet" };
+    let host = if host.contains(':') {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    };
+    let login = menu::decode(encoding, &item.selector);
+    Some(if login.is_empty() {
+        format!("{protocol} {host}:{port}")
+    } else {
+        format!("{protocol} {host}:{port} (login: {login})")
+    })
 }
 
 /// The URL of an item on `host:port`, or `None` when the host is not a plain host: a menu
@@ -268,8 +298,35 @@ mod tests {
 
     #[test]
     fn telnet_items_are_not_linked() {
-        let html = menu_page(&url("gopher://h/"), b"8Login\t\th\t23\r\n");
+        let html = menu_page(
+            &url("gopher://h/"),
+            b"8Login\tguest\tbbs.example\t23\r\nTMainframe\t\tibm.example\t2323\r\n8Here\t\t\t\r\n",
+        );
         assert!(!html.contains("<a "));
+        assert!(html.contains("Login <span class=\"t\">telnet bbs.example:23 (login: guest)</span>"));
+        assert!(html.contains("Mainframe <span class=\"t\">tn3270 ibm.example:2323</span>"));
+        assert!(html.contains("Here <span class=\"t\">telnet h:70</span>"));
+    }
+
+    #[test]
+    fn a_telnet_item_with_a_bad_host_or_port_shows_no_target() {
+        for line in [
+            &b"8X\t\tevil.example/x\t23\r\n"[..],
+            b"8X\t\ta@b\t23\r\n",
+            b"8X\t\th\ttwenty\r\n",
+        ] {
+            let html = menu_page(&url("gopher://h/"), line);
+            assert!(!html.contains("telnet"), "{html}");
+            assert!(html.contains("TEL</span>   X"), "{html}");
+        }
+    }
+
+    #[test]
+    fn a_telnet_login_is_escaped() {
+        let html = menu_page(&url("gopher://h/"), b"8X\t<b>me</b>\th\t23\r\n8Y\t\t::1\t23\r\n");
+        assert!(!html.contains("<b>"));
+        assert!(html.contains("(login: &lt;b&gt;me&lt;/b&gt;)"));
+        assert!(html.contains("telnet [::1]:23"));
     }
 
     #[test]
