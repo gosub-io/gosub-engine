@@ -840,7 +840,8 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         vp_x: f64,
         vp_y: f64,
     ) -> Option<(String, Option<crate::fork_server::protocol::WireReferrerPolicy>)> {
-        let (node, _) = crate::engine::input::hit_at(Some(&self.layer_list), (0.0, self.scroll_y), vp_x, vp_y);
+        let (node, _) =
+            crate::engine::input::hit_at(Some(&self.layer_list), (self.scroll_x, self.scroll_y), vp_x, vp_y);
         let (link, _, _, _, policy) = describe_hit::<C>(&self.doc, node?, self.base_url.as_ref());
         link.map(|link| (link, policy))
     }
@@ -859,7 +860,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         let lei = crate::engine::input::layout_element_of(Some(&self.layer_list), node)?;
         let bb = self.layer_list.layout_tree.get_node_by_id(lei)?.box_model.border_box;
         Some(WireRect {
-            x: bb.x,
+            x: bb.x - self.scroll_x,
             y: bb.y - self.scroll_y,
             width: bb.width,
             height: bb.height,
@@ -1144,10 +1145,8 @@ impl<C: RenderConfiguration> InputHost for RetainedPage<C> {
         Some(Arc::clone(&self.layer_list))
     }
 
-    /// The wire carries no horizontal scroll; the page is laid out at the
-    /// viewport's width.
     fn scroll(&self) -> (f64, f64) {
-        (0.0, self.scroll_y)
+        (self.scroll_x, self.scroll_y)
     }
 
     fn viewport_height(&self) -> f64 {
@@ -1458,6 +1457,50 @@ mod tests {
         let mut page = build("https://example.test/#p");
         assert!(page.flush_autofocus().is_none());
         assert_eq!(page.doc.focused_node(), None);
+    }
+
+    /// A click on a page scrolled sideways hits what is under the pointer there, and the
+    /// focused control's bounds come back in viewport coordinates.
+    #[test]
+    fn input_on_a_page_scrolled_sideways() {
+        use crate::html::{DefaultRenderConfig, RenderConfiguration};
+        type Fonts = <DefaultRenderConfig as RenderConfiguration>::FontSystem;
+        let fonts: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(Fonts::default()));
+        let known = HashSet::new();
+        let mut page = RetainedPage::<DefaultRenderConfig>::build(
+            PageRequest {
+                html: "<!DOCTYPE html><body style=\"margin:0\"><div style=\"width:4000px;height:50px\"></div>\
+<input id=\"i\" style=\"position:absolute;left:2000px;top:0;width:100px;height:40px\"></body>",
+                page_url: "https://example.test/",
+                viewport_width: 800.0,
+                viewport_height: 600.0,
+                known_tiles: &known,
+                hovered_node: None,
+                dpr: 1,
+                media: MediaPrefs::default(),
+            },
+            fonts,
+            Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
+            Arc::new(crate::net::resource_loader::NoResourceLoader),
+        );
+        page.render(Some((1900.0, 0.0)), &known);
+
+        let out = page.input(
+            (1900.0, 0.0),
+            &known,
+            InputEvent::PointerDown {
+                x: 150.0,
+                y: 20.0,
+                button: MouseButton::Left,
+            },
+        );
+        assert_eq!(page.doc.focused_node(), page.doc.node_by_named_id("i"));
+        let bounds = out.effects.iter().find_map(|effect| match effect {
+            Effect::Focus { bounds, .. } => *bounds,
+            _ => None,
+        });
+        let bounds = bounds.expect("a focus effect with bounds");
+        assert!((bounds.x - 100.0).abs() < 1.0, "{bounds:?}");
     }
 
     /// The broker's deferred loader for one image: "not yet" until it has landed.
