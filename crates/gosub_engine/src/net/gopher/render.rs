@@ -172,6 +172,15 @@ fn tag_for(item_type: char) -> &'static str {
         '3' => "ERR",
         '8' | 'T' => "TEL",
         '2' => "CSO",
+        // Common extensions outside RFC 1436.
+        'P' => "PDF",
+        'r' => "RTF",
+        'x' => "XML",
+        'c' => "CAL",
+        'M' => "MIME",
+        ':' => "IMG",
+        '<' => "SND",
+        '+' => "MIR",
         _ => "?",
     }
 }
@@ -270,6 +279,46 @@ mod tests {
         let r = Request::from_url(&u).unwrap();
         assert_eq!(r.item_type, '0');
         assert_eq!(r.selector, selector);
+    }
+
+    #[test]
+    fn extension_types_are_tagged_and_linked() {
+        let body = b"PPaper\t/p.pdf\th\t70\r\nrNotes\t/n.rtf\th\t70\r\nxFeed\t/f.xml\th\t70\r\n\
+                     cDates\t/d.ics\th\t70\r\nMMail\t/m.eml\th\t70\r\n:Pic\t/b.bmp\th\t70\r\n\
+                     <Tune\t/t.wav\th\t70\r\n";
+        let html = menu_page(&url("gopher://h/"), body);
+        for (tag, href) in [
+            ("PDF", "gopher://h/P/p.pdf"),
+            ("RTF", "gopher://h/r/n.rtf"),
+            ("XML", "gopher://h/x/f.xml"),
+            ("CAL", "gopher://h/c/d.ics"),
+            ("MIME", "gopher://h/M/m.eml"),
+            ("IMG", "gopher://h/:/b.bmp"),
+            ("SND", "gopher://h/%3C/t.wav"),
+        ] {
+            assert!(
+                html.contains(&format!("<span class=\"t\">{tag}</span>")),
+                "{tag}: {html}"
+            );
+            assert!(html.contains(&format!("<a href=\"{href}\">")), "{href}: {html}");
+        }
+        assert!(!html.contains("<span class=\"t\">?</span>"));
+    }
+
+    #[test]
+    fn a_mirror_is_tagged_but_not_linked() {
+        let html = menu_page(&url("gopher://h/"), b"+Mirror\t/\tm.example\t70\r\n");
+        assert!(html.contains("<span class=\"t\">MIR</span>"));
+        assert!(!html.contains("<a "));
+    }
+
+    #[test]
+    fn extension_types_round_trip_through_their_url() {
+        for t in ['P', 'r', 'x', 'c', 'M', ':', '<'] {
+            let u = gopher_url("h", 70, t, b"/s").unwrap();
+            let r = Request::from_url(&u).unwrap();
+            assert_eq!((r.item_type, r.selector.as_slice()), (t, &b"/s"[..]), "{u}");
+        }
     }
 
     #[test]
