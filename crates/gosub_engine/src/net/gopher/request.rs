@@ -5,6 +5,10 @@
 //! after a `%09` in the selector, or in the query, which is what the engine's own search form
 //! submits.
 //!
+//! URL parsing removes `.` and `..` path segments (and their `%2e` forms) before a URL gets
+//! here, so a selector with dot segments only survives as `%2F..`, which is how
+//! `render::gopher_url` writes it. A typed `gopher://h/1/a/../b` asks for `/b`.
+//!
 //! The selector goes onto the socket as raw bytes, so this is where a URL is kept from
 //! speaking anything but gopher: CR, LF, TAB and NUL are refused. Without that a single URL
 //! could put several lines, or a whole other protocol, on any port it can reach.
@@ -155,6 +159,12 @@ mod tests {
     fn the_selector_is_percent_decoded() {
         let r = parse("gopher://example/1/a%20b%25").unwrap();
         assert_eq!(r.selector, b"/a b%");
+    }
+
+    #[test]
+    fn an_escaped_slash_keeps_a_dot_segment_in_the_selector() {
+        assert_eq!(parse("gopher://example/1/a%2F../b").unwrap().selector, b"/a/../b");
+        assert_eq!(parse("gopher://example/1/a/../b").unwrap().selector, b"/b");
     }
 
     #[test]
