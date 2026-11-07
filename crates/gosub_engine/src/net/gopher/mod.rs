@@ -8,6 +8,7 @@
 //! - HTML (`h`) is served as it is,
 //! - BinHex (`4`) and uuencoded (`6`) files are served decoded, under the name they carry
 //!   ([`decode`]),
+//! - the text-like extension types (`x`, `c`, `M`, `r`) are served raw as plain text,
 //! - everything else is served raw under a sniffed media type, so images display and
 //!   anything unknown goes to the download offer.
 //!
@@ -111,7 +112,7 @@ async fn fetch_within(request: ProtocolRequest<'_>, limits: &Limits) -> Result<P
             )
         }
         None if request.item_type == 'h' => ("text/html", peek, rest.reader),
-        None => (sniff(&peek), peek, rest.reader),
+        None => (media_type(&request, &request.selector, &peek), peek, rest.reader),
     };
     Ok(ProtocolResponse {
         content_type: content_type.into(),
@@ -172,7 +173,7 @@ async fn decoded(
     head.truncate(len);
     let filename = reader.name().map(|name| String::from_utf8_lossy(name).into_owned());
     Ok(ProtocolResponse {
-        content_type: sniff(&head).into(),
+        content_type: media_type(request, reader.name().unwrap_or_default(), &head).into(),
         body: Bytes::from(head),
         rest: (!ended).then(|| BodyStream {
             reader: Box::new(reader),
@@ -204,7 +205,7 @@ fn present(request: &Request, url: &Url, body: Vec<u8>, peer: Option<SocketAddr>
             filename: None,
         },
         _ => ProtocolResponse {
-            content_type: sniff(&body).into(),
+            content_type: media_type(request, &request.selector, &body).into(),
             body: Bytes::from(body),
             rest: None,
             peer_addr: peer,
@@ -237,23 +238,87 @@ fn error_text(body: &[u8]) -> String {
     }
 }
 
-/// A media type for a binary item, from its first bytes. Gopher's binary item types do not
-/// say which format they are, and `I` covers every image there is.
-fn sniff(body: &[u8]) -> &'static str {
-    if body.starts_with(b"\x89PNG\r\n\x1a\n") {
-        "image/png"
-    } else if body.starts_with(b"\xff\xd8\xff") {
-        "image/jpeg"
-    } else if body.starts_with(b"GIF87a") || body.starts_with(b"GIF89a") {
-        "image/gif"
-    } else if body.len() >= 12 && &body[..4] == b"RIFF" && &body[8..12] == b"WEBP" {
-        "image/webp"
-    } else if body.starts_with(b"BM") {
-        "image/bmp"
-    } else if body.starts_with(b"%PDF-") {
-        "application/pdf"
-    } else {
-        "application/octet-stream"
+/// A media type for a binary item, from its first bytes, its item type and the extension of
+/// `name` (the selector, or the name a decoded file carries). Gopher's binary item types do
+/// not say which format they are, and `I` covers every image there is.
+///
+/// Only types that show inert or go to the download offer come out: images but SVG, audio,
+/// video, PDF and archives. Never HTML or XML, which can carry script.
+fn sniff(item_type: char, name: &[u8], body: &[u8]) -> &'static str {
+    let images = matches!(item_type, 'I' | 'g' | 'p');
+    let media = matches!(item_type, 's' | '<' | ';');
+    let fits = |mime: &str| {
+        let (top, sub) = mime.split_once('/').unwrap_or_default();
+        let active = sub.contains("xml") || sub.contains("html");
+        match top {
+            _ if active => false,
+            "image" => !media,
+            "audio" | "video" => !images,
+            "application" => !images && !media && SAFE_APPLICATION_TYPES.contains(&mime),
+            _ => false,
+        }
+    };
+    let sniffed = crate::net::decision::sniff_mime(body);
+    if fits(sniffed) {
+        return sniffed;
+    }
+    // A signature the detector does not know, as for MPEG audio without an ID3 tag: the
+    // extension says, for audio and video only.
+    match extension(name).and_then(|ext| MEDIA_EXTENSIONS.iter().find(|(e, _)| e.eq_ignore_ascii_case(ext))) {
+        Some((_, mime)) if fits(mime) => mime,
+        _ => "application/octet-stream",
+    }
+}
+
+/// The application types a binary item is served as: PDF and the archives of WHATWG MIME
+/// Sniffing.
+const SAFE_APPLICATION_TYPES: &[&str] = &[
+    "application/pdf",
+    "application/zip",
+    "application/gzip",
+    "application/x-gzip",
+    "application/vnd.rar",
+    "application/x-rar-compressed",
+];
+
+/// Audio and video by file extension.
+const MEDIA_EXTENSIONS: &[(&str, &str)] = &[
+    ("aac", "audio/aac"),
+    ("flac", "audio/flac"),
+    ("m4a", "audio/mp4"),
+    ("mid", "audio/midi"),
+    ("midi", "audio/midi"),
+    ("mp3", "audio/mpeg"),
+    ("oga", "audio/ogg"),
+    ("ogg", "audio/ogg"),
+    ("opus", "audio/ogg"),
+    ("wav", "audio/wav"),
+    ("avi", "video/x-msvideo"),
+    ("m4v", "video/mp4"),
+    ("mkv", "video/x-matroska"),
+    ("mov", "video/quicktime"),
+    ("mp4", "video/mp4"),
+    ("mpeg", "video/mpeg"),
+    ("mpg", "video/mpeg"),
+    ("ogv", "video/ogg"),
+    ("webm", "video/webm"),
+];
+
+/// The extension of the last part of `name`.
+fn extension(name: &[u8]) -> Option<&str> {
+    let last = name.rsplit(|&b| b == b'/').next()?;
+    let dot = last.iter().rposition(|&b| b == b'.')?;
+    let ext = std::str::from_utf8(&last[dot + 1..]).ok()?;
+    (!ext.is_empty()).then_some(ext)
+}
+
+/// The media type a streamed or decoded item is served as. The text-like extension types
+/// (`x` XML, `c` calendar, `M` mail, `r` RTF) are plain text, shown escaped: XML served as
+/// itself is parsed as a document, and can bring script along in the XHTML namespace.
+fn media_type(request: &Request, name: &[u8], body: &[u8]) -> &'static str {
+    match request.item_type {
+        'x' | 'c' | 'M' | 'r' => "text/plain",
+        item_type => sniff(item_type, name, body),
     }
 }
 
@@ -792,10 +857,98 @@ mod tests {
 
     #[test]
     fn binary_types_are_sniffed() {
-        assert_eq!(sniff(b"\x89PNG\r\n\x1a\nrest"), "image/png");
-        assert_eq!(sniff(b"\xff\xd8\xff\xe0"), "image/jpeg");
-        assert_eq!(sniff(b"RIFF\0\0\0\0WEBPVP8 "), "image/webp");
-        assert_eq!(sniff(b"%PDF-1.7"), "application/pdf");
-        assert_eq!(sniff(b"PK\x03\x04"), "application/octet-stream");
+        let sniffed = |body: &[u8]| sniff('9', b"/file", body);
+        assert_eq!(sniffed(b"\x89PNG\r\n\x1a\nrest"), "image/png");
+        assert_eq!(sniffed(b"\xff\xd8\xff\xe0"), "image/jpeg");
+        assert_eq!(sniffed(b"GIF89a\x01\x00\x01\x00"), "image/gif");
+        assert_eq!(sniffed(b"RIFF\0\0\0\0WEBPVP8 "), "image/webp");
+        assert_eq!(sniffed(b"%PDF-1.7"), "application/pdf");
+        assert_eq!(sniffed(b"PK\x03\x04\x14\0\0\0\0\0"), "application/zip");
+        assert_eq!(sniffed(b"\x1f\x8b\x08\0\0\0\0\0"), "application/gzip");
+        assert_eq!(sniffed(b"\0\x01\x02\x03"), "application/octet-stream");
+    }
+
+    #[test]
+    fn audio_and_video_are_sniffed() {
+        let sniffed = |body: &[u8]| sniff('s', b"/sound", body);
+        assert_eq!(sniffed(b"ID3\x03\0\0\0\0\x0fTIT2\0\0\0\x0f\0\0Title"), "audio/mpeg");
+        assert_eq!(
+            sniffed(b"OggS\0\x02\0\0\0\0\0\0\0\0\x01\x02\x03\x04\0\0\0\0\0\0\0\0\x01\x1e\x01vorbis"),
+            "audio/ogg"
+        );
+        assert!(sniffed(b"RIFF\x24\0\0\0WAVEfmt \x10\0\0\0").contains("wav"));
+        let mp4 = b"\0\0\0\x18ftypmp42\0\0\0\0mp42isom";
+        assert_eq!(sniff(';', b"/clip", mp4), "video/mp4");
+    }
+
+    #[test]
+    fn the_item_type_narrows_what_is_sniffed() {
+        let mp3 = b"ID3\x03\0\0\0\0\x0fTIT2\0\0\0\x0f\0\0Title";
+        assert_eq!(sniff('I', b"/pic", mp3), "application/octet-stream");
+        assert_eq!(
+            sniff('s', b"/snd", b"\x89PNG\r\n\x1a\nrest"),
+            "application/octet-stream"
+        );
+        assert_eq!(sniff('s', b"/snd", b"%PDF-1.7"), "application/octet-stream");
+    }
+
+    #[test]
+    fn the_extension_names_media_the_bytes_do_not() {
+        let unknown = b"\0\x01\x02\x03";
+        assert_eq!(sniff('s', b"/music/Song.MP3", unknown), "audio/mpeg");
+        assert_eq!(sniff('9', b"/films/a.b/clip.webm", unknown), "video/webm");
+        assert_eq!(sniff(';', b"/a.mp3/clip", unknown), "application/octet-stream");
+        // An image item is no sound, whatever its name.
+        assert_eq!(sniff('I', b"/song.mp3", unknown), "application/octet-stream");
+        // Nor does a name make anything but media.
+        assert_eq!(sniff('9', b"/page.html", unknown), "application/octet-stream");
+    }
+
+    #[test]
+    fn nothing_is_sniffed_into_an_active_type() {
+        let active: [&[u8]; 4] = [
+            b"<!DOCTYPE html><html><script>alert(1)</script></html>",
+            b"<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>",
+            b"<?xml version=\"1.0\"?><html xmlns=\"http://www.w3.org/1999/xhtml\"></html>",
+            b"<?xml version=\"1.0\"?><rss version=\"2.0\"></rss>",
+        ];
+        for body in active {
+            for item_type in ['I', '9', 's', ';', 'd', 'P', '4', '6'] {
+                let mime = sniff(item_type, b"/x.svg", body);
+                assert_eq!(
+                    mime,
+                    "application/octet-stream",
+                    "{item_type} {:?}",
+                    String::from_utf8_lossy(body)
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_text_like_item_is_plain_text() {
+        let xml: &'static [u8] = b"<?xml version=\"1.0\"?><html xmlns=\"http://www.w3.org/1999/xhtml\"></html>";
+        for item_type in ['x', 'c', 'M', 'r'] {
+            let (port, _server) = serve_once(xml).await;
+            let response = fetch(
+                &format!("gopher://127.0.0.1:{port}/{item_type}/doc"),
+                AddressSpace::Loopback,
+            )
+            .await
+            .unwrap();
+            assert_eq!(response.content_type, "text/plain");
+            assert_eq!(&response.body[..], xml);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_decoded_file_is_sniffed_with_its_own_name() {
+        let text = decode::encode::uuencode("tune.mp3", &[0, 1, 2, 3]);
+        let text: &'static [u8] = Box::leak(text.into_boxed_slice());
+        let (port, _server) = serve_once(text).await;
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/6/tune.uue"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        assert_eq!(response.content_type, "audio/mpeg");
     }
 }

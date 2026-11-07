@@ -96,6 +96,14 @@ pub fn sniff_class(peek_buf: PeekBuf) -> ResponseClass {
     ResponseClass::from_mime(&mime)
 }
 
+/// The media type a body's leading bytes have the signature of, without parameters, or
+/// `application/octet-stream`. Unlike [`sniff_class`] it does not guess at text formats from
+/// what the text looks like.
+pub(crate) fn sniff_mime(bytes: &[u8]) -> &'static str {
+    let mime = detect(bytes).mime();
+    mime.split(';').next().unwrap_or(mime).trim()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
