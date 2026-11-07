@@ -31,6 +31,7 @@ pub mod identities;
 pub mod known_hosts;
 pub mod page;
 pub mod socket;
+pub mod socks;
 
 use crate::net::protocols::known_hosts::{Pins, ServerPin};
 use crate::net::ssrf::AddressSpace;

@@ -7,10 +7,25 @@
 //! connection, a redirect of the protocol's own) is held to the same reach as the first.
 //! Ports the Fetch standard blocks are refused whatever the reach, except the protocol's own
 //! port ([`port_refused`]).
+//!
+//! A connection goes through the SOCKS proxy the environment names for it ([`socks`]). The
+//! proxy then resolves the host, so the engine never sees the address a name stands for and
+//! cannot hold it to the reach: where a name leads is the proxy's business, as it is for http
+//! through a proxy. What can still be judged is judged before anything goes to the proxy: an
+//! IP-literal host, and `localhost` with its subdomains (RFC 6761), taken as loopback. Other
+//! names that lead to this machine or the local network (`/etc/hosts` aliases, the proxy's own
+//! network) are not caught. Blocked ports are refused as for a direct connection. The proxy's
+//! own address is the user's choice and is not held to the reach: it is typically loopback (a
+//! local Tor on 127.0.0.1:9050). A proxied response has no peer to place it by
+//! ([`ssrf::space_of_response`]).
+//!
+//! [`ssrf::space_of_response`]: crate::net::ssrf::space_of_response
 
+use crate::net::protocols::socks::{self, Proxies, Proxy};
 use crate::net::protocols::{BodyStream, Protocol};
 use crate::net::ssrf::{classify_ip, parse_ip_literal, AddressSpace};
 use crate::net::types::NetError;
+use cow_utils::CowUtils;
 use gosub_sonar::net::types::BlockReason;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -68,18 +83,49 @@ pub fn port_refused(protocol: &dyn Protocol, port: u16) -> bool {
     port == 0 || (port != protocol.default_port() && gosub_sonar::net::port_blocking::is_bad_port(port))
 }
 
-/// The addresses `host` resolves to on `port`, or a refusal when the port is refused to
-/// `protocol` or any address is beyond `reach`: which answer the OS connects to is not this
-/// code's choice, so a name answering a public and a loopback address is refused whole.
+/// Where a connection goes.
+#[derive(Debug, Clone)]
+pub enum Destination {
+    /// Straight to the host, at these addresses.
+    Direct(Vec<SocketAddr>),
+    /// Through a SOCKS proxy, which resolves `host`.
+    Proxied { proxy: Proxy, host: String, port: u16 },
+}
+
+/// Where a connection to `host` on `port` goes, or a refusal when the port is refused to
+/// `protocol` or the host is beyond `reach`. Through the environment's SOCKS proxy when it
+/// names one for the host; directly otherwise, to every address `host` resolves to, each
+/// within `reach`: which answer the OS connects to is not this code's choice, so a name
+/// answering a public and a loopback address is refused whole.
 pub async fn resolve(
     protocol: &dyn Protocol,
     url: &Url,
     host: &str,
     port: u16,
     reach: AddressSpace,
-) -> Result<Vec<SocketAddr>, NetError> {
+) -> Result<Destination, NetError> {
+    resolve_with(protocol, url, host, port, reach, &socks::FROM_ENV).await
+}
+
+/// [`resolve`] with `proxies` in place of the environment's.
+pub async fn resolve_with(
+    protocol: &dyn Protocol,
+    url: &Url,
+    host: &str,
+    port: u16,
+    reach: AddressSpace,
+    proxies: &Proxies,
+) -> Result<Destination, NetError> {
     if port_refused(protocol, port) {
         return Err(blocked(BlockReason::BadPort, url));
+    }
+    if let Some(proxy) = proxies.for_target(host, port) {
+        check_proxied(host, reach, url)?;
+        return Ok(Destination::Proxied {
+            proxy: proxy.clone(),
+            host: host.to_string(),
+            port,
+        });
     }
     // An address in any of its spellings (`2130706433`, `0x7f000001`, `127.1`) is read here,
     // not left to whatever the system resolver makes of it.
@@ -100,12 +146,16 @@ pub async fn resolve(
     for addr in &addrs {
         check_reach(*addr, reach, url, host)?;
     }
-    Ok(addrs)
+    Ok(Destination::Direct(addrs))
 }
 
-/// The most public of `addrs`: what a page served without a connection is placed by, so it
-/// is never placed more privately than its host can be.
-pub fn most_public(addrs: &[SocketAddr]) -> Option<SocketAddr> {
+/// The most public address of `destination`: what a page served without a connection is
+/// placed by, so it is never placed more privately than its host can be. `None` through a
+/// proxy, which places the page as a proxied response is.
+pub fn most_public(destination: &Destination) -> Option<SocketAddr> {
+    let Destination::Direct(addrs) = destination else {
+        return None;
+    };
     let rank = |addr: &&SocketAddr| match classify_ip(addr.ip()) {
         None => 0,
         Some((AddressSpace::Local, _)) => 1,
@@ -114,10 +164,42 @@ pub fn most_public(addrs: &[SocketAddr]) -> Option<SocketAddr> {
     addrs.iter().min_by_key(rank).copied()
 }
 
-/// A connection to the first of `addrs` that answers, within [`CONNECT_TIMEOUT`] for all of
-/// them together. An address beyond `reach` is refused before anything is sent to it,
-/// wherever the address came from.
-pub async fn connect(url: &Url, host: &str, addrs: &[SocketAddr], reach: AddressSpace) -> Result<TcpStream, NetError> {
+/// A connection to `destination` and the peer it reached, within [`CONNECT_TIMEOUT`]. Direct,
+/// to the first address that answers, the timeout for all of them together; an address beyond
+/// `reach` is refused before anything is sent to it, wherever the address came from. Through a
+/// proxy, the timeout covers the proxy's handshake too, and there is no peer: the one the
+/// socket has is the proxy.
+pub async fn connect(
+    url: &Url,
+    host: &str,
+    destination: &Destination,
+    reach: AddressSpace,
+) -> Result<(TcpStream, Option<SocketAddr>), NetError> {
+    connect_within(url, host, destination, reach, CONNECT_TIMEOUT).await
+}
+
+async fn connect_within(
+    url: &Url,
+    host: &str,
+    destination: &Destination,
+    reach: AddressSpace,
+    timeout: Duration,
+) -> Result<(TcpStream, Option<SocketAddr>), NetError> {
+    let addrs = match destination {
+        Destination::Direct(addrs) => addrs,
+        Destination::Proxied {
+            proxy,
+            host: target,
+            port,
+        } => {
+            check_proxied(target, reach, url)?;
+            let stream = tokio::time::timeout(timeout, socks::connect(proxy, target, *port))
+                .await
+                .map_err(|_| NetError::Timeout(format!("connecting to {host} through the proxy {proxy}")))?
+                .map_err(io)?;
+            return Ok((stream, None));
+        }
+    };
     for addr in addrs {
         check_reach(*addr, reach, url, host)?;
     }
@@ -125,40 +207,42 @@ pub async fn connect(url: &Url, host: &str, addrs: &[SocketAddr], reach: Address
         let mut last_error = None;
         for addr in addrs {
             match TcpStream::connect(addr).await {
-                Ok(s) => return Ok(s),
+                Ok(s) => {
+                    let peer = s.peer_addr().ok();
+                    return Ok((s, peer));
+                }
                 Err(e) => last_error = Some(io(e)),
             }
         }
         Err(last_error.unwrap_or_else(|| invalid("no address to connect to")))
     };
-    tokio::time::timeout(CONNECT_TIMEOUT, connect)
+    tokio::time::timeout(timeout, connect)
         .await
         .map_err(|_| NetError::Timeout(format!("connecting to {host}")))?
 }
 
-/// Send `line` on a connection to `addrs` and read the response to its end, which is when the
-/// server closes. Returns the body and the peer it came from.
+/// Send `line` on a connection to `destination` and read the response to its end, which is
+/// when the server closes. Returns the body and the peer it came from.
 pub async fn exchange(
     url: &Url,
     host: &str,
-    addrs: &[SocketAddr],
+    destination: &Destination,
     reach: AddressSpace,
     line: &[u8],
 ) -> Result<(Vec<u8>, Option<SocketAddr>), NetError> {
-    exchange_within(url, host, addrs, reach, line, &Limits::DEFAULT).await
+    exchange_within(url, host, destination, reach, line, &Limits::DEFAULT).await
 }
 
 /// [`exchange`] under `limits`.
 pub async fn exchange_within(
     url: &Url,
     host: &str,
-    addrs: &[SocketAddr],
+    destination: &Destination,
     reach: AddressSpace,
     line: &[u8],
     limits: &Limits,
 ) -> Result<(Vec<u8>, Option<SocketAddr>), NetError> {
-    let mut stream = connect(url, host, addrs, reach).await?;
-    let peer = stream.peer_addr().ok();
+    let (mut stream, peer) = connect(url, host, destination, reach).await?;
     let body = talk_within(&mut stream, host, line, Close::Clean, limits).await?;
     Ok((body, peer))
 }
@@ -173,19 +257,18 @@ pub struct Opened {
     pub peer: Option<SocketAddr>,
 }
 
-/// Send `line` on a connection to `addrs` and read the first bytes of the response, leaving
+/// Send `line` on a connection to `destination` and read the first bytes of the response, leaving
 /// the rest to arrive as it is read: no cap on its size and no deadline for the whole, only
 /// `limits.idle` between bytes, the peek included.
 pub async fn open(
     url: &Url,
     host: &str,
-    addrs: &[SocketAddr],
+    destination: &Destination,
     reach: AddressSpace,
     line: &[u8],
     limits: &Limits,
 ) -> Result<Opened, NetError> {
-    let mut stream = connect(url, host, addrs, reach).await?;
-    let peer = stream.peer_addr().ok();
+    let (mut stream, peer) = connect(url, host, destination, reach).await?;
     let waiting = || NetError::Timeout(format!("waiting for {host}"));
     let send = async {
         stream.write_all(line).await?;
@@ -292,6 +375,21 @@ fn capped(body: Vec<u8>, host: &str, limits: &Limits) -> Result<Vec<u8>, NetErro
         )));
     }
     Ok(body)
+}
+
+/// Refuse a host the proxy is to resolve when it is plainly beyond `reach`: an IP literal in a
+/// space `reach` does not include, or `localhost` and its subdomains unless `reach` is
+/// loopback. Any other name passes; the proxy decides where it leads.
+fn check_proxied(host: &str, reach: AddressSpace, url: &Url) -> Result<(), NetError> {
+    if let Some(ip) = parse_ip_literal(host) {
+        return check_reach(SocketAddr::new(ip, 0), reach, url, host);
+    }
+    let name = host.trim_end_matches('.').cow_to_ascii_lowercase();
+    if (name == "localhost" || name.ends_with(".localhost")) && !reach.may_reach(AddressSpace::Loopback) {
+        log::warn!("refusing {url}: {host} is loopback (private network policy)");
+        return Err(blocked(BlockReason::UrlPolicy, url));
+    }
+    Ok(())
 }
 
 /// Refuse `addr` when it is in a space `reach` does not include.
@@ -405,8 +503,8 @@ mod tests {
             .iter()
             .map(|a| a.parse().unwrap())
             .collect();
-        assert_eq!(most_public(&addrs), Some(addrs[2]));
-        assert_eq!(most_public(&addrs[..2]), Some(addrs[1]));
+        assert_eq!(most_public(&Destination::Direct(addrs.clone())), Some(addrs[2]));
+        assert_eq!(most_public(&Destination::Direct(addrs[..2].to_vec())), Some(addrs[1]));
     }
 
     #[tokio::test]
@@ -415,9 +513,14 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let url = Url::parse("on70://public.test/").unwrap();
-        let err = connect(&url, "public.test", &[addr], AddressSpace::Public)
-            .await
-            .unwrap_err();
+        let err = connect(
+            &url,
+            "public.test",
+            &Destination::Direct(vec![addr]),
+            AddressSpace::Public,
+        )
+        .await
+        .unwrap_err();
         assert!(matches!(
             err,
             NetError::Blocked {
@@ -429,8 +532,244 @@ mod tests {
         assert!(accepted.is_err(), "the listener was connected to");
 
         // Within reach it connects.
-        connect(&url, "public.test", &[addr], AddressSpace::Loopback)
+        connect(
+            &url,
+            "public.test",
+            &Destination::Direct(vec![addr]),
+            AddressSpace::Loopback,
+        )
+        .await
+        .unwrap();
+    }
+
+    fn through(proxy_port: u16, no_proxy: &str) -> Proxies {
+        let vars = [
+            ("ALL_PROXY", format!("socks5h://127.0.0.1:{proxy_port}")),
+            ("NO_PROXY", no_proxy.to_string()),
+        ];
+        Proxies::from_env(|name| vars.iter().find(|(k, _)| *k == name).map(|(_, v)| v.clone()))
+    }
+
+    fn refused_by_policy(err: &NetError) -> bool {
+        matches!(
+            err,
+            NetError::Blocked {
+                reason: BlockReason::UrlPolicy,
+                ..
+            }
+        )
+    }
+
+    /// A server on loopback answering one connection with `reply` after the request line.
+    async fn server(reply: &'static [u8]) -> u16 {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (mut s, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 64];
+            let _ = s.read(&mut buf).await;
+            let _ = s.write_all(reply).await;
+        });
+        port
+    }
+
+    #[tokio::test]
+    async fn a_name_goes_to_the_proxy_unresolved_and_the_response_has_no_peer() {
+        let origin = server(b"through").await;
+        let (proxy, asked) = socks::testing::proxy(socks::testing::Behaviour::Open, Some(origin)).await;
+        // `.invalid` never resolves: only the proxy can have looked it up.
+        let url = Url::parse("on70://gopher.invalid/").unwrap();
+        let destination = resolve_with(
+            &On70,
+            &url,
+            "gopher.invalid",
+            70,
+            AddressSpace::Public,
+            &through(proxy, ""),
+        )
+        .await
+        .unwrap();
+        assert!(most_public(&destination).is_none());
+        // The proxy on loopback is reached from a public reach: it is the user's.
+        let (body, peer) = exchange(&url, "gopher.invalid", &destination, AddressSpace::Public, b"\r\n")
             .await
             .unwrap();
+        assert_eq!(body, b"through");
+        assert_eq!(peer, None);
+        let asked = asked.await.unwrap().unwrap();
+        assert_eq!((asked.kind, asked.host.as_str(), asked.port), (3, "gopher.invalid", 70));
+    }
+
+    #[tokio::test]
+    async fn a_streamed_response_through_the_proxy_has_no_peer() {
+        let origin = server(b"streamed").await;
+        let (proxy, _) = socks::testing::proxy(socks::testing::Behaviour::Open, Some(origin)).await;
+        let url = Url::parse("on70://gopher.invalid/").unwrap();
+        let destination = resolve_with(
+            &On70,
+            &url,
+            "gopher.invalid",
+            70,
+            AddressSpace::Public,
+            &through(proxy, ""),
+        )
+        .await
+        .unwrap();
+        let opened = open(
+            &url,
+            "gopher.invalid",
+            &destination,
+            AddressSpace::Public,
+            b"\r\n",
+            &Limits::DEFAULT,
+        )
+        .await
+        .unwrap();
+        assert_eq!(opened.peek, b"streamed");
+        assert_eq!(opened.peer, None);
+    }
+
+    #[tokio::test]
+    async fn an_address_beyond_the_reach_is_refused_before_the_proxy() {
+        let (proxy, asked) = socks::testing::proxy(socks::testing::Behaviour::Open, None).await;
+        let proxies = through(proxy, "");
+        for host in [
+            "10.0.0.1",
+            "127.0.0.1",
+            "0x7f000001",
+            "::1",
+            "localhost",
+            "LocalHost.",
+            "a.localhost",
+        ] {
+            let url = Url::parse("on70://placeholder.test/").unwrap();
+            let err = resolve_with(&On70, &url, host, 70, AddressSpace::Public, &proxies)
+                .await
+                .unwrap_err();
+            assert!(refused_by_policy(&err), "{host}: {err:?}");
+            // A destination built elsewhere is held to the reach as well.
+            let destination = Destination::Proxied {
+                proxy: proxies.for_target(host, 70).unwrap().clone(),
+                host: host.to_string(),
+                port: 70,
+            };
+            let err = connect(&url, host, &destination, AddressSpace::Public)
+                .await
+                .unwrap_err();
+            assert!(refused_by_policy(&err), "{host}: {err:?}");
+        }
+        // Local reaches the local network, not loopback.
+        let url = Url::parse("on70://localhost/").unwrap();
+        let err = resolve_with(&On70, &url, "localhost", 70, AddressSpace::Local, &proxies)
+            .await
+            .unwrap_err();
+        assert!(refused_by_policy(&err));
+        resolve_with(&On70, &url, "10.0.0.1", 70, AddressSpace::Local, &proxies)
+            .await
+            .unwrap();
+        resolve_with(&On70, &url, "localhost", 70, AddressSpace::Loopback, &proxies)
+            .await
+            .unwrap();
+        let reached = tokio::time::timeout(Duration::from_millis(200), asked).await;
+        assert!(reached.is_err(), "the proxy was connected to");
+    }
+
+    #[tokio::test]
+    async fn a_blocked_port_is_refused_through_the_proxy_too() {
+        let url = Url::parse("on70://example.org:25/").unwrap();
+        let err = resolve_with(&On70, &url, "example.org", 25, AddressSpace::Loopback, &through(9, ""))
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            NetError::Blocked {
+                reason: BlockReason::BadPort,
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_host_in_no_proxy_connects_directly() {
+        let url = Url::parse("on70://127.0.0.1/").unwrap();
+        let destination = resolve_with(
+            &On70,
+            &url,
+            "127.0.0.1",
+            70,
+            AddressSpace::Loopback,
+            &through(9, "127.0.0.0/8"),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(destination, Destination::Direct(ref addrs) if addrs.len() == 1));
+    }
+
+    #[tokio::test]
+    async fn an_http_proxy_leaves_the_connection_direct() {
+        let origin = server(b"direct").await;
+        let vars = [
+            ("ALL_PROXY", "http://127.0.0.1:9"),
+            ("HTTP_PROXY", "socks5h://127.0.0.1:9"),
+        ];
+        let proxies = Proxies::from_env(|name| vars.iter().find(|(k, _)| *k == name).map(|(_, v)| v.to_string()));
+        let url = Url::parse(&format!("on70://127.0.0.1:{origin}/")).unwrap();
+        let destination = resolve_with(&On70, &url, "127.0.0.1", origin, AddressSpace::Loopback, &proxies)
+            .await
+            .unwrap();
+        let (body, peer) = exchange(&url, "127.0.0.1", &destination, AddressSpace::Loopback, b"\r\n")
+            .await
+            .unwrap();
+        assert_eq!(body, b"direct");
+        assert_eq!(peer.map(|p| p.port()), Some(origin));
+    }
+
+    #[tokio::test]
+    async fn a_proxy_that_refuses_ends_in_a_clean_error() {
+        let (proxy, _) = socks::testing::proxy(socks::testing::Behaviour::Refuse, None).await;
+        let url = Url::parse("on70://gopher.invalid/").unwrap();
+        let destination = resolve_with(
+            &On70,
+            &url,
+            "gopher.invalid",
+            70,
+            AddressSpace::Public,
+            &through(proxy, ""),
+        )
+        .await
+        .unwrap();
+        let err = exchange(&url, "gopher.invalid", &destination, AddressSpace::Public, b"\r\n")
+            .await
+            .unwrap_err();
+        let NetError::Io(e) = err else {
+            panic!("{err:?}");
+        };
+        assert_eq!(e.kind(), std::io::ErrorKind::ConnectionRefused);
+    }
+
+    #[tokio::test]
+    async fn the_connect_timeout_covers_the_proxy_handshake() {
+        let (proxy, _) = socks::testing::proxy(socks::testing::Behaviour::Silent, None).await;
+        let url = Url::parse("on70://gopher.invalid/").unwrap();
+        let destination = resolve_with(
+            &On70,
+            &url,
+            "gopher.invalid",
+            70,
+            AddressSpace::Public,
+            &through(proxy, ""),
+        )
+        .await
+        .unwrap();
+        let err = connect_within(
+            &url,
+            "gopher.invalid",
+            &destination,
+            AddressSpace::Public,
+            Duration::from_millis(200),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, NetError::Timeout(_)), "{err:?}");
     }
 }
