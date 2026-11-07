@@ -1572,6 +1572,62 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A gopher menu longer than the first bytes read streams through the pipeline, and the
+    /// page ends at the menu's terminator though the server keeps the connection open.
+    #[cfg(feature = "gopher")]
+    #[tokio::test]
+    async fn a_long_gopher_menu_streams_to_its_page() {
+        use crate::events::NavigationEvent;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 1024];
+                    let _ = stream.read(&mut buf).await;
+                    let mut menu = b"iWelcome\t\t\t\r\n".repeat(200);
+                    menu.extend(b"0Read me\t/readme\t127.0.0.1\t70\r\n.\r\n");
+                    let _ = stream.write_all(&menu).await;
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        tab.navigate(format!("gopher://127.0.0.1:{port}/1/"))
+            .await
+            .expect("navigate");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    }) => return,
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Failed { error, .. },
+                        ..
+                    }) => panic!("gopher navigation failed: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for the gopher page");
+        assert_eq!(tab.title(), format!("127.0.0.1:{port}/1/"));
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// A gopher binary over the socket's 4 MiB cap is offered as a download and saved whole.
     #[cfg(feature = "gopher")]
     #[tokio::test]

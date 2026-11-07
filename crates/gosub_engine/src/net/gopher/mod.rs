@@ -7,10 +7,12 @@
 //! - text files (`0`) become a `<pre>` page,
 //! - HTML (`h`) is served as it is,
 //! - everything else is served raw under a sniffed media type, so images display and
-//!   anything unknown goes to the download offer. Such a body streams: RFC 1436 reads it until
-//!   the server closes and gives it no size limit, so it has none here either, and no deadline
-//!   for the whole, only one between bytes. The other types are pages built in memory and keep
-//!   the socket's cap.
+//!   anything unknown goes to the download offer.
+//!
+//! Every body but an error item's streams, with no deadline for the whole, only one between
+//! bytes. A raw body has no size limit: RFC 1436 reads it until the server closes and gives
+//! it none. A menu or text page is served a line at a time as it arrives ([`stream`]); it is
+//! held in memory to be parsed, so its body keeps the socket's cap.
 //!
 //! The connection is [`socket`]'s: the caller's `reach` is judged on every address the host
 //! resolves to, and ports the Fetch standard blocks are refused whatever the reach. Both
@@ -22,14 +24,17 @@
 mod menu;
 mod render;
 mod request;
+mod stream;
 
 use crate::net::protocols::socket::{self, invalid, Limits, Opened};
-use crate::net::protocols::{Protocol, ProtocolError, ProtocolRequest, ProtocolResponse};
+use crate::net::protocols::{BodyStream, Protocol, ProtocolError, ProtocolRequest, ProtocolResponse};
 use crate::net::types::NetError;
 use async_trait::async_trait;
 use bytes::Bytes;
+use render::Lines;
 use request::Request;
 use std::net::SocketAddr;
+use stream::PageStream;
 use url::Url;
 
 /// The gopher protocol.
@@ -69,7 +74,7 @@ async fn fetch_within(request: ProtocolRequest<'_>, limits: &Limits) -> Result<P
         return Ok(html(render::search_page(url), socket::most_public(&addrs)));
     }
     let line = request.wire_line();
-    if !streams(request.item_type) {
+    if request.item_type == '3' {
         let (body, peer) = socket::exchange_within(url, &request.host, &addrs, reach, &line, limits).await?;
         return Ok(present(&request, url, body, peer));
     }
@@ -81,19 +86,35 @@ async fn fetch_within(request: ProtocolRequest<'_>, limits: &Limits) -> Result<P
         let body = socket::read_rest(peek, rest, &request.host, limits).await?;
         return Ok(present(&request, url, body, peer));
     }
+    let encoding = stream::encoding_for(&peek);
+    let lines = match request.item_type {
+        '1' | request::SEARCH_TYPE => Some(Lines::menu(url, encoding)),
+        '0' => Some(Lines::text(encoding)),
+        _ => None,
+    };
+    let (content_type, body, reader): (&str, _, Box<dyn tokio::io::AsyncRead + Send + Unpin>) = match lines {
+        Some(lines) => {
+            let page = PageStream::new(lines, peek, rest.reader, &request.host, limits.max_bytes);
+            (
+                "text/html; charset=utf-8",
+                render::page_head(url).into_bytes(),
+                Box::new(page),
+            )
+        }
+        None if request.item_type == 'h' => ("text/html", peek, rest.reader),
+        None => (sniff(&peek), peek, rest.reader),
+    };
     Ok(ProtocolResponse {
-        content_type: sniff(&peek).into(),
-        body: Bytes::from(peek),
-        rest: Some(rest),
+        content_type: content_type.into(),
+        body: Bytes::from(body),
+        rest: Some(BodyStream {
+            reader,
+            idle: rest.idle,
+        }),
         peer_addr: peer,
         certificates: Vec::new(),
         final_url: None,
     })
-}
-
-/// Whether an item type's body streams: everything but the types shown as a page.
-fn streams(item_type: char) -> bool {
-    !matches!(item_type, '1' | request::SEARCH_TYPE | '3' | '0' | 'h')
 }
 
 /// What the response is, by the item type the URL asked for.
@@ -395,12 +416,144 @@ mod tests {
 
     #[tokio::test]
     async fn a_menu_over_the_cap_fails() {
-        let big: &'static [u8] = Box::leak(vec![b'x'; MAX_RESPONSE_BYTES + 1].into_boxed_slice());
+        let mut big = b"iFirst\t\t\t\r\n".to_vec();
+        big.resize(MAX_RESPONSE_BYTES + 1, b'x');
+        let big: &'static [u8] = Box::leak(big.into_boxed_slice());
         let (port, _server) = serve_once(big).await;
-        let err = fetch(&format!("gopher://127.0.0.1:{port}/1/big"), AddressSpace::Loopback)
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/1/big"), AddressSpace::Loopback)
             .await
-            .unwrap_err();
+            .unwrap();
+        // The page has begun by the time the body is over the cap: it ends in the error.
+        let err = whole_body(response).await.unwrap_err();
         assert!(err.to_string().contains("larger than"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_menu_under_the_cap_streams_in_full() {
+        let line = b"1Sub\t/sub\t127.0.0.1\t70\r\n";
+        let mut menu = line.repeat((MAX_RESPONSE_BYTES - 3) / line.len());
+        menu.extend(b".\r\n");
+        let menu: &'static [u8] = Box::leak(menu.into_boxed_slice());
+        let (port, _server) = serve_once(menu).await;
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/1/big"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        assert!(response.rest.is_some());
+        let page = whole_body(response).await.unwrap();
+        let page = std::str::from_utf8(&page).unwrap();
+        assert_eq!(page.matches("<a href=").count(), (MAX_RESPONSE_BYTES - 3) / line.len());
+        assert!(page.ends_with("</pre></body></html>"));
+    }
+
+    /// Reads `response`'s page until it holds `want`, and says how long that took.
+    async fn read_until(response: ProtocolResponse, want: &str) -> (String, Duration) {
+        let started = std::time::Instant::now();
+        let url = Url::parse("gopher://test/").unwrap();
+        let observer = Arc::new(gosub_sonar::net::null_emitter::NullEmitter);
+        let shared = protocols::stream_body(response.rest.unwrap(), 0, url, started, observer);
+        let mut reader =
+            crate::net::SharedBody::combined_reader_lossless(PeekBuf::from_vec(response.body.to_vec()), shared);
+        let mut page = Vec::new();
+        let mut buf = [0u8; 4096];
+        while !String::from_utf8_lossy(&page).contains(want) {
+            let n = reader.read(&mut buf).await.unwrap();
+            assert!(n > 0, "the page ended without {want}");
+            page.extend_from_slice(&buf[..n]);
+        }
+        (String::from_utf8(page).unwrap(), started.elapsed())
+    }
+
+    #[tokio::test]
+    async fn a_menu_shows_its_first_lines_before_the_rest_arrives() {
+        // More than the peek first, so the fetch answers without waiting for the rest.
+        let mut first = b"iWelcome\t\t\t\r\n".repeat(80);
+        first.extend(b"1Early\t/early\t127.0.0.1\t70\r\n");
+        let chunks = vec![first, b"1Late\t/late\t127.0.0.1\t70\r\n.\r\n".to_vec()];
+        let port = serve_slowly(chunks, Duration::from_secs(3), Duration::ZERO).await;
+        let started = std::time::Instant::now();
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/1/"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        assert_eq!(response.content_type, "text/html; charset=utf-8");
+        let (page, _) = read_until(response, ">Early</a>").await;
+        assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+        assert!(page.starts_with("<!DOCTYPE html>"));
+        assert!(!page.contains("Late"));
+    }
+
+    #[tokio::test]
+    async fn a_text_file_shows_its_first_lines_before_the_rest_arrives() {
+        let mut first = b"a line of text\r\n".repeat(80);
+        first.extend(b"..stuffed <early>\r\n");
+        let chunks = vec![first, b"late\r\n.\r\n".to_vec()];
+        let port = serve_slowly(chunks, Duration::from_secs(3), Duration::ZERO).await;
+        let started = std::time::Instant::now();
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/0/t.txt"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        let (page, _) = read_until(response, ".stuffed &lt;early&gt;\n").await;
+        assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+        assert!(!page.contains("..stuffed"));
+        assert!(!page.contains("late"));
+    }
+
+    #[tokio::test]
+    async fn a_streamed_page_ends_at_its_terminator_though_the_server_stays() {
+        let mut menu = b"iLine\t\t\t\r\n".repeat(200);
+        menu.extend(b".\r\n");
+        let port = serve_slowly(vec![menu], Duration::ZERO, Duration::from_secs(10)).await;
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/1/"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        let (page, took) = read_until(response, "</html>").await;
+        assert!(took < Duration::from_secs(5), "{took:?}");
+        assert_eq!(page.matches("Line<br>").count(), 200);
+    }
+
+    #[tokio::test]
+    async fn a_streamed_latin1_text_file_keeps_its_characters() {
+        let mut text = b"Gr\xfc\xdfe aus K\xf6ln\r\n".repeat(100);
+        text.extend(b".\r\n");
+        let text: &'static [u8] = Box::leak(text.into_boxed_slice());
+        assert!(text.len() > socket::PEEK_BYTES);
+        let (port, _server) = serve_once(text).await;
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/0/k.txt"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        assert!(response.rest.is_some());
+        let page = whole_body(response).await.unwrap();
+        let page = std::str::from_utf8(&page).unwrap();
+        assert_eq!(page.matches("Gr\u{fc}\u{df}e aus K\u{f6}ln\n").count(), 100);
+    }
+
+    #[tokio::test]
+    async fn a_long_error_menu_for_a_menu_is_read_whole() {
+        let mut menu = b"3'/nope' does not exist\t\terror.host\t1\r\n".to_vec();
+        menu.extend(b"1Home\t/\terror.host\t70\r\n".repeat(100));
+        let menu: &'static [u8] = Box::leak(menu.into_boxed_slice());
+        let (port, _server) = serve_once(menu).await;
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/0/nope"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        assert!(response.rest.is_none());
+        let page = std::str::from_utf8(&response.body).unwrap();
+        assert!(page.contains("class=\"e\">'/nope' does not exist</pre>"));
+    }
+
+    #[tokio::test]
+    async fn an_html_item_streams_as_it_is() {
+        let mut html = b"<!DOCTYPE html><p>".to_vec();
+        html.resize(3 * socket::PEEK_BYTES, b'x');
+        let html: &'static [u8] = Box::leak(html.into_boxed_slice());
+        let (port, _server) = serve_once(html).await;
+        let response = fetch(
+            &format!("gopher://127.0.0.1:{port}/h/page.html"),
+            AddressSpace::Loopback,
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.content_type, "text/html");
+        assert_eq!(&whole_body(response).await.unwrap()[..], html);
     }
 
     #[tokio::test]

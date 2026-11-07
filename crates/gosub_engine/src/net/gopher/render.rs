@@ -39,33 +39,89 @@ form{margin:12px 0}";
 
 /// A menu page.
 pub fn menu_page(url: &Url, body: &[u8]) -> String {
-    let host = url.host_str().unwrap_or_default();
-    let host = host.trim_start_matches('[').trim_end_matches(']');
-    let port = url.port().unwrap_or(DEFAULT_PORT);
-    let encoding = menu::encoding_for(body);
-    let mut out = String::new();
-    for item in menu::parse(body) {
-        out.push_str(&menu_line(&item, host, port, encoding));
-        // `<br>`, not a newline: the engine loses a preserved newline between inline
-        // elements, and a browser renders either as a line break.
-        out.push_str("<br>");
-    }
-    page(&title_for(url), &format!("<pre>{out}</pre>"))
+    whole(Lines::menu(url, menu::encoding_for(body)), url, body)
 }
 
 /// A text file (item type `0`), with the gopher terminator and dot-stuffing undone.
 pub fn text_page(url: &Url, body: &[u8]) -> String {
-    let encoding = menu::encoding_for(body);
-    let mut text = String::new();
+    whole(Lines::text(menu::encoding_for(body)), url, body)
+}
+
+/// The page `lines` makes of a whole body.
+fn whole(mut lines: Lines, url: &Url, body: &[u8]) -> String {
+    let mut out = page_head(url);
     for line in menu::lines(body) {
-        if line == b"." {
-            break;
+        match lines.line(line) {
+            Some(html) => out.push_str(&html),
+            None => break,
         }
-        let line = line.strip_prefix(b".").filter(|l| l.starts_with(b".")).unwrap_or(line);
-        text.push_str(&menu::decode(encoding, line));
-        text.push('\n');
     }
-    page(&title_for(url), &format!("<pre>{}</pre>", escape(&text)))
+    out.push_str(&page_end());
+    out
+}
+
+/// The start of a menu or text page, up to its first line.
+pub fn page_head(url: &Url) -> String {
+    page::document_head(&title_for(url), STYLE) + "<pre>"
+}
+
+/// What closes a page [`page_head`] began.
+pub fn page_end() -> String {
+    format!("</pre>{}", page::DOCUMENT_END)
+}
+
+/// A menu or a text file turned into its page a line at a time, so the page can be served as
+/// its lines arrive. The text is read in the encoding given, until a line is not valid UTF-8
+/// in it: that line and the rest are read as windows-1252.
+pub struct Lines {
+    menu: Option<(String, u16)>,
+    encoding: &'static Encoding,
+    ended: bool,
+}
+
+impl Lines {
+    /// The lines of the menu at `url`.
+    pub fn menu(url: &Url, encoding: &'static Encoding) -> Self {
+        let host = url.host_str().unwrap_or_default();
+        let host = host.trim_start_matches('[').trim_end_matches(']').to_string();
+        let port = url.port().unwrap_or(DEFAULT_PORT);
+        Lines {
+            menu: Some((host, port)),
+            encoding,
+            ended: false,
+        }
+    }
+
+    /// The lines of a text file.
+    pub fn text(encoding: &'static Encoding) -> Self {
+        Lines {
+            menu: None,
+            encoding,
+            ended: false,
+        }
+    }
+
+    /// One line, without its line break, as page markup. `None` from the line holding a
+    /// single `.` on: it ends the body.
+    pub fn line(&mut self, line: &[u8]) -> Option<String> {
+        if self.ended || line == b"." {
+            self.ended = true;
+            return None;
+        }
+        if self.encoding == encoding_rs::UTF_8 && std::str::from_utf8(line).is_err() {
+            self.encoding = encoding_rs::WINDOWS_1252;
+        }
+        let Some((host, port)) = &self.menu else {
+            let line = line.strip_prefix(b".").filter(|l| l.starts_with(b".")).unwrap_or(line);
+            return Some(escape(&menu::decode(self.encoding, line)) + "\n");
+        };
+        // `<br>`, not a newline: the engine loses a preserved newline between inline
+        // elements, and a browser renders either as a line break.
+        Some(match menu::parse_line(self.encoding, line) {
+            Some(item) => menu_line(&item, host, *port, self.encoding) + "<br>",
+            None => String::new(),
+        })
+    }
 }
 
 /// The prompt for a search (item type `7`) the user has not entered terms for yet. Submits

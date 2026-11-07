@@ -8727,7 +8727,7 @@ fn engine_net_events() -> i32 {
     code
 }
 
-/// A gopher navigation served from the network process: the menu loads as a page, a binary
+/// A gopher navigation served from the network process: the menu streams to its page, a binary
 /// over the socket's 4 MiB cap streams across to a download saved whole, and turning
 /// `net.gopher.enabled` off refuses the next one before it reaches the server.
 #[cfg(feature = "gopher")]
@@ -8765,7 +8765,14 @@ fn engine_gopher() -> i32 {
                 });
                 continue;
             }
-            let _ = stream.write_all(b"iFrom the network process\t\t\t\r\n1Sub\t/sub\t127.0.0.1\t70\r\n.\r\n");
+            // Longer than the first bytes read, so the page streams, and ended by its
+            // terminator: the connection stays open.
+            std::thread::spawn(move || {
+                let mut menu = b"iFrom the network process\t\t\t\r\n".repeat(100);
+                menu.extend(b"1Sub\t/sub\t127.0.0.1\t70\r\n.\r\n");
+                let _ = stream.write_all(&menu);
+                std::thread::sleep(std::time::Duration::from_secs(60));
+            });
         }
     });
 
