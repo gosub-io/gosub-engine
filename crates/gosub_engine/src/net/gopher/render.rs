@@ -185,11 +185,32 @@ pub fn gopher_url(host: &str, port: u16, item_type: char, selector: &[u8]) -> Op
     path.extend_from_slice(selector);
     let url = Url::parse(&format!(
         "gopher://{authority}{port_part}/{}",
-        percent_encode(&path, SELECTOR)
+        keep_dot_segments(&percent_encode(&path, SELECTOR).to_string())?
     ))
     .ok()?;
     let parsed_host = url.host_str()?.trim_start_matches('[').trim_end_matches(']');
     parsed_host.eq_ignore_ascii_case(host).then_some(url)
+}
+
+/// `path` with every `.` or `..` segment joined to its neighbour by a `%2F`. A URL parser
+/// removes dot segments, gopher-path or not, but a selector is opaque and must reach the
+/// server as it is. `%2F` decodes back to the same `/`. `None` for a path that is nothing but
+/// a dot segment.
+fn keep_dot_segments(path: &str) -> Option<String> {
+    let is_dot = |s: &str| s == "." || s == "..";
+    let segments: Vec<&str> = path.split('/').collect();
+    if segments.len() == 1 && is_dot(path) {
+        return None;
+    }
+    let mut out = String::with_capacity(path.len());
+    for (i, segment) in segments.iter().enumerate() {
+        if i > 0 {
+            let glue = is_dot(segment) || (i == 1 && is_dot(segments[0]));
+            out.push_str(if glue { "%2F" } else { "/" });
+        }
+        out.push_str(segment);
+    }
+    Some(out)
 }
 
 /// The fixed-width tag in front of a menu item.
@@ -385,6 +406,39 @@ mod tests {
             let r = Request::from_url(&u).unwrap();
             assert_eq!((r.item_type, r.selector.as_slice()), (t, &b"/s"[..]), "{u}");
         }
+    }
+
+    #[test]
+    fn a_selector_with_dot_segments_round_trips_through_its_url() {
+        for selector in [
+            &b"/a/../b"[..],
+            b"/a/./b",
+            b"/a/..",
+            b"/a/.",
+            b"/../x",
+            b"/./.././",
+            b"/a/%2e%2E/b",
+        ] {
+            let u = gopher_url("h", 70, '1', selector).unwrap();
+            let u = Url::parse(u.as_str()).unwrap();
+            let r = Request::from_url(&u).unwrap();
+            assert_eq!(r.item_type, '1', "{u}");
+            assert_eq!(r.selector, selector, "{u}");
+        }
+    }
+
+    #[test]
+    fn only_the_slash_before_a_dot_segment_is_escaped() {
+        let u = gopher_url("h", 70, '1', b"/a/../b/...").unwrap();
+        assert_eq!(u.as_str(), "gopher://h/1/a%2F../b/...");
+    }
+
+    #[test]
+    fn a_dot_item_type_keeps_its_selector() {
+        let u = gopher_url("h", 70, '.', b"/x").unwrap();
+        assert_eq!(u.as_str(), "gopher://h/.%2Fx");
+        assert_eq!(Request::from_url(&u).unwrap().selector, b"/x");
+        assert_eq!(gopher_url("h", 70, '.', b""), None);
     }
 
     #[test]
