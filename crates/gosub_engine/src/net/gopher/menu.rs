@@ -24,31 +24,30 @@ pub struct Item {
 /// Parse a menu body into its items.
 pub fn parse(body: &[u8]) -> Vec<Item> {
     let encoding = encoding_for(body);
-    let mut items = Vec::new();
-    for line in lines(body) {
-        if line == b"." {
-            break;
-        }
-        let Some((&t, rest)) = line.split_first() else {
-            continue;
-        };
-        let mut fields = rest.split(|&b| b == b'\t');
-        let display = decode(encoding, fields.next().unwrap_or_default()).into_owned();
-        let selector = fields.next().unwrap_or_default().to_vec();
-        let host = decode(encoding, fields.next().unwrap_or_default()).trim().to_string();
-        let port = match fields.next() {
-            None => Some(DEFAULT_PORT),
-            Some(p) => std::str::from_utf8(p).ok().and_then(|p| p.trim().parse().ok()),
-        };
-        items.push(Item {
-            item_type: t as char,
-            display,
-            selector,
-            host,
-            port,
-        });
-    }
-    items
+    lines(body)
+        .take_while(|&line| line != b".")
+        .filter_map(|line| parse_line(encoding, line))
+        .collect()
+}
+
+/// One menu line, its text in `encoding`. `None` for an empty line.
+pub fn parse_line(encoding: &'static Encoding, line: &[u8]) -> Option<Item> {
+    let (&t, rest) = line.split_first()?;
+    let mut fields = rest.split(|&b| b == b'\t');
+    let display = decode(encoding, fields.next().unwrap_or_default()).into_owned();
+    let selector = fields.next().unwrap_or_default().to_vec();
+    let host = decode(encoding, fields.next().unwrap_or_default()).trim().to_string();
+    let port = match fields.next() {
+        None => Some(DEFAULT_PORT),
+        Some(p) => std::str::from_utf8(p).ok().and_then(|p| p.trim().parse().ok()),
+    };
+    Some(Item {
+        item_type: t as char,
+        display,
+        selector,
+        host,
+        port,
+    })
 }
 
 /// The encoding a body's text is in. Gopher has no charset field: UTF-8 when the whole body
