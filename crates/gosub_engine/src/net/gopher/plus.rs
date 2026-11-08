@@ -14,11 +14,19 @@
 //! An item's attributes (Gopher+ 2.5, 2.7) are blocks of text, each started by a `+NAME:`
 //! line, and are shown as text: the item's descriptor (+INFO) as a menu line, its views
 //! (+VIEWS) as links to each view. Everything in them is the server's and is escaped.
+//!
+//! An +ASK block (Gopher+ 2.8) is a form: one question a line, `<kind>: <prompt>` with a
+//! default or the choices after tabs, read as the UMN client reads it. It is shown as an HTML
+//! form that posts back to its own URL, so the answers, a password among them, stay out of
+//! the URL. The answers then go to the server as the data block of a Gopher+ request
+//! ([`Request::answer_lines`]): one line each, a multi-line answer as its line count and its
+//! lines. Questions that want a local file (AskF, ChooseF) are not supported, and a form with
+//! one is not sent.
 
 use super::menu::{self, Item, Plus};
 use super::render::{self, plus_url, Lines};
-use super::request::Request;
-use crate::net::protocols::page::escape;
+use super::request::{check_line_safe, Request};
+use crate::net::protocols::page::{self, escape, title_for};
 use crate::net::protocols::BodyStream;
 use std::io;
 use std::pin::Pin;
@@ -279,6 +287,11 @@ pub fn attributes_page(url: &Url, request: &Request, body: &[u8]) -> String {
                     out.push(' ');
                     out.push_str(&text(block.value));
                 }
+                if block.name == b"ASK" {
+                    if let Some(href) = item.as_ref().and_then(|item| plus_url(item, host, port, b"?")) {
+                        out.push_str(&format!(" <a href=\"{}\">[form]</a>", escape(href.as_str())));
+                    }
+                }
                 out.push_str("<br>");
                 for line in &block.lines {
                     out.push_str(&format!("  {}<br>", text(line)));
@@ -288,6 +301,238 @@ pub fn attributes_page(url: &Url, request: &Request, body: &[u8]) -> String {
     }
     out.push_str(&render::page_end());
     out
+}
+
+/// One question of an +ASK form.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Question<'a> {
+    /// Text to show, with nothing to answer.
+    Note(&'a [u8]),
+    /// One line of text.
+    Ask { prompt: &'a [u8], default: &'a [u8] },
+    /// One line of text, not shown as it is typed.
+    AskP { prompt: &'a [u8], default: &'a [u8] },
+    /// Several lines of text.
+    AskL { prompt: &'a [u8], default: &'a [u8] },
+    /// Yes or no.
+    Select { prompt: &'a [u8], checked: bool },
+    /// One of a few choices.
+    Choose { prompt: &'a [u8], choices: Vec<&'a [u8]> },
+    /// A question this client does not answer: AskF and ChooseF, which want a local file,
+    /// and any kind it does not know.
+    Unsupported { kind: &'a [u8], prompt: &'a [u8] },
+}
+
+impl Question<'_> {
+    fn answerable(&self) -> bool {
+        !matches!(self, Question::Unsupported { .. })
+    }
+}
+
+/// The questions of an +ASK block, in order.
+pub fn questions<'a>(block: &Block<'a>) -> Vec<Question<'a>> {
+    block
+        .lines
+        .iter()
+        .map(|&line| {
+            let Some(colon) = line.iter().position(|&b| b == b':') else {
+                return Question::Note(line);
+            };
+            let kind = line[..colon].trim_ascii();
+            let rest = line[colon + 1..].trim_ascii_start();
+            let (prompt, default) = match rest.iter().position(|&b| b == b'\t') {
+                Some(tab) => (&rest[..tab], &rest[tab + 1..]),
+                None => (rest, &b""[..]),
+            };
+            let is = |name: &[u8]| kind.eq_ignore_ascii_case(name);
+            if is(b"Note") {
+                Question::Note(prompt)
+            } else if is(b"Ask") {
+                Question::Ask { prompt, default }
+            } else if is(b"AskP") {
+                Question::AskP { prompt, default }
+            } else if is(b"AskL") {
+                Question::AskL { prompt, default }
+            } else if is(b"Select") {
+                // `Select: <prompt>:<0 or 1>`.
+                match prompt.iter().rposition(|&b| b == b':') {
+                    Some(at) => Question::Select {
+                        prompt: &prompt[..at],
+                        checked: prompt.get(at + 1) == Some(&b'1'),
+                    },
+                    None => Question::Select { prompt, checked: false },
+                }
+            } else if is(b"Choose") && !default.is_empty() {
+                Question::Choose {
+                    prompt,
+                    choices: default.split(|&b| b == b'\t').collect(),
+                }
+            } else {
+                Question::Unsupported { kind, prompt }
+            }
+        })
+        .collect()
+}
+
+/// The name of question `i`'s field in the form.
+fn field(i: usize) -> String {
+    format!("a{i}")
+}
+
+/// The page of an +ASK form, posting to `url`. `title` is the item's display string, when
+/// the attributes named it.
+pub fn form_page(
+    url: &Url,
+    title: Option<&str>,
+    questions: &[Question],
+    encoding: &'static encoding_rs::Encoding,
+) -> String {
+    let text = |bytes: &[u8]| escape(&menu::decode(encoding, bytes));
+    let mut action = url.clone();
+    action.set_fragment(None);
+    let title = title.map(str::to_string).unwrap_or_else(|| title_for(url));
+    let mut body = format!(
+        "<h1>{}</h1><form method=\"post\" action=\"{}\">",
+        escape(&title),
+        escape(action.as_str())
+    );
+    let first = questions
+        .iter()
+        .position(|q| !matches!(q, Question::Note(_) | Question::Unsupported { .. }));
+    for (i, question) in questions.iter().enumerate() {
+        let name = field(i);
+        let focus = if Some(i) == first { " autofocus" } else { "" };
+        body.push_str(&match question {
+            Question::Note(note) => format!("<p>{}</p>", text(note)),
+            Question::Ask { prompt, default } | Question::AskP { prompt, default } => {
+                let kind = if matches!(question, Question::AskP { .. }) {
+                    "password"
+                } else {
+                    "text"
+                };
+                format!(
+                    "<p>{}<br><input type=\"{kind}\" name=\"{name}\" value=\"{}\" size=\"60\"{focus}></p>",
+                    text(prompt),
+                    text(default)
+                )
+            }
+            Question::AskL { prompt, default } => format!(
+                "<p>{}<br><textarea name=\"{name}\" rows=\"6\" cols=\"60\"{focus}>{}</textarea></p>",
+                text(prompt),
+                text(default)
+            ),
+            Question::Select { prompt, checked } => format!(
+                "<p><input type=\"checkbox\" name=\"{name}\" value=\"1\"{}{focus}> {}</p>",
+                if *checked { " checked" } else { "" },
+                text(prompt)
+            ),
+            Question::Choose { prompt, choices } => {
+                let options: String = choices
+                    .iter()
+                    .enumerate()
+                    .map(|(n, choice)| format!("<option value=\"{n}\">{}</option>", text(choice)))
+                    .collect();
+                format!(
+                    "<p>{}<br><select name=\"{name}\"{focus}>{options}</select></p>",
+                    text(prompt)
+                )
+            }
+            Question::Unsupported { kind, prompt } => format!(
+                "<p>{} <span class=\"t\">({}: not supported)</span></p>",
+                text(prompt),
+                text(kind)
+            ),
+        });
+    }
+    if questions.iter().all(Question::answerable) {
+        body.push_str("<p><button type=\"submit\">Send</button></p>");
+    } else {
+        body.push_str(
+            "<p class=\"e\">This form asks for a file, or for something else this browser does not \
+support, so it cannot be sent.</p>",
+        );
+    }
+    body.push_str("</form>");
+    page::document(&title, render::STYLE, &body)
+}
+
+/// Longest answer line sent.
+const MAX_ANSWER: usize = 4096;
+/// Most lines one multi-line answer may have.
+const MAX_ANSWER_LINES: usize = 1000;
+/// Most bytes of answers in all, and of a posted form.
+const MAX_ANSWERS: usize = 64 * 1024;
+
+/// The lines that answer `questions`, from the form posted back (urlencoded, as the form's
+/// fields name them). An error names the question, never an answer: one may be a password.
+pub fn answers(questions: &[Question], form: &[u8]) -> Result<Vec<Vec<u8>>, String> {
+    if form.len() > MAX_ANSWERS {
+        return Err(format!("the form's answers are longer than {MAX_ANSWERS} bytes"));
+    }
+    let posted: Vec<(String, String)> = url::form_urlencoded::parse(form).into_owned().collect();
+    let value = |i: usize| {
+        let name = field(i);
+        posted.iter().find(|(k, _)| *k == name).map(|(_, v)| v.as_str())
+    };
+    let missing = |i: usize| format!("the form's answer to question {} is missing", i + 1);
+    let mut out: Vec<Vec<u8>> = Vec::new();
+    for (i, question) in questions.iter().enumerate() {
+        let lines: Vec<Vec<u8>> = match question {
+            Question::Note(_) => continue,
+            Question::Ask { .. } | Question::AskP { .. } => {
+                vec![value(i).ok_or_else(|| missing(i))?.as_bytes().to_vec()]
+            }
+            Question::AskL { .. } => {
+                // A textarea posts CRLF line breaks; a lone CR left in a line is refused below.
+                let text = value(i).unwrap_or_default();
+                let mut lines: Vec<&str> = text.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect();
+                while lines.last() == Some(&"") {
+                    lines.pop();
+                }
+                if lines.len() > MAX_ANSWER_LINES {
+                    return Err(format!(
+                        "the form's answer to question {} has more than {MAX_ANSWER_LINES} lines",
+                        i + 1
+                    ));
+                }
+                std::iter::once(lines.len().to_string())
+                    .chain(lines.iter().map(|line| line.to_string()))
+                    .map(String::into_bytes)
+                    .collect()
+            }
+            Question::Select { .. } => vec![if value(i).is_some() {
+                b"1".to_vec()
+            } else {
+                b"0".to_vec()
+            }],
+            Question::Choose { choices, .. } => {
+                let choice = value(i)
+                    .and_then(|n| n.parse::<usize>().ok())
+                    .and_then(|n| choices.get(n))
+                    .ok_or_else(|| format!("the form's answer to question {} is not one of its choices", i + 1))?;
+                vec![choice.to_vec()]
+            }
+            Question::Unsupported { kind, .. } => {
+                return Err(format!(
+                    "the form asks for {}, which is not supported",
+                    String::from_utf8_lossy(kind)
+                ));
+            }
+        };
+        // A lone `.` would end the data block early.
+        let bad = |line: &Vec<u8>| line.len() > MAX_ANSWER || line == b"." || check_line_safe(line, "answer").is_err();
+        if lines.iter().any(bad) {
+            return Err(format!(
+                "the form's answer to question {} is too long, a lone \".\", or holds a tab, line break or NUL",
+                i + 1
+            ));
+        }
+        out.extend(lines);
+    }
+    if out.iter().map(|line| line.len() + 2).sum::<usize>() > MAX_ANSWERS {
+        return Err(format!("the form's answers are longer than {MAX_ANSWERS} bytes"));
+    }
+    Ok(out)
 }
 
 /// Finds the line holding a single `.` that ends a `+-1` block, a few bytes at a time: a `.`
@@ -569,6 +814,183 @@ mod tests {
         for active in ["<script", "<img", "<b>", "<i>", "<svg"] {
             assert!(!page.contains(active), "{active}: {page}");
         }
+    }
+
+    fn ask(lines: Vec<&'static [u8]>) -> Block<'static> {
+        Block {
+            name: b"ASK",
+            value: b"",
+            lines,
+        }
+    }
+
+    #[test]
+    fn every_kind_of_question_is_read() {
+        let block = ask(vec![
+            b"Note: Read <this>",
+            b"Ask: How many volts?\t230",
+            b"askp: Password:",
+            b"AskL: Why?\tBecause\tyes",
+            b"Select: Really:1",
+            b"Select: Maybe",
+            b"Choose: Deliver electric shock to administrator now?\tYes\tNot!",
+            b"AskF: Save as\tout.txt",
+            b"ChooseF: Send which file",
+            b"Choose: No choices",
+            b"Frob: what",
+            b"no colon at all",
+        ]);
+        assert_eq!(
+            questions(&block),
+            [
+                Question::Note(b"Read <this>"),
+                Question::Ask {
+                    prompt: b"How many volts?",
+                    default: b"230"
+                },
+                Question::AskP {
+                    prompt: b"Password:",
+                    default: b""
+                },
+                Question::AskL {
+                    prompt: b"Why?",
+                    default: b"Because\tyes"
+                },
+                Question::Select {
+                    prompt: b"Really",
+                    checked: true
+                },
+                Question::Select {
+                    prompt: b"Maybe",
+                    checked: false
+                },
+                Question::Choose {
+                    prompt: b"Deliver electric shock to administrator now?",
+                    choices: vec![b"Yes", b"Not!"]
+                },
+                Question::Unsupported {
+                    kind: b"AskF",
+                    prompt: b"Save as"
+                },
+                Question::Unsupported {
+                    kind: b"ChooseF",
+                    prompt: b"Send which file"
+                },
+                Question::Unsupported {
+                    kind: b"Choose",
+                    prompt: b"No choices"
+                },
+                Question::Unsupported {
+                    kind: b"Frob",
+                    prompt: b"what"
+                },
+                Question::Note(b"no colon at all"),
+            ]
+        );
+    }
+
+    fn page_of(lines: Vec<&'static [u8]>) -> String {
+        let url = Url::parse("gopher://h/0/f%09%09%3F").unwrap();
+        form_page(&url, None, &questions(&ask(lines)), encoding_rs::UTF_8)
+    }
+
+    #[test]
+    fn a_form_has_a_field_for_every_question() {
+        let page = page_of(vec![
+            b"Note: Hello",
+            b"Ask: Name\tJo",
+            b"AskP: Password",
+            b"AskL: Story\tonce",
+            b"Select: Agree:1",
+            b"Choose: Pick\tA\tB",
+        ]);
+        assert!(
+            page.contains("<form method=\"post\" action=\"gopher://h/0/f%09%09%3F\">"),
+            "{page}"
+        );
+        assert!(page.contains("<p>Hello</p>"));
+        assert!(page.contains("<input type=\"text\" name=\"a1\" value=\"Jo\" size=\"60\" autofocus>"));
+        assert!(page.contains("<input type=\"password\" name=\"a2\" value=\"\""));
+        assert!(page.contains("<textarea name=\"a3\" rows=\"6\" cols=\"60\">once</textarea>"));
+        assert!(page.contains("<input type=\"checkbox\" name=\"a4\" value=\"1\" checked> Agree"));
+        assert!(
+            page.contains("<select name=\"a5\"><option value=\"0\">A</option><option value=\"1\">B</option></select>")
+        );
+        assert!(page.contains("<button type=\"submit\">Send</button>"));
+    }
+
+    #[test]
+    fn everything_in_a_form_is_text() {
+        let page = page_of(vec![
+            b"Note: <script>alert(1)</script>",
+            b"Ask: <b>q</b>\t\"><img src=x onerror=y>",
+            b"AskL: x\t</textarea><script>",
+            b"Choose: c\t</option><svg onload=x>",
+            b"<i>Frob</i>: z",
+        ]);
+        for active in ["<script", "<img", "<b>", "<svg", "<i>", "</option><svg"] {
+            assert!(!page.contains(active), "{active}: {page}");
+        }
+    }
+
+    #[test]
+    fn a_form_that_wants_a_file_has_no_submit_button() {
+        let page = page_of(vec![b"Ask: Name", b"ChooseF: Upload"]);
+        assert!(page.contains("Upload <span class=\"t\">(ChooseF: not supported)</span>"));
+        assert!(!page.contains("<button"));
+        assert!(page.contains("cannot be sent"));
+    }
+
+    #[test]
+    fn answers_come_in_the_form_s_order() {
+        let block = ask(vec![
+            b"Note: n",
+            b"Ask: a",
+            b"AskL: l",
+            b"Select: s:1",
+            b"Choose: c\tYes\tNot!",
+            b"AskP: p",
+        ]);
+        let q = questions(&block);
+        // An empty multi-line answer is a count of none, an unchecked box is absent.
+        let lines = answers(&q, b"a5=pw&a4=0&a2=&a1=x+y&a3=1").unwrap();
+        assert_eq!(lines, [&b"x y"[..], b"0", b"1", b"Yes", b"pw"]);
+        let lines = answers(&q, b"a5=&a4=1&a1=").unwrap();
+        assert_eq!(lines, [&b""[..], b"0", b"0", b"Not!", b""]);
+    }
+
+    #[test]
+    fn a_bad_answer_is_refused_without_repeating_it() {
+        let q = questions(&ask(vec![b"AskP: p", b"Ask: a", b"Choose: c\tx", b"AskL: l"]));
+        for form in [
+            &b"a0=se%0Acret&a1=x&a2=0"[..],
+            b"a0=se%09cret&a1=x&a2=0",
+            b"a0=se%00cret&a1=x&a2=0",
+            b"a0=.&a1=x&a2=0",
+            b"a0=secret&a2=0",
+            b"a0=secret&a1=x&a2=5",
+            b"a0=secret&a1=x&a2=0&a3=.",
+        ] {
+            let why = answers(&q, form).unwrap_err();
+            assert!(why.contains("question"), "{why}");
+            assert!(!why.contains("cret"), "{why}");
+        }
+        let long = format!("a0={}&a1=x&a2=0", "x".repeat(MAX_ANSWER + 1));
+        assert!(answers(&q, long.as_bytes()).is_err());
+        let many = format!("a0=p&a1=x&a2=0&a3={}", "l%0A".repeat(MAX_ANSWER_LINES + 1));
+        assert!(answers(&q, many.as_bytes()).is_err());
+        let huge = vec![b'x'; MAX_ANSWERS + 1];
+        assert!(answers(&q, &huge).is_err());
+    }
+
+    #[test]
+    fn a_multi_line_answer_is_its_count_and_its_lines() {
+        let q = questions(&ask(vec![b"AskL: l"]));
+        assert_eq!(
+            answers(&q, b"a0=one%0D%0Atwo%0Athree%0D%0A%0D%0A").unwrap(),
+            [&b"3"[..], b"one", b"two", b"three"]
+        );
+        assert!(answers(&q, b"a0=one%0Dtwo").is_err());
     }
 
     #[test]

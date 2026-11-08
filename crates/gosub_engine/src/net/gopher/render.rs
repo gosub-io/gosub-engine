@@ -30,7 +30,7 @@ const SELECTOR: &AsciiSet = &CONTROLS
     .add(b'|')
     .add(b'}');
 
-const STYLE: &str = "body{margin:0;padding:16px 24px;font-family:monospace;line-height:1.4}\
+pub(super) const STYLE: &str = "body{margin:0;padding:16px 24px;font-family:monospace;line-height:1.4}\
 pre{margin:0;white-space:pre-wrap}\
 .t{color:#777}\
 .e{color:#b00020}\
@@ -200,15 +200,18 @@ fn link_for(item: &Item, host: &str, port: u16) -> Option<String> {
     }
 }
 
-/// Links to what Gopher+ adds to an item, after its own link: its attributes. The item's own
-/// link stays a plain gopher request, which every server answers.
+/// Links to what Gopher+ adds to an item, after its own link: its attributes, and its form
+/// for an item that has one. The item's own link stays a plain gopher request, which every
+/// server answers, though a server may answer an item with a form only with an error.
 fn plus_links(item: &Item, host: &str, port: u16) -> String {
-    if item.plus == Plus::No {
-        return String::new();
-    }
-    match plus_url(item, host, port, b"!") {
-        Some(url) => format!(" <a href=\"{}\">[info]</a>", escape(url.as_str())),
+    let link = |plus: &[u8], label: &str| match plus_url(item, host, port, plus) {
+        Some(url) => format!(" <a href=\"{}\">{label}</a>", escape(url.as_str())),
         None => String::new(),
+    };
+    match item.plus {
+        Plus::No => String::new(),
+        Plus::Item => link(b"!", "[info]"),
+        Plus::Ask => link(b"?", "[form]") + &link(b"!", "[info]"),
     }
 }
 
@@ -551,6 +554,18 @@ mod tests {
         );
         assert!(html.contains("<a href=\"gopher://h:7070/1/d%09%09!\">[info]</a>"));
         assert_eq!(html.matches("[info]").count(), 2);
+    }
+
+    #[test]
+    fn an_item_with_a_form_links_to_it() {
+        let html = menu_page(&url("gopher://h/"), b"0Ask me\t/q\th\t70\t?\r\n");
+        assert!(
+            html.contains(
+                "<a href=\"gopher://h/0/q\">Ask me</a> <a href=\"gopher://h/0/q%09%09%3F\">[form]</a> \
+<a href=\"gopher://h/0/q%09%09!\">[info]</a>"
+            ),
+            "{html}"
+        );
     }
 
     #[test]

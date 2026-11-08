@@ -2212,6 +2212,89 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A Gopher+ form posts back to its own URL, and its answers, a password here, go to the
+    /// server in the data block, not into the URL.
+    #[cfg(feature = "gopher")]
+    #[tokio::test]
+    async fn a_gopher_plus_form_posts_its_answers() {
+        use crate::events::{Modifiers, TabCommand};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let requests = Arc::new(Mutex::new(Vec::<String>::new()));
+        let seen = requests.clone();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let seen = seen.clone();
+                tokio::spawn(async move {
+                    let mut asked = Vec::new();
+                    let mut byte = [0u8; 1];
+                    while stream.read_exact(&mut byte).await.is_ok() {
+                        asked.push(byte[0]);
+                        let done = if asked.starts_with(b"/f\t+\t1\r\n") {
+                            asked.ends_with(b"\r\n.\r\n")
+                        } else {
+                            asked.ends_with(b"\r\n")
+                        };
+                        if done {
+                            break;
+                        }
+                    }
+                    let reply: &[u8] = if asked.ends_with(b"\t!\r\n") {
+                        b"+-1\r\n+ASK:\r\n AskP: Password\r\n.\r\n"
+                    } else {
+                        b"+-2\r\nwelcome\r\n"
+                    };
+                    seen.lock().push(String::from_utf8_lossy(&asked).into_owned());
+                    let _ = stream.write_all(reply).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.send(TabCommand::SetViewport {
+            x: 0,
+            y: 0,
+            width: 800,
+            height: 600,
+        })
+        .await
+        .expect("viewport");
+        tab.send(TabCommand::ResumeDrawing { fps: 60 }).await.expect("drawing");
+
+        let form_url = format!("gopher://localhost:{port}/0/f%09%09%3F");
+        let form = gopher_page_finished(events.resubscribe());
+        let focused = focus_moved(events.resubscribe());
+        tab.navigate(form_url.clone()).await.expect("navigate");
+        form.await;
+        assert!(focused.await, "autofocus focused nothing editable");
+
+        let result = gopher_page_finished(events.resubscribe());
+        tab.send(TabCommand::TextInput { text: "s3cret".into() })
+            .await
+            .expect("text");
+        tab.send(TabCommand::KeyDown {
+            key: "Enter".into(),
+            code: "Enter".into(),
+            modifiers: Modifiers::empty(),
+        })
+        .await
+        .expect("enter");
+        assert_eq!(result.await.as_str(), form_url);
+        assert_eq!(
+            *requests.lock(),
+            ["/f\t!\r\n", "/f\t!\r\n", "/f\t+\t1\r\n+-1\r\ns3cret\r\n.\r\n"]
+        );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// `net.*` settings are read when a zone first fetches, so an override made after
     /// `start()` must reach the wire for a zone created afterwards.
     #[tokio::test(flavor = "current_thread")]
