@@ -45,6 +45,10 @@ pub struct Outbound {
     pub pins: Option<Arc<RequestPins>>,
     /// The client certificate the request presents; see `NetFetch::identity`.
     pub identity: Option<crate::net::process::protocol::IdentityWire>,
+    /// The zone the request is made in; see `NetFetch::zone`.
+    pub zone: Option<String>,
+    /// The page that started the navigation; see `NetFetch::from`.
+    pub from: Option<String>,
 }
 
 impl Outbound {
@@ -64,6 +68,8 @@ impl Outbound {
             pin: None,
             pins: None,
             identity: None,
+            zone: None,
+            from: None,
         }
     }
 }
@@ -1133,6 +1139,8 @@ impl NetProcess {
             pin,
             pins,
             identity,
+            zone,
+            from,
         } = out;
         let permit = tokio::select! {
             _ = cancel.cancelled() => return NetReply::error("cancelled"),
@@ -1145,6 +1153,7 @@ impl NetProcess {
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel::<NetReply>();
         self.pending.lock().insert(tag, reply_tx);
         let requested = url.clone();
+        let linked = from.is_some();
         let _asking = pins.map(|pins| {
             self.askers.lock().insert(tag, pins);
             Asking {
@@ -1167,6 +1176,8 @@ impl NetProcess {
             no_total_body_timeout,
             pin,
             identity,
+            zone,
+            from,
         }));
         // The link write can block on a full pipe (bodies can be large), so it
         // runs on a blocking thread rather than a runtime worker.
@@ -1191,7 +1202,7 @@ impl NetProcess {
                 NetReply::error("cancelled")
             }
             reply = tokio::time::timeout(REPLY_TIMEOUT, reply_rx) => match reply {
-                Ok(Ok(reply)) => Self::plausible_reply(reply, &requested),
+                Ok(Ok(reply)) => Self::plausible_reply(reply, &requested, linked),
                 Ok(Err(_)) => NetReply::error("the network process exited"),
                 Err(_) => {
                     self.pending.lock().remove(&tag);
@@ -1219,7 +1230,7 @@ impl NetProcess {
     /// failure's message and a status text are cut to [`MAX_EVENT_STRING`], and
     /// a reply past [`MAX_REPLY_HEADERS`], [`MAX_REPLY_HEADER_BYTES`] or
     /// [`MAX_REPLY_URL`] is refused.
-    fn plausible_reply(mut reply: NetReply, requested: &str) -> NetReply {
+    fn plausible_reply(mut reply: NetReply, requested: &str, linked: bool) -> NetReply {
         {
             use crate::net::protocols::known_hosts::{CertPin, MOST_OTHER_SERVERS};
             let certificates = reply.outcome.certificates();
@@ -1299,7 +1310,9 @@ impl NetProcess {
         };
         // An engine protocol's page comes from the URL asked for, or from where a redirect on
         // its scheme led: on the same server, or for a protocol that pins certificates on any,
-        // each server on the way held to the pin the broker gave for it.
+        // each server on the way held to the pin the broker gave for it. A navigation from a
+        // page may land on any server of the scheme for a protocol that serves mirrors: which
+        // mirrors the page named is known where the page was fetched, not here.
         let own_protocol = crate::net::protocols::lookup(parsed.scheme()).is_some_and(|protocol| {
             final_url.as_str() == requested
                 || url::Url::parse(requested).is_ok_and(|requested| {
@@ -1307,7 +1320,9 @@ impl NetProcess {
                     let server = |url: &url::Url| key(url, protocol.default_port());
                     requested.scheme() == parsed.scheme()
                         && server(&requested).is_some()
-                        && (protocol.pins_certificates() || server(&requested) == server(&parsed))
+                        && (protocol.pins_certificates()
+                            || (linked && protocol.serves_mirrors())
+                            || server(&requested) == server(&parsed))
                 })
         });
         if !matches!(parsed.scheme(), "http" | "https") && !own_protocol {
@@ -1625,7 +1640,11 @@ mod tests {
             other => panic!("not refused: {other:?}"),
         };
 
-        let reply = NetProcess::plausible_reply(ok("x".repeat(MAX_EVENT_STRING * 2), url.clone(), Vec::new()), &url);
+        let reply = NetProcess::plausible_reply(
+            ok("x".repeat(MAX_EVENT_STRING * 2), url.clone(), Vec::new()),
+            &url,
+            false,
+        );
         match reply.outcome {
             FetchOutcome::Ok { status_text, .. } => assert_eq!(status_text.len(), MAX_EVENT_STRING),
             other => panic!("refused: {other:?}"),
@@ -1634,16 +1653,34 @@ mod tests {
         let many: HeaderList = (0..=MAX_REPLY_HEADERS)
             .map(|i| (format!("x-{i}"), b"v".to_vec()))
             .collect();
-        assert!(failed(NetProcess::plausible_reply(ok("OK".into(), url.clone(), many), &url)).contains("headers"));
+        assert!(failed(NetProcess::plausible_reply(
+            ok("OK".into(), url.clone(), many),
+            &url,
+            false
+        ))
+        .contains("headers"));
 
         let heavy = vec![("x-big".to_string(), vec![b'v'; MAX_REPLY_HEADER_BYTES])];
-        assert!(failed(NetProcess::plausible_reply(ok("OK".into(), url.clone(), heavy), &url)).contains("headers"));
+        assert!(failed(NetProcess::plausible_reply(
+            ok("OK".into(), url.clone(), heavy),
+            &url,
+            false
+        ))
+        .contains("headers"));
 
         let long = format!("https://site.test/{}", "a".repeat(MAX_REPLY_URL));
-        assert!(failed(NetProcess::plausible_reply(ok("OK".into(), long, Vec::new()), &url)).contains("final url"));
+        assert!(failed(NetProcess::plausible_reply(
+            ok("OK".into(), long, Vec::new()),
+            &url,
+            false
+        ))
+        .contains("final url"));
 
         let error = NetReply::error("e".repeat(MAX_EVENT_STRING * 2));
-        assert_eq!(failed(NetProcess::plausible_reply(error, &url)).len(), MAX_EVENT_STRING);
+        assert_eq!(
+            failed(NetProcess::plausible_reply(error, &url, false)).len(),
+            MAX_EVENT_STRING
+        );
     }
 
     /// An engine protocol's reply passes only on the server it was asked: a
@@ -1666,12 +1703,13 @@ mod tests {
             stream_end: None,
             redirects: None,
         };
-        let passes = |final_url: &str, requested: &str| {
+        let passes_linked = |final_url: &str, requested: &str, linked: bool| {
             !matches!(
-                NetProcess::plausible_reply(ok(final_url), requested).outcome,
+                NetProcess::plausible_reply(ok(final_url), requested, linked).outcome,
                 FetchOutcome::Error(_)
             )
         };
+        let passes = |final_url: &str, requested: &str| passes_linked(final_url, requested, false);
         assert!(passes("gopher://h/1/", "gopher://h/1/"));
         assert!(passes("gopher://H/0/other", "gopher://h/1/"));
         assert!(!passes("gopher://127.0.0.1:6379/1/", "gopher://h/1/"));
@@ -1680,6 +1718,11 @@ mod tests {
         assert!(!passes("finger://h/bob", "gopher://h/1/"));
         assert!(!passes("gopher://h/1/", "https://site.test/"));
         assert!(!passes("file:///etc/passwd", "file:///etc/passwd"));
+        // A mirror a menu named serves a navigation from that menu, on any server of the scheme.
+        assert!(passes_linked("gopher://mirror.test:7070/1/", "gopher://h/1/", true));
+        assert!(!passes_linked("file:///etc/passwd", "gopher://h/1/", true));
+        #[cfg(feature = "finger")]
+        assert!(!passes_linked("finger://other.test/bob", "finger://h/bob", true));
         // A protocol that holds each server to its pin may end on another server.
         #[cfg(feature = "gemini")]
         {
@@ -1726,7 +1769,7 @@ mod tests {
         let pin = crate::net::protocols::known_hosts::CertPin::of(b"cert").to_string();
         let refused = |reply: NetReply| {
             matches!(
-                NetProcess::plausible_reply(reply, "gemini://h/").outcome,
+                NetProcess::plausible_reply(reply, "gemini://h/", false).outcome,
                 FetchOutcome::Error(e) if e.contains("malformed certificate pins")
             )
         };
@@ -1780,7 +1823,7 @@ mod tests {
         };
         let url = "gemini://h.test/";
         let pin = crate::net::protocols::known_hosts::CertPin::of(b"cert").to_string();
-        match NetProcess::plausible_reply(changed(&pin), url).outcome {
+        match NetProcess::plausible_reply(changed(&pin), url, false).outcome {
             FetchOutcome::CertificateChanged { message, seen, .. } => {
                 assert_eq!(seen, pin);
                 assert_eq!(message.len(), MAX_EVENT_STRING);
@@ -1788,7 +1831,7 @@ mod tests {
             other => panic!("refused: {other:?}"),
         }
         assert!(matches!(
-            NetProcess::plausible_reply(changed("AB:CD"), url).outcome,
+            NetProcess::plausible_reply(changed("AB:CD"), url, false).outcome,
             FetchOutcome::Error(e) if e.contains("malformed certificate pin")
         ));
     }

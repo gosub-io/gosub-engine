@@ -572,6 +572,8 @@ mod tests {
                 reach: AddressSpace::Loopback,
                 pins: Some(pins),
                 identity: None,
+                zone: None,
+                from: None,
             })
             .await
             .map_err(|e| e.error)
@@ -586,6 +588,8 @@ mod tests {
                 reach: AddressSpace::Loopback,
                 pins: Some(pins),
                 identity: None,
+                zone: None,
+                from: None,
             })
             .await
             .expect_err("the fetch failed")
@@ -1019,6 +1023,8 @@ mod tests {
                 reach: AddressSpace::Loopback,
                 pins: None,
                 identity: Some(identity),
+                zone: None,
+                from: None,
             })
             .await
             .map_err(|e| e.error)
@@ -1122,6 +1128,8 @@ mod tests {
                 reach: AddressSpace::Public,
                 pins: None,
                 identity: None,
+                zone: None,
+                from: None,
             })
             .await
             .unwrap_err()

@@ -268,7 +268,18 @@ pub async fn open(
     line: &[u8],
     limits: &Limits,
 ) -> Result<Opened, NetError> {
-    let (mut stream, peer) = connect(url, host, destination, reach).await?;
+    let (stream, peer) = connect(url, host, destination, reach).await?;
+    open_on(stream, peer, host, line, limits).await
+}
+
+/// [`open`] on a connection already made to `peer`.
+pub async fn open_on(
+    mut stream: TcpStream,
+    peer: Option<SocketAddr>,
+    host: &str,
+    line: &[u8],
+    limits: &Limits,
+) -> Result<Opened, NetError> {
     let waiting = || NetError::Timeout(format!("waiting for {host}"));
     let send = async {
         stream.write_all(line).await?;

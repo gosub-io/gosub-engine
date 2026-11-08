@@ -84,6 +84,7 @@ impl PageStream {
 
     fn end(&mut self) {
         self.partial = Vec::new();
+        self.out.extend_from_slice(self.lines.end().as_bytes());
         self.out.extend_from_slice(render::page_end().as_bytes());
         self.ended = true;
     }

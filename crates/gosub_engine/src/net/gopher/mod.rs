@@ -22,15 +22,22 @@
 //! matter more here than for http: a selector is an arbitrary line, which is a complete
 //! command to more than one service listening on a private port.
 //!
+//! A `+` line in a menu names a mirror of the item before it: the same item on another server
+//! (RFC 1436 §3.8). It is shown as a link after the item, and a navigation from that menu tries
+//! the item's mirrors in turn when its server cannot be connected to ([`mirrors`]). A server
+//! that answered, if only with an error, is not left for a mirror. A mirror's page is served
+//! under the mirror's URL, and each mirror is held to the reach and the ports as any server.
+//!
 //! [protocols]: crate::net::protocols
 
 mod decode;
 mod menu;
+mod mirrors;
 mod render;
 mod request;
 mod stream;
 
-use crate::net::protocols::socket::{self, invalid, Destination, Limits, Opened};
+use crate::net::protocols::socket::{self, invalid, Close, Limits, Opened};
 use crate::net::protocols::{BodyStream, Protocol, ProtocolError, ProtocolRequest, ProtocolResponse};
 use crate::net::ssrf::AddressSpace;
 use crate::net::types::NetError;
@@ -40,8 +47,10 @@ use decode::{Decoding, Encoding};
 use render::Lines;
 use request::Request;
 use std::net::SocketAddr;
+use std::time::Duration;
 use stream::PageStream;
 use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::net::TcpStream;
 use url::Url;
 
 /// The gopher protocol.
@@ -65,40 +74,139 @@ impl Protocol for Gopher {
         false
     }
 
+    fn serves_mirrors(&self) -> bool {
+        true
+    }
+
     async fn fetch(&self, request: ProtocolRequest<'_>) -> Result<ProtocolResponse, ProtocolError> {
         Ok(fetch_within(request, &Limits::DEFAULT).await?)
     }
 }
 
 /// [`Gopher::fetch`] under `limits`.
-async fn fetch_within(request: ProtocolRequest<'_>, limits: &Limits) -> Result<ProtocolResponse, NetError> {
-    let (url, reach) = (request.url, request.reach);
-    let request = Request::from_url(url).map_err(invalid)?;
-    let addrs = socket::resolve(&Gopher, url, &request.host, request.port, reach).await?;
+async fn fetch_within(asked: ProtocolRequest<'_>, limits: &Limits) -> Result<ProtocolResponse, NetError> {
+    let request = Request::from_url(asked.url).map_err(invalid)?;
     if request.needs_search_terms() {
         // The prompt needs no server, but it is placed by where its server is: the form
         // submits from it, and that search may reach only as far as the prompt's space.
-        return Ok(html(render::search_page(url), socket::most_public(&addrs)));
+        let addrs = socket::resolve(&Gopher, asked.url, &request.host, request.port, asked.reach).await?;
+        return Ok(html(render::search_page(asked.url), socket::most_public(&addrs)));
     }
+    let mirrors = match (asked.zone, asked.from) {
+        (Some(zone), Some(from)) => mirrors::of(zone, from, asked.url),
+        _ => Vec::new(),
+    };
+    let server = connect(asked.url, request, asked.reach, &mirrors).await?;
+    let mirrored = (server.url != *asked.url).then(|| server.url.clone());
+    let mut response = serve(server, asked.zone, limits).await?;
+    // A mirror's page is the mirror's: its address, its history entry, its links' base.
+    response.final_url = mirrored;
+    Ok(response)
+}
+
+/// Longest the mirrors of an item may take to connect, all together, once its own server
+/// did not answer. With the server's own [`socket::CONNECT_TIMEOUT`] for its name and its
+/// connection, and [`socket::RESPONSE_TIMEOUT`], this stays inside the broker's wait for a
+/// network-process reply.
+const MIRRORS_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// A connection made for a request.
+struct Connected {
+    /// Of the server that answered: the request's own, or one of its mirrors.
+    url: Url,
+    request: Request,
+    stream: TcpStream,
+    peer: Option<SocketAddr>,
+}
+
+/// A connection for `request`, to the server `url` names or, when that one does not answer,
+/// to the first of its `mirrors` that does. Only a connection that failed falls back: a
+/// server refused by policy is refused, and a mirror refused by policy is skipped. Each
+/// mirror is held to the reach and the blocked ports as its own URL.
+async fn connect(url: &Url, request: Request, reach: AddressSpace, mirrors: &[Url]) -> Result<Connected, NetError> {
+    let failed = match connect_to(url, &request, reach).await {
+        Ok((stream, peer)) => {
+            return Ok(Connected {
+                url: url.clone(),
+                request,
+                stream,
+                peer,
+            })
+        }
+        Err(e @ NetError::Blocked { .. }) => return Err(e),
+        Err(e) => e,
+    };
+    let deadline = tokio::time::Instant::now() + MIRRORS_TIMEOUT;
+    for mirror in mirrors {
+        let Ok(alternate) = Request::from_url(mirror) else {
+            continue;
+        };
+        if alternate.item_type != request.item_type {
+            continue;
+        }
+        match tokio::time::timeout_at(deadline, connect_to(mirror, &alternate, reach)).await {
+            Ok(Ok((stream, peer))) => {
+                log::info!("{url} did not answer ({failed}); serving it from its mirror {mirror}");
+                return Ok(Connected {
+                    url: mirror.clone(),
+                    request: alternate,
+                    stream,
+                    peer,
+                });
+            }
+            Ok(Err(e)) => log::debug!("mirror {mirror} of {url}: {e}"),
+            Err(_) => break,
+        }
+    }
+    Err(failed)
+}
+
+/// A connection to the server `url` names.
+async fn connect_to(
+    url: &Url,
+    request: &Request,
+    reach: AddressSpace,
+) -> Result<(TcpStream, Option<SocketAddr>), NetError> {
+    let to = socket::resolve(&Gopher, url, &request.host, request.port, reach).await?;
+    socket::connect(url, &request.host, &to, reach).await
+}
+
+/// The response to a request on the connection made for it, its menus' mirrors remembered in
+/// `zone`.
+async fn serve(server: Connected, zone: Option<&str>, limits: &Limits) -> Result<ProtocolResponse, NetError> {
+    let Connected {
+        url,
+        request,
+        mut stream,
+        peer,
+    } = server;
+    let url = &url;
     let line = request.wire_line();
-    if let Some(encoding) = Encoding::of(request.item_type) {
-        return decoded(&request, url, &addrs, reach, &line, limits, encoding).await;
-    }
     if request.item_type == '3' {
-        let (body, peer) = socket::exchange_within(url, &request.host, &addrs, reach, &line, limits).await?;
-        return Ok(present(&request, url, body, peer));
+        let body = socket::talk_within(&mut stream, &request.host, &line, Close::Clean, limits).await?;
+        return Ok(present(&request, url, body, peer, zone));
     }
-    let Opened { peek, rest, peer } = socket::open(url, &request.host, &addrs, reach, &line, limits).await?;
+    let opened = socket::open_on(stream, peer, &request.host, &line, limits).await?;
+    if let Some(encoding) = Encoding::of(request.item_type) {
+        return decoded(&request, url, opened, limits, encoding).await;
+    }
+    let Opened { peek, rest, peer } = opened;
     let Some(rest) = rest else {
-        return Ok(present(&request, url, peek, peer));
+        return Ok(present(&request, url, peek, peer, zone));
     };
     if is_error_menu(&peek) {
         let body = socket::read_rest(peek, rest, &request.host, limits).await?;
-        return Ok(present(&request, url, body, peer));
+        return Ok(present(&request, url, body, peer, zone));
     }
     let encoding = stream::encoding_for(&peek);
     let lines = match request.item_type {
-        '1' | request::SEARCH_TYPE => Some(Lines::menu(url, encoding)),
+        '1' | request::SEARCH_TYPE => {
+            let lines = Lines::menu(url, encoding);
+            Some(match zone {
+                Some(zone) => lines.remembering_mirrors(zone, url),
+                None => lines,
+            })
+        }
         '0' => Some(Lines::text(encoding)),
         _ => None,
     };
@@ -134,19 +242,17 @@ async fn fetch_within(request: ProtocolRequest<'_>, limits: &Limits) -> Result<P
 async fn decoded(
     request: &Request,
     url: &Url,
-    to: &Destination,
-    reach: AddressSpace,
-    line: &[u8],
+    opened: Opened,
     limits: &Limits,
     encoding: Encoding,
 ) -> Result<ProtocolResponse, NetError> {
-    let Opened { peek, rest, peer } = socket::open(url, &request.host, to, reach, line, limits).await?;
+    let Opened { peek, rest, peer } = opened;
     if is_error_menu(&peek) {
         let body = match rest {
             Some(rest) => socket::read_rest(peek, rest, &request.host, limits).await?,
             None => peek,
         };
-        return Ok(present(request, url, body, peer));
+        return Ok(present(request, url, body, peer, None));
     }
     let encoded: Box<dyn AsyncRead + Send + Unpin> = match rest {
         Some(rest) => Box::new(std::io::Cursor::new(peek).chain(rest.reader)),
@@ -187,9 +293,16 @@ async fn decoded(
 }
 
 /// What the response is, by the item type the URL asked for.
-fn present(request: &Request, url: &Url, body: Vec<u8>, peer: Option<SocketAddr>) -> ProtocolResponse {
+/// A menu's mirrors are remembered in `zone`.
+fn present(
+    request: &Request,
+    url: &Url,
+    body: Vec<u8>,
+    peer: Option<SocketAddr>,
+    zone: Option<&str>,
+) -> ProtocolResponse {
     match request.item_type {
-        '1' | request::SEARCH_TYPE => html(render::menu_page(url, &body), peer),
+        '1' | request::SEARCH_TYPE => html(render::menu_page_in(url, &body, zone), peer),
         '3' => html(render::error_page(url, &error_text(&body)), peer),
         // A server answers a selector it does not have with an error menu, whatever type
         // was asked for.
@@ -376,6 +489,8 @@ mod tests {
                 reach,
                 pins: None,
                 identity: None,
+                zone: None,
+                from: None,
             })
             .await
             .map_err(|e| e.error)
@@ -388,6 +503,8 @@ mod tests {
             reach: AddressSpace::Loopback,
             pins: None,
             identity: None,
+            zone: None,
+            from: None,
         };
         fetch_within(request, limits).await
     }
@@ -421,6 +538,199 @@ mod tests {
             tokio::time::sleep(hold).await;
         });
         port
+    }
+
+    /// [`fetch`] in `zone`, as a navigation the page at `from` started.
+    async fn fetch_from(url: &str, zone: &str, from: Option<&Url>) -> Result<ProtocolResponse, NetError> {
+        let url = Url::parse(url).unwrap();
+        Gopher
+            .fetch(ProtocolRequest {
+                url: &url,
+                reach: AddressSpace::Loopback,
+                pins: None,
+                identity: None,
+                zone: Some(zone),
+                from,
+            })
+            .await
+            .map_err(|e| e.error)
+    }
+
+    /// A loopback port nothing listens on.
+    fn refusing_port() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().port()
+    }
+
+    /// The menu at the URL returned, fetched in `zone`, listing `item` and then `after`.
+    async fn menu_listing(zone: &str, item: String, after: &[String]) -> Url {
+        let mut body = item + "\r\n";
+        for line in after {
+            body.push_str(line);
+            body.push_str("\r\n");
+        }
+        body.push_str(".\r\n");
+        let (port, _server) = serve_once(Box::leak(body.into_bytes().into_boxed_slice())).await;
+        let menu = Url::parse(&format!("gopher://127.0.0.1:{port}/1/menu")).unwrap();
+        let page = fetch_from(menu.as_str(), zone, None).await.unwrap();
+        whole_body(page).await.unwrap();
+        menu
+    }
+
+    #[tokio::test]
+    async fn the_primary_refuses_and_the_mirror_serves() {
+        let dead = refusing_port();
+        let (mirror, server) = serve_once(b"from the mirror\r\n.\r\n").await;
+        let menu = menu_listing(
+            "zone-mirror-serves",
+            format!("0Doc\t/doc\t127.0.0.1\t{dead}"),
+            &[format!("+Doc\t/copy/doc\t127.0.0.1\t{mirror}")],
+        )
+        .await;
+        let item = format!("gopher://127.0.0.1:{dead}/0/doc");
+        let response = fetch_from(&item, "zone-mirror-serves", Some(&menu)).await.unwrap();
+        assert_eq!(server.await.unwrap(), b"/copy/doc\r\n");
+        let mirror_url = format!("gopher://127.0.0.1:{mirror}/0/copy/doc");
+        assert_eq!(response.final_url.as_ref().map(Url::as_str), Some(mirror_url.as_str()));
+        assert_eq!(response.peer_addr.map(|a| a.port()), Some(mirror));
+        let page = whole_body(response).await.unwrap();
+        assert!(std::str::from_utf8(&page).unwrap().contains("from the mirror"));
+    }
+
+    #[tokio::test]
+    async fn a_mirror_s_menu_links_to_the_mirror() {
+        let dead = refusing_port();
+        let (mirror, _server) = serve_once(b"0Here\t/here\t\t\r\n.\r\n").await;
+        let menu = menu_listing(
+            "zone-mirror-menu",
+            format!("1Dir\t/dir\t127.0.0.1\t{dead}"),
+            &[format!("+Dir\t/dir\t127.0.0.1\t{mirror}")],
+        )
+        .await;
+        let item = format!("gopher://127.0.0.1:{dead}/1/dir");
+        let response = fetch_from(&item, "zone-mirror-menu", Some(&menu)).await.unwrap();
+        let page = String::from_utf8(whole_body(response).await.unwrap().to_vec()).unwrap();
+        assert!(page.contains(&format!("gopher://127.0.0.1:{mirror}/0/here")), "{page}");
+    }
+
+    #[tokio::test]
+    async fn a_mirror_that_is_out_of_reach_is_skipped() {
+        let dead = refusing_port();
+        let (mirror, server) = serve_once(b"second\r\n.\r\n").await;
+        let menu = menu_listing(
+            "zone-mirror-skipped",
+            format!("0Doc\t/doc\t127.0.0.1\t{dead}"),
+            &[
+                "+Doc\t/doc\t127.0.0.1\t25".to_string(),
+                format!("+Doc\t/doc\t127.0.0.1\t{mirror}"),
+            ],
+        )
+        .await;
+        let item = format!("gopher://127.0.0.1:{dead}/0/doc");
+        let response = fetch_from(&item, "zone-mirror-skipped", Some(&menu)).await.unwrap();
+        assert_eq!(server.await.unwrap(), b"/doc\r\n");
+        assert_eq!(response.peer_addr.map(|a| a.port()), Some(mirror));
+    }
+
+    #[tokio::test]
+    async fn the_server_s_own_failure_stands_when_no_mirror_answers() {
+        let dead = refusing_port();
+        let menu = menu_listing(
+            "zone-mirror-none",
+            format!("0Doc\t/doc\t127.0.0.1\t{dead}"),
+            &[
+                "+Doc\t/doc\t127.0.0.1\t25".to_string(),
+                format!("+Doc\t/doc\t127.0.0.1\t{}", refusing_port()),
+            ],
+        )
+        .await;
+        let item = format!("gopher://127.0.0.1:{dead}/0/doc");
+        let err = fetch_from(&item, "zone-mirror-none", Some(&menu)).await.unwrap_err();
+        assert!(matches!(err, NetError::Io(_)), "{err:?}");
+        assert!(err.to_string().contains("refused"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_mirror_with_no_item_before_it_is_ignored() {
+        let dead = refusing_port();
+        let (mirror, _server) = serve_once(b"never\r\n.\r\n").await;
+        let menu = menu_listing(
+            "zone-mirror-orphan",
+            format!("0Doc\t/doc\t127.0.0.1\t{dead}"),
+            &["iWelcome\t\t\t".to_string(), format!("+Doc\t/doc\t127.0.0.1\t{mirror}")],
+        )
+        .await;
+        let item = format!("gopher://127.0.0.1:{dead}/0/doc");
+        let err = fetch_from(&item, "zone-mirror-orphan", Some(&menu)).await.unwrap_err();
+        assert!(matches!(err, NetError::Io(_)), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn mirrors_serve_only_a_navigation_from_their_menu_in_their_zone() {
+        let dead = refusing_port();
+        let (mirror, _server) = serve_once(b"never\r\n.\r\n").await;
+        let menu = menu_listing(
+            "zone-mirror-scoped",
+            format!("0Doc\t/doc\t127.0.0.1\t{dead}"),
+            &[format!("+Doc\t/doc\t127.0.0.1\t{mirror}")],
+        )
+        .await;
+        let item = format!("gopher://127.0.0.1:{dead}/0/doc");
+        let other = Url::parse("gopher://127.0.0.1/1/other").unwrap();
+        for (zone, from) in [
+            ("zone-mirror-scoped", None),
+            ("zone-mirror-scoped", Some(&other)),
+            ("another-zone", Some(&menu)),
+        ] {
+            let err = fetch_from(&item, zone, from).await.unwrap_err();
+            assert!(matches!(err, NetError::Io(_)), "{zone} {from:?}: {err:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_server_that_answers_is_never_left_for_a_mirror() {
+        // Connected and closed without a byte, or with an error menu: the server answered.
+        for answer in [&b""[..], b"3Not here\t\terror.host\t1\r\n.\r\n"] {
+            let (primary, _primary) = serve_once(answer).await;
+            let (mirror, mirror_server) = serve_once(b"never\r\n.\r\n").await;
+            let zone = format!("zone-mirror-answered-{}", answer.len());
+            let menu = menu_listing(
+                &zone,
+                format!("0Doc\t/doc\t127.0.0.1\t{primary}"),
+                &[format!("+Doc\t/doc\t127.0.0.1\t{mirror}")],
+            )
+            .await;
+            let item = format!("gopher://127.0.0.1:{primary}/0/doc");
+            let response = fetch_from(&item, &zone, Some(&menu)).await.unwrap();
+            assert_eq!(response.final_url, None);
+            assert_eq!(response.peer_addr.map(|a| a.port()), Some(primary));
+            assert!(!mirror_server.is_finished());
+            mirror_server.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn a_server_refused_by_policy_is_not_left_for_a_mirror() {
+        let (mirror, _server) = serve_once(b"never\r\n.\r\n").await;
+        let menu = menu_listing(
+            "zone-mirror-policy",
+            "0Doc\t/doc\t127.0.0.1\t25".to_string(),
+            &[format!("+Doc\t/doc\t127.0.0.1\t{mirror}")],
+        )
+        .await;
+        let err = fetch_from("gopher://127.0.0.1:25/0/doc", "zone-mirror-policy", Some(&menu))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                NetError::Blocked {
+                    reason: BlockReason::BadPort,
+                    ..
+                }
+            ),
+            "{err:?}"
+        );
     }
 
     #[tokio::test]

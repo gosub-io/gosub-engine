@@ -167,6 +167,14 @@ pub struct NetFetch {
     /// covers the request (`net::protocols::identities`).
     #[serde(default)]
     pub identity: Option<IdentityWire>,
+    /// For an engine protocol: the zone the request is made in, which the protocol keeps
+    /// what pages leave for their links by (`ProtocolRequest::zone`).
+    #[serde(default)]
+    pub zone: Option<String>,
+    /// For an engine protocol: the page whose link started the navigation, from the broker's
+    /// record of it (`ProtocolRequest::from`).
+    #[serde(default)]
+    pub from: Option<String>,
 }
 
 /// A client identity as it travels: its scope, name, certificate and PKCS#8 key, in DER.
