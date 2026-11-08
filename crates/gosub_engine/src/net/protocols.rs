@@ -70,6 +70,16 @@ pub struct ProtocolRequest<'a> {
     /// The body of a form posted to the URL; `None` for any other request. It may hold a
     /// password: never logged.
     pub body: Option<&'a [u8]>,
+    /// Where the page served tells the broker the mirrors it names for its items, when the
+    /// network process serves it ([`DeclareMirrors`]). `None` in process.
+    pub declare: Option<&'a Arc<dyn DeclareMirrors>>,
+}
+
+/// Where a protocol declares the mirrors a page it serves names for its items, for the broker
+/// to hold a later navigation from that page to them (`NetProcess::plausible_reply`).
+pub trait DeclareMirrors: Send + Sync {
+    /// The page served under `page` names `mirror` as serving `item` too.
+    fn mirror(&self, page: &Url, item: &Url, mirror: &Url);
 }
 
 impl std::fmt::Debug for ProtocolRequest<'_> {
@@ -82,6 +92,7 @@ impl std::fmt::Debug for ProtocolRequest<'_> {
             .field("zone", &self.zone)
             .field("from", &self.from.map(Url::as_str))
             .field("body", &self.body.map(<[u8]>::len))
+            .field("declare", &self.declare.is_some())
             .finish()
     }
 }
@@ -174,7 +185,8 @@ pub trait Protocol: Send + Sync {
 
     /// Whether a navigation from a page may be served by another server than its URL names:
     /// one the page named as a mirror of it, when the first does not answer. Its response's
-    /// `final_url` is then on that server.
+    /// `final_url` is then on that server, and its pages declare their mirrors
+    /// ([`ProtocolRequest::declare`]).
     fn serves_mirrors(&self) -> bool {
         false
     }
@@ -636,6 +648,7 @@ mod tests {
             zone: None,
             from: None,
             body: None,
+            declare: None,
         };
         let result = match refuse(protocol, req, enabled, &*recorder) {
             Some(refused) => Some(refused),
@@ -728,6 +741,7 @@ mod tests {
             zone: None,
             from: None,
             body: None,
+            declare: None,
         };
         let recorder = Arc::new(Recorder::default());
         let served = run(&Trickle, request, &CancellationToken::new(), recorder.clone())
@@ -759,6 +773,7 @@ mod tests {
             zone: None,
             from: None,
             body: None,
+            declare: None,
         };
         let served = run(&Echo, request, &CancellationToken::new(), Arc::new(Recorder::default()))
             .await
@@ -777,6 +792,7 @@ mod tests {
             zone: None,
             from: None,
             body: None,
+            declare: None,
         };
         let served = run(&Echo, request, &CancellationToken::new(), Arc::new(Recorder::default()))
             .await

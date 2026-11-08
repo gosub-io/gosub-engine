@@ -575,6 +575,7 @@ mod tests {
                 zone: None,
                 from: None,
                 body: None,
+                declare: None,
             })
             .await
             .map_err(|e| e.error)
@@ -592,6 +593,7 @@ mod tests {
                 zone: None,
                 from: None,
                 body: None,
+                declare: None,
             })
             .await
             .expect_err("the fetch failed")
@@ -1028,6 +1030,7 @@ mod tests {
                 zone: None,
                 from: None,
                 body: None,
+                declare: None,
             })
             .await
             .map_err(|e| e.error)
@@ -1134,6 +1137,7 @@ mod tests {
                 zone: None,
                 from: None,
                 body: None,
+                declare: None,
             })
             .await
             .unwrap_err()

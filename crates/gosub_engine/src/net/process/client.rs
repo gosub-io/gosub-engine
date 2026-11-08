@@ -2,6 +2,7 @@
 //! it dies.
 
 use crate::net::emitter::NetObserver;
+use crate::net::process::declared::{self, Declared};
 use crate::net::process::protocol::{
     cut_string, rebuild_headers, CookieScope, FetchOutcome, FromNet, HeaderList, NetEventWire, NetFetch, PinAnswer,
     RequestContext, RequestTag, ToNet, MAX_EVENT_STRING, MAX_REPLY_HEADERS, MAX_REPLY_HEADER_BYTES, MAX_REPLY_URL,
@@ -561,6 +562,9 @@ pub struct NetProcess {
     vault_linked: bool,
     /// Who is waiting for an audit report, if anyone.
     audit_waiter: AuditWaiter,
+    /// The mirrors pages declared for their items, which a navigation from such a page may
+    /// end on.
+    declared: Arc<Declared>,
     /// Cleared by the reader thread of the current link when it ends.
     alive: Mutex<Arc<AtomicBool>>,
     /// Serializes respawns and remembers the last attempt.
@@ -697,6 +701,7 @@ fn start_reader(
     askers: Askers,
     observers: Reported,
     audit_reply: AuditWaiter,
+    declared: Arc<Declared>,
     ready_tx: std::sync::mpsc::SyncSender<()>,
     alive: Arc<AtomicBool>,
 ) -> std::io::Result<()> {
@@ -750,6 +755,13 @@ fn start_reader(
                             log::error!("could not answer the network process's pin question: {e}");
                         }
                     }
+                    // Kept only for a request opened for it, under its own page.
+                    FromNet::Mirror {
+                        tag,
+                        page,
+                        item,
+                        mirror,
+                    } => declared.declare(tag, &page, &item, &mirror),
                     // Only to an observer this side registered for the tag: a
                     // child cannot report on a request nobody asked it about.
                     FromNet::Event { tag, event } => {
@@ -853,6 +865,7 @@ impl NetProcess {
         let askers: Askers = Arc::new(Mutex::new(HashMap::new()));
         let reported: Reported = Arc::new(Mutex::new(HashMap::new()));
         let audit_waiter: AuditWaiter = Arc::new(Mutex::new(HashMap::new()));
+        let declared = Arc::new(Declared::default());
         let alive = Arc::new(AtomicBool::new(true));
         let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<()>(1);
         let tx = Arc::new(Mutex::new(launched.tx));
@@ -863,6 +876,7 @@ impl NetProcess {
             Arc::clone(&askers),
             Arc::clone(&reported),
             Arc::clone(&audit_waiter),
+            Arc::clone(&declared),
             ready_tx,
             Arc::clone(&alive),
         )?;
@@ -877,6 +891,7 @@ impl NetProcess {
             inflight: Arc::new(tokio::sync::Semaphore::new(MAX_INFLIGHT)),
             vault_linked: launched.vault_linked,
             audit_waiter,
+            declared,
             alive: Mutex::new(alive),
             respawn: Mutex::new(None),
             closed: AtomicBool::new(false),
@@ -978,6 +993,7 @@ impl NetProcess {
             Arc::clone(&self.askers),
             Arc::clone(&self.reported),
             Arc::clone(&self.audit_waiter),
+            Arc::clone(&self.declared),
             ready_tx,
             Arc::clone(&alive),
         ) {
@@ -1153,7 +1169,21 @@ impl NetProcess {
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel::<NetReply>();
         self.pending.lock().insert(tag, reply_tx);
         let requested = url.clone();
-        let linked = from.is_some();
+        // A navigation over a protocol that serves mirrors may end on one the page it came
+        // from declared, and its own page may declare more.
+        let navigation = context.mode == Some(crate::net::process::protocol::Mode::Navigate);
+        let serves_mirrors = navigation
+            && url::Url::parse(&url)
+                .ok()
+                .and_then(|url| crate::net::protocols::lookup(url.scheme()))
+                .is_some_and(|protocol| protocol.serves_mirrors());
+        let mirrors = match (&zone, &from) {
+            (Some(zone), Some(from)) if serves_mirrors => self.declared.mirrors(zone, from, &url),
+            _ => Vec::new(),
+        };
+        if let Some(zone) = zone.as_deref().filter(|_| serves_mirrors) {
+            self.declared.open(tag, zone, &url, &mirrors);
+        }
         let _asking = pins.map(|pins| {
             self.askers.lock().insert(tag, pins);
             Asking {
@@ -1202,7 +1232,7 @@ impl NetProcess {
                 NetReply::error("cancelled")
             }
             reply = tokio::time::timeout(REPLY_TIMEOUT, reply_rx) => match reply {
-                Ok(Ok(reply)) => Self::plausible_reply(reply, &requested, linked),
+                Ok(Ok(reply)) => Self::plausible_reply(reply, &requested, &mirrors),
                 Ok(Err(_)) => NetReply::error("the network process exited"),
                 Err(_) => {
                     self.pending.lock().remove(&tag);
@@ -1230,7 +1260,7 @@ impl NetProcess {
     /// failure's message and a status text are cut to [`MAX_EVENT_STRING`], and
     /// a reply past [`MAX_REPLY_HEADERS`], [`MAX_REPLY_HEADER_BYTES`] or
     /// [`MAX_REPLY_URL`] is refused.
-    fn plausible_reply(mut reply: NetReply, requested: &str, linked: bool) -> NetReply {
+    fn plausible_reply(mut reply: NetReply, requested: &str, mirrors: &[String]) -> NetReply {
         {
             use crate::net::protocols::known_hosts::{CertPin, MOST_OTHER_SERVERS};
             let certificates = reply.outcome.certificates();
@@ -1311,8 +1341,8 @@ impl NetProcess {
         // An engine protocol's page comes from the URL asked for, or from where a redirect on
         // its scheme led: on the same server, or for a protocol that pins certificates on any,
         // each server on the way held to the pin the broker gave for it. A navigation from a
-        // page may land on any server of the scheme for a protocol that serves mirrors: which
-        // mirrors the page named is known where the page was fetched, not here.
+        // page may land on one of the `mirrors` that page declared for the item
+        // (`declared`).
         let own_protocol = crate::net::protocols::lookup(parsed.scheme()).is_some_and(|protocol| {
             final_url.as_str() == requested
                 || url::Url::parse(requested).is_ok_and(|requested| {
@@ -1321,7 +1351,7 @@ impl NetProcess {
                     requested.scheme() == parsed.scheme()
                         && server(&requested).is_some()
                         && (protocol.pins_certificates()
-                            || (linked && protocol.serves_mirrors())
+                            || declared::key(final_url).is_some_and(|url| mirrors.contains(&url))
                             || server(&requested) == server(&parsed))
                 })
         });
@@ -1640,11 +1670,8 @@ mod tests {
             other => panic!("not refused: {other:?}"),
         };
 
-        let reply = NetProcess::plausible_reply(
-            ok("x".repeat(MAX_EVENT_STRING * 2), url.clone(), Vec::new()),
-            &url,
-            false,
-        );
+        let reply =
+            NetProcess::plausible_reply(ok("x".repeat(MAX_EVENT_STRING * 2), url.clone(), Vec::new()), &url, &[]);
         match reply.outcome {
             FetchOutcome::Ok { status_text, .. } => assert_eq!(status_text.len(), MAX_EVENT_STRING),
             other => panic!("refused: {other:?}"),
@@ -1656,7 +1683,7 @@ mod tests {
         assert!(failed(NetProcess::plausible_reply(
             ok("OK".into(), url.clone(), many),
             &url,
-            false
+            &[]
         ))
         .contains("headers"));
 
@@ -1664,7 +1691,7 @@ mod tests {
         assert!(failed(NetProcess::plausible_reply(
             ok("OK".into(), url.clone(), heavy),
             &url,
-            false
+            &[]
         ))
         .contains("headers"));
 
@@ -1672,13 +1699,13 @@ mod tests {
         assert!(failed(NetProcess::plausible_reply(
             ok("OK".into(), long, Vec::new()),
             &url,
-            false
+            &[]
         ))
         .contains("final url"));
 
         let error = NetReply::error("e".repeat(MAX_EVENT_STRING * 2));
         assert_eq!(
-            failed(NetProcess::plausible_reply(error, &url, false)).len(),
+            failed(NetProcess::plausible_reply(error, &url, &[])).len(),
             MAX_EVENT_STRING
         );
     }
@@ -1703,13 +1730,14 @@ mod tests {
             stream_end: None,
             redirects: None,
         };
-        let passes_linked = |final_url: &str, requested: &str, linked: bool| {
+        let passes_listed = |final_url: &str, requested: &str, mirrors: &[&str]| {
+            let mirrors: Vec<String> = mirrors.iter().map(|m| m.to_string()).collect();
             !matches!(
-                NetProcess::plausible_reply(ok(final_url), requested, linked).outcome,
+                NetProcess::plausible_reply(ok(final_url), requested, &mirrors).outcome,
                 FetchOutcome::Error(_)
             )
         };
-        let passes = |final_url: &str, requested: &str| passes_linked(final_url, requested, false);
+        let passes = |final_url: &str, requested: &str| passes_listed(final_url, requested, &[]);
         assert!(passes("gopher://h/1/", "gopher://h/1/"));
         assert!(passes("gopher://H/0/other", "gopher://h/1/"));
         assert!(!passes("gopher://127.0.0.1:6379/1/", "gopher://h/1/"));
@@ -1718,11 +1746,27 @@ mod tests {
         assert!(!passes("finger://h/bob", "gopher://h/1/"));
         assert!(!passes("gopher://h/1/", "https://site.test/"));
         assert!(!passes("file:///etc/passwd", "file:///etc/passwd"));
-        // A mirror a menu named serves a navigation from that menu, on any server of the scheme.
-        assert!(passes_linked("gopher://mirror.test:7070/1/", "gopher://h/1/", true));
-        assert!(!passes_linked("file:///etc/passwd", "gopher://h/1/", true));
-        #[cfg(feature = "finger")]
-        assert!(!passes_linked("finger://other.test/bob", "finger://h/bob", true));
+        // A navigation from a menu may end on a mirror the menu declared for the item, and on
+        // no other server.
+        let listed = ["gopher://mirror.test:7070/1/"];
+        assert!(passes_listed("gopher://mirror.test:7070/1/", "gopher://h/1/", &listed));
+        assert!(passes_listed(
+            "gopher://mirror.test:7070/1/#top",
+            "gopher://h/1/",
+            &listed
+        ));
+        assert!(!passes_listed("gopher://other.test/1/", "gopher://h/1/", &listed));
+        assert!(!passes_listed("gopher://mirror.test:7070/1/", "gopher://h/1/", &[]));
+        assert!(!passes_listed(
+            "gopher://mirror.test:7070/1/",
+            "gopher://h/0/x",
+            &["gopher://mirror.test:7070/0/x"]
+        ));
+        assert!(!passes_listed(
+            "file:///etc/passwd",
+            "gopher://h/1/",
+            &["file:///etc/passwd"]
+        ));
         // A protocol that holds each server to its pin may end on another server.
         #[cfg(feature = "gemini")]
         {
@@ -1769,7 +1813,7 @@ mod tests {
         let pin = crate::net::protocols::known_hosts::CertPin::of(b"cert").to_string();
         let refused = |reply: NetReply| {
             matches!(
-                NetProcess::plausible_reply(reply, "gemini://h/", false).outcome,
+                NetProcess::plausible_reply(reply, "gemini://h/", &[]).outcome,
                 FetchOutcome::Error(e) if e.contains("malformed certificate pins")
             )
         };
@@ -1823,7 +1867,7 @@ mod tests {
         };
         let url = "gemini://h.test/";
         let pin = crate::net::protocols::known_hosts::CertPin::of(b"cert").to_string();
-        match NetProcess::plausible_reply(changed(&pin), url, false).outcome {
+        match NetProcess::plausible_reply(changed(&pin), url, &[]).outcome {
             FetchOutcome::CertificateChanged { message, seen, .. } => {
                 assert_eq!(seen, pin);
                 assert_eq!(message.len(), MAX_EVENT_STRING);
@@ -1831,7 +1875,7 @@ mod tests {
             other => panic!("refused: {other:?}"),
         }
         assert!(matches!(
-            NetProcess::plausible_reply(changed("AB:CD"), url, false).outcome,
+            NetProcess::plausible_reply(changed("AB:CD"), url, &[]).outcome,
             FetchOutcome::Error(e) if e.contains("malformed certificate pin")
         ));
     }

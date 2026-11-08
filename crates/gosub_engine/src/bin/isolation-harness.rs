@@ -8965,7 +8965,8 @@ fn engine_gopher() -> i32 {
         }
 
         // The menu's link to a server that does not answer: served by the mirror the menu
-        // named, which the network process remembered, and committed under the mirror's URL.
+        // named, which the network process remembered and declared to the broker, and committed
+        // under the mirror's URL, which the broker accepts as one the menu declared.
         for key in ["Tab", "Enter"] {
             let press = TabCommand::KeyDown {
                 key: key.into(),

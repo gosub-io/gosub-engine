@@ -4,11 +4,14 @@
 //! Kept by zone and by the menu that named them: only a navigation that menu's page started,
 //! in the zone that showed it, is offered an item's mirrors. One typed in, or from any other
 //! page or zone, goes to the server its URL names and nowhere else. Kept in the process that
-//! fetches, which renders the menu too: this one, or the network process. Bounded: the item
-//! used least recently is forgotten first.
+//! fetches, which renders the menu too: this one, or the network process, which also declares
+//! them to the broker ([`Keeper`]) so the broker can hold the mirror's reply to them. Bounded:
+//! the item used least recently is forgotten first.
 
+use crate::net::protocols::DeclareMirrors;
 use parking_lot::Mutex;
 use std::collections::VecDeque;
+use std::sync::Arc;
 use url::Url;
 
 /// Items whose mirrors are kept, across all zones and menus.
@@ -28,6 +31,24 @@ struct Entry {
 struct Kept(VecDeque<Entry>);
 
 static KEPT: Mutex<Kept> = Mutex::new(Kept(VecDeque::new()));
+
+/// Where the mirrors a menu names go: this process's store, for the zone, and the broker, when
+/// the menu is served from the network process.
+#[derive(Clone)]
+pub struct Keeper {
+    pub zone: String,
+    pub declare: Option<Arc<dyn DeclareMirrors>>,
+}
+
+impl Keeper {
+    /// Keep `mirror` for `item` on the menu at `menu`.
+    pub fn keep(&self, menu: &Url, item: &Url, mirror: &Url) {
+        remember(&self.zone, menu, item, mirror);
+        if let Some(declare) = &self.declare {
+            declare.mirror(menu, item, mirror);
+        }
+    }
+}
 
 /// Remember `mirror` for `item` on the menu at `menu`, shown in `zone`.
 pub fn remember(zone: &str, menu: &Url, item: &Url, mirror: &Url) {

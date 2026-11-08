@@ -2,4 +2,5 @@
 
 pub mod child;
 pub mod client;
+pub mod declared;
 pub mod protocol;

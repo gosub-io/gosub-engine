@@ -396,6 +396,23 @@ struct LinkObserver {
 /// body): the same rule the broker's emitter applies before the embedder.
 const PROGRESS_STEP: u64 = 64 * 1024;
 
+/// Where a page the protocol serves declares its mirrors: to the broker, on the link.
+struct LinkMirrors {
+    tag: RequestTag,
+    link_tx: Arc<Mutex<gosub_ipc::EndpointTx>>,
+}
+
+impl crate::net::protocols::DeclareMirrors for LinkMirrors {
+    fn mirror(&self, page: &Url, item: &Url, mirror: &Url) {
+        let _ = self.link_tx.lock().send(&FromNet::Mirror {
+            tag: self.tag,
+            page: page.to_string(),
+            item: item.to_string(),
+            mirror: mirror.to_string(),
+        });
+    }
+}
+
 impl gosub_sonar::net::observer::NetObserver for LinkObserver {
     fn on_event(&self, event: crate::net::events::NetEvent) {
         use std::sync::atomic::Ordering;
@@ -670,6 +687,10 @@ async fn perform_protocol(
         .clone()
         .map(crate::net::protocols::identities::ClientIdentity::from);
     let from = fetch.from.as_deref().and_then(|from| Url::parse(from).ok());
+    let declare: Arc<dyn crate::net::protocols::DeclareMirrors> = Arc::new(LinkMirrors {
+        tag: fetch.tag,
+        link_tx: Arc::clone(link_tx),
+    });
     let request = crate::net::protocols::ProtocolRequest {
         url: &url,
         reach: fetch.reach,
@@ -680,6 +701,7 @@ async fn perform_protocol(
         zone: fetch.zone.as_deref(),
         from: from.as_ref(),
         body: fetch.body.as_deref(),
+        declare: protocol.serves_mirrors().then_some(&declare),
     };
     let served = crate::net::protocols::run(protocol, request, &cancel, observer).await;
     answers.lock().remove(&fetch.tag);

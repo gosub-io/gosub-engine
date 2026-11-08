@@ -49,6 +49,7 @@ use crate::net::types::NetError;
 use async_trait::async_trait;
 use bytes::Bytes;
 use decode::{Decoding, Encoding};
+use mirrors::Keeper;
 use render::Lines;
 use request::{Command, Request};
 use std::net::SocketAddr;
@@ -131,7 +132,11 @@ async fn fetch_within(asked: ProtocolRequest<'_>, limits: &Limits) -> Result<Pro
     }
     let server = connect(asked.url, request, asked.reach, &mirrors).await?;
     let mirrored = (server.url != *asked.url).then(|| server.url.clone());
-    let mut response = serve(server, line, asked.zone, limits).await?;
+    let keeper = asked.zone.map(|zone| Keeper {
+        zone: zone.to_string(),
+        declare: asked.declare.cloned(),
+    });
+    let mut response = serve(server, line, keeper.as_ref(), limits).await?;
     // A mirror's page is the mirror's: its address, its history entry, its links' base.
     response.final_url = mirrored;
     Ok(response)
@@ -204,12 +209,12 @@ async fn connect_to(
     socket::connect(url, &request.host, &to, reach).await
 }
 
-/// The response to a request on the connection made for it, its menus' mirrors remembered in
-/// `zone`. `line` is what is sent when it is not the request's own wire line.
+/// The response to a request on the connection made for it, its menus' mirrors kept by
+/// `keeper`. `line` is what is sent when it is not the request's own wire line.
 async fn serve(
     server: Connected,
     line: Option<Vec<u8>>,
-    zone: Option<&str>,
+    keeper: Option<&Keeper>,
     limits: &Limits,
 ) -> Result<ProtocolResponse, NetError> {
     let Connected {
@@ -222,7 +227,7 @@ async fn serve(
     let line = line.unwrap_or_else(|| request.wire_line());
     if request.item_type == '3' && request.gopher_plus.is_none() {
         let body = socket::talk_within(&mut stream, &request.host, &line, Close::Clean, limits).await?;
-        return Ok(present(&request, url, body, peer, zone));
+        return Ok(present(&request, url, body, peer, keeper));
     }
     let opened = socket::open_on(stream, peer, &request.host, &line, limits).await?;
     let opened = match block(opened, &request, url, limits).await? {
@@ -234,18 +239,18 @@ async fn serve(
     }
     let Opened { peek, rest, peer } = opened;
     let Some(rest) = rest else {
-        return Ok(present(&request, url, peek, peer, zone));
+        return Ok(present(&request, url, peek, peer, keeper));
     };
     if is_error_menu(&peek) {
         let body = socket::read_rest(peek, rest, &request.host, limits).await?;
-        return Ok(present(&request, url, body, peer, zone));
+        return Ok(present(&request, url, body, peer, keeper));
     }
     let encoding = stream::encoding_for(&peek);
     let lines = match request.item_type {
         '1' | request::SEARCH_TYPE => {
             let lines = Lines::menu(url, encoding);
-            Some(match zone {
-                Some(zone) => lines.remembering_mirrors(zone, url),
+            Some(match keeper {
+                Some(keeper) => lines.remembering_mirrors(keeper, url),
                 None => lines,
             })
         }
@@ -451,16 +456,16 @@ fn view_type(view: &[u8]) -> char {
 }
 
 /// What the response is, by the item type the URL asked for.
-/// A menu's mirrors are remembered in `zone`.
+/// A menu's mirrors are kept by `keeper`.
 fn present(
     request: &Request,
     url: &Url,
     body: Vec<u8>,
     peer: Option<SocketAddr>,
-    zone: Option<&str>,
+    keeper: Option<&Keeper>,
 ) -> ProtocolResponse {
     match request.item_type {
-        '1' | request::SEARCH_TYPE => html(render::menu_page_in(url, &body, zone), peer),
+        '1' | request::SEARCH_TYPE => html(render::menu_page_in(url, &body, keeper), peer),
         '3' => html(render::error_page(url, &error_text(&body)), peer),
         // A server answers a selector it does not have with an error menu, whatever type
         // was asked for.
@@ -655,6 +660,7 @@ mod tests {
                 zone: None,
                 from: None,
                 body,
+                declare: None,
             })
             .await
             .map_err(|e| e.error)
@@ -702,6 +708,7 @@ mod tests {
             zone: None,
             from: None,
             body: None,
+            declare: None,
         };
         fetch_within(request, limits).await
     }
@@ -759,6 +766,7 @@ mod tests {
                 zone: Some(zone),
                 from,
                 body,
+                declare: None,
             })
             .await
             .map_err(|e| e.error)
@@ -783,6 +791,53 @@ mod tests {
         let page = fetch_from(menu.as_str(), zone, None).await.unwrap();
         whole_body(page).await.unwrap();
         menu
+    }
+
+    /// The mirrors a page declared, as (page, item, mirror).
+    #[derive(Default)]
+    struct Declarations(parking_lot::Mutex<Vec<(String, String, String)>>);
+
+    impl crate::net::protocols::DeclareMirrors for Declarations {
+        fn mirror(&self, page: &Url, item: &Url, mirror: &Url) {
+            self.0
+                .lock()
+                .push((page.to_string(), item.to_string(), mirror.to_string()));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_streamed_menu_declares_its_mirrors() {
+        let mut body = b"iFiller\t\t\t\r\n".repeat(2 * socket::PEEK_BYTES / 10);
+        body.extend_from_slice(b"0Doc\t/doc\th.test\t70\r\n+Doc\t/copy\tm.test\t7070\r\n");
+        body.extend_from_slice(b"+Doc\t/doc\tn.test\t70\r\niAfter\t\t\t\r\n+Stray\t/s\tx.test\t70\r\n.\r\n");
+        let (port, _server) = serve_once(Box::leak(body.into_boxed_slice())).await;
+        let menu = Url::parse(&format!("gopher://127.0.0.1:{port}/1/long")).unwrap();
+        let declarations = Arc::new(Declarations::default());
+        let declare: Arc<dyn crate::net::protocols::DeclareMirrors> = declarations.clone();
+        let response = Gopher
+            .fetch(ProtocolRequest {
+                url: &menu,
+                reach: AddressSpace::Loopback,
+                pins: None,
+                identity: None,
+                zone: Some("zone-declares"),
+                from: None,
+                body: None,
+                declare: Some(&declare),
+            })
+            .await
+            .map_err(|e| e.error)
+            .unwrap();
+        assert!(response.rest.is_some(), "the menu streams");
+        whole_body(response).await.unwrap();
+        let (page, item) = (menu.to_string(), "gopher://h.test/0/doc".to_string());
+        assert_eq!(
+            *declarations.0.lock(),
+            [
+                (page.clone(), item.clone(), "gopher://m.test:7070/0/copy".to_string()),
+                (page, item, "gopher://n.test/0/doc".to_string()),
+            ]
+        );
     }
 
     #[tokio::test]
