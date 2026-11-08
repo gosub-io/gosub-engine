@@ -393,6 +393,7 @@ fn dispatch_to_net_process(
     grant: Option<Grant>,
     pins: Option<Arc<RequestPins>>,
     client_identity: Option<ClientIdentity>,
+    linked: Option<(String, Option<url::Url>)>,
     cancel: tokio_util::sync::CancellationToken,
     reply_tx: oneshot::Sender<FetchResult>,
     observer: Option<Arc<dyn crate::net::emitter::NetObserver + Send + Sync>>,
@@ -467,6 +468,8 @@ fn dispatch_to_net_process(
                 .map(|pin| pin.to_string()),
             pins: pins.clone(),
             identity: client_identity.as_ref().map(Into::into),
+            zone: linked.as_ref().map(|(zone, _)| zone.clone()),
+            from: linked.and_then(|(_, from)| from).map(String::from),
         };
         // A process that died is respawned before the request goes out;
         // blocking, so off the runtime's workers.
@@ -548,6 +551,7 @@ fn dispatch_to_net_process(
     _grant: Option<Grant>,
     _pins: Option<Arc<RequestPins>>,
     _client_identity: Option<ClientIdentity>,
+    _linked: Option<(String, Option<url::Url>)>,
     _cancel: tokio_util::sync::CancellationToken,
     _reply_tx: oneshot::Sender<FetchResult>,
     _observer: Option<Arc<dyn crate::net::emitter::NetObserver + Send + Sync>>,
@@ -1047,6 +1051,18 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                     _ => None,
                                 };
 
+                                // What a protocol may tie a page's state to: the zone, and for a
+                                // navigation a page started, that page.
+                                let linked = protocol.as_ref().map(|_| {
+                                    let from = match (identity.as_ref(), reference) {
+                                        (Some(id), Some(RequestReference::Navigation(nav))) => {
+                                            id.protocol_navigation_initiator(nav)
+                                        }
+                                        _ => None,
+                                    };
+                                    (zone_id.to_string(), from)
+                                });
+
                                 // A network process's reply is intercepted so `Set-Cookie` is
                                 // stored on this side too; the requester still receives the
                                 // untouched result. Under a vault grant the network process
@@ -1079,6 +1095,7 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                         grant,
                                         pins,
                                         client_identity,
+                                        linked,
                                         handle.cancel.clone(),
                                         reply_tx,
                                         #[cfg(feature = "process-isolation")]
@@ -1095,6 +1112,8 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                                     .as_deref()
                                                     .map(|pins| pins as &dyn crate::net::protocols::known_hosts::Pins),
                                                 identity: client_identity.as_ref(),
+                                                zone: linked.as_ref().map(|(zone, _)| zone.as_str()),
+                                                from: linked.as_ref().and_then(|(_, from)| from.as_ref()),
                                                 body: req.body.as_ref().and_then(|body| body.as_bytes()).map(|bytes| &bytes[..]),
                                             };
                                             let served =

@@ -119,7 +119,7 @@ pub async fn resolve_with(
     if port_refused(protocol, port) {
         return Err(blocked(BlockReason::BadPort, url));
     }
-    if let Some(proxy) = proxies.for_target(host, port) {
+    if let Some(proxy) = proxies.for_target(host, port).map_err(invalid)? {
         check_proxied(host, reach, url)?;
         return Ok(Destination::Proxied {
             proxy: proxy.clone(),
@@ -268,7 +268,18 @@ pub async fn open(
     line: &[u8],
     limits: &Limits,
 ) -> Result<Opened, NetError> {
-    let (mut stream, peer) = connect(url, host, destination, reach).await?;
+    let (stream, peer) = connect(url, host, destination, reach).await?;
+    open_on(stream, peer, host, line, limits).await
+}
+
+/// [`open`] on a connection already made to `peer`.
+pub async fn open_on(
+    mut stream: TcpStream,
+    peer: Option<SocketAddr>,
+    host: &str,
+    line: &[u8],
+    limits: &Limits,
+) -> Result<Opened, NetError> {
     let waiting = || NetError::Timeout(format!("waiting for {host}"));
     let send = async {
         stream.write_all(line).await?;
@@ -649,7 +660,7 @@ mod tests {
             assert!(refused_by_policy(&err), "{host}: {err:?}");
             // A destination built elsewhere is held to the reach as well.
             let destination = Destination::Proxied {
-                proxy: proxies.for_target(host, 70).unwrap().clone(),
+                proxy: proxies.for_target(host, 70).unwrap().unwrap().clone(),
                 host: host.to_string(),
                 port: 70,
             };
@@ -771,5 +782,26 @@ mod tests {
         .await
         .unwrap_err();
         assert!(matches!(err, NetError::Timeout(_)), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn an_unusable_proxy_fails_the_fetch_before_any_connection() {
+        let origin = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = origin.local_addr().unwrap().port();
+        let vars = [("ALL_PROXY", "ftp://alice:hunter2@127.0.0.1:21")];
+        let proxies = Proxies::from_env(|name| vars.iter().find(|(k, _)| *k == name).map(|(_, v)| v.to_string()));
+        let url = Url::parse(&format!("on70://127.0.0.1:{port}/")).unwrap();
+        let err = resolve_with(&On70, &url, "127.0.0.1", port, AddressSpace::Loopback, &proxies)
+            .await
+            .unwrap_err();
+        let NetError::Io(e) = err else {
+            panic!("{err:?}");
+        };
+        assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput);
+        let message = e.to_string();
+        assert!(message.contains("ftp://alice:...@127.0.0.1:21"), "{message}");
+        assert!(!message.contains("hunter2"), "{message}");
+        let accepted = tokio::time::timeout(Duration::from_millis(200), origin.accept()).await;
+        assert!(accepted.is_err(), "the origin was connected to directly");
     }
 }

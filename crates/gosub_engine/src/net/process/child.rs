@@ -669,6 +669,7 @@ async fn perform_protocol(
         .identity
         .clone()
         .map(crate::net::protocols::identities::ClientIdentity::from);
+    let from = fetch.from.as_deref().and_then(|from| Url::parse(from).ok());
     let request = crate::net::protocols::ProtocolRequest {
         url: &url,
         reach: fetch.reach,
@@ -676,6 +677,8 @@ async fn perform_protocol(
             .pins_certificates()
             .then_some(&pins as &dyn crate::net::protocols::known_hosts::Pins),
         identity: identity.as_ref(),
+        zone: fetch.zone.as_deref(),
+        from: from.as_ref(),
         body: fetch.body.as_deref(),
     };
     let served = crate::net::protocols::run(protocol, request, &cancel, observer).await;

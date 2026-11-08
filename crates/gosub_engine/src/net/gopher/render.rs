@@ -5,6 +5,7 @@
 //! came from the server is escaped: a display string is text, never markup.
 
 use super::menu::{self, Item, Plus};
+use super::mirrors;
 use super::request::{DEFAULT_PORT, SEARCH_FIELD, SEARCH_TYPE};
 use crate::net::protocols::page::{self, escape, title_for};
 use encoding_rs::Encoding;
@@ -38,8 +39,19 @@ h1{font-size:1em;font-weight:bold;margin:0 0 12px}\
 form{margin:12px 0}";
 
 /// A menu page.
+#[cfg(test)]
 pub fn menu_page(url: &Url, body: &[u8]) -> String {
-    whole(Lines::menu(url, menu::encoding_for(body)), url, body)
+    menu_page_in(url, body, None)
+}
+
+/// A menu page, the mirrors it names remembered in `zone` when there is one.
+pub fn menu_page_in(url: &Url, body: &[u8], zone: Option<&str>) -> String {
+    let lines = Lines::menu(url, menu::encoding_for(body));
+    let lines = match zone {
+        Some(zone) => lines.remembering_mirrors(zone, url),
+        None => lines,
+    };
+    whole(lines, url, body)
 }
 
 /// A text file (item type `0`), with the gopher terminator and dot-stuffing undone.
@@ -56,6 +68,7 @@ fn whole(mut lines: Lines, url: &Url, body: &[u8]) -> String {
             None => break,
         }
     }
+    out.push_str(lines.end());
     out.push_str(&page_end());
     out
 }
@@ -77,6 +90,13 @@ pub struct Lines {
     menu: Option<(String, u16)>,
     encoding: &'static Encoding,
     ended: bool,
+    /// The type and URL of the item a `+` line now would be a mirror of.
+    mirrored: Option<(char, Url)>,
+    /// The last line's break is held back, for its item's mirrors to join the line.
+    open: bool,
+    /// Where the mirrors are remembered for a navigation from this menu ([`mirrors`]): the
+    /// zone and the menu's URL.
+    remember: Option<(String, Url)>,
 }
 
 impl Lines {
@@ -89,7 +109,16 @@ impl Lines {
             menu: Some((host, port)),
             encoding,
             ended: false,
+            mirrored: None,
+            open: false,
+            remember: None,
         }
+    }
+
+    /// These lines, remembering the mirrors the menu at `url` names in `zone`.
+    pub fn remembering_mirrors(mut self, zone: &str, url: &Url) -> Self {
+        self.remember = Some((zone.to_string(), url.clone()));
+        self
     }
 
     /// The lines of a text file.
@@ -98,6 +127,9 @@ impl Lines {
             menu: None,
             encoding,
             ended: false,
+            mirrored: None,
+            open: false,
+            remember: None,
         }
     }
 
@@ -115,13 +147,72 @@ impl Lines {
             let line = line.strip_prefix(b".").filter(|l| l.starts_with(b".")).unwrap_or(line);
             return Some(escape(&menu::decode(self.encoding, line)) + "\n");
         };
+        let Some(item) = menu::parse_line(self.encoding, line) else {
+            self.mirrored = None;
+            return Some(String::new());
+        };
+        if item.item_type == '+' {
+            if let Some((item_type, of)) = &self.mirrored {
+                let Some(mirror) = mirror_url(&item, *item_type) else {
+                    return Some(String::new());
+                };
+                if let Some((zone, page)) = &self.remember {
+                    mirrors::remember(zone, page, of, &mirror);
+                }
+                return Some(mirror_link(&mirror));
+            }
+        }
         // `<br>`, not a newline: the engine loses a preserved newline between inline
         // elements, and a browser renders either as a line break.
-        Some(match menu::parse_line(self.encoding, line) {
-            Some(item) => menu_line(&item, host, *port, self.encoding) + "<br>",
-            None => String::new(),
-        })
+        let markup = menu_line(&item, host, *port, self.encoding);
+        let mirrored = mirrored(&item, host, *port).map(|url| (item.item_type, url));
+        let mut out = self.end().to_string();
+        out.push_str(&markup);
+        self.mirrored = mirrored;
+        self.open = self.mirrored.is_some();
+        if !self.open {
+            out.push_str("<br>");
+        }
+        Some(out)
     }
+
+    /// What closes the last line, once no line follows.
+    pub fn end(&mut self) -> &'static str {
+        if std::mem::take(&mut self.open) {
+            "<br>"
+        } else {
+            ""
+        }
+    }
+}
+
+/// The URL of an item a `+` line after it can be a mirror of: one on a gopher server.
+fn mirrored(item: &Item, host: &str, port: u16) -> Option<Url> {
+    if matches!(item.item_type, 'i' | '3') {
+        return None;
+    }
+    let url = Url::parse(&link_for(item, host, port)?).ok()?;
+    (url.scheme() == "gopher").then_some(url)
+}
+
+/// Where a `+` line says the item of `item_type` before it is served too: its own selector on
+/// its own server. A redundant server is another server, so a line without a host names none.
+fn mirror_url(line: &Item, item_type: char) -> Option<Url> {
+    if line.host.is_empty() {
+        return None;
+    }
+    gopher_url(&line.host, line.port?, item_type, &line.selector)
+}
+
+/// A mirror on the line of the item it serves.
+fn mirror_link(mirror: &Url) -> String {
+    let host = mirror.host_str().unwrap_or_default();
+    let server = format!("{host}:{}", mirror.port().unwrap_or(DEFAULT_PORT));
+    format!(
+        " <span class=\"t\">(mirror:</span> <a href=\"{}\">{}</a><span class=\"t\">)</span>",
+        escape(mirror.as_str()),
+        escape(&server)
+    )
 }
 
 /// The prompt for a search (item type `7`) the user has not entered terms for yet. Submits
@@ -495,10 +586,98 @@ mod tests {
     }
 
     #[test]
-    fn a_mirror_is_tagged_but_not_linked() {
+    fn a_mirror_at_the_top_is_tagged_but_not_linked() {
         let html = menu_page(&url("gopher://h/"), b"+Mirror\t/\tm.example\t70\r\n");
-        assert!(html.contains("<span class=\"t\">MIR</span>"));
+        assert!(html.contains("<span class=\"t\">MIR</span>   Mirror<br>"));
         assert!(!html.contains("<a "));
+    }
+
+    #[test]
+    fn mirrors_join_the_line_of_the_item_before_them() {
+        let html = menu_page(
+            &url("gopher://h/"),
+            b"0Notes\t/n.txt\tprimary.example\t70\r\n+Notes\t/copy/n.txt\tm1.example\t7070\r\n\
+              +Notes\t/n.txt\t::1\t70\r\n1Next\t/next\th\t70\r\n",
+        );
+        assert!(
+            html.contains(
+                "<a href=\"gopher://primary.example/0/n.txt\">Notes</a> \
+                 <span class=\"t\">(mirror:</span> <a href=\"gopher://m1.example:7070/0/copy/n.txt\">m1.example:7070</a>\
+                 <span class=\"t\">)</span> \
+                 <span class=\"t\">(mirror:</span> <a href=\"gopher://[::1]/0/n.txt\">[::1]:70</a>\
+                 <span class=\"t\">)</span><br>"
+            ),
+            "{html}"
+        );
+        assert!(!html.contains("MIR"));
+        assert!(html.contains(">Next</a><br></pre>"));
+    }
+
+    #[test]
+    fn a_mirror_after_a_line_that_is_no_item_is_text() {
+        for before in [
+            &b"iWelcome\t\t\t\r\n"[..],
+            b"3Gone\t\t\t\r\n",
+            b"8Login\t\tbbs.example\t23\r\n",
+            b"2Phone book\t\tns.example\t105\r\n",
+            b"1Bad\t/b\tevil.example/x\t70\r\n",
+            b"\r\n",
+        ] {
+            let mut body = before.to_vec();
+            body.extend_from_slice(b"+Mirror\t/m\tm.example\t70\r\n");
+            let html = menu_page(&url("gopher://h/"), &body);
+            assert!(html.contains("<span class=\"t\">MIR</span>   Mirror<br>"), "{html}");
+            assert!(!html.contains("m.example"), "{html}");
+        }
+    }
+
+    #[test]
+    fn a_mirror_without_a_plain_host_is_left_out() {
+        let html = menu_page(
+            &url("gopher://h/"),
+            b"0A\t/a\th\t70\r\n+A\t/a\t\t70\r\n+A\t/a\tevil.example/x\t70\r\n+A\t/a\tm.example\tseventy\r\n\
+              +A\t/a\tm.example\t70\r\n",
+        );
+        assert_eq!(html.matches("(mirror:").count(), 1, "{html}");
+        assert!(html.contains("<a href=\"gopher://m.example/0/a\">m.example:70</a>"));
+        assert!(!html.contains("MIR"));
+    }
+
+    #[test]
+    fn a_hostile_mirror_cannot_break_out_of_its_link() {
+        let html = menu_page(
+            &url("gopher://h/"),
+            b"0A\t/a\th\t70\r\n+A\t/\"><script>\tm.example\t70\r\n",
+        );
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("gopher://m.example/0/%22%3E%3Cscript%3E"));
+    }
+
+    #[test]
+    fn a_streamed_menu_closes_the_line_of_its_last_item() {
+        let mut lines = Lines::menu(&url("gopher://h/"), encoding_rs::UTF_8);
+        let first = lines.line(b"0A\t/a\th\t70").unwrap();
+        assert!(first.ends_with("</a>"), "{first}");
+        assert!(lines.line(b"+A\t/a\tm.example\t70").unwrap().contains("(mirror:"));
+        assert!(lines.line(b"iAfter\t\t\t").unwrap().starts_with("<br>"));
+        assert_eq!(lines.end(), "");
+        lines.line(b"0B\t/b\th\t70");
+        assert_eq!(lines.end(), "<br>");
+    }
+
+    #[test]
+    fn a_menu_remembers_its_mirrors_only_where_asked() {
+        let menu = url("gopher://h/1/remembers");
+        let body = b"0A\t/a\th\t70\r\n+A\t/a\tm.example\t70\r\n";
+        let item = url("gopher://h/0/a");
+        let page = |lines: Lines| whole(lines, &menu, body);
+        page(Lines::menu(&menu, encoding_rs::UTF_8));
+        assert!(mirrors::of("render-zone", &menu, &item).is_empty());
+        page(Lines::menu(&menu, encoding_rs::UTF_8).remembering_mirrors("render-zone", &menu));
+        assert_eq!(
+            mirrors::of("render-zone", &menu, &item),
+            vec![url("gopher://m.example/0/a")]
+        );
     }
 
     #[test]
@@ -554,6 +733,23 @@ mod tests {
         );
         assert!(html.contains("<a href=\"gopher://h:7070/1/d%09%09!\">[info]</a>"));
         assert_eq!(html.matches("[info]").count(), 2);
+    }
+
+    #[test]
+    fn a_gopher_plus_item_with_a_mirror_shows_its_extras_then_the_mirror() {
+        let html = menu_page(
+            &url("gopher://h/"),
+            b"0Doc\t/d\th\t70\t+\r\n+Doc\t/copy/d\tm.example\t70\t+\r\n0Next\t/n\th\t70\r\n",
+        );
+        assert!(
+            html.contains(
+                "<a href=\"gopher://h/0/d\">Doc</a> <a href=\"gopher://h/0/d%09%09!\">[info]</a> \
+<span class=\"t\">(mirror:</span> <a href=\"gopher://m.example/0/copy/d\">m.example:70</a>\
+<span class=\"t\">)</span><br>"
+            ),
+            "{html}"
+        );
+        assert_eq!(html.matches("[info]").count(), 1, "{html}");
     }
 
     #[test]

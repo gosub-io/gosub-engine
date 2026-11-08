@@ -12,9 +12,11 @@
 //!   `host:port` for that port only, the port being the protocol's when the URL names none.
 //!
 //! Only a SOCKS proxy is used. An http proxy cannot carry these protocols, so with one set they
-//! connect directly, as they do with a value that is no usable proxy URL (sonar skips those
-//! with a warning too). The operating system's proxy settings, which sonar also reads on macOS
-//! and Windows, are not read here.
+//! connect directly. A value that is no usable proxy URL fails every connection the proxy would
+//! have carried, rather than letting it go out directly: sonar skips such a value with a
+//! warning, but a user who set a proxy for privacy is not to be connected without it. The
+//! operating system's proxy settings, which sonar also reads on macOS and Windows, are not
+//! read here.
 //!
 //! The proxy resolves the host, whatever the URL's scheme says: `socks5://` is taken as
 //! `socks5h://` and `socks4://` as `socks4a://`. curl and reqwest resolve locally for the plain
@@ -81,7 +83,8 @@ impl std::fmt::Display for Proxy {
 }
 
 impl Proxy {
-    /// The SOCKS proxy `value` names, `None` for an http(s) proxy, or why it names none.
+    /// The SOCKS proxy `value` names, `None` for an http(s) proxy, or why it names none. The
+    /// reason leaves `value` out, which may hold a password.
     fn parse(value: &str) -> Result<Option<Proxy>, String> {
         let with_scheme;
         let value = if value.contains("://") {
@@ -90,19 +93,22 @@ impl Proxy {
             with_scheme = format!("http://{value}");
             &with_scheme
         };
-        let url = Url::parse(value).map_err(|e| format!("{value:?}: {e}"))?;
+        let url = Url::parse(value).map_err(|e| e.to_string())?;
         let version = match url.scheme() {
             "socks5" | "socks5h" => Version::Socks5,
             "socks4" | "socks4a" => Version::Socks4a,
             "http" | "https" => return Ok(None),
-            other => return Err(format!("{value:?}: {other} is no proxy scheme")),
+            other => return Err(format!("{other} is no proxy scheme")),
         };
         let host = match url.host() {
             Some(Host::Domain(d)) if !d.is_empty() => d.to_string(),
             Some(Host::Ipv4(ip)) => ip.to_string(),
             Some(Host::Ipv6(ip)) => ip.to_string(),
-            _ => return Err(format!("{value:?} names no host")),
+            _ => return Err("no host".into()),
         };
+        if url.port() == Some(0) {
+            return Err("port 0".into());
+        }
         let decoded = |s: &str| percent_decode_str(s).decode_utf8_lossy().into_owned();
         Ok(Some(Proxy {
             version,
@@ -117,8 +123,16 @@ impl Proxy {
 /// The proxy the environment names for engine protocols, and the hosts that bypass it.
 #[derive(Debug, Clone, Default)]
 pub struct Proxies {
-    all: Option<Proxy>,
+    all: Option<All>,
     bypass: Vec<Bypass>,
+}
+
+/// What `ALL_PROXY` names.
+#[derive(Debug, Clone)]
+enum All {
+    Socks(Proxy),
+    /// No usable proxy: why, with the value, its password left out.
+    Unusable(String),
 }
 
 impl Proxies {
@@ -137,7 +151,7 @@ impl Proxies {
                 .find(|value| !value.is_empty())
         };
         let all = first(&["ALL_PROXY", "all_proxy"]).and_then(|value| match Proxy::parse(&value) {
-            Ok(Some(proxy)) => Some(proxy),
+            Ok(Some(proxy)) => Some(All::Socks(proxy)),
             Ok(None) => {
                 log::info!(
                     "ALL_PROXY is an http proxy, which cannot carry gopher, finger or gemini: they connect directly"
@@ -145,8 +159,12 @@ impl Proxies {
                 None
             }
             Err(e) => {
-                log::warn!("ignoring the proxy from the environment: {e}");
-                None
+                let why = format!(
+                    "ALL_PROXY {:?} is no usable proxy ({e}): gopher, finger and gemini do not connect without it",
+                    redacted(&value)
+                );
+                log::warn!("{why}");
+                Some(All::Unusable(why))
             }
         });
         Proxies {
@@ -157,9 +175,12 @@ impl Proxies {
         }
     }
 
-    /// The proxy a connection to `host` on `port` goes through, `None` for a direct one.
-    pub fn for_target(&self, host: &str, port: u16) -> Option<&Proxy> {
-        let proxy = self.all.as_ref()?;
+    /// The proxy a connection to `host` on `port` goes through, `None` for a direct one, or
+    /// why there is no connection: the proxy that would carry it is unusable.
+    pub fn for_target(&self, host: &str, port: u16) -> Result<Option<&Proxy>, String> {
+        let Some(all) = self.all.as_ref() else {
+            return Ok(None);
+        };
         let host = normalize_host(host);
         let ip = host.parse::<IpAddr>().ok();
         let bypassed = self.bypass.iter().any(|entry| match entry {
@@ -168,7 +189,24 @@ impl Proxies {
             Bypass::Name(name) => ip.is_none() && within(&host, name),
             Bypass::Port(name, entry_port) => *entry_port == port && within(&host, name),
         });
-        (!bypassed).then_some(proxy)
+        match all {
+            _ if bypassed => Ok(None),
+            All::Socks(proxy) => Ok(Some(proxy)),
+            All::Unusable(why) => Err(why.clone()),
+        }
+    }
+}
+
+/// `value` with the password of its userinfo, if any, written `...`.
+fn redacted(value: &str) -> String {
+    let start = value.find("://").map_or(0, |i| i + 3);
+    let end = value[start..].find(['/', '?', '#']).map_or(value.len(), |i| start + i);
+    let Some(at) = value[start..end].rfind('@') else {
+        return value.to_string();
+    };
+    match value[start..start + at].split_once(':') {
+        Some((user, _)) => format!("{}{user}:...{}", &value[..start], &value[start + at..]),
+        None => value.to_string(),
     }
 }
 
@@ -627,25 +665,58 @@ mod tests {
     #[test]
     fn only_all_proxy_applies_with_the_uppercase_name_first() {
         let p = env(&[("ALL_PROXY", "socks5h://upper:1"), ("all_proxy", "socks5h://lower:1")]);
-        assert_eq!(p.for_target("example.org", 70).unwrap().host, "upper");
+        assert_eq!(p.for_target("example.org", 70).unwrap().unwrap().host, "upper");
         // Empty is unset, so the lowercase one counts.
         let p = env(&[("ALL_PROXY", "  "), ("all_proxy", "socks5://lower:1")]);
-        assert_eq!(p.for_target("example.org", 70).unwrap().host, "lower");
+        assert_eq!(p.for_target("example.org", 70).unwrap().unwrap().host, "lower");
         // Scoped to http and https URLs in sonar.
         let p = env(&[("HTTP_PROXY", "socks5h://h:1"), ("HTTPS_PROXY", "socks5h://s:1")]);
-        assert!(p.for_target("example.org", 70).is_none());
+        assert!(p.for_target("example.org", 70).unwrap().is_none());
     }
 
     #[test]
     fn an_http_proxy_leaves_the_connection_direct() {
-        assert!(env(&[("ALL_PROXY", "http://proxy:3128")])
-            .for_target("a.test", 70)
-            .is_none());
+        let direct = |value: &str| env(&[("ALL_PROXY", value)]).for_target("a.test", 70).unwrap().is_none();
+        assert!(direct("http://proxy:3128"));
+        assert!(direct("https://proxy:3128"));
         // Without a scheme it is an http proxy.
-        assert!(env(&[("ALL_PROXY", "proxy:3128")]).for_target("a.test", 70).is_none());
-        assert!(env(&[("ALL_PROXY", "ftp://proxy:21")])
+        assert!(direct("proxy:3128"));
+    }
+
+    #[test]
+    fn an_unusable_proxy_fails_the_connection_instead_of_going_direct() {
+        for value in [
+            "ftp://proxy:21",
+            "socks5h://[::1",
+            "socks5h://",
+            "socks5h://:9050",
+            "socks5h://proxy:99999",
+            "socks5h://proxy:0",
+            "socks4a://proxy:port",
+        ] {
+            let err = env(&[("ALL_PROXY", value)]).for_target("a.test", 70).unwrap_err();
+            assert!(err.contains(&format!("{value:?}")), "{value}: {err}");
+            assert!(err.contains("no usable proxy"), "{value}: {err}");
+        }
+    }
+
+    #[test]
+    fn an_unusable_proxy_s_password_is_left_out_of_the_error() {
+        let err = env(&[("ALL_PROXY", "socks5h://alice:hunter2@proxy:99999/x")])
             .for_target("a.test", 70)
-            .is_none());
+            .unwrap_err();
+        assert!(!err.contains("hunter2"), "{err}");
+        assert!(err.contains("socks5h://alice:...@proxy:99999/x"), "{err}");
+        assert_eq!(redacted("ftp://bob@proxy"), "ftp://bob@proxy");
+        assert_eq!(redacted("u:p@proxy:x"), "u:...@proxy:x");
+        assert_eq!(redacted("socks5h://proxy/a:b@c"), "socks5h://proxy/a:b@c");
+    }
+
+    #[test]
+    fn a_host_in_no_proxy_goes_direct_even_with_an_unusable_proxy() {
+        let p = env(&[("ALL_PROXY", "ftp://proxy:21"), ("NO_PROXY", "intranet.test")]);
+        assert!(p.for_target("intranet.test", 70).unwrap().is_none());
+        assert!(p.for_target("example.org", 70).is_err());
     }
 
     #[test]
@@ -665,7 +736,7 @@ mod tests {
     #[test]
     fn no_proxy_is_read_as_sonar_reads_it() {
         let p = |list: &str| env(&[("ALL_PROXY", "socks5h://127.0.0.1:9050"), ("NO_PROXY", list)]);
-        let bypassed = |list: &str, host: &str, port: u16| p(list).for_target(host, port).is_none();
+        let bypassed = |list: &str, host: &str, port: u16| p(list).for_target(host, port).unwrap().is_none();
 
         assert!(bypassed("example.org", "example.org", 70));
         assert!(bypassed("example.org", "Gopher.Example.org.", 70));

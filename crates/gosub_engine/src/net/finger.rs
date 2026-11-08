@@ -217,6 +217,8 @@ mod tests {
                 reach,
                 pins: None,
                 identity: None,
+                zone: None,
+                from: None,
                 body: None,
             })
             .await
