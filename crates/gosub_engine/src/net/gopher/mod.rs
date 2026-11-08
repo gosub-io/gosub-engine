@@ -12,6 +12,10 @@
 //! - everything else is served raw under a sniffed media type, so images display and
 //!   anything unknown goes to the download offer.
 //!
+//! A URL with a Gopher+ string (RFC 4266 §2.3) makes a Gopher+ request instead. Its reply
+//! starts with a header saying where it ends, which is taken off before any of the above
+//! ([`plus`]); an alternate view is shown as its view says, not by its item type.
+//!
 //! Every body but an error item's streams, with no deadline for the whole, only one between
 //! bytes. A raw body has no size limit: RFC 1436 reads it until the server closes and gives
 //! it none. A menu or text page is served a line at a time as it arrives ([`stream`]); it is
@@ -26,6 +30,7 @@
 
 mod decode;
 mod menu;
+mod plus;
 mod render;
 mod request;
 mod stream;
@@ -38,7 +43,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use decode::{Decoding, Encoding};
 use render::Lines;
-use request::Request;
+use request::{Command, Request};
 use std::net::SocketAddr;
 use stream::PageStream;
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -73,7 +78,7 @@ impl Protocol for Gopher {
 /// [`Gopher::fetch`] under `limits`.
 async fn fetch_within(request: ProtocolRequest<'_>, limits: &Limits) -> Result<ProtocolResponse, NetError> {
     let (url, reach) = (request.url, request.reach);
-    let request = Request::from_url(url).map_err(invalid)?;
+    let mut request = Request::from_url(url).map_err(invalid)?;
     let addrs = socket::resolve(&Gopher, url, &request.host, request.port, reach).await?;
     if request.needs_search_terms() {
         // The prompt needs no server, but it is placed by where its server is: the form
@@ -81,14 +86,22 @@ async fn fetch_within(request: ProtocolRequest<'_>, limits: &Limits) -> Result<P
         return Ok(html(render::search_page(url), socket::most_public(&addrs)));
     }
     let line = request.wire_line();
+    if let Some(Command::View(view)) = request.command() {
+        // The view says what the bytes are now, not the item type.
+        request.item_type = view_type(view);
+    }
     if let Some(encoding) = Encoding::of(request.item_type) {
         return decoded(&request, url, &addrs, reach, &line, limits, encoding).await;
     }
-    if request.item_type == '3' {
+    if request.item_type == '3' && request.gopher_plus.is_none() {
         let (body, peer) = socket::exchange_within(url, &request.host, &addrs, reach, &line, limits).await?;
         return Ok(present(&request, url, body, peer));
     }
-    let Opened { peek, rest, peer } = socket::open(url, &request.host, &addrs, reach, &line, limits).await?;
+    let opened = socket::open(url, &request.host, &addrs, reach, &line, limits).await?;
+    let Opened { peek, rest, peer } = match block(opened, &request, url, limits).await? {
+        Ok(opened) => opened,
+        Err(page) => return Ok(page),
+    };
     let Some(rest) = rest else {
         return Ok(present(&request, url, peek, peer));
     };
@@ -140,7 +153,11 @@ async fn decoded(
     limits: &Limits,
     encoding: Encoding,
 ) -> Result<ProtocolResponse, NetError> {
-    let Opened { peek, rest, peer } = socket::open(url, &request.host, to, reach, line, limits).await?;
+    let opened = socket::open(url, &request.host, to, reach, line, limits).await?;
+    let Opened { peek, rest, peer } = match block(opened, request, url, limits).await? {
+        Ok(opened) => opened,
+        Err(page) => return Ok(page),
+    };
     if is_error_menu(&peek) {
         let body = match rest {
             Some(rest) => socket::read_rest(peek, rest, &request.host, limits).await?,
@@ -184,6 +201,53 @@ async fn decoded(
         final_url: None,
         filename,
     })
+}
+
+/// The data block of a reply to a Gopher+ request, its header taken off and its end where the
+/// header says ([`plus`]); a reply to any other request as it is. `Err` holds the page for a
+/// Gopher+ error.
+async fn block(
+    opened: Opened,
+    request: &Request,
+    url: &Url,
+    limits: &Limits,
+) -> Result<Result<Opened, ProtocolResponse>, NetError> {
+    if request.gopher_plus.is_none() {
+        return Ok(Ok(opened));
+    }
+    let Opened { peek, rest, peer } = opened;
+    let Some((header, len)) = plus::header(&peek, rest.is_none()).map_err(invalid)? else {
+        return Ok(Ok(Opened { peek, rest, peer }));
+    };
+    let (peek, rest) = plus::limit(peek[len..].to_vec(), rest, header.length);
+    if header.ok {
+        return Ok(Ok(Opened { peek, rest, peer }));
+    }
+    let body = match rest {
+        Some(rest) => socket::read_rest(peek, rest, &request.host, limits).await?,
+        None => peek,
+    };
+    Ok(Err(html(
+        render::error_page(url, &plus::error_text(&header, &body)),
+        peer,
+    )))
+}
+
+/// The item type an alternate view is shown as. Only the views every Gopher+ server has
+/// (Gopher+ A3.0) are pages; anything else is served raw and sniffed, as an item of no
+/// particular type is, so a view the server calls `text/html` is no more active than a
+/// text file.
+fn view_type(view: &[u8]) -> char {
+    let mime = view.split(|&b| b == b' ').next().unwrap_or_default();
+    if mime.eq_ignore_ascii_case(b"text/plain") {
+        '0'
+    } else if mime.eq_ignore_ascii_case(b"application/gopher-menu")
+        || mime.eq_ignore_ascii_case(b"application/gopher+-menu")
+    {
+        '1'
+    } else {
+        '9'
+    }
 }
 
 /// What the response is, by the item type the URL asked for.
@@ -846,6 +910,146 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("forbidden byte"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_gopher_plus_item_loses_its_header_and_ends_at_its_length() {
+        let (port, server) = serve_once(b"+12\r\nhello <world>\r\nnot part of it\r\n").await;
+        let response = fetch(
+            &format!("gopher://127.0.0.1:{port}/0/t.txt%09%09+"),
+            AddressSpace::Loopback,
+        )
+        .await
+        .unwrap();
+        assert_eq!(server.await.unwrap(), b"/t.txt\t+\r\n");
+        let page = String::from_utf8(whole_body(response).await.unwrap().to_vec()).unwrap();
+        assert!(page.contains("<pre>hello &lt;world\n</pre>"), "{page}");
+        assert!(!page.contains("+12"));
+    }
+
+    #[tokio::test]
+    async fn a_gopher_plus_menu_split_inside_its_header_is_read() {
+        let chunks = vec![
+            b"+".to_vec(),
+            b"-".to_vec(),
+            b"1\r".to_vec(),
+            b"\n1Sub\t/sub\t127.0.0.1\t70\t+\r\n.\r\n".to_vec(),
+        ];
+        let port = serve_slowly(chunks, Duration::from_millis(20), Duration::ZERO).await;
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/1/%09%09+"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        let page = String::from_utf8(whole_body(response).await.unwrap().to_vec()).unwrap();
+        assert!(page.contains(">Sub</a>"), "{page}");
+        assert!(!page.contains("+-1"), "{page}");
+    }
+
+    #[tokio::test]
+    async fn a_gopher_plus_binary_until_close_is_sniffed_without_its_header() {
+        let (port, _server) = serve_once(b"+-2\r\nGIF89a\x01\x00\x01\x00").await;
+        let response = fetch(
+            &format!("gopher://127.0.0.1:{port}/I/pic%09%09+"),
+            AddressSpace::Loopback,
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.content_type, "image/gif");
+        assert_eq!(&whole_body(response).await.unwrap()[..], b"GIF89a\x01\x00\x01\x00");
+    }
+
+    #[tokio::test]
+    async fn a_counted_gopher_plus_binary_streams_its_length_and_no_more() {
+        let len = 3 * socket::PEEK_BYTES + 7;
+        let mut reply = format!("+{len}\r\n").into_bytes();
+        reply.extend((0..len).map(|i| (i % 251) as u8));
+        reply.extend(b"more than it said");
+        let port = serve_slowly(vec![reply.clone()], Duration::ZERO, Duration::from_secs(10)).await;
+        let response = fetch(
+            &format!("gopher://127.0.0.1:{port}/9/big%09%09+"),
+            AddressSpace::Loopback,
+        )
+        .await
+        .unwrap();
+        assert!(response.rest.is_some());
+        let started = std::time::Instant::now();
+        let body = whole_body(response).await.unwrap();
+        assert!(started.elapsed() < Duration::from_secs(5), "waited for the close");
+        assert_eq!(&body[..], &reply[reply.len() - len - 17..reply.len() - 17]);
+    }
+
+    #[tokio::test]
+    async fn a_gopher_plus_error_is_an_error_page() {
+        let (port, _server) = serve_once(b"--2\r\n1 Frodo <fng@bogus.edu>\r\n<b>no</b> such item\r\n").await;
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/0/x%09%09+"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        let page = std::str::from_utf8(&response.body).unwrap();
+        assert!(
+            page.contains("class=\"e\">Item is not available.\nFrodo &lt;fng@bogus.edu&gt;\n&lt;b&gt;no&lt;/b&gt; such item</pre>"),
+            "{page}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_dot_terminated_gopher_plus_error_is_read_to_its_dot() {
+        // Past the peek, so the fetch does not wait for a close to have it.
+        let mut reply = b"--1\r\n2 <admin@h>\r\nbusy\r\n".to_vec();
+        reply.extend(b"x\r\n".repeat(socket::PEEK_BYTES / 3));
+        reply.extend(b".\r\n");
+        let port = serve_slowly(vec![reply], Duration::ZERO, Duration::from_secs(10)).await;
+        let started = std::time::Instant::now();
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/0/x%09%09+"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        assert!(started.elapsed() < Duration::from_secs(5));
+        let page = std::str::from_utf8(&response.body).unwrap();
+        assert!(page.contains("Try again later.\n&lt;admin@h&gt;\nbusy\nx\n"), "{page}");
+        assert!(page.contains("x</pre>"), "{page}");
+    }
+
+    #[tokio::test]
+    async fn a_plain_reply_to_a_gopher_plus_request_is_taken_whole() {
+        let (port, _server) = serve_once(b"iOld server\t\t\t\r\n.\r\n").await;
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/1/%09%09+"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        let page = String::from_utf8(whole_body(response).await.unwrap().to_vec()).unwrap();
+        assert!(page.contains("Old server"), "{page}");
+    }
+
+    #[tokio::test]
+    async fn an_alternate_view_is_shown_as_its_view_says() {
+        let (port, server) = serve_once(b"+-2\r\n<p>a menu as text</p>\r\n").await;
+        let response = fetch(
+            &format!("gopher://127.0.0.1:{port}/1/dir%09%09+text/plain%20En_US"),
+            AddressSpace::Loopback,
+        )
+        .await
+        .unwrap();
+        assert_eq!(server.await.unwrap(), b"/dir\t+text/plain En_US\r\n");
+        let page = String::from_utf8(whole_body(response).await.unwrap().to_vec()).unwrap();
+        assert!(
+            page.contains("<pre>&lt;p&gt;a menu as text&lt;/p&gt;\n</pre>"),
+            "{page}"
+        );
+
+        let (port, _server) = serve_once(b"+-2\r\n<!DOCTYPE html><script>alert(1)</script>").await;
+        let response = fetch(
+            &format!("gopher://127.0.0.1:{port}/0/doc%09%09+text/html"),
+            AddressSpace::Loopback,
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.content_type, "application/octet-stream");
+    }
+
+    #[test]
+    fn only_the_standard_views_are_pages() {
+        assert_eq!(view_type(b"Text/plain De_DE"), '0');
+        assert_eq!(view_type(b"application/gopher+-menu"), '1');
+        assert_eq!(view_type(b"application/gopher-menu"), '1');
+        assert_eq!(view_type(b"text/html"), '9');
+        assert_eq!(view_type(b"image/gif"), '9');
     }
 
     #[test]
