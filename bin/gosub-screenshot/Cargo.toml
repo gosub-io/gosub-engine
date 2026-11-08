@@ -30,3 +30,6 @@ default = ["backend_skia"]
 # Exactly one backend feature must be enabled (backend_cairo wins when both are).
 backend_skia = ["dep:gosub_renderer_skia"]
 backend_cairo = ["dep:gosub_renderer_cairo"]
+
+[lints.clippy]
+mod_module_files = "deny"
