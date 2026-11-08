@@ -4,7 +4,7 @@
 //! (parsing, layout, history, links) treats a gopher page like any other. Everything that
 //! came from the server is escaped: a display string is text, never markup.
 
-use super::menu::{self, Item};
+use super::menu::{self, Item, Plus};
 use super::request::{DEFAULT_PORT, SEARCH_FIELD, SEARCH_TYPE};
 use crate::net::protocols::page::{self, escape, title_for};
 use encoding_rs::Encoding;
@@ -168,7 +168,11 @@ fn menu_line(item: &Item, host: &str, port: u16, encoding: &'static Encoding) ->
             None => format!("{tag} {display}"),
         },
         _ => match link_for(item, host, port) {
-            Some(href) => format!("{tag} <a href=\"{}\">{display}</a>", escape(&href)),
+            Some(href) => format!(
+                "{tag} <a href=\"{}\">{display}</a>{}",
+                escape(&href),
+                plus_links(item, host, port)
+            ),
             None => format!("{tag} {display}"),
         },
     }
@@ -192,6 +196,35 @@ fn link_for(item: &Item, host: &str, port: u16) -> Option<String> {
                 (item.host.as_str(), item.port)
             };
             gopher_url(host, port?, t, &item.selector).map(|u| u.to_string())
+        }
+    }
+}
+
+/// Links to what Gopher+ adds to an item, after its own link: its attributes. The item's own
+/// link stays a plain gopher request, which every server answers.
+fn plus_links(item: &Item, host: &str, port: u16) -> String {
+    if item.plus == Plus::No {
+        return String::new();
+    }
+    match plus_url(item, host, port, b"!") {
+        Some(url) => format!(" <a href=\"{}\">[info]</a>", escape(url.as_str())),
+        None => String::new(),
+    }
+}
+
+/// The URL of `item` with the Gopher+ string `plus`, or `None` for an item that has no gopher
+/// URL: telnet, CSO, mirrors, info and error lines, links off gopherspace.
+pub fn plus_url(item: &Item, host: &str, port: u16, plus: &[u8]) -> Option<Url> {
+    match item.item_type {
+        '2' | '8' | 'T' | '+' | 'i' | '3' => None,
+        'h' if item.selector.starts_with(b"URL:") => None,
+        t => {
+            let (host, port) = if item.host.is_empty() {
+                (host, Some(port))
+            } else {
+                (item.host.as_str(), item.port)
+            };
+            gopher_plus_url(host, port?, t, &item.selector, plus)
         }
     }
 }
@@ -224,6 +257,12 @@ fn session_for(item: &Item, host: &str, port: u16, encoding: &'static Encoding) 
 /// line's host field must not carry URL syntax that sends the link somewhere it does not
 /// name.
 pub fn gopher_url(host: &str, port: u16, item_type: char, selector: &[u8]) -> Option<Url> {
+    gopher_plus_url(host, port, item_type, selector, b"")
+}
+
+/// [`gopher_url`] with a Gopher+ string after two `%09`s (RFC 4266 §2.3), the search terms
+/// between them left empty. An empty `plus` is none.
+pub fn gopher_plus_url(host: &str, port: u16, item_type: char, selector: &[u8], plus: &[u8]) -> Option<Url> {
     if host.is_empty() || !item_type.is_ascii_graphic() {
         return None;
     }
@@ -239,6 +278,10 @@ pub fn gopher_url(host: &str, port: u16, item_type: char, selector: &[u8]) -> Op
     };
     let mut path = vec![item_type as u8];
     path.extend_from_slice(selector);
+    if !plus.is_empty() {
+        path.extend_from_slice(b"\t\t");
+        path.extend_from_slice(plus);
+    }
     let url = Url::parse(&format!(
         "gopher://{authority}{port_part}/{}",
         keep_dot_segments(&percent_encode(&path, SELECTOR).to_string())?
@@ -495,6 +538,41 @@ mod tests {
         assert_eq!(u.as_str(), "gopher://h/.%2Fx");
         assert_eq!(Request::from_url(&u).unwrap().selector, b"/x");
         assert_eq!(gopher_url("h", 70, '.', b""), None);
+    }
+
+    #[test]
+    fn a_gopher_plus_item_links_plainly_and_to_its_attributes() {
+        let html = menu_page(
+            &url("gopher://h:7070/"),
+            b"0Plus\t/a b\th\t70\t+\r\n1Here\t/d\t\t\t+\r\n0Old\t/o\th\t70\r\n8Tel\t\th\t23\t+\r\n",
+        );
+        assert!(
+            html.contains("<a href=\"gopher://h/0/a%20b\">Plus</a> <a href=\"gopher://h/0/a%20b%09%09!\">[info]</a>")
+        );
+        assert!(html.contains("<a href=\"gopher://h:7070/1/d%09%09!\">[info]</a>"));
+        assert_eq!(html.matches("[info]").count(), 2);
+    }
+
+    #[test]
+    fn a_gopher_plus_string_round_trips_through_its_url() {
+        for (selector, plus) in [
+            (&b"/a"[..], &b"+"[..]),
+            (b"/odd ?#%/../x", b"+text/plain De_DE"),
+            (b"/a", b"+application/gopher+-menu"),
+            (b"", b"!"),
+            (b"/d", b"$+VIEWS +ABSTRACT"),
+            (b"/f", b"?"),
+            (b"/f", b"+../.."),
+        ] {
+            let u = gopher_plus_url("h", 70, '0', selector, plus).unwrap();
+            let r = Request::from_url(&Url::parse(u.as_str()).unwrap()).unwrap();
+            assert_eq!(r.selector, selector, "{u}");
+            assert_eq!(r.search, None, "{u}");
+            assert_eq!(r.gopher_plus.as_deref(), Some(plus), "{u}");
+        }
+        let u = gopher_plus_url("h", 70, '7', b"/find", b"!").unwrap();
+        assert_eq!(u.as_str(), "gopher://h/7/find%09%09!");
+        assert_eq!(Request::from_url(&u).unwrap().wire_line(), b"/find\t\t!\r\n");
     }
 
     #[test]

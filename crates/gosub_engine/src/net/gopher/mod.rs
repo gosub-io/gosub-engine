@@ -86,6 +86,12 @@ async fn fetch_within(request: ProtocolRequest<'_>, limits: &Limits) -> Result<P
         return Ok(html(render::search_page(url), socket::most_public(&addrs)));
     }
     let line = request.wire_line();
+    if let Some(Command::Attributes(_) | Command::Directory(_)) = request.command() {
+        return Ok(match attributes(&request, url, &addrs, reach, &line, limits).await? {
+            Ok((body, peer)) => html(plus::attributes_page(url, &request, &body), peer),
+            Err(page) => page,
+        });
+    }
     if let Some(Command::View(view)) = request.command() {
         // The view says what the bytes are now, not the item type.
         request.item_type = view_type(view);
@@ -231,6 +237,31 @@ async fn block(
         render::error_page(url, &plus::error_text(&header, &body)),
         peer,
     )))
+}
+
+/// The attributes `line` asks for, read whole, and the peer they came from. `Err` holds the
+/// page for an error, Gopher+ or a plain gopher error menu.
+async fn attributes(
+    request: &Request,
+    url: &Url,
+    to: &Destination,
+    reach: AddressSpace,
+    line: &[u8],
+    limits: &Limits,
+) -> Result<Result<(Vec<u8>, Option<SocketAddr>), ProtocolResponse>, NetError> {
+    let opened = socket::open(url, &request.host, to, reach, line, limits).await?;
+    let Opened { peek, rest, peer } = match block(opened, request, url, limits).await? {
+        Ok(opened) => opened,
+        Err(page) => return Ok(Err(page)),
+    };
+    let body = match rest {
+        Some(rest) => socket::read_rest(peek, rest, &request.host, limits).await?,
+        None => peek,
+    };
+    if is_error_menu(&body) {
+        return Ok(Err(html(render::error_page(url, &error_text(&body)), peer)));
+    }
+    Ok(Ok((body, peer)))
 }
 
 /// The item type an alternate view is shown as. Only the views every Gopher+ server has
@@ -1041,6 +1072,57 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(response.content_type, "application/octet-stream");
+    }
+
+    #[tokio::test]
+    async fn an_info_link_shows_the_item_s_attributes() {
+        let (port, server) =
+            serve_once(b"+-1\r\n+INFO: 0Doc\t/doc\t127.0.0.1\t70\t+\r\n+VIEWS:\r\n text/plain: <1k>\r\n.\r\n").await;
+        let response = fetch(
+            &format!("gopher://127.0.0.1:{port}/0/doc%09%09!"),
+            AddressSpace::Loopback,
+        )
+        .await
+        .unwrap();
+        assert_eq!(server.await.unwrap(), b"/doc\t!\r\n");
+        assert!(response.rest.is_none());
+        let page = std::str::from_utf8(&response.body).unwrap();
+        assert!(
+            page.contains("<a href=\"gopher://127.0.0.1/0/doc%09%09+text/plain\">text/plain</a>"),
+            "{page}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_directory_s_attributes_list_every_item() {
+        let (port, server) = serve_once(
+            b"+-2\r\n+INFO: 0A\t/a\th\t70\t+\r\n+VIEWS:\r\n text/plain:\r\n+INFO: 0B\t/b\th\t70\t+\r\n+VIEWS:\r\n application/pdf:\r\n",
+        )
+        .await;
+        let response = fetch(
+            &format!("gopher://127.0.0.1:{port}/1/dir%09%09$"),
+            AddressSpace::Loopback,
+        )
+        .await
+        .unwrap();
+        assert_eq!(server.await.unwrap(), b"/dir\t$\r\n");
+        let page = std::str::from_utf8(&response.body).unwrap();
+        assert!(page.contains("href=\"gopher://h/0/a%09%09+text/plain\""), "{page}");
+        assert!(page.contains("href=\"gopher://h/0/b%09%09+application/pdf\""), "{page}");
+    }
+
+    #[tokio::test]
+    async fn attributes_a_plain_server_refuses_are_an_error_page() {
+        let (port, _server) = serve_once(b"3'/doc\t!' does not exist\t\terror.host\t1\r\n.\r\n").await;
+        let response = fetch(
+            &format!("gopher://127.0.0.1:{port}/0/doc%09%09!"),
+            AddressSpace::Loopback,
+        )
+        .await
+        .unwrap();
+        assert!(std::str::from_utf8(&response.body)
+            .unwrap()
+            .contains("class=\"e\">'/doc"));
     }
 
     #[test]

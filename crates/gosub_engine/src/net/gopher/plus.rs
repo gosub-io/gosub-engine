@@ -10,12 +10,21 @@
 //!
 //! A reply that does not start with a header is a server that answered in plain gopher, and
 //! is taken whole.
+//!
+//! An item's attributes (Gopher+ 2.5, 2.7) are blocks of text, each started by a `+NAME:`
+//! line, and are shown as text: the item's descriptor (+INFO) as a menu line, its views
+//! (+VIEWS) as links to each view. Everything in them is the server's and is escaped.
 
+use super::menu::{self, Item, Plus};
+use super::render::{self, plus_url, Lines};
+use super::request::Request;
+use crate::net::protocols::page::escape;
 use crate::net::protocols::BodyStream;
 use std::io;
 use std::pin::Pin;
 use std::task::{ready, Context, Poll};
 use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
+use url::Url;
 
 /// Where a Gopher+ data block ends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,6 +162,131 @@ pub fn error_text(header: &Header, block: &[u8]) -> String {
             out.push_str(line);
         }
     }
+    out
+}
+
+/// One attribute block: `+<name>: <value>` and the lines after it, each without the space
+/// that starts it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Block<'a> {
+    pub name: &'a [u8],
+    pub value: &'a [u8],
+    pub lines: Vec<&'a [u8]>,
+}
+
+/// The attribute blocks of a body, up to a line holding a single `.`. Lines before the first
+/// block are dropped.
+pub fn blocks(body: &[u8]) -> Vec<Block<'_>> {
+    let mut out: Vec<Block> = Vec::new();
+    for line in menu::lines(body).take_while(|&line| line != b".") {
+        if let Some(rest) = line.strip_prefix(b"+") {
+            let end = rest.iter().position(|&b| b == b':' || b == b' ').unwrap_or(rest.len());
+            let value = rest[end..].strip_prefix(b":").unwrap_or(&rest[end..]);
+            out.push(Block {
+                name: &rest[..end],
+                value: value.trim_ascii_start(),
+                lines: Vec::new(),
+            });
+        } else if let Some(block) = out.last_mut() {
+            block.lines.push(line.strip_prefix(b" ").unwrap_or(line));
+        }
+    }
+    out
+}
+
+/// One line of a +VIEWS block (Gopher+ A3.0): `<content type>[ <language>]: [<size>]`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct View<'a> {
+    /// What a request for the view sends after the `+`: content type and language.
+    pub name: &'a [u8],
+    /// The size the server gives, without its angle brackets.
+    pub size: Option<&'a [u8]>,
+}
+
+/// The views a +VIEWS block lists, the server's preferred first. A line that would not make
+/// a request line is left out.
+pub fn views<'a>(block: &Block<'a>) -> Vec<View<'a>> {
+    block
+        .lines
+        .iter()
+        .filter_map(|line| {
+            let colon = line.iter().position(|&b| b == b':')?;
+            let name = line[..colon].trim_ascii();
+            if name.is_empty() || super::request::check_line_safe(name, "view").is_err() {
+                return None;
+            }
+            let after = &line[colon + 1..];
+            let size = after
+                .iter()
+                .position(|&b| b == b'<')
+                .and_then(|open| {
+                    let close = after[open..].iter().position(|&b| b == b'>')?;
+                    Some(&after[open + 1..open + close])
+                })
+                .filter(|size| !size.is_empty());
+            Some(View { name, size })
+        })
+        .collect()
+}
+
+/// A page of the attributes in `body`, the reply to `request` for `url` (`!` or `$`).
+pub fn attributes_page(url: &Url, request: &Request, body: &[u8]) -> String {
+    let encoding = menu::encoding_for(body);
+    let host = url.host_str().unwrap_or_default();
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    let port = request.port;
+    let mut lines = Lines::menu(url, encoding);
+    // The item asked about, until a +INFO block names one.
+    let mut item = Some(Item {
+        item_type: request.item_type,
+        display: String::new(),
+        selector: request.selector.clone(),
+        host: String::new(),
+        port: Some(port),
+        plus: Plus::Item,
+    });
+    let mut out = render::page_head(url);
+    for block in blocks(body) {
+        let text = |bytes: &[u8]| escape(&menu::decode(encoding, bytes));
+        out.push_str(&format!("<span class=\"t\">+{}:</span>", text(block.name)));
+        match block.name {
+            b"INFO" => {
+                item = menu::parse_line(encoding, block.value);
+                out.push(' ');
+                out.push_str(&lines.line(block.value).unwrap_or_default());
+            }
+            b"VIEWS" => {
+                out.push_str("<br>");
+                for view in views(&block) {
+                    let mut plus = b"+".to_vec();
+                    plus.extend_from_slice(view.name);
+                    let size = view
+                        .size
+                        .map(|size| format!(" <span class=\"t\">{}</span>", text(size)))
+                        .unwrap_or_default();
+                    match item.as_ref().and_then(|item| plus_url(item, host, port, &plus)) {
+                        Some(href) => out.push_str(&format!(
+                            "  <a href=\"{}\">{}</a>{size}<br>",
+                            escape(href.as_str()),
+                            text(view.name)
+                        )),
+                        None => out.push_str(&format!("  {}{size}<br>", text(view.name))),
+                    }
+                }
+            }
+            _ => {
+                if !block.value.is_empty() {
+                    out.push(' ');
+                    out.push_str(&text(block.value));
+                }
+                out.push_str("<br>");
+                for line in &block.lines {
+                    out.push_str(&format!("  {}<br>", text(line)));
+                }
+            }
+        }
+    }
+    out.push_str(&render::page_end());
     out
 }
 
@@ -348,6 +482,93 @@ mod tests {
     #[tokio::test]
     async fn a_close_block_is_everything() {
         assert_eq!(block(b"a\r\n.\r\nb", 2, Length::Close).await, b"a\r\n.\r\nb");
+    }
+
+    const ATTRIBUTES: &[u8] = b"+INFO: 0Some file\t/moo\thost2\t7070\t+\r\n\
++ADMIN:\r\n Admin: Frodo <fng@bogus.edu>\r\n Mod-Date: Wed Jul 28 1993 <19930728170201>\r\n\
++VIEWS:\r\n Text/plain: <10k>\r\n application/postscript: <100k>\r\n Text/plain De_DE: <15k>\r\n\
+ bad\tview: <1k>\r\n nocolon\r\n\
++ABSTRACT:\r\n This is <b>short</b>.\r\nunindented\r\n.\r\n+AFTER:\r\n";
+
+    #[test]
+    fn attributes_parse_into_blocks() {
+        let blocks = blocks(ATTRIBUTES);
+        let names: Vec<&[u8]> = blocks.iter().map(|b| b.name).collect();
+        assert_eq!(names, [&b"INFO"[..], b"ADMIN", b"VIEWS", b"ABSTRACT"]);
+        assert_eq!(blocks[0].value, b"0Some file\t/moo\thost2\t7070\t+");
+        assert_eq!(blocks[1].lines[0], b"Admin: Frodo <fng@bogus.edu>");
+        assert_eq!(blocks[3].lines, [&b"This is <b>short</b>."[..], b"unindented"]);
+    }
+
+    #[test]
+    fn views_parse_with_their_language_and_size() {
+        let blocks = blocks(ATTRIBUTES);
+        assert_eq!(
+            views(&blocks[2]),
+            [
+                View {
+                    name: b"Text/plain",
+                    size: Some(b"10k")
+                },
+                View {
+                    name: b"application/postscript",
+                    size: Some(b"100k")
+                },
+                View {
+                    name: b"Text/plain De_DE",
+                    size: Some(b"15k")
+                },
+            ]
+        );
+        let block = Block {
+            name: b"VIEWS",
+            value: b"",
+            lines: vec![b"application/gopher+-menu: <512b>", b"image/gif:"],
+        };
+        assert_eq!(views(&block)[0].name, b"application/gopher+-menu");
+        assert_eq!(views(&block)[1].size, None);
+    }
+
+    #[test]
+    fn an_attributes_page_links_the_item_and_each_view() {
+        let url = Url::parse("gopher://h/0/moo%09%09!").unwrap();
+        let request = Request::from_url(&url).unwrap();
+        let page = attributes_page(&url, &request, ATTRIBUTES);
+        assert!(
+            page.contains("<a href=\"gopher://host2:7070/0/moo\">Some file</a>"),
+            "{page}"
+        );
+        assert!(page.contains("<a href=\"gopher://host2:7070/0/moo%09%09+Text/plain%20De_DE\">Text/plain De_DE</a> <span class=\"t\">15k</span>"), "{page}");
+        assert!(
+            page.contains("<a href=\"gopher://host2:7070/0/moo%09%09+application/postscript\">"),
+            "{page}"
+        );
+        assert!(page.contains("This is &lt;b&gt;short&lt;/b&gt;."), "{page}");
+        assert!(page.contains("Frodo &lt;fng@bogus.edu&gt;"));
+        assert!(!page.contains("<b>"));
+        assert!(!page.contains("AFTER"));
+    }
+
+    #[test]
+    fn an_attributes_page_without_info_links_views_to_the_item_asked_about() {
+        let url = Url::parse("gopher://h:7070/I/pic%09%09!+VIEWS").unwrap();
+        let request = Request::from_url(&url).unwrap();
+        let page = attributes_page(&url, &request, b"+VIEWS:\r\n image/gif: <3k>\r\n");
+        assert!(
+            page.contains("<a href=\"gopher://h:7070/I/pic%09%09+image/gif\">image/gif</a>"),
+            "{page}"
+        );
+    }
+
+    #[test]
+    fn a_hostile_attribute_is_text() {
+        let url = Url::parse("gopher://h/0/x%09%09!").unwrap();
+        let request = Request::from_url(&url).unwrap();
+        let body = b"+INFO: 0<script>x</script>\t/\"><img>\th\t70\t+\r\n+<b>EVIL</b>: <i>v</i>\r\n <svg onload=x>\r\n+VIEWS:\r\n text/\"><script>: <<b>>\r\n";
+        let page = attributes_page(&url, &request, body);
+        for active in ["<script", "<img", "<b>", "<i>", "<svg"] {
+            assert!(!page.contains(active), "{active}: {page}");
+        }
     }
 
     #[test]
