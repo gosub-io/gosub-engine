@@ -3,7 +3,12 @@
 //! `gopher://<host>:<port>/<type><selector>`: the first character of the path is the item
 //! type, the rest is the selector, percent-decoded. A search (type `7`) carries its terms
 //! after a `%09` in the selector, or in the query, which is what the engine's own search form
-//! submits.
+//! submits. A second `%09` starts the Gopher+ string (RFC 4266 §2.3 - §2.8), which turns the
+//! request into a Gopher+ one ([`Command`]).
+//!
+//! A `?` is not special to gopher, but a URL parser splits the query off at it. It goes back
+//! where it was: onto the last field of the path, so a `?` after a Gopher+ string is part of
+//! that string. Only a search URL without a `%09` reads its query as the search terms.
 //!
 //! URL parsing removes `.` and `..` path segments (and their `%2e` forms) before a URL gets
 //! here, so a selector with dot segments only survives as `%2F..`, which is how
@@ -39,9 +44,36 @@ pub struct Request {
     pub selector: Vec<u8>,
     /// Search terms of a type `7` request; `None` before the user has entered any.
     pub search: Option<Vec<u8>>,
-    /// The Gopher+ string after a second `%09` (RFC 4266 §2.1). Kept, never sent: a client
-    /// without Gopher+ sends the plain request.
+    /// The Gopher+ string after a second `%09` (RFC 4266 §2.1); `None` when it is empty.
     pub gopher_plus: Option<Vec<u8>>,
+}
+
+/// What a Gopher+ string asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Command<'a> {
+    /// `+`: the item, in its default view.
+    Item,
+    /// `+<view>`: an alternate view, `<content type>[ <language>]` (Gopher+ 2.6).
+    View(&'a [u8]),
+    /// `!` or `!<block names>`: the item's attributes (Gopher+ 2.5).
+    Attributes(&'a [u8]),
+    /// `$` or `$<block names>`: the attributes of every item in a directory (Gopher+ 2.7).
+    Directory(&'a [u8]),
+    /// `?`: the item's +ASK form (RFC 4266 §2.4), filled in and sent when it is submitted.
+    Ask,
+}
+
+impl<'a> Command<'a> {
+    fn of(plus: &'a [u8]) -> Option<Self> {
+        match plus.split_first()? {
+            (b'+', []) => Some(Command::Item),
+            (b'+', view) => Some(Command::View(view)),
+            (b'!', names) => Some(Command::Attributes(names)),
+            (b'$', names) => Some(Command::Directory(names)),
+            (b'?', []) => Some(Command::Ask),
+            _ => None,
+        }
+    }
 }
 
 impl Request {
@@ -58,7 +90,19 @@ impl Request {
         };
         let port = url.port().unwrap_or(DEFAULT_PORT);
 
-        let path: Vec<u8> = percent_decode_str(url.path().strip_prefix('/').unwrap_or(url.path())).collect();
+        let mut path: Vec<u8> = percent_decode_str(url.path().strip_prefix('/').unwrap_or(url.path())).collect();
+        let mut query = url.query();
+        if let Some(q) = query {
+            let terms = path.first() == Some(&(SEARCH_TYPE as u8)) && !path.contains(&b'\t');
+            if !terms {
+                if path.is_empty() {
+                    path.push(ROOT_TYPE as u8);
+                }
+                path.push(b'?');
+                path.extend(percent_decode_str(q));
+                query = None;
+            }
+        }
         let (item_type, mut selector) = match path.split_first() {
             None => (ROOT_TYPE, Vec::new()),
             Some((&t, rest)) if t.is_ascii_graphic() => (t as char, rest.to_vec()),
@@ -72,24 +116,16 @@ impl Request {
         let mut gopher_plus = None;
         if let Some(tab) = selector.iter().position(|&b| b == b'\t') {
             let mut terms = selector.split_off(tab)[1..].to_vec();
-            if let Some(tab) = terms.iter().position(|&b| b == b'\t') {
-                gopher_plus = Some(terms.split_off(tab)[1..].to_vec());
+            let second = terms.iter().position(|&b| b == b'\t');
+            if let Some(tab) = second {
+                gopher_plus = Some(terms.split_off(tab)[1..].to_vec()).filter(|plus| !plus.is_empty());
             }
-            if !(terms.is_empty() && gopher_plus.is_some()) {
+            if !(terms.is_empty() && second.is_some()) {
                 search = Some(terms);
             }
         }
-
-        if let Some(query) = url.query() {
-            if item_type == SEARCH_TYPE {
-                if search.is_none() {
-                    search = Some(search_terms(query));
-                }
-            } else {
-                // A `?` is not special to gopher; `Url` split it off a selector that had one.
-                selector.push(b'?');
-                selector.extend(percent_decode_str(query));
-            }
+        if let Some(query) = query {
+            search = Some(search_terms(query));
         }
 
         check_line_safe(&selector, "selector")?;
@@ -98,6 +134,9 @@ impl Request {
         }
         if let Some(plus) = &gopher_plus {
             check_line_safe(plus, "Gopher+ string")?;
+            if Command::of(plus).is_none() {
+                return Err(format!("gopher URL with an unknown Gopher+ string: {url}"));
+            }
         }
 
         Ok(Self {
@@ -112,18 +151,54 @@ impl Request {
 
     /// A search that still needs its terms: answered with a form, not a connection.
     pub fn needs_search_terms(&self) -> bool {
-        self.item_type == SEARCH_TYPE && self.search.is_none()
+        self.item_type == SEARCH_TYPE && self.search.is_none() && self.gopher_plus.is_none()
     }
 
-    /// The bytes sent to the server: the selector, the search terms after a tab, then CRLF.
-    /// The Gopher+ string is left off until Gopher+ is spoken (GOS-213).
+    /// What the Gopher+ string asks for; `None` for a plain gopher request.
+    pub fn command(&self) -> Option<Command<'_>> {
+        Command::of(self.gopher_plus.as_deref()?)
+    }
+
+    /// The bytes sent to the server: the selector, the search terms after a tab, the Gopher+
+    /// string after another, then CRLF. A form's URL (`?`) asks for the item's attributes,
+    /// which hold the form.
     pub fn wire_line(&self) -> Vec<u8> {
+        let mut line = self.fields();
+        if let Some(plus) = &self.gopher_plus {
+            line.push(b'\t');
+            match self.command() {
+                Some(Command::Ask) => line.push(b'!'),
+                _ => line.extend_from_slice(plus),
+            }
+        }
+        line.extend_from_slice(b"\r\n");
+        line
+    }
+
+    /// The request that sends a form's answers (Gopher+ 2.4, 2.8; RFC 4266 §2.9): the item
+    /// asked for with a data flag of `1`, then the answers as a period-terminated data block.
+    /// Each answer is one line, already checked by the caller.
+    pub fn answer_lines(&self, answers: &[Vec<u8>]) -> Vec<u8> {
+        let mut out = self.fields();
+        out.extend_from_slice(b"\t+\t1\r\n+-1\r\n");
+        for answer in answers {
+            out.extend_from_slice(answer);
+            out.extend_from_slice(b"\r\n");
+        }
+        out.extend_from_slice(b".\r\n");
+        out
+    }
+
+    /// The selector, and the search terms after a tab. A Gopher+ request to a search sends the
+    /// tab with no terms after it (Gopher+ appendix II); any other item sends none (Gopher+
+    /// 2.4), whatever RFC 4266 §2.3 says of URLs.
+    fn fields(&self) -> Vec<u8> {
         let mut line = self.selector.clone();
-        if let Some(terms) = &self.search {
+        let empty = (self.gopher_plus.is_some() && self.item_type == SEARCH_TYPE).then_some(&[][..]);
+        if let Some(terms) = self.search.as_deref().or(empty) {
             line.push(b'\t');
             line.extend_from_slice(terms);
         }
-        line.extend_from_slice(b"\r\n");
         line
     }
 }
@@ -138,7 +213,7 @@ fn search_terms(query: &str) -> Vec<u8> {
 }
 
 /// Refuse a byte that would end the request line early or start another field.
-fn check_line_safe(bytes: &[u8], what: &str) -> Result<(), String> {
+pub fn check_line_safe(bytes: &[u8], what: &str) -> Result<(), String> {
     match bytes.iter().find(|&&b| matches!(b, b'\r' | b'\n' | b'\t' | 0)) {
         Some(b) => Err(format!("gopher {what} contains a forbidden byte 0x{b:02x}")),
         None => Ok(()),
@@ -236,12 +311,12 @@ mod tests {
     }
 
     #[test]
-    fn a_gopher_plus_string_is_kept_but_not_sent() {
+    fn a_search_s_gopher_plus_string_follows_its_terms() {
         let r = parse("gopher://example/7sel%09terms%09+").unwrap();
         assert_eq!(r.selector, b"sel");
         assert_eq!(r.search.as_deref(), Some(&b"terms"[..]));
-        assert_eq!(r.gopher_plus.as_deref(), Some(&b"+"[..]));
-        assert_eq!(r.wire_line(), b"sel\tterms\r\n");
+        assert_eq!(r.command(), Some(Command::Item));
+        assert_eq!(r.wire_line(), b"sel\tterms\t+\r\n");
     }
 
     #[test]
@@ -249,7 +324,85 @@ mod tests {
         let r = parse("gopher://example/1sel%09%09+").unwrap();
         assert_eq!(r.search, None);
         assert_eq!(r.gopher_plus.as_deref(), Some(&b"+"[..]));
+        assert_eq!(r.wire_line(), b"sel\t+\r\n");
+    }
+
+    #[test]
+    fn each_gopher_plus_string_has_its_wire_line() {
+        for (url, line, command) in [
+            ("gopher://e/0sel%09%09+", &b"sel\t+\r\n"[..], Command::Item),
+            (
+                "gopher://e/0sel%09%09+text/plain%20De_DE",
+                b"sel\t+text/plain De_DE\r\n",
+                Command::View(b"text/plain De_DE"),
+            ),
+            ("gopher://e/0sel%09%09!", b"sel\t!\r\n", Command::Attributes(b"")),
+            (
+                "gopher://e/0sel%09%09!+ABSTRACT%20+VIEWS",
+                b"sel\t!+ABSTRACT +VIEWS\r\n",
+                Command::Attributes(b"+ABSTRACT +VIEWS"),
+            ),
+            ("gopher://e/1dir%09%09$", b"dir\t$\r\n", Command::Directory(b"")),
+            (
+                "gopher://e/1dir%09%09$+VIEWS",
+                b"dir\t$+VIEWS\r\n",
+                Command::Directory(b"+VIEWS"),
+            ),
+            ("gopher://e/0form%09%09%3F", b"form\t!\r\n", Command::Ask),
+            ("gopher://e/7find%09%09!", b"find\t\t!\r\n", Command::Attributes(b"")),
+            ("gopher://e/7find%09%09+", b"find\t\t+\r\n", Command::Item),
+        ] {
+            let r = parse(url).unwrap();
+            assert_eq!(r.command(), Some(command), "{url}");
+            assert_eq!(r.wire_line(), line, "{url}");
+        }
+    }
+
+    #[test]
+    fn an_empty_gopher_plus_string_is_a_plain_request() {
+        let r = parse("gopher://example/1sel%09%09").unwrap();
+        assert_eq!((r.gopher_plus.as_deref(), r.command()), (None, None));
         assert_eq!(r.wire_line(), b"sel\r\n");
+    }
+
+    #[test]
+    fn an_unknown_gopher_plus_string_is_refused() {
+        for url in [
+            "gopher://e/1s%09%09x",
+            "gopher://e/1s%09%09?x",
+            "gopher://e/1s%09%09%3F%3F",
+        ] {
+            assert!(parse(url).is_err(), "{url}");
+        }
+    }
+
+    #[test]
+    fn a_question_mark_after_a_gopher_plus_string_belongs_to_it() {
+        for url in ["gopher://e/0s%09%09?", "gopher://e/0s%09%09%3F"] {
+            let r = parse(url).unwrap();
+            assert_eq!(r.selector, b"s", "{url}");
+            assert_eq!(r.command(), Some(Command::Ask), "{url}");
+        }
+    }
+
+    #[test]
+    fn a_question_mark_goes_back_onto_the_last_field() {
+        let r = parse("gopher://e/1a?b%09c?d").unwrap();
+        assert_eq!(r.selector, b"a?b");
+        assert_eq!(r.search.as_deref(), Some(&b"c?d"[..]));
+        let r = parse("gopher://e/7find%09rust?x=1").unwrap();
+        assert_eq!(r.search.as_deref(), Some(&b"rust?x=1"[..]));
+        let r = parse("gopher://e/0a%3Fb?c").unwrap();
+        assert_eq!(r.selector, b"a?b?c");
+    }
+
+    #[test]
+    fn a_form_s_answers_follow_the_item_as_a_data_block() {
+        let r = parse("gopher://e/0form%09%09?").unwrap();
+        let line = r.answer_lines(&[b"42".to_vec(), b"Yes".to_vec()]);
+        assert_eq!(line, b"form\t+\t1\r\n+-1\r\n42\r\nYes\r\n.\r\n");
+        let r = parse("gopher://e/7find%09%09?").unwrap();
+        assert_eq!(r.answer_lines(&[]), b"find\t\t+\t1\r\n+-1\r\n.\r\n");
     }
 
     #[test]

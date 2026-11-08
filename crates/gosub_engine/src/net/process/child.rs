@@ -679,6 +679,7 @@ async fn perform_protocol(
         identity: identity.as_ref(),
         zone: fetch.zone.as_deref(),
         from: from.as_ref(),
+        body: fetch.body.as_deref(),
     };
     let served = crate::net::protocols::run(protocol, request, &cancel, observer).await;
     answers.lock().remove(&fetch.tag);

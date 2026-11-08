@@ -12,6 +12,10 @@
 //! - everything else is served raw under a sniffed media type, so images display and
 //!   anything unknown goes to the download offer.
 //!
+//! A URL with a Gopher+ string (RFC 4266 §2.3) makes a Gopher+ request instead. Its reply
+//! starts with a header saying where it ends, which is taken off before any of the above
+//! ([`plus`]); an alternate view is shown as its view says, not by its item type.
+//!
 //! Every body but an error item's streams, with no deadline for the whole, only one between
 //! bytes. A raw body has no size limit: RFC 1436 reads it until the server closes and gives
 //! it none. A menu or text page is served a line at a time as it arrives ([`stream`]); it is
@@ -33,6 +37,7 @@
 mod decode;
 mod menu;
 mod mirrors;
+mod plus;
 mod render;
 mod request;
 mod stream;
@@ -45,7 +50,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use decode::{Decoding, Encoding};
 use render::Lines;
-use request::Request;
+use request::{Command, Request};
 use std::net::SocketAddr;
 use std::time::Duration;
 use stream::PageStream;
@@ -85,20 +90,48 @@ impl Protocol for Gopher {
 
 /// [`Gopher::fetch`] under `limits`.
 async fn fetch_within(asked: ProtocolRequest<'_>, limits: &Limits) -> Result<ProtocolResponse, NetError> {
-    let request = Request::from_url(asked.url).map_err(invalid)?;
+    let mut request = Request::from_url(asked.url).map_err(invalid)?;
     if request.needs_search_terms() {
         // The prompt needs no server, but it is placed by where its server is: the form
         // submits from it, and that search may reach only as far as the prompt's space.
         let addrs = socket::resolve(&Gopher, asked.url, &request.host, request.port, asked.reach).await?;
         return Ok(html(render::search_page(asked.url), socket::most_public(&addrs)));
     }
+    // Only a plain request falls back on mirrors: a Gopher+ one asks the server it names what
+    // that server says of the item, and a form's answers go to the server that asked.
+    let plain = request.gopher_plus.is_none() && asked.body.is_none();
     let mirrors = match (asked.zone, asked.from) {
-        (Some(zone), Some(from)) => mirrors::of(zone, from, asked.url),
+        (Some(zone), Some(from)) if plain => mirrors::of(zone, from, asked.url),
         _ => Vec::new(),
     };
+    // A Gopher+ request's line is made before the item type gives way to a view's.
+    let mut line = request.gopher_plus.is_some().then(|| request.wire_line());
+    match request.command() {
+        Some(Command::Ask) => {
+            let server = connect(asked.url, request.clone(), asked.reach, &[]).await?;
+            match ask(server, line.as_deref().unwrap_or_default(), limits, asked.body).await? {
+                Ok(answers) => line = Some(answers),
+                Err(page) => return Ok(page),
+            }
+        }
+        Some(Command::Attributes(_) | Command::Directory(_)) => {
+            let server = connect(asked.url, request.clone(), asked.reach, &[]).await?;
+            return Ok(
+                match attributes(server, line.as_deref().unwrap_or_default(), limits).await? {
+                    Ok((body, peer)) => html(plus::attributes_page(asked.url, &request, &body), peer),
+                    Err(page) => page,
+                },
+            );
+        }
+        Some(Command::View(view)) => {
+            // The view says what the bytes are now, not the item type.
+            request.item_type = view_type(view);
+        }
+        Some(Command::Item) | None => {}
+    }
     let server = connect(asked.url, request, asked.reach, &mirrors).await?;
     let mirrored = (server.url != *asked.url).then(|| server.url.clone());
-    let mut response = serve(server, asked.zone, limits).await?;
+    let mut response = serve(server, line, asked.zone, limits).await?;
     // A mirror's page is the mirror's: its address, its history entry, its links' base.
     response.final_url = mirrored;
     Ok(response)
@@ -172,8 +205,13 @@ async fn connect_to(
 }
 
 /// The response to a request on the connection made for it, its menus' mirrors remembered in
-/// `zone`.
-async fn serve(server: Connected, zone: Option<&str>, limits: &Limits) -> Result<ProtocolResponse, NetError> {
+/// `zone`. `line` is what is sent when it is not the request's own wire line.
+async fn serve(
+    server: Connected,
+    line: Option<Vec<u8>>,
+    zone: Option<&str>,
+    limits: &Limits,
+) -> Result<ProtocolResponse, NetError> {
     let Connected {
         url,
         request,
@@ -181,12 +219,16 @@ async fn serve(server: Connected, zone: Option<&str>, limits: &Limits) -> Result
         peer,
     } = server;
     let url = &url;
-    let line = request.wire_line();
-    if request.item_type == '3' {
+    let line = line.unwrap_or_else(|| request.wire_line());
+    if request.item_type == '3' && request.gopher_plus.is_none() {
         let body = socket::talk_within(&mut stream, &request.host, &line, Close::Clean, limits).await?;
         return Ok(present(&request, url, body, peer, zone));
     }
     let opened = socket::open_on(stream, peer, &request.host, &line, limits).await?;
+    let opened = match block(opened, &request, url, limits).await? {
+        Ok(opened) => opened,
+        Err(page) => return Ok(page),
+    };
     if let Some(encoding) = Encoding::of(request.item_type) {
         return decoded(&request, url, opened, limits, encoding).await;
     }
@@ -290,6 +332,122 @@ async fn decoded(
         final_url: None,
         filename,
     })
+}
+
+/// The data block of a reply to a Gopher+ request, its header taken off and its end where the
+/// header says ([`plus`]); a reply to any other request as it is. `Err` holds the page for a
+/// Gopher+ error.
+async fn block(
+    opened: Opened,
+    request: &Request,
+    url: &Url,
+    limits: &Limits,
+) -> Result<Result<Opened, ProtocolResponse>, NetError> {
+    if request.gopher_plus.is_none() {
+        return Ok(Ok(opened));
+    }
+    let Opened { peek, rest, peer } = opened;
+    let Some((header, len)) = plus::header(&peek, rest.is_none()).map_err(invalid)? else {
+        return Ok(Ok(Opened { peek, rest, peer }));
+    };
+    let (peek, rest) = plus::limit(peek[len..].to_vec(), rest, header.length);
+    if header.ok {
+        return Ok(Ok(Opened { peek, rest, peer }));
+    }
+    let body = match rest {
+        Some(rest) => socket::read_rest(peek, rest, &request.host, limits).await?,
+        None => peek,
+    };
+    Ok(Err(html(
+        render::error_page(url, &plus::error_text(&header, &body)),
+        peer,
+    )))
+}
+
+/// The attributes `line` asks for on `server`, read whole, and the peer they came from. `Err` holds the
+/// page for an error, Gopher+ or a plain gopher error menu.
+async fn attributes(
+    server: Connected,
+    line: &[u8],
+    limits: &Limits,
+) -> Result<Result<(Vec<u8>, Option<SocketAddr>), ProtocolResponse>, NetError> {
+    let Connected {
+        url,
+        request,
+        stream,
+        peer,
+    } = server;
+    let (url, request) = (&url, &request);
+    let opened = socket::open_on(stream, peer, &request.host, line, limits).await?;
+    let Opened { peek, rest, peer } = match block(opened, request, url, limits).await? {
+        Ok(opened) => opened,
+        Err(page) => return Ok(Err(page)),
+    };
+    let body = match rest {
+        Some(rest) => socket::read_rest(peek, rest, &request.host, limits).await?,
+        None => peek,
+    };
+    if is_error_menu(&body) {
+        return Ok(Err(html(render::error_page(url, &error_text(&body)), peer)));
+    }
+    Ok(Ok((body, peer)))
+}
+
+/// An item's +ASK form: its page, as `Err`, when nothing was `posted`; the request that sends
+/// the answers when they were. The form is read again for the answers, so what is sent is
+/// what the server asks, in its order.
+async fn ask(
+    server: Connected,
+    line: &[u8],
+    limits: &Limits,
+    posted: Option<&[u8]>,
+) -> Result<Result<Vec<u8>, ProtocolResponse>, NetError> {
+    let (url, request) = (server.url.clone(), server.request.clone());
+    let (url, request) = (&url, &request);
+    let (body, peer) = match attributes(server, line, limits).await? {
+        Ok(read) => read,
+        Err(page) => return Ok(Err(page)),
+    };
+    let blocks = plus::blocks(&body);
+    let Some(form) = blocks.iter().find(|block| block.name == b"ASK") else {
+        let page = render::error_page(url, "This item has no Gopher+ form (+ASK).");
+        return Ok(Err(html(page, peer)));
+    };
+    let questions = plus::questions(form);
+    let Some(posted) = posted else {
+        let encoding = menu::encoding_for(&body);
+        let title = blocks
+            .iter()
+            .find(|block| block.name == b"INFO")
+            .and_then(|info| menu::parse_line(encoding, info.value))
+            .map(|item| item.display)
+            .filter(|display| !display.is_empty());
+        return Ok(Err(html(
+            plus::form_page(url, title.as_deref(), &questions, encoding),
+            peer,
+        )));
+    };
+    match plus::answers(&questions, posted) {
+        Ok(answers) => Ok(Ok(request.answer_lines(&answers))),
+        Err(why) => Ok(Err(html(render::error_page(url, &why), peer))),
+    }
+}
+
+/// The item type an alternate view is shown as. Only the views every Gopher+ server has
+/// (Gopher+ A3.0) are pages; anything else is served raw and sniffed, as an item of no
+/// particular type is, so a view the server calls `text/html` is no more active than a
+/// text file.
+fn view_type(view: &[u8]) -> char {
+    let mime = view.split(|&b| b == b' ').next().unwrap_or_default();
+    if mime.eq_ignore_ascii_case(b"text/plain") {
+        '0'
+    } else if mime.eq_ignore_ascii_case(b"application/gopher-menu")
+        || mime.eq_ignore_ascii_case(b"application/gopher+-menu")
+    {
+        '1'
+    } else {
+        '9'
+    }
 }
 
 /// What the response is, by the item type the URL asked for.
@@ -482,6 +640,11 @@ mod tests {
     }
 
     async fn fetch(url: &str, reach: AddressSpace) -> Result<ProtocolResponse, NetError> {
+        post(url, reach, None).await
+    }
+
+    /// [`fetch`] of a form posted with `body`.
+    async fn post(url: &str, reach: AddressSpace, body: Option<&[u8]>) -> Result<ProtocolResponse, NetError> {
         let url = Url::parse(url).unwrap();
         Gopher
             .fetch(ProtocolRequest {
@@ -491,9 +654,42 @@ mod tests {
                 identity: None,
                 zone: None,
                 from: None,
+                body,
             })
             .await
             .map_err(|e| e.error)
+    }
+
+    /// A Gopher+ server on loopback for a form: answers the first connection's request for
+    /// attributes with `attributes`, reads the second's request through the end of its data
+    /// block and answers it with `reply`. Hands back both requests.
+    async fn serve_form(
+        attributes: &'static [u8],
+        reply: &'static [u8],
+    ) -> (u16, tokio::task::JoinHandle<(Vec<u8>, Vec<u8>)>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let task = tokio::spawn(async move {
+            let read_until = |end: &'static [u8]| {
+                let listener = &listener;
+                async move {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut asked = Vec::new();
+                    let mut byte = [0u8; 1];
+                    while !asked.ends_with(end) && socket.read_exact(&mut byte).await.is_ok() {
+                        asked.push(byte[0]);
+                    }
+                    (socket, asked)
+                }
+            };
+            let (mut socket, first) = read_until(b"\r\n").await;
+            socket.write_all(attributes).await.unwrap();
+            drop(socket);
+            let (mut socket, second) = read_until(b"\r\n.\r\n").await;
+            socket.write_all(reply).await.unwrap();
+            (first, second)
+        });
+        (port, task)
     }
 
     async fn fetch_under(url: &str, limits: &Limits) -> Result<ProtocolResponse, NetError> {
@@ -505,6 +701,7 @@ mod tests {
             identity: None,
             zone: None,
             from: None,
+            body: None,
         };
         fetch_within(request, limits).await
     }
@@ -542,6 +739,16 @@ mod tests {
 
     /// [`fetch`] in `zone`, as a navigation the page at `from` started.
     async fn fetch_from(url: &str, zone: &str, from: Option<&Url>) -> Result<ProtocolResponse, NetError> {
+        post_from(url, zone, from, None).await
+    }
+
+    /// [`fetch_from`] of a form posted with `body`.
+    async fn post_from(
+        url: &str,
+        zone: &str,
+        from: Option<&Url>,
+        body: Option<&[u8]>,
+    ) -> Result<ProtocolResponse, NetError> {
         let url = Url::parse(url).unwrap();
         Gopher
             .fetch(ProtocolRequest {
@@ -551,6 +758,7 @@ mod tests {
                 identity: None,
                 zone: Some(zone),
                 from,
+                body,
             })
             .await
             .map_err(|e| e.error)
@@ -595,6 +803,25 @@ mod tests {
         assert_eq!(response.peer_addr.map(|a| a.port()), Some(mirror));
         let page = whole_body(response).await.unwrap();
         assert!(std::str::from_utf8(&page).unwrap().contains("from the mirror"));
+    }
+
+    #[tokio::test]
+    async fn a_posted_form_never_falls_back_on_a_mirror() {
+        let dead = refusing_port();
+        let (mirror, server) = serve_once(b"from the mirror\r\n.\r\n").await;
+        let menu = menu_listing(
+            "zone-mirror-post",
+            format!("0Doc\t/doc\t127.0.0.1\t{dead}\t?"),
+            &[format!("+Doc\t/copy/doc\t127.0.0.1\t{mirror}")],
+        )
+        .await;
+        let item = format!("gopher://127.0.0.1:{dead}/0/doc");
+        let err = post_from(&item, "zone-mirror-post", Some(&menu), Some(b"a0=secret"))
+            .await
+            .unwrap_err();
+        assert!(!matches!(err, NetError::Blocked { .. }), "{err:?}");
+        assert!(!server.is_finished(), "the mirror was asked");
+        server.abort();
     }
 
     #[tokio::test]
@@ -1156,6 +1383,280 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("forbidden byte"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_gopher_plus_item_loses_its_header_and_ends_at_its_length() {
+        let (port, server) = serve_once(b"+12\r\nhello <world>\r\nnot part of it\r\n").await;
+        let response = fetch(
+            &format!("gopher://127.0.0.1:{port}/0/t.txt%09%09+"),
+            AddressSpace::Loopback,
+        )
+        .await
+        .unwrap();
+        assert_eq!(server.await.unwrap(), b"/t.txt\t+\r\n");
+        let page = String::from_utf8(whole_body(response).await.unwrap().to_vec()).unwrap();
+        assert!(page.contains("<pre>hello &lt;world\n</pre>"), "{page}");
+        assert!(!page.contains("+12"));
+    }
+
+    #[tokio::test]
+    async fn a_gopher_plus_menu_split_inside_its_header_is_read() {
+        let chunks = vec![
+            b"+".to_vec(),
+            b"-".to_vec(),
+            b"1\r".to_vec(),
+            b"\n1Sub\t/sub\t127.0.0.1\t70\t+\r\n.\r\n".to_vec(),
+        ];
+        let port = serve_slowly(chunks, Duration::from_millis(20), Duration::ZERO).await;
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/1/%09%09+"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        let page = String::from_utf8(whole_body(response).await.unwrap().to_vec()).unwrap();
+        assert!(page.contains(">Sub</a>"), "{page}");
+        assert!(!page.contains("+-1"), "{page}");
+    }
+
+    #[tokio::test]
+    async fn a_gopher_plus_binary_until_close_is_sniffed_without_its_header() {
+        let (port, _server) = serve_once(b"+-2\r\nGIF89a\x01\x00\x01\x00").await;
+        let response = fetch(
+            &format!("gopher://127.0.0.1:{port}/I/pic%09%09+"),
+            AddressSpace::Loopback,
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.content_type, "image/gif");
+        assert_eq!(&whole_body(response).await.unwrap()[..], b"GIF89a\x01\x00\x01\x00");
+    }
+
+    #[tokio::test]
+    async fn a_counted_gopher_plus_binary_streams_its_length_and_no_more() {
+        let len = 3 * socket::PEEK_BYTES + 7;
+        let mut reply = format!("+{len}\r\n").into_bytes();
+        reply.extend((0..len).map(|i| (i % 251) as u8));
+        reply.extend(b"more than it said");
+        let port = serve_slowly(vec![reply.clone()], Duration::ZERO, Duration::from_secs(10)).await;
+        let response = fetch(
+            &format!("gopher://127.0.0.1:{port}/9/big%09%09+"),
+            AddressSpace::Loopback,
+        )
+        .await
+        .unwrap();
+        assert!(response.rest.is_some());
+        let started = std::time::Instant::now();
+        let body = whole_body(response).await.unwrap();
+        assert!(started.elapsed() < Duration::from_secs(5), "waited for the close");
+        assert_eq!(&body[..], &reply[reply.len() - len - 17..reply.len() - 17]);
+    }
+
+    #[tokio::test]
+    async fn a_gopher_plus_error_is_an_error_page() {
+        let (port, _server) = serve_once(b"--2\r\n1 Frodo <fng@bogus.edu>\r\n<b>no</b> such item\r\n").await;
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/0/x%09%09+"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        let page = std::str::from_utf8(&response.body).unwrap();
+        assert!(
+            page.contains("class=\"e\">Item is not available.\nFrodo &lt;fng@bogus.edu&gt;\n&lt;b&gt;no&lt;/b&gt; such item</pre>"),
+            "{page}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_dot_terminated_gopher_plus_error_is_read_to_its_dot() {
+        // Past the peek, so the fetch does not wait for a close to have it.
+        let mut reply = b"--1\r\n2 <admin@h>\r\nbusy\r\n".to_vec();
+        reply.extend(b"x\r\n".repeat(socket::PEEK_BYTES / 3));
+        reply.extend(b".\r\n");
+        let port = serve_slowly(vec![reply], Duration::ZERO, Duration::from_secs(10)).await;
+        let started = std::time::Instant::now();
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/0/x%09%09+"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        assert!(started.elapsed() < Duration::from_secs(5));
+        let page = std::str::from_utf8(&response.body).unwrap();
+        assert!(page.contains("Try again later.\n&lt;admin@h&gt;\nbusy\nx\n"), "{page}");
+        assert!(page.contains("x</pre>"), "{page}");
+    }
+
+    #[tokio::test]
+    async fn a_plain_reply_to_a_gopher_plus_request_is_taken_whole() {
+        let (port, _server) = serve_once(b"iOld server\t\t\t\r\n.\r\n").await;
+        let response = fetch(&format!("gopher://127.0.0.1:{port}/1/%09%09+"), AddressSpace::Loopback)
+            .await
+            .unwrap();
+        let page = String::from_utf8(whole_body(response).await.unwrap().to_vec()).unwrap();
+        assert!(page.contains("Old server"), "{page}");
+    }
+
+    #[tokio::test]
+    async fn an_alternate_view_is_shown_as_its_view_says() {
+        let (port, server) = serve_once(b"+-2\r\n<p>a menu as text</p>\r\n").await;
+        let response = fetch(
+            &format!("gopher://127.0.0.1:{port}/1/dir%09%09+text/plain%20En_US"),
+            AddressSpace::Loopback,
+        )
+        .await
+        .unwrap();
+        assert_eq!(server.await.unwrap(), b"/dir\t+text/plain En_US\r\n");
+        let page = String::from_utf8(whole_body(response).await.unwrap().to_vec()).unwrap();
+        assert!(
+            page.contains("<pre>&lt;p&gt;a menu as text&lt;/p&gt;\n</pre>"),
+            "{page}"
+        );
+
+        let (port, _server) = serve_once(b"+-2\r\n<!DOCTYPE html><script>alert(1)</script>").await;
+        let response = fetch(
+            &format!("gopher://127.0.0.1:{port}/0/doc%09%09+text/html"),
+            AddressSpace::Loopback,
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.content_type, "application/octet-stream");
+    }
+
+    #[tokio::test]
+    async fn an_info_link_shows_the_item_s_attributes() {
+        let (port, server) =
+            serve_once(b"+-1\r\n+INFO: 0Doc\t/doc\t127.0.0.1\t70\t+\r\n+VIEWS:\r\n text/plain: <1k>\r\n.\r\n").await;
+        let response = fetch(
+            &format!("gopher://127.0.0.1:{port}/0/doc%09%09!"),
+            AddressSpace::Loopback,
+        )
+        .await
+        .unwrap();
+        assert_eq!(server.await.unwrap(), b"/doc\t!\r\n");
+        assert!(response.rest.is_none());
+        let page = std::str::from_utf8(&response.body).unwrap();
+        assert!(
+            page.contains("<a href=\"gopher://127.0.0.1/0/doc%09%09+text/plain\">text/plain</a>"),
+            "{page}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_directory_s_attributes_list_every_item() {
+        let (port, server) = serve_once(
+            b"+-2\r\n+INFO: 0A\t/a\th\t70\t+\r\n+VIEWS:\r\n text/plain:\r\n+INFO: 0B\t/b\th\t70\t+\r\n+VIEWS:\r\n application/pdf:\r\n",
+        )
+        .await;
+        let response = fetch(
+            &format!("gopher://127.0.0.1:{port}/1/dir%09%09$"),
+            AddressSpace::Loopback,
+        )
+        .await
+        .unwrap();
+        assert_eq!(server.await.unwrap(), b"/dir\t$\r\n");
+        let page = std::str::from_utf8(&response.body).unwrap();
+        assert!(page.contains("href=\"gopher://h/0/a%09%09+text/plain\""), "{page}");
+        assert!(page.contains("href=\"gopher://h/0/b%09%09+application/pdf\""), "{page}");
+    }
+
+    #[tokio::test]
+    async fn attributes_a_plain_server_refuses_are_an_error_page() {
+        let (port, _server) = serve_once(b"3'/doc\t!' does not exist\t\terror.host\t1\r\n.\r\n").await;
+        let response = fetch(
+            &format!("gopher://127.0.0.1:{port}/0/doc%09%09!"),
+            AddressSpace::Loopback,
+        )
+        .await
+        .unwrap();
+        assert!(std::str::from_utf8(&response.body)
+            .unwrap()
+            .contains("class=\"e\">'/doc"));
+    }
+
+    const FORM: &[u8] = b"+-1\r\n+INFO: 0Shock <me>\t/form\t127.0.0.1\t70\t?\r\n+ASK:\r\n\
+ Note: Answer <all>\r\n Ask: How many volts?\t230\r\n AskP: Password:\r\n AskL: Why?\r\n\
+ Select: Really:1\r\n Select: Twice:0\r\n Choose: Now?\tYes\tNot!\r\n.\r\n";
+
+    #[tokio::test]
+    async fn a_form_link_shows_the_form_and_sends_nothing_else() {
+        let (port, server) = serve_once(FORM).await;
+        let url = format!("gopher://127.0.0.1:{port}/0/form%09%09%3F");
+        let response = fetch(&url, AddressSpace::Loopback).await.unwrap();
+        assert_eq!(server.await.unwrap(), b"/form\t!\r\n");
+        let page = std::str::from_utf8(&response.body).unwrap();
+        assert!(
+            page.contains(&format!("<form method=\"post\" action=\"{url}\">")),
+            "{page}"
+        );
+        assert!(page.contains("<h1>Shock &lt;me&gt;</h1>"), "{page}");
+        assert!(page.contains("type=\"password\" name=\"a2\""), "{page}");
+        assert!(page.contains("<button type=\"submit\">"), "{page}");
+    }
+
+    #[tokio::test]
+    async fn a_posted_form_sends_its_answers_as_a_data_block() {
+        let (port, server) = serve_form(FORM, b"+-2\r\nThe shock is <on> its way\r\n").await;
+        let url = format!("gopher://127.0.0.1:{port}/0/form%09%09%3F");
+        let form = b"a1=110&a2=s%C3%A9cret+pw&a3=line+one%0D%0Aline%09two%0D%0A&a4=1&a6=1";
+        let refused = post(&url, AddressSpace::Loopback, Some(form)).await.unwrap();
+        // The tab in the multi-line answer is refused before anything is sent.
+        let page = String::from_utf8(refused.body.to_vec()).unwrap();
+        assert!(page.contains("answer to question 4"), "{page}");
+        assert!(!page.contains("cret"), "{page}");
+
+        let (port, server2) = serve_form(FORM, b"+-2\r\nThe shock is <on> its way\r\n").await;
+        let url = format!("gopher://127.0.0.1:{port}/0/form%09%09%3F");
+        let form = b"a1=110&a2=s%C3%A9cret+pw&a3=line+one%0D%0Aline+two%0D%0A&a4=1&a6=1";
+        let response = post(&url, AddressSpace::Loopback, Some(form)).await.unwrap();
+        let (first, second) = server2.await.unwrap();
+        assert_eq!(first, b"/form\t!\r\n");
+        assert_eq!(
+            second,
+            "/form\t+\t1\r\n+-1\r\n110\r\ns\u{e9}cret pw\r\n2\r\nline one\r\nline two\r\n1\r\n0\r\nNot!\r\n.\r\n"
+                .as_bytes()
+        );
+        let page = String::from_utf8(whole_body(response).await.unwrap().to_vec()).unwrap();
+        assert!(page.contains("<pre>The shock is &lt;on&gt; its way\n</pre>"), "{page}");
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn a_form_that_wants_a_file_is_shown_but_never_sent() {
+        let form: &'static [u8] = b"+-2\r\n+ASK:\r\n Ask: Name\r\n AskF: Save as\tout.txt\r\n";
+        let (port, server) = serve_once(form).await;
+        let url = format!("gopher://127.0.0.1:{port}/0/f%09%09%3F");
+        let page = fetch(&url, AddressSpace::Loopback).await.unwrap();
+        let page = std::str::from_utf8(&page.body).unwrap();
+        assert!(
+            page.contains("Save as <span class=\"t\">(AskF: not supported)</span>"),
+            "{page}"
+        );
+        assert!(!page.contains("<button"), "{page}");
+        server.await.unwrap();
+
+        let (port, server) = serve_form(form, b"+-2\r\nsent\r\n").await;
+        let url = format!("gopher://127.0.0.1:{port}/0/f%09%09%3F");
+        let response = post(&url, AddressSpace::Loopback, Some(b"a0=me")).await.unwrap();
+        let page = std::str::from_utf8(&response.body).unwrap();
+        assert!(page.contains("asks for AskF, which is not supported"), "{page}");
+        // Only the form was asked for.
+        assert!(!server.is_finished());
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn an_item_without_a_form_says_so() {
+        let (port, _server) = serve_once(b"+-2\r\n+INFO: 0X\t/x\th\t70\t+\r\n").await;
+        let response = fetch(
+            &format!("gopher://127.0.0.1:{port}/0/x%09%09%3F"),
+            AddressSpace::Loopback,
+        )
+        .await
+        .unwrap();
+        assert!(std::str::from_utf8(&response.body).unwrap().contains("no Gopher+ form"));
+    }
+
+    #[test]
+    fn only_the_standard_views_are_pages() {
+        assert_eq!(view_type(b"Text/plain De_DE"), '0');
+        assert_eq!(view_type(b"application/gopher+-menu"), '1');
+        assert_eq!(view_type(b"application/gopher-menu"), '1');
+        assert_eq!(view_type(b"text/html"), '9');
+        assert_eq!(view_type(b"image/gif"), '9');
     }
 
     #[test]

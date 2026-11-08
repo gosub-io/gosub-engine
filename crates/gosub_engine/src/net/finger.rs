@@ -219,6 +219,7 @@ mod tests {
                 identity: None,
                 zone: None,
                 from: None,
+                body: None,
             })
             .await
             .map_err(|e| e.error)

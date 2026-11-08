@@ -1,9 +1,10 @@
 //! Gopher menus (RFC 1436 §3.8): one item per line, tab-separated.
 //!
 //! `<type><display>\t<selector>\t<host>\t<port>`, ended by a line holding a single `.`.
-//! Servers in the wild send LF instead of CRLF, leave out the terminator, add Gopher+ fields
-//! after the port and fill info lines (`i`) with junk, so parsing is lenient: whatever
-//! fields a line has are taken, and the rest are empty.
+//! Servers in the wild send LF instead of CRLF, leave out the terminator and fill info lines
+//! (`i`) with junk, so parsing is lenient: whatever fields a line has are taken, and the rest
+//! are empty. A Gopher+ server adds a fifth field (Gopher+ 2.2, 2.8): `+` for a Gopher+ item,
+//! `?` for one with an +ASK form.
 
 use super::request::DEFAULT_PORT;
 use encoding_rs::Encoding;
@@ -19,6 +20,18 @@ pub struct Item {
     pub host: String,
     /// `None` when the line's port is not a number.
     pub port: Option<u16>,
+    pub plus: Plus,
+}
+
+/// What the field after the port says of an item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Plus {
+    /// No field, or one that is neither `+` nor `?`: a plain gopher item.
+    No,
+    /// `+`: a Gopher+ item, with attributes to ask for.
+    Item,
+    /// `?`: a Gopher+ item with an +ASK form.
+    Ask,
 }
 
 /// Parse a menu body into its items.
@@ -41,12 +54,18 @@ pub fn parse_line(encoding: &'static Encoding, line: &[u8]) -> Option<Item> {
         None => Some(DEFAULT_PORT),
         Some(p) => std::str::from_utf8(p).ok().and_then(|p| p.trim().parse().ok()),
     };
+    let plus = match fields.next().map(<[u8]>::trim_ascii) {
+        Some(b"+") => Plus::Item,
+        Some(b"?") => Plus::Ask,
+        _ => Plus::No,
+    };
     Some(Item {
         item_type: t as char,
         display,
         selector,
         host,
         port,
+        plus,
     })
 }
 
@@ -92,6 +111,7 @@ mod tests {
                 selector: b"/docs".to_vec(),
                 host: "gopher.example".into(),
                 port: Some(70),
+                plus: Plus::No,
             }
         );
         assert_eq!(items[1].port, Some(7070));
@@ -113,9 +133,24 @@ mod tests {
     }
 
     #[test]
-    fn gopher_plus_fields_after_the_port_are_ignored() {
-        let items = parse(b"1Plus\t/p\thost\t70\t+\r\n");
-        assert_eq!(items[0].port, Some(70));
+    fn the_field_after_the_port_marks_a_gopher_plus_item() {
+        let items = parse(b"1Plus\t/p\thost\t70\t+\r\n0Form\t/f\thost\t70\t?\r\n0Old\t/o\thost\t70\r\n");
+        assert_eq!((items[0].port, items[0].plus), (Some(70), Plus::Item));
+        assert_eq!(items[1].plus, Plus::Ask);
+        assert_eq!(items[2].plus, Plus::No);
+    }
+
+    #[test]
+    fn a_field_after_the_port_that_is_not_plus_or_ask_is_no_gopher_plus() {
+        for line in [
+            &b"1X\t/x\th\t70\t\r\n"[..],
+            b"1X\t/x\th\t70\t++\r\n",
+            b"1X\t/x\th\t70\tjunk\r\n",
+            b"1X\t/x\th\t70\t!\r\n",
+        ] {
+            assert_eq!(parse(line)[0].plus, Plus::No, "{:?}", String::from_utf8_lossy(line));
+        }
+        assert_eq!(parse(b"1X\t/x\th\t70\t + \t\r\n")[0].plus, Plus::Item);
     }
 
     #[test]

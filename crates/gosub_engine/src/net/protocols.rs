@@ -67,6 +67,9 @@ pub struct ProtocolRequest<'a> {
     /// The page whose link or form started the navigation; `None` for the user's own. Only
     /// what a page left for its own links applies then, as a gopher menu's mirrors.
     pub from: Option<&'a Url>,
+    /// The body of a form posted to the URL; `None` for any other request. It may hold a
+    /// password: never logged.
+    pub body: Option<&'a [u8]>,
 }
 
 impl std::fmt::Debug for ProtocolRequest<'_> {
@@ -78,6 +81,7 @@ impl std::fmt::Debug for ProtocolRequest<'_> {
             .field("identity", &self.identity.map(|identity| &identity.scope))
             .field("zone", &self.zone)
             .field("from", &self.from.map(Url::as_str))
+            .field("body", &self.body.map(<[u8]>::len))
             .finish()
     }
 }
@@ -631,6 +635,7 @@ mod tests {
             identity: None,
             zone: None,
             from: None,
+            body: None,
         };
         let result = match refuse(protocol, req, enabled, &*recorder) {
             Some(refused) => Some(refused),
@@ -722,6 +727,7 @@ mod tests {
             identity: None,
             zone: None,
             from: None,
+            body: None,
         };
         let recorder = Arc::new(Recorder::default());
         let served = run(&Trickle, request, &CancellationToken::new(), recorder.clone())
@@ -752,6 +758,7 @@ mod tests {
             identity: None,
             zone: None,
             from: None,
+            body: None,
         };
         let served = run(&Echo, request, &CancellationToken::new(), Arc::new(Recorder::default()))
             .await
@@ -769,6 +776,7 @@ mod tests {
             identity: None,
             zone: None,
             from: None,
+            body: None,
         };
         let served = run(&Echo, request, &CancellationToken::new(), Arc::new(Recorder::default()))
             .await
