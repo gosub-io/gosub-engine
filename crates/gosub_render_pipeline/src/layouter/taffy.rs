@@ -2133,6 +2133,36 @@ impl TaffyLayouter {
         }
     }
 
+    /// Split preserved text in a mixed inline run at its newlines. Each newline is a segment break
+    /// that ends the line, as a `<br>` does (css-text-3 §4.1.1), and each piece between them is a
+    /// text box of its own.
+    fn push_preserved_lines(
+        &mut self,
+        layout_tree: &mut LayoutTree,
+        text_node: &Node,
+        render_node_id: RenderNodeId,
+        group: &mut Vec<InlineEntry>,
+    ) {
+        let NodeType::Text(full) = &text_node.node_type else {
+            return;
+        };
+        let style = layout_tree.render_tree.doc.computed_style(text_node.node_id);
+        let line_height = line_height_px(&style, f64::from(style.inherited.font_size));
+        for (i, piece) in full.split('\n').enumerate() {
+            if i > 0 {
+                group.push(InlineEntry::Break(line_height));
+            }
+            if piece.is_empty() {
+                continue;
+            }
+            let mut piece_node = text_node.clone();
+            piece_node.node_type = NodeType::Text(piece.to_string());
+            if let Some(pair) = self.build_text_word_leaf(layout_tree, &piece_node, render_node_id) {
+                group.push(InlineEntry::Item(pair.0, pair.1));
+            }
+        }
+    }
+
     /// Build a single-word inline text box, reusing `extract_taffy_data` so font/whitespace
     /// resolution matches the whole-node path. `dom_to_layout_mapping` is intentionally not written:
     /// one text node maps to many word boxes and the single-slot map cannot represent that. They are
@@ -2342,6 +2372,13 @@ impl TaffyLayouter {
                 white_space if white_space.preserves_spaces()
             );
             match &child.node_type {
+                NodeType::Text(text) if preserved && text.contains('\n') => {
+                    let before = group.len();
+                    self.push_preserved_lines(layout_tree, &child, child_id, group);
+                    content.extend(items(&group[before..]));
+                    *trailing_ws_count = 0;
+                    continue;
+                }
                 NodeType::Text(text) if !is_collapsible_whitespace(text) && !preserved => {
                     let before = group.len();
                     self.push_text_words(layout_tree, &child, child_id, group);
@@ -2726,7 +2763,8 @@ impl TaffyLayouter {
             // In a mixed inline run, split text into per-word inline boxes (see push_text_words).
             // Whitespace-only nodes fall through to the normal NBSP-separator path below.
             // Preserved text (`white-space: pre`/`pre-wrap`) is never word-split - its spaces
-            // are significant and `pre` forbids wrapping anyway, so it stays one atomic box.
+            // are significant and `pre` forbids wrapping anyway, so it stays one atomic box per
+            // line, split only at its newlines.
             if has_inline_element_child {
                 if let NodeType::Text(text) = &child_node.node_type {
                     let preserved = matches!(
@@ -2738,6 +2776,11 @@ impl TaffyLayouter {
                             .white_space,
                         white_space if white_space.preserves_spaces()
                     );
+                    if preserved && text.contains('\n') {
+                        self.push_preserved_lines(layout_tree, &child_node, *child_id, &mut current_inline_group);
+                        trailing_ws_count = 0;
+                        continue;
+                    }
                     // ASCII, not `str::trim`: `trim` uses the Unicode whitespace set, so a text
                     // node holding only an `&nbsp;` looked like source formatting.
                     if !is_collapsible_whitespace(text) && !preserved {

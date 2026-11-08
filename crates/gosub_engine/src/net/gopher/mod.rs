@@ -1234,7 +1234,7 @@ mod tests {
             .unwrap();
         let (page, took) = read_until(response, "</html>").await;
         assert!(took < Duration::from_secs(5), "{took:?}");
-        assert_eq!(page.matches("Line<br>").count(), 200);
+        assert_eq!(page.matches("Line\n").count(), 200);
     }
 
     #[tokio::test]

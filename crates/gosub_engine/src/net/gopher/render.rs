@@ -162,8 +162,6 @@ impl Lines {
                 return Some(mirror_link(&mirror));
             }
         }
-        // `<br>`, not a newline: the engine loses a preserved newline between inline
-        // elements, and a browser renders either as a line break.
         let markup = menu_line(&item, host, *port, self.encoding);
         let mirrored = mirrored(&item, host, *port).map(|url| (item.item_type, url));
         let mut out = self.end().to_string();
@@ -171,7 +169,7 @@ impl Lines {
         self.mirrored = mirrored;
         self.open = self.mirrored.is_some();
         if !self.open {
-            out.push_str("<br>");
+            out.push('\n');
         }
         Some(out)
     }
@@ -179,7 +177,7 @@ impl Lines {
     /// What closes the last line, once no line follows.
     pub fn end(&mut self) -> &'static str {
         if std::mem::take(&mut self.open) {
-            "<br>"
+            "\n"
         } else {
             ""
         }
@@ -466,8 +464,8 @@ mod tests {
     #[test]
     fn each_menu_item_is_a_line() {
         let html = menu_page(&url("gopher://h/"), b"iOne\t\t\t\r\niTwo\t\t\t\r\n");
-        assert!(html.contains("One<br>"));
-        assert!(html.contains("Two<br>"));
+        assert!(html.contains("One\n"));
+        assert!(html.contains("Two\n"));
     }
 
     #[test]
@@ -589,7 +587,7 @@ mod tests {
     #[test]
     fn a_mirror_at_the_top_is_tagged_but_not_linked() {
         let html = menu_page(&url("gopher://h/"), b"+Mirror\t/\tm.example\t70\r\n");
-        assert!(html.contains("<span class=\"t\">MIR</span>   Mirror<br>"));
+        assert!(html.contains("<span class=\"t\">MIR</span>   Mirror\n"));
         assert!(!html.contains("<a "));
     }
 
@@ -606,12 +604,12 @@ mod tests {
                  <span class=\"t\">(mirror:</span> <a href=\"gopher://m1.example:7070/0/copy/n.txt\">m1.example:7070</a>\
                  <span class=\"t\">)</span> \
                  <span class=\"t\">(mirror:</span> <a href=\"gopher://[::1]/0/n.txt\">[::1]:70</a>\
-                 <span class=\"t\">)</span><br>"
+                 <span class=\"t\">)</span>\n"
             ),
             "{html}"
         );
         assert!(!html.contains("MIR"));
-        assert!(html.contains(">Next</a><br></pre>"));
+        assert!(html.contains(">Next</a>\n</pre>"));
     }
 
     #[test]
@@ -627,7 +625,7 @@ mod tests {
             let mut body = before.to_vec();
             body.extend_from_slice(b"+Mirror\t/m\tm.example\t70\r\n");
             let html = menu_page(&url("gopher://h/"), &body);
-            assert!(html.contains("<span class=\"t\">MIR</span>   Mirror<br>"), "{html}");
+            assert!(html.contains("<span class=\"t\">MIR</span>   Mirror\n"), "{html}");
             assert!(!html.contains("m.example"), "{html}");
         }
     }
@@ -660,10 +658,10 @@ mod tests {
         let first = lines.line(b"0A\t/a\th\t70").unwrap();
         assert!(first.ends_with("</a>"), "{first}");
         assert!(lines.line(b"+A\t/a\tm.example\t70").unwrap().contains("(mirror:"));
-        assert!(lines.line(b"iAfter\t\t\t").unwrap().starts_with("<br>"));
+        assert!(lines.line(b"iAfter\t\t\t").unwrap().starts_with('\n'));
         assert_eq!(lines.end(), "");
         lines.line(b"0B\t/b\th\t70");
-        assert_eq!(lines.end(), "<br>");
+        assert_eq!(lines.end(), "\n");
     }
 
     #[test]
@@ -750,7 +748,7 @@ mod tests {
             html.contains(
                 "<a href=\"gopher://h/0/d\">Doc</a> <a href=\"gopher://h/0/d%09%09!\">[info]</a> \
 <span class=\"t\">(mirror:</span> <a href=\"gopher://m.example/0/copy/d\">m.example:70</a>\
-<span class=\"t\">)</span><br>"
+<span class=\"t\">)</span>\n"
             ),
             "{html}"
         );
