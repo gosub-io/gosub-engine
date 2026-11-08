@@ -243,10 +243,7 @@ pub fn error_page(url: &Url, message: &str) -> String {
 /// when the item is something the engine can go to.
 fn menu_line(item: &Item, host: &str, port: u16, encoding: &'static Encoding) -> String {
     let display = escape(&item.display);
-    // The padding sits outside the span: the engine drops preserved spaces at the end of an
-    // inline element.
-    let label = tag_for(item.item_type);
-    let tag = format!("<span class=\"t\">{label}</span>{:pad$}", "", pad = 5 - label.len());
+    let tag = format!("<span class=\"t\">{:<5}</span>", tag_for(item.item_type));
     match item.item_type {
         'i' => format!("{:<5} {display}", ""),
         '3' => format!("{tag} <span class=\"e\">{display}</span>"),
@@ -532,7 +529,7 @@ mod tests {
         ] {
             let html = menu_page(&url("gopher://h/"), line);
             assert!(!html.contains("telnet"), "{html}");
-            assert!(html.contains("TEL</span>   X"), "{html}");
+            assert!(html.contains("TEL  </span> X"), "{html}");
         }
     }
 
@@ -540,7 +537,7 @@ mod tests {
     fn a_cso_item_is_marked_unsupported_and_not_linked() {
         let html = menu_page(&url("gopher://h/"), b"2Phone book\t\tns.example\t105\r\n");
         assert!(!html.contains("<a "));
-        assert!(html.contains("CSO</span>   Phone book <span class=\"t\">(not supported)</span>"));
+        assert!(html.contains("CSO  </span> Phone book <span class=\"t\">(not supported)</span>"));
     }
 
     #[test]
@@ -576,18 +573,18 @@ mod tests {
             ("SND", "gopher://h/%3C/t.wav"),
         ] {
             assert!(
-                html.contains(&format!("<span class=\"t\">{tag}</span>")),
+                html.contains(&format!("<span class=\"t\">{tag:<5}</span>")),
                 "{tag}: {html}"
             );
             assert!(html.contains(&format!("<a href=\"{href}\">")), "{href}: {html}");
         }
-        assert!(!html.contains("<span class=\"t\">?</span>"));
+        assert!(!html.contains("<span class=\"t\">?"));
     }
 
     #[test]
     fn a_mirror_at_the_top_is_tagged_but_not_linked() {
         let html = menu_page(&url("gopher://h/"), b"+Mirror\t/\tm.example\t70\r\n");
-        assert!(html.contains("<span class=\"t\">MIR</span>   Mirror\n"));
+        assert!(html.contains("<span class=\"t\">MIR  </span> Mirror\n"));
         assert!(!html.contains("<a "));
     }
 
@@ -625,7 +622,7 @@ mod tests {
             let mut body = before.to_vec();
             body.extend_from_slice(b"+Mirror\t/m\tm.example\t70\r\n");
             let html = menu_page(&url("gopher://h/"), &body);
-            assert!(html.contains("<span class=\"t\">MIR</span>   Mirror\n"), "{html}");
+            assert!(html.contains("<span class=\"t\">MIR  </span> Mirror\n"), "{html}");
             assert!(!html.contains("m.example"), "{html}");
         }
     }
