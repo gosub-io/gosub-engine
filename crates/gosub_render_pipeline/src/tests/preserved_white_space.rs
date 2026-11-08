@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use cow_utils::CowUtils as _;
 use gosub_css3::system::Css3System;
 use gosub_fontmanager::ParleyFontSystem;
 use gosub_html5::document::document_impl::DocumentImpl;
@@ -100,7 +101,7 @@ fn line_texts(tree: &LayoutTree, node: NodeId) -> Vec<String> {
         .iter()
         .map(|line| {
             line.iter()
-                .map(|(text, _)| text.replace('\u{a0}', " "))
+                .map(|(text, _)| text.cow_replace('\u{a0}', " ").into_owned())
                 .collect::<String>()
                 .trim()
                 .to_string()
