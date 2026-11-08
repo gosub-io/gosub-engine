@@ -8728,7 +8728,8 @@ fn engine_net_events() -> i32 {
 }
 
 /// A gopher navigation served from the network process: the menu streams to its page, a binary
-/// over the socket's 4 MiB cap streams across to a download saved whole, and turning
+/// over the socket's 4 MiB cap streams across to a download saved whole, the menu's link to a
+/// server that does not answer is served by the mirror the menu named, and turning
 /// `net.gopher.enabled` off refuses the next one before it reaches the server.
 #[cfg(feature = "gopher")]
 fn engine_gopher() -> i32 {
@@ -8751,6 +8752,11 @@ fn engine_gopher() -> i32 {
     let Ok(port) = listener.local_addr().map(|a| a.port()) else {
         return 1;
     };
+    // A port nothing listens on: the menu's `Sub` item is there, its mirror on this server.
+    let dead = match TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()) {
+        Ok(addr) => addr.port(),
+        Err(_) => return 1,
+    };
     let requests = Arc::new(AtomicUsize::new(0));
     let served = Arc::clone(&requests);
     std::thread::spawn(move || {
@@ -8769,7 +8775,7 @@ fn engine_gopher() -> i32 {
             // terminator: the connection stays open.
             std::thread::spawn(move || {
                 let mut menu = b"iFrom the network process\t\t\t\r\n".repeat(100);
-                menu.extend(b"1Sub\t/sub\t127.0.0.1\t70\r\n.\r\n");
+                menu.extend(format!("1Sub\t/sub\t127.0.0.1\t{dead}\r\n+Sub\t/sub\t127.0.0.1\t{port}\r\n.\r\n").bytes());
                 let _ = stream.write_all(&menu);
                 std::thread::sleep(std::time::Duration::from_secs(60));
             });
@@ -8958,6 +8964,40 @@ fn engine_gopher() -> i32 {
             return 1;
         }
 
+        // The menu's link to a server that does not answer: served by the mirror the menu
+        // named, which the network process remembered, and committed under the mirror's URL.
+        for key in ["Tab", "Enter"] {
+            let press = TabCommand::KeyDown {
+                key: key.into(),
+                code: key.into(),
+                modifiers: gosub_engine::events::Modifiers::empty(),
+            };
+            if tab.send(press).await.is_err() {
+                eprintln!("could not press {key}");
+                return 1;
+            }
+        }
+        match outcome(&mut events).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                eprintln!("the link to the mirrored item failed: {error}");
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                return 1;
+            }
+        }
+        let title = tab.title();
+        if title != format!("127.0.0.1:{port}/1/sub") {
+            eprintln!("the mirrored item did not commit under its mirror's URL: title {title:?}");
+            return 1;
+        }
+        if requests.load(Ordering::SeqCst) != 3 {
+            eprintln!("the server saw {} requests, not 3", requests.load(Ordering::SeqCst));
+            return 1;
+        }
+
         // Off: refused by the broker, before anything reaches the server.
         if let Err(e) = engine.settings().set("net.gopher.enabled", Setting::Bool(false)) {
             eprintln!("could not turn gopher off: {e}");
@@ -8978,14 +9018,16 @@ fn engine_gopher() -> i32 {
                 return 1;
             }
         }
-        if requests.load(Ordering::SeqCst) != 2 {
+        if requests.load(Ordering::SeqCst) != 3 {
             eprintln!("a refused gopher request reached the server");
             return 1;
         }
 
         engine.close_zone(zone).await;
         let _ = engine.shutdown().await;
-        println!("gopher served from the network process, a large binary streamed, and refused when off");
+        println!(
+            "gopher served from the network process, a large binary streamed, a mirror used, and refused when off"
+        );
         0
     })
 }

@@ -61,6 +61,12 @@ pub struct ProtocolRequest<'a> {
     /// The client certificate the request presents, where its scope covers the URL
     /// (`identities`): on a redirect only while it stays inside that scope.
     pub identity: Option<&'a crate::net::protocols::identities::ClientIdentity>,
+    /// The zone the request is made in, for state a protocol keeps per zone. `None` where no
+    /// tab asked.
+    pub zone: Option<&'a str>,
+    /// The page whose link or form started the navigation; `None` for the user's own. Only
+    /// what a page left for its own links applies then, as a gopher menu's mirrors.
+    pub from: Option<&'a Url>,
 }
 
 impl std::fmt::Debug for ProtocolRequest<'_> {
@@ -70,6 +76,8 @@ impl std::fmt::Debug for ProtocolRequest<'_> {
             .field("reach", &self.reach)
             .field("pins", &self.pins.is_some())
             .field("identity", &self.identity.map(|identity| &identity.scope))
+            .field("zone", &self.zone)
+            .field("from", &self.from.map(Url::as_str))
             .finish()
     }
 }
@@ -157,6 +165,13 @@ pub trait Protocol: Send + Sync {
     /// servers it reaches and reports what first visits saw. Only such a protocol's report
     /// is pinned.
     fn pins_certificates(&self) -> bool {
+        false
+    }
+
+    /// Whether a navigation from a page may be served by another server than its URL names:
+    /// one the page named as a mirror of it, when the first does not answer. Its response's
+    /// `final_url` is then on that server.
+    fn serves_mirrors(&self) -> bool {
         false
     }
 
@@ -614,6 +629,8 @@ mod tests {
             reach: AddressSpace::Loopback,
             pins: None,
             identity: None,
+            zone: None,
+            from: None,
         };
         let result = match refuse(protocol, req, enabled, &*recorder) {
             Some(refused) => Some(refused),
@@ -703,6 +720,8 @@ mod tests {
             reach: AddressSpace::Loopback,
             pins: None,
             identity: None,
+            zone: None,
+            from: None,
         };
         let recorder = Arc::new(Recorder::default());
         let served = run(&Trickle, request, &CancellationToken::new(), recorder.clone())
@@ -731,6 +750,8 @@ mod tests {
             reach: AddressSpace::Loopback,
             pins: None,
             identity: None,
+            zone: None,
+            from: None,
         };
         let served = run(&Echo, request, &CancellationToken::new(), Arc::new(Recorder::default()))
             .await
@@ -746,6 +767,8 @@ mod tests {
             reach: AddressSpace::Loopback,
             pins: None,
             identity: None,
+            zone: None,
+            from: None,
         };
         let served = run(&Echo, request, &CancellationToken::new(), Arc::new(Recorder::default()))
             .await

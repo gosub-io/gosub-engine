@@ -2103,6 +2103,64 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A menu link whose server does not answer is served by the mirror the menu named for
+    /// it, under the mirror's URL.
+    #[cfg(feature = "gopher")]
+    #[tokio::test]
+    async fn a_gopher_link_falls_back_on_its_mirror() {
+        use crate::events::{Modifiers, TabCommand};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let dead = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap().port()
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 1024];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    let menu = if &buf[..n] == b"/next\r\n" {
+                        "iThe mirrored menu\t\t\t\r\n.\r\n".to_string()
+                    } else {
+                        format!("1Next\t/next\t127.0.0.1\t{dead}\r\n+Next\t/next\t127.0.0.1\t{port}\r\n.\r\n")
+                    };
+                    let _ = stream.write_all(menu.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        let first = gopher_page_finished(events.resubscribe());
+        tab.navigate(format!("gopher://127.0.0.1:{port}/1/"))
+            .await
+            .expect("navigate");
+        first.await;
+
+        let next = gopher_page_finished(events.resubscribe());
+        for key in ["Tab", "Enter"] {
+            let _ = tab
+                .send(TabCommand::KeyDown {
+                    key: key.into(),
+                    code: key.into(),
+                    modifiers: Modifiers::empty(),
+                })
+                .await;
+        }
+        assert_eq!(next.await.as_str(), format!("gopher://127.0.0.1:{port}/1/next"));
+        assert_eq!(tab.title(), format!("127.0.0.1:{port}/1/next"));
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// The URL of the next gopher page `events` sees finish; panics on a failed one.
     #[cfg(feature = "gopher")]
     async fn gopher_page_finished(mut events: tokio::sync::broadcast::Receiver<EngineEvent>) -> url::Url {

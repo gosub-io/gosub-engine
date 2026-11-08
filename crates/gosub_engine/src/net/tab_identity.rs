@@ -178,6 +178,12 @@ impl TabIdentity {
             None => AddressSpace::Public,
         }
     }
+
+    /// The page whose link or form started a navigation over one of the engine's own
+    /// protocols; `None` for the user's own, and for one never announced.
+    pub fn protocol_navigation_initiator(&self, navigation: NavigationId) -> Option<Url> {
+        self.navigating(navigation).flatten().cloned()
+    }
 }
 
 /// Maps a tab to its cookie jar and current top-level document.
@@ -402,6 +408,29 @@ mod tests {
         assert_eq!(reach(form), Local, "an intranet page's form");
 
         assert_eq!(reach(NavigationId::new()), Public, "never announced");
+    }
+
+    #[test]
+    fn a_protocol_navigation_names_the_page_that_started_it() {
+        use crate::engine::types::NavigationId;
+
+        let reg = TabIdentityRegistry::new();
+        let tab = TabId::new();
+        reg.register(
+            tab,
+            jar(),
+            crate::net::protocols::identities::ZoneCertificates::default(),
+        );
+        let from = |n| reg.get(tab).unwrap().protocol_navigation_initiator(n);
+        let menu = Url::parse("gopher://menu.test/1/").unwrap();
+
+        let typed = NavigationId::new();
+        reg.start_navigation(tab, typed, None);
+        assert_eq!(from(typed), None, "typed by the user");
+        let link = NavigationId::new();
+        reg.start_navigation(tab, link, Some(menu.clone()));
+        assert_eq!(from(link), Some(menu), "a menu's link");
+        assert_eq!(from(NavigationId::new()), None, "never announced");
     }
 
     /// The record is bounded, and the committed navigation outlives the cap.
