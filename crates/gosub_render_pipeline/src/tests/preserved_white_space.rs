@@ -235,3 +235,82 @@ fn preserved_spaces_at_the_end_of_an_inline_element_are_kept() {
         );
     }
 }
+
+/// The advance of one character of the UA's monospace font, from a run of `n` of them.
+fn monospace_advance(tree: &LayoutTree, column: NodeId, n: f64) -> f64 {
+    text_pieces(tree, column)[0].1.width / n
+}
+
+#[test]
+fn a_preserved_tab_advances_to_the_next_tab_stop() {
+    let (tree, [pre, column]) = lay_out(
+        "<body style=\"margin: 0\">\
+         <pre id=\"pre\">bob\tName\n12345678\tx</pre>\
+         <pre id=\"column\">12345678901234567890</pre></body>",
+        ["pre", "column"],
+    );
+    let advance = monospace_advance(&tree, column, 20.0);
+    assert_eq!(line_texts(&tree, pre).len(), 2, "{:?}", text_pieces(&tree, pre));
+    let name = x_of(&tree, pre, "Name");
+    let x = x_of(&tree, pre, "x");
+    assert!((name - 8.0 * advance).abs() < 1.0, "Name is in column 9 at {name}");
+    assert!((x - 16.0 * advance).abs() < 1.0, "x is in column 17 at {x}");
+}
+
+#[test]
+fn tab_size_sets_the_distance_between_tab_stops() {
+    let (tree, [number, length, column]) = lay_out(
+        "<body style=\"margin: 0\">\
+         <pre id=\"number\" style=\"tab-size: 4\">ab\tc</pre>\
+         <pre id=\"length\" style=\"tab-size: 50px\">ab\tc</pre>\
+         <pre id=\"column\">12345678901234567890</pre></body>",
+        ["number", "length", "column"],
+    );
+    let advance = monospace_advance(&tree, column, 20.0);
+    let c = x_of(&tree, number, "c");
+    assert!((c - 4.0 * advance).abs() < 1.0, "c is in column 5 at {c}");
+    let c = x_of(&tree, length, "c");
+    assert!((c - 50.0).abs() < 1.0, "c is at 50px, at {c}");
+}
+
+#[test]
+fn a_tab_stop_is_measured_from_the_start_of_the_line_among_inline_elements() {
+    let (tree, [pre, column]) = lay_out(
+        "<body style=\"margin: 0\">\
+         <pre id=\"pre\">ab<b>c</b>\td\n<i>abcdefghi</i>\tz</pre>\
+         <pre id=\"column\">12345678901234567890</pre></body>",
+        ["pre", "column"],
+    );
+    let advance = monospace_advance(&tree, column, 20.0);
+    let d = x_of(&tree, pre, "d");
+    let z = x_of(&tree, pre, "z");
+    assert!((d - 8.0 * advance).abs() < 1.0, "d is in column 9 at {d}");
+    assert!((z - 16.0 * advance).abs() < 1.0, "z is in column 17 at {z}");
+}
+
+#[test]
+fn a_tab_is_not_drawn_as_a_glyph() {
+    let (tree, [pre]) = lay_out("<body style=\"margin: 0\"><pre id=\"pre\">a\tb</pre></body>", ["pre"]);
+    assert!(
+        text_pieces(&tree, pre).iter().all(|(text, _)| !text.contains('\t')),
+        "{:?}",
+        text_pieces(&tree, pre)
+    );
+}
+
+#[test]
+fn a_tab_collapses_to_a_space_under_normal() {
+    let (tree, [div, column]) = lay_out(
+        "<body style=\"margin: 0; font-family: monospace\">\
+         <div id=\"div\">ab\tc</div><div id=\"column\">12345678901234567890</div></body>",
+        ["div", "column"],
+    );
+    let advance = monospace_advance(&tree, column, 20.0);
+    let pieces = text_pieces(&tree, div);
+    assert_eq!(pieces.len(), 1, "{pieces:?}");
+    assert_eq!(pieces[0].0, "ab c");
+    assert!(
+        (pieces[0].1.width - 4.0 * advance).abs() < 1.0,
+        "four columns wide: {pieces:?}"
+    );
+}
