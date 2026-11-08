@@ -25,3 +25,6 @@ simple_logger = { workspace = true }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 skia-safe = { workspace = true, features = ["egl"] }
+
+[lints.clippy]
+mod_module_files = "deny"

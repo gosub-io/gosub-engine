@@ -11,3 +11,6 @@ vello = { workspace = true }
 winit = { workspace = true }
 parking_lot = { workspace = true }
 anyhow = { workspace = true }
+
+[lints.clippy]
+mod_module_files = "deny"
