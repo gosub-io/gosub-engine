@@ -2002,9 +2002,41 @@ impl TaffyLayouter {
                 .get(id)
                 .is_some_and(|el| matches!(&el.context, ElementContext::Text(t) if t.font_info.breaks_inside_words()))
         };
+        // Preserved white space is never broken from what comes before it: under `pre-wrap` it
+        // hangs at the end of the line, and `break-spaces` breaks only after a space (css-text-3
+        // §5.1). Only a tab or an item of nothing but spaces is held: text after the spaces has
+        // to stay free to wrap.
+        let tabs: Vec<LayoutElementId> = items
+            .iter()
+            .filter(|(id, _)| self.tab_stops.contains_key(id))
+            .map(|(id, _)| *id)
+            .collect();
+        let holds_to = |before: &LayoutElementId, id: &LayoutElementId| {
+            let Some(el) = layout_tree.arena.get(id) else {
+                return false;
+            };
+            let white_space = layout_tree
+                .render_tree
+                .doc
+                .computed_style(el.dom_node_id)
+                .inherited
+                .white_space;
+            let is_tab = |id: &LayoutElementId| tabs.contains(id);
+            let is_space = is_tab(id)
+                || (white_space.preserves_spaces()
+                    && matches!(&el.context, ElementContext::Text(t) if !t.text.is_empty() && t.text.chars().all(|c| c == ' ')));
+            let after_space = is_tab(before)
+                || layout_tree.arena.get(before).is_some_and(
+                    |el| matches!(&el.context, ElementContext::Text(t) if t.text.ends_with(char::is_whitespace)),
+                );
+            is_space && !(white_space == WhiteSpace::BreakSpaces && after_space)
+        };
         let mut rest = items;
         while !rest.is_empty() {
-            let run = rest.iter().take_while(|(id, _)| touches(id)).count().max(1);
+            let run = 1 + rest
+                .windows(2)
+                .take_while(|pair| (touches(&pair[0].0) && touches(&pair[1].0)) || holds_to(&pair[0].0, &pair[1].0))
+                .count();
             let parent = if run > 1 {
                 let shrinks = rest[..run].iter().any(|(id, _)| breaks_inside_words(id));
                 self.glue_box(taffy_container_id, shrinks)

@@ -314,3 +314,16 @@ fn a_tab_collapses_to_a_space_under_normal() {
         "four columns wide: {pieces:?}"
     );
 }
+
+#[test]
+fn a_tab_at_the_end_of_a_pre_wrap_line_hangs() {
+    let (tree, [pre]) = lay_out(
+        "<body style=\"margin: 0\"><div id=\"pre\" style=\"white-space: pre-wrap; width: 100px; font-family: monospace\">ab\t\tcd</div></body>",
+        ["pre"],
+    );
+    let lines = lines(&tree, pre);
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert_eq!(lines[1].len(), 1, "only cd wraps: {lines:?}");
+    assert_eq!(lines[1][0].0, "cd");
+    assert!(lines[1][0].1.x.abs() < 0.5, "at the start of its line: {lines:?}");
+}
