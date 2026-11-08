@@ -200,3 +200,38 @@ fn a_newline_among_inline_elements_still_collapses_under_normal() {
     );
     assert_eq!(line_texts(&tree, div), ["one bold two it three"]);
 }
+
+/// The left edge of the first piece of text inside `node` that holds `word`.
+fn x_of(tree: &LayoutTree, node: NodeId, word: &str) -> f64 {
+    text_pieces(tree, node)
+        .into_iter()
+        .find(|(text, _)| text.contains(word))
+        .unwrap_or_else(|| panic!("no text holding {word}"))
+        .1
+        .x
+}
+
+#[test]
+fn preserved_spaces_at_the_end_of_an_inline_element_are_kept() {
+    for white_space in ["pre", "pre-wrap"] {
+        let (tree, [menu, column]) = lay_out(
+            &format!(
+                "<body style=\"margin: 0\">\
+                 <pre id=\"menu\" style=\"white-space: {white_space}\"><span>DIR  </span>Next\n<span>FIND </span>Find</pre>\
+                 <pre id=\"column\">12345</pre></body>"
+            ),
+            ["menu", "column"],
+        );
+        let advance = text_pieces(&tree, column)[0].1.width / 5.0;
+        let next = x_of(&tree, menu, "Next");
+        let find = x_of(&tree, menu, "Find");
+        assert!(
+            (next - 5.0 * advance).abs() < 1.0,
+            "{white_space}: Next is in column 6 at {next}"
+        );
+        assert!(
+            (find - 5.0 * advance).abs() < 1.0,
+            "{white_space}: Find is in column 6 at {find}"
+        );
+    }
+}
