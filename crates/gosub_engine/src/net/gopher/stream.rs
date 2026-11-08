@@ -226,7 +226,7 @@ mod tests {
         assert_eq!(page, whole);
         let (page, whole) = both(false, body, 0, &[20, 1, 1]).await;
         assert_eq!(page, whole);
-        assert!(page.ends_with("Two<br></pre></body></html>"), "{page}");
+        assert!(page.ends_with("Two\n</pre></body></html>"), "{page}");
     }
 
     #[tokio::test]
@@ -269,7 +269,7 @@ mod tests {
         let body = b"i\xc3\xa9\t\t\t\r\ni\xe9\t\t\t\r\ni\xc3\xa9\t\t\t\r\n";
         let (page, _) = both(false, body, 11, &[]).await;
         assert!(
-            page.contains("      \u{e9}<br>      \u{e9}<br>      \u{c3}\u{a9}<br>"),
+            page.contains("      \u{e9}\n      \u{e9}\n      \u{c3}\u{a9}\n"),
             "{page}"
         );
     }
