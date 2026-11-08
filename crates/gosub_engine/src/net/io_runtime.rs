@@ -1095,6 +1095,7 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                                     .as_deref()
                                                     .map(|pins| pins as &dyn crate::net::protocols::known_hosts::Pins),
                                                 identity: client_identity.as_ref(),
+                                                body: req.body.as_ref().and_then(|body| body.as_bytes()).map(|bytes| &bytes[..]),
                                             };
                                             let served =
                                                 crate::net::protocols::run(protocol, request, &handle.cancel, observer)

@@ -471,6 +471,7 @@ mod tests {
                 reach,
                 pins: None,
                 identity: None,
+                body: None,
             })
             .await
             .map_err(|e| e.error)
@@ -483,6 +484,7 @@ mod tests {
             reach: AddressSpace::Loopback,
             pins: None,
             identity: None,
+            body: None,
         };
         fetch_within(request, limits).await
     }

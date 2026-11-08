@@ -61,6 +61,9 @@ pub struct ProtocolRequest<'a> {
     /// The client certificate the request presents, where its scope covers the URL
     /// (`identities`): on a redirect only while it stays inside that scope.
     pub identity: Option<&'a crate::net::protocols::identities::ClientIdentity>,
+    /// The body of a form posted to the URL; `None` for any other request. It may hold a
+    /// password: never logged.
+    pub body: Option<&'a [u8]>,
 }
 
 impl std::fmt::Debug for ProtocolRequest<'_> {
@@ -70,6 +73,7 @@ impl std::fmt::Debug for ProtocolRequest<'_> {
             .field("reach", &self.reach)
             .field("pins", &self.pins.is_some())
             .field("identity", &self.identity.map(|identity| &identity.scope))
+            .field("body", &self.body.map(<[u8]>::len))
             .finish()
     }
 }
@@ -614,6 +618,7 @@ mod tests {
             reach: AddressSpace::Loopback,
             pins: None,
             identity: None,
+            body: None,
         };
         let result = match refuse(protocol, req, enabled, &*recorder) {
             Some(refused) => Some(refused),
@@ -703,6 +708,7 @@ mod tests {
             reach: AddressSpace::Loopback,
             pins: None,
             identity: None,
+            body: None,
         };
         let recorder = Arc::new(Recorder::default());
         let served = run(&Trickle, request, &CancellationToken::new(), recorder.clone())
@@ -731,6 +737,7 @@ mod tests {
             reach: AddressSpace::Loopback,
             pins: None,
             identity: None,
+            body: None,
         };
         let served = run(&Echo, request, &CancellationToken::new(), Arc::new(Recorder::default()))
             .await
@@ -746,6 +753,7 @@ mod tests {
             reach: AddressSpace::Loopback,
             pins: None,
             identity: None,
+            body: None,
         };
         let served = run(&Echo, request, &CancellationToken::new(), Arc::new(Recorder::default()))
             .await

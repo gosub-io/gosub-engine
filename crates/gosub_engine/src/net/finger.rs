@@ -217,6 +217,7 @@ mod tests {
                 reach,
                 pins: None,
                 identity: None,
+                body: None,
             })
             .await
             .map_err(|e| e.error)

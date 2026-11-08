@@ -676,6 +676,7 @@ async fn perform_protocol(
             .pins_certificates()
             .then_some(&pins as &dyn crate::net::protocols::known_hosts::Pins),
         identity: identity.as_ref(),
+        body: fetch.body.as_deref(),
     };
     let served = crate::net::protocols::run(protocol, request, &cancel, observer).await;
     answers.lock().remove(&fetch.tag);
