@@ -19,7 +19,7 @@ use gosub_interface::style::{
     BorderCollapse, BorderStyle, BoxShadow, BoxSizing, CaptionSide, Clear, Color, ComputedStyle, Display,
     FlexDirection, FlexWrap, Float, FontStyle, FontWeight, GradientStop, GridAreas, GridAutoFlow, GridLine,
     LengthPercentage, LengthPercentageAuto, LetterSpacing, LineHeight, LinearGradient, ListStylePosition,
-    ListStyleType, ObjectFit, Overflow, OverflowWrap, Position, Prop, RepeatCount, TableLayout, TextAlign,
+    ListStyleType, ObjectFit, Overflow, OverflowWrap, Position, Prop, RepeatCount, TabSize, TableLayout, TextAlign,
     TextDecorationLine, TextOverflow, TextTransform, TextWrap, TrackBreadth, TrackList, TrackListItem, TrackSize,
     VerticalAlign, Visibility, WhiteSpace, WordBreak, ZIndex,
 };
@@ -985,6 +985,7 @@ static ENGINE_LONGHANDS: &[(LonghandId, Prop, u16)] = &[
     (LonghandId::WordWrap, Prop::OverflowWrap, G_INHERITED),
     (LonghandId::WordBreak, Prop::WordBreak, G_INHERITED),
     (LonghandId::LetterSpacing, Prop::LetterSpacing, G_INHERITED),
+    (LonghandId::TabSize, Prop::TabSize, G_INHERITED),
     (LonghandId::CaptionSide, Prop::CaptionSide, G_INHERITED),
     (LonghandId::ListStyleType, Prop::ListStyleType, G_INHERITED),
     (LonghandId::ListStylePosition, Prop::ListStylePosition, G_INHERITED),
@@ -1425,6 +1426,18 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
             None => LetterSpacing::Normal,
         }
     ));
+
+    read!(
+        map,
+        style,
+        TabSize,
+        inherited_mut,
+        tab_size,
+        |value| match as_unit(value) {
+            Some(_) => Some(TabSize::Length(value.unit_to_px())),
+            None => as_number(value).map(TabSize::Spaces),
+        }
+    );
 
     read!(map, style, CaptionSide, inherited_mut, caption_side, |value| as_string(
         value

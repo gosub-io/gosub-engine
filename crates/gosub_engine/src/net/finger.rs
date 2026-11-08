@@ -130,26 +130,17 @@ fn text_page(url: &Url, body: &[u8]) -> String {
 }
 
 /// `text` as a terminal would show it, without what a terminal would act on: line ends
-/// become `\n`, tabs become spaces to the next stop of 8 columns (finger output lines up
-/// columns with them), terminal escape sequences (`ESC [ ... final`) are dropped whole, and
-/// every other control character goes too.
+/// become `\n`, terminal escape sequences (`ESC [ ... final`) are dropped whole, and every
+/// other control character but the tab goes too. Tabs stay: the page's `<pre>` puts them on
+/// stops of 8 columns, which is how finger output lines up its columns.
 fn printable(text: &str) -> String {
-    const TAB_STOP: usize = 8;
     let mut out = String::with_capacity(text.len());
-    let mut column = 0;
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
         match c {
             '\r' if chars.peek() == Some(&'\n') => {}
-            '\r' | '\n' => {
-                out.push('\n');
-                column = 0;
-            }
-            '\t' => {
-                let spaces = TAB_STOP - column % TAB_STOP;
-                out.extend(std::iter::repeat_n(' ', spaces));
-                column += spaces;
-            }
+            '\r' | '\n' => out.push('\n'),
+            '\t' => out.push('\t'),
             '\u{1b}' => {
                 if chars.peek() == Some(&'[') {
                     chars.next();
@@ -162,10 +153,7 @@ fn printable(text: &str) -> String {
                 }
             }
             c if c.is_control() => {}
-            c => {
-                out.push(c);
-                column += 1;
-            }
+            c => out.push(c),
         }
     }
     out
@@ -276,10 +264,9 @@ mod tests {
     }
 
     #[test]
-    fn tabs_line_up_on_stops_of_8() {
-        assert_eq!(printable("bob\tName\n\tx"), "bob     Name\n        x");
-        assert_eq!(printable("12345678\tx"), "12345678        x");
-        assert_eq!(printable("\u{1b}[1mab\u{1b}[0m\tx"), "ab      x");
+    fn tabs_are_kept_for_the_page_to_line_up() {
+        assert_eq!(printable("bob\tName\n\tx"), "bob\tName\n\tx");
+        assert_eq!(printable("\u{1b}[1mab\u{1b}[0m\tx"), "ab\tx");
     }
 
     #[tokio::test]
