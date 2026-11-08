@@ -5,7 +5,7 @@
 //! came from the server is escaped: a display string is text, never markup.
 
 use super::menu::{self, Item, Plus};
-use super::mirrors;
+use super::mirrors::Keeper;
 use super::request::{DEFAULT_PORT, SEARCH_FIELD, SEARCH_TYPE};
 use crate::net::protocols::page::{self, escape, title_for};
 use encoding_rs::Encoding;
@@ -44,11 +44,11 @@ pub fn menu_page(url: &Url, body: &[u8]) -> String {
     menu_page_in(url, body, None)
 }
 
-/// A menu page, the mirrors it names remembered in `zone` when there is one.
-pub fn menu_page_in(url: &Url, body: &[u8], zone: Option<&str>) -> String {
+/// A menu page, the mirrors it names kept by `keeper` when there is one.
+pub fn menu_page_in(url: &Url, body: &[u8], keeper: Option<&Keeper>) -> String {
     let lines = Lines::menu(url, menu::encoding_for(body));
-    let lines = match zone {
-        Some(zone) => lines.remembering_mirrors(zone, url),
+    let lines = match keeper {
+        Some(keeper) => lines.remembering_mirrors(keeper, url),
         None => lines,
     };
     whole(lines, url, body)
@@ -94,9 +94,9 @@ pub struct Lines {
     mirrored: Option<(char, Url)>,
     /// The last line's break is held back, for its item's mirrors to join the line.
     open: bool,
-    /// Where the mirrors are remembered for a navigation from this menu ([`mirrors`]): the
-    /// zone and the menu's URL.
-    remember: Option<(String, Url)>,
+    /// Where the mirrors are kept for a navigation from this menu ([`mirrors`]), and the
+    /// menu's URL.
+    remember: Option<(Keeper, Url)>,
 }
 
 impl Lines {
@@ -115,9 +115,9 @@ impl Lines {
         }
     }
 
-    /// These lines, remembering the mirrors the menu at `url` names in `zone`.
-    pub fn remembering_mirrors(mut self, zone: &str, url: &Url) -> Self {
-        self.remember = Some((zone.to_string(), url.clone()));
+    /// These lines, the mirrors the menu at `url` names kept by `keeper`.
+    pub fn remembering_mirrors(mut self, keeper: &Keeper, url: &Url) -> Self {
+        self.remember = Some((keeper.clone(), url.clone()));
         self
     }
 
@@ -156,8 +156,8 @@ impl Lines {
                 let Some(mirror) = mirror_url(&item, *item_type) else {
                     return Some(String::new());
                 };
-                if let Some((zone, page)) = &self.remember {
-                    mirrors::remember(zone, page, of, &mirror);
+                if let Some((keeper, page)) = &self.remember {
+                    keeper.keep(page, of, &mirror);
                 }
                 return Some(mirror_link(&mirror));
             }
@@ -438,6 +438,7 @@ fn page(title: &str, body: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::net::gopher::mirrors;
     use crate::net::gopher::request::Request;
 
     fn url(s: &str) -> Url {
@@ -673,7 +674,11 @@ mod tests {
         let page = |lines: Lines| whole(lines, &menu, body);
         page(Lines::menu(&menu, encoding_rs::UTF_8));
         assert!(mirrors::of("render-zone", &menu, &item).is_empty());
-        page(Lines::menu(&menu, encoding_rs::UTF_8).remembering_mirrors("render-zone", &menu));
+        let keeper = Keeper {
+            zone: "render-zone".into(),
+            declare: None,
+        };
+        page(Lines::menu(&menu, encoding_rs::UTF_8).remembering_mirrors(&keeper, &menu));
         assert_eq!(
             mirrors::of("render-zone", &menu, &item),
             vec![url("gopher://m.example/0/a")]

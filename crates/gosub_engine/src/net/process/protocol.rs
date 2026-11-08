@@ -473,6 +473,16 @@ pub enum FromNet {
         host: String,
         port: u16,
     },
+    /// The page the request with this tag is served as, under `page`, names `mirror` as
+    /// serving `item` too: a gopher menu's `+` line. Sent as the page's lines are read, ahead
+    /// of the markup that shows the mirror; the broker records it for a navigation from the
+    /// page (`client::Declared`).
+    Mirror {
+        tag: RequestTag,
+        page: String,
+        item: String,
+        mirror: String,
+    },
     /// Something happened to the request with this tag - a name resolved, a
     /// connection opened, headers in, bytes received, the end. What the
     /// in-process fetcher would have told its observer; the broker's observer

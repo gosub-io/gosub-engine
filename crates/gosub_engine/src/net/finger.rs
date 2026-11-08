@@ -220,6 +220,7 @@ mod tests {
                 zone: None,
                 from: None,
                 body: None,
+                declare: None,
             })
             .await
             .map_err(|e| e.error)
