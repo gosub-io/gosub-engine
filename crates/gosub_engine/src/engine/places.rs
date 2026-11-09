@@ -191,11 +191,10 @@ pub use sqlite::SqlitePlaces;
 #[cfg(feature = "sqlite_places")]
 mod sqlite {
     use super::{now_secs, Bookmark, Places, VisitedPage};
-    use crate::engine::storage::sqlite_key::{self, SqliteKey};
+    use crate::engine::storage::sqlite_key::{self, SqliteConnectionManager, SqliteKey};
     use crate::EngineError;
     use r2d2::Pool;
-    use r2d2_sqlite::rusqlite::params;
-    use r2d2_sqlite::SqliteConnectionManager;
+    use rusqlite::params;
     use std::path::PathBuf;
 
     /// Persistent places store, one SQLite database per zone. Access goes through an
@@ -448,7 +447,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("places.db");
         {
-            let conn = r2d2_sqlite::rusqlite::Connection::open(&path).unwrap();
+            let conn = rusqlite::Connection::open(&path).unwrap();
             conn.execute_batch(
                 "CREATE TABLE bookmarks (url TEXT PRIMARY KEY, title TEXT NOT NULL, created_at INTEGER NOT NULL);
                  INSERT INTO bookmarks VALUES ('https://old.example', 'Old', 1);",
