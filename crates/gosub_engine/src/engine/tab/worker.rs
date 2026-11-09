@@ -1569,7 +1569,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 ControlFlow::Continue
             }
             TabCommand::Navigate { url } => {
-                self.navigate_to(&url, false, HistoryIntent::Push);
+                self.navigate_to(&url, CacheMode::Default, HistoryIntent::Push);
                 ControlFlow::Continue
             }
             TabCommand::LoadHtml { html, base_url } => {
@@ -1583,7 +1583,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     .map(|u| u.as_str())
                     .unwrap_or("about:blank")
                     .to_string();
-                self.navigate_to(url.as_str(), ignore_cache, HistoryIntent::Reload);
+                // Fetch's "reload" goes to the server without validators; a plain reload
+                // revalidates ("no-cache"), as other browsers do.
+                let cache_mode = if ignore_cache {
+                    CacheMode::Reload
+                } else {
+                    CacheMode::NoCache
+                };
+                self.navigate_to(url.as_str(), cache_mode, HistoryIntent::Reload);
                 ControlFlow::Continue
             }
             TabCommand::GoBack => {
@@ -1898,7 +1905,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let Some(url) = self.history.entry(entry).map(|e| e.url.to_string()) else {
             return;
         };
-        self.navigate_to(url, false, HistoryIntent::Traverse(entry));
+        self.navigate_to(url, CacheMode::Default, HistoryIntent::Traverse(entry));
         // The cursor moved even though the load is still in flight: tell the shell now so
         // back/forward buttons track the traversal, not the eventual load.
         self.emit_history_changed();
@@ -2162,14 +2169,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
     /// Navigate to a new URL, cancelling any in-flight navigation. `history` says what the
     /// navigation does to session history once it commits.
-    /// `ignore_cache` goes to the network without revalidating and asks every cache on the
-    /// way to do the same (Fetch's "reload" cache mode: `Cache-Control` and `Pragma: no-cache`).
-    fn navigate_to(&mut self, url: impl Into<String>, ignore_cache: bool, history: HistoryIntent) {
-        let cache_mode = if ignore_cache {
-            CacheMode::Reload
-        } else {
-            CacheMode::Default
-        };
+    fn navigate_to(&mut self, url: impl Into<String>, cache_mode: CacheMode, history: HistoryIntent) {
         self.navigate_request(url, Method::GET, None, history, None, None, cache_mode);
     }
 

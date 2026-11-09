@@ -48,6 +48,7 @@ unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
 unreachable = "deny"
+mod_module_files = "deny"
 
 
 [workspace.dependencies]

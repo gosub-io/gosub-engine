@@ -265,12 +265,11 @@ pub use sqlite::SqliteKnownHosts;
 #[cfg(feature = "sqlite_known_hosts")]
 mod sqlite {
     use super::{CertPin, KnownHosts};
-    use crate::engine::storage::sqlite_key::{self, SqliteKey};
+    use crate::engine::storage::sqlite_key::{self, SqliteConnectionManager, SqliteKey};
     use crate::EngineError;
     use cow_utils::CowUtils;
     use r2d2::Pool;
-    use r2d2_sqlite::rusqlite::{self, params, Connection, OptionalExtension};
-    use r2d2_sqlite::SqliteConnectionManager;
+    use rusqlite::{self, params, Connection, OptionalExtension};
     use std::path::PathBuf;
 
     /// Pins in a SQLite database, so they outlive the process. Access goes through an `r2d2`
@@ -603,7 +602,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("known_hosts.db");
         let hosts = SqliteKnownHosts::new(path.clone()).unwrap();
-        r2d2_sqlite::rusqlite::Connection::open(&path)
+        rusqlite::Connection::open(&path)
             .unwrap()
             .execute(
                 "INSERT INTO known_hosts (host, port, pin) VALUES ('host.test', 1965, 'nope')",

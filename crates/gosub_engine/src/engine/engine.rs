@@ -4298,9 +4298,10 @@ mod tests {
     }
 
     /// A reload ignoring the cache asks for a fresh copy all the way to the server
-    /// (`Cache-Control` and `Pragma: no-cache`, no validators); a plain reload does not.
+    /// (`Cache-Control` and `Pragma: no-cache`, no validators); a plain reload revalidates
+    /// the cached page, fresh or not.
     #[tokio::test]
-    async fn reload_ignoring_cache_sends_no_cache() {
+    async fn reloads_ask_the_server() {
         use crate::events::{NavigationEvent, TabCommand};
         use cow_utils::CowUtils;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -4359,13 +4360,15 @@ mod tests {
             .expect("timed out waiting for the load to finish");
         }
         let no_cache = |head: &str| head.contains("cache-control: no-cache") && head.contains("pragma: no-cache");
+        // Either directive alone already bypasses a cache on the way.
+        let any_no_cache = |head: &str| head.contains("cache-control: no-cache") || head.contains("pragma: no-cache");
 
         tab.navigate(format!("http://127.0.0.1:{port}/page"))
             .await
             .expect("navigate");
         // The server records a request before it answers, so by `Finished` it is queued.
         finished(&mut events).await;
-        assert!(!no_cache(&heads.try_recv().unwrap()), "a first load is a plain one");
+        assert!(!any_no_cache(&heads.try_recv().unwrap()), "a first load is a plain one");
 
         tab.send(TabCommand::Reload { ignore_cache: true })
             .await
@@ -4379,9 +4382,12 @@ mod tests {
             .await
             .expect("reload");
         finished(&mut events).await;
-        if let Ok(head) = heads.try_recv() {
-            assert!(!no_cache(&head), "a plain reload asked for no-cache:\n{head}");
-        }
+        let head = heads.try_recv().expect("the plain reload was answered from the cache");
+        assert!(!any_no_cache(&head), "a plain reload asked for no-cache:\n{head}");
+        assert!(
+            head.contains("if-none-match: \"v1\""),
+            "plain reload without a validator:\n{head}"
+        );
     }
 
     /// Session history end to end: two navigations push two entries, GoBack moves the cursor

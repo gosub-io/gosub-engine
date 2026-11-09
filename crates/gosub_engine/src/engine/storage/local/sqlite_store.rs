@@ -1,12 +1,11 @@
 use anyhow::Result;
 use r2d2::{Pool, PooledConnection};
-use r2d2_sqlite::rusqlite::{params, Connection, OpenFlags};
-use r2d2_sqlite::SqliteConnectionManager;
+use rusqlite::{params, Connection, OpenFlags};
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::engine::storage::area::{LocalStore, StorageArea};
-use crate::engine::storage::sqlite_key::SqliteKey;
+use crate::engine::storage::sqlite_key::{SqliteConnectionManager, SqliteKey};
 use crate::engine::storage::types::PartitionKey;
 use crate::zone::ZoneId;
 
