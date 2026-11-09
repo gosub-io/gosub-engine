@@ -71,8 +71,9 @@ fn a_navigation_through_the_network_process_reports_its_requests() {
     );
 }
 
-/// A gopher navigation is served from the network process, not the broker, and
-/// `net.gopher.enabled` off refuses it before it reaches the server.
+/// A gopher navigation is served from the network process, not the broker, a link falls
+/// back on its menu's mirror there, and `net.gopher.enabled` off refuses it before it
+/// reaches the server.
 #[cfg(feature = "gopher")]
 #[test]
 fn a_gopher_navigation_is_served_from_the_network_process() {

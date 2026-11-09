@@ -142,6 +142,8 @@ impl Gemini {
                         peer_addr: None,
                         certificates: std::mem::take(seen),
                         final_url: (hops > 0).then_some(url),
+                        rest: None,
+                        filename: None,
                     });
                 }
                 tokio::time::sleep(wait).await;
@@ -238,6 +240,8 @@ pinned for it; visit it to decide about it",
                 peer_addr: peer,
                 certificates: std::mem::take(seen),
                 final_url: (hops > 0).then_some(url),
+                rest: None,
+                filename: None,
             });
         }
     }
@@ -255,8 +259,7 @@ pinned for it; visit it to decide about it",
     ) -> Result<(Vec<u8>, Option<std::net::SocketAddr>, CertPin), NetError> {
         let gemini = Request::from_url(url).map_err(invalid)?;
         let addrs = socket::resolve(self, url, &gemini.host, gemini.port, reach).await?;
-        let tcp = socket::connect(url, &gemini.host, &addrs, reach).await?;
-        let peer = tcp.peer_addr().ok();
+        let (tcp, peer) = socket::connect(url, &gemini.host, &addrs, reach).await?;
         let (mut stream, certificate) = tls::handshake(&gemini.host, gemini.port, tcp, pin, identity).await?;
         let response = socket::talk(&mut stream, &gemini.host, &gemini.line, Close::Unclean).await?;
         Ok((response, peer, certificate))
@@ -569,6 +572,10 @@ mod tests {
                 reach: AddressSpace::Loopback,
                 pins: Some(pins),
                 identity: None,
+                zone: None,
+                from: None,
+                body: None,
+                declare: None,
             })
             .await
             .map_err(|e| e.error)
@@ -583,6 +590,10 @@ mod tests {
                 reach: AddressSpace::Loopback,
                 pins: Some(pins),
                 identity: None,
+                zone: None,
+                from: None,
+                body: None,
+                declare: None,
             })
             .await
             .expect_err("the fetch failed")
@@ -1016,6 +1027,10 @@ mod tests {
                 reach: AddressSpace::Loopback,
                 pins: None,
                 identity: Some(identity),
+                zone: None,
+                from: None,
+                body: None,
+                declare: None,
             })
             .await
             .map_err(|e| e.error)
@@ -1119,6 +1134,10 @@ mod tests {
                 reach: AddressSpace::Public,
                 pins: None,
                 identity: None,
+                zone: None,
+                from: None,
+                body: None,
+                declare: None,
             })
             .await
             .unwrap_err()
@@ -1130,5 +1149,43 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    /// What `Gemini::exchange` does, through a proxy: the TLS session runs over the proxied
+    /// stream, under the host's name.
+    #[tokio::test]
+    async fn the_tls_handshake_runs_over_the_proxy_under_the_host_s_name() {
+        use crate::net::protocols::socks::{self, testing::Behaviour, Proxies};
+        let (port, lines) = serve(&[A], b"20 text/plain\r\nproxied", true).await;
+        let (proxy, asked) = socks::testing::proxy(Behaviour::Open, Some(port)).await;
+        let proxies = Proxies::from_env(|name| (name == "ALL_PROXY").then(|| format!("socks5h://127.0.0.1:{proxy}")));
+        let url = url("gemini://gemini.invalid/");
+        let reach = AddressSpace::Public;
+        let destination = socket::resolve_with(&Gemini, &url, "gemini.invalid", DEFAULT_PORT, reach, &proxies)
+            .await
+            .unwrap();
+        let (tcp, peer) = socket::connect(&url, "gemini.invalid", &destination, reach)
+            .await
+            .unwrap();
+        assert_eq!(peer, None);
+        let (mut stream, _) = tls::handshake("gemini.invalid", DEFAULT_PORT, tcp, None, None)
+            .await
+            .unwrap();
+        let response = socket::talk(
+            &mut stream,
+            "gemini.invalid",
+            b"gemini://gemini.invalid/\r\n",
+            Close::Unclean,
+        )
+        .await
+        .unwrap();
+        assert!(response.ends_with(b"proxied"));
+        // The relay ends when both sides are closed.
+        drop(stream);
+        assert_eq!(
+            lines.await.unwrap(),
+            vec![Some(b"gemini://gemini.invalid/\r\n".to_vec())]
+        );
+        assert_eq!(asked.await.unwrap().unwrap().host, "gemini.invalid");
     }
 }

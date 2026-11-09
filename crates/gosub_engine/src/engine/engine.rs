@@ -1572,6 +1572,144 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A gopher menu longer than the first bytes read streams through the pipeline, and the
+    /// page ends at the menu's terminator though the server keeps the connection open.
+    #[cfg(feature = "gopher")]
+    #[tokio::test]
+    async fn a_long_gopher_menu_streams_to_its_page() {
+        use crate::events::NavigationEvent;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 1024];
+                    let _ = stream.read(&mut buf).await;
+                    let mut menu = b"iWelcome\t\t\t\r\n".repeat(200);
+                    menu.extend(b"0Read me\t/readme\t127.0.0.1\t70\r\n.\r\n");
+                    let _ = stream.write_all(&menu).await;
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        tab.navigate(format!("gopher://127.0.0.1:{port}/1/"))
+            .await
+            .expect("navigate");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    }) => return,
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Failed { error, .. },
+                        ..
+                    }) => panic!("gopher navigation failed: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for the gopher page");
+        assert_eq!(tab.title(), format!("127.0.0.1:{port}/1/"));
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A gopher binary over the socket's 4 MiB cap is offered as a download and saved whole.
+    #[cfg(feature = "gopher")]
+    #[tokio::test]
+    async fn a_gopher_binary_over_the_cap_downloads_in_full() {
+        use crate::events::{DownloadId, NavigationEvent, TabCommand};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        const SIZE: usize = 5 * 1024 * 1024;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 1024];
+                    let _ = stream.read(&mut buf).await;
+                    let _ = stream.write_all(&vec![7u8; SIZE]).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        tab.navigate(format!("gopher://127.0.0.1:{port}/9/big.bin"))
+            .await
+            .expect("navigate");
+        let (url, offer) = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadRequested { url, offer, .. }) => return (url, offer),
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Failed { error, .. },
+                        ..
+                    }) => panic!("gopher navigation failed: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("no offer");
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("big.bin");
+        tab.send(TabCommand::StartDownload {
+            id: DownloadId(31),
+            url: url.to_string(),
+            target_path: target.clone(),
+            offer: Some(offer),
+        })
+        .await
+        .expect("start download");
+        let received = tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadFinished {
+                        id: DownloadId(31),
+                        received_bytes,
+                        ..
+                    }) => return received_bytes,
+                    Ok(EngineEvent::DownloadFailed {
+                        id: DownloadId(31),
+                        error,
+                        ..
+                    }) => panic!("the download failed: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for DownloadFinished");
+        assert_eq!(received, SIZE as u64);
+        assert_eq!(std::fs::metadata(&target).unwrap().len(), SIZE as u64);
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// A finger answer goes through the whole tab pipeline and lands as a page of text, titled
     /// like a page from the web.
     #[cfg(feature = "finger")]
@@ -1965,6 +2103,64 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A menu link whose server does not answer is served by the mirror the menu named for
+    /// it, under the mirror's URL.
+    #[cfg(feature = "gopher")]
+    #[tokio::test]
+    async fn a_gopher_link_falls_back_on_its_mirror() {
+        use crate::events::{Modifiers, TabCommand};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let dead = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap().port()
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 1024];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    let menu = if &buf[..n] == b"/next\r\n" {
+                        "iThe mirrored menu\t\t\t\r\n.\r\n".to_string()
+                    } else {
+                        format!("1Next\t/next\t127.0.0.1\t{dead}\r\n+Next\t/next\t127.0.0.1\t{port}\r\n.\r\n")
+                    };
+                    let _ = stream.write_all(menu.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        let first = gopher_page_finished(events.resubscribe());
+        tab.navigate(format!("gopher://127.0.0.1:{port}/1/"))
+            .await
+            .expect("navigate");
+        first.await;
+
+        let next = gopher_page_finished(events.resubscribe());
+        for key in ["Tab", "Enter"] {
+            let _ = tab
+                .send(TabCommand::KeyDown {
+                    key: key.into(),
+                    code: key.into(),
+                    modifiers: Modifiers::empty(),
+                })
+                .await;
+        }
+        assert_eq!(next.await.as_str(), format!("gopher://127.0.0.1:{port}/1/next"));
+        assert_eq!(tab.title(), format!("127.0.0.1:{port}/1/next"));
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// The URL of the next gopher page `events` sees finish; panics on a failed one.
     #[cfg(feature = "gopher")]
     async fn gopher_page_finished(mut events: tokio::sync::broadcast::Receiver<EngineEvent>) -> url::Url {
@@ -2069,6 +2265,89 @@ mod tests {
         .expect("enter");
         assert_eq!(results.await.as_str(), format!("gopher://localhost:{port}/7/find?q=x"));
         assert_eq!(*lines.lock(), ["/find\tx"]);
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A Gopher+ form posts back to its own URL, and its answers, a password here, go to the
+    /// server in the data block, not into the URL.
+    #[cfg(feature = "gopher")]
+    #[tokio::test]
+    async fn a_gopher_plus_form_posts_its_answers() {
+        use crate::events::{Modifiers, TabCommand};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let requests = Arc::new(Mutex::new(Vec::<String>::new()));
+        let seen = requests.clone();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let seen = seen.clone();
+                tokio::spawn(async move {
+                    let mut asked = Vec::new();
+                    let mut byte = [0u8; 1];
+                    while stream.read_exact(&mut byte).await.is_ok() {
+                        asked.push(byte[0]);
+                        let done = if asked.starts_with(b"/f\t+\t1\r\n") {
+                            asked.ends_with(b"\r\n.\r\n")
+                        } else {
+                            asked.ends_with(b"\r\n")
+                        };
+                        if done {
+                            break;
+                        }
+                    }
+                    let reply: &[u8] = if asked.ends_with(b"\t!\r\n") {
+                        b"+-1\r\n+ASK:\r\n AskP: Password\r\n.\r\n"
+                    } else {
+                        b"+-2\r\nwelcome\r\n"
+                    };
+                    seen.lock().push(String::from_utf8_lossy(&asked).into_owned());
+                    let _ = stream.write_all(reply).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.send(TabCommand::SetViewport {
+            x: 0,
+            y: 0,
+            width: 800,
+            height: 600,
+        })
+        .await
+        .expect("viewport");
+        tab.send(TabCommand::ResumeDrawing { fps: 60 }).await.expect("drawing");
+
+        let form_url = format!("gopher://localhost:{port}/0/f%09%09%3F");
+        let form = gopher_page_finished(events.resubscribe());
+        let focused = focus_moved(events.resubscribe());
+        tab.navigate(form_url.clone()).await.expect("navigate");
+        form.await;
+        assert!(focused.await, "autofocus focused nothing editable");
+
+        let result = gopher_page_finished(events.resubscribe());
+        tab.send(TabCommand::TextInput { text: "s3cret".into() })
+            .await
+            .expect("text");
+        tab.send(TabCommand::KeyDown {
+            key: "Enter".into(),
+            code: "Enter".into(),
+            modifiers: Modifiers::empty(),
+        })
+        .await
+        .expect("enter");
+        assert_eq!(result.await.as_str(), form_url);
+        assert_eq!(
+            *requests.lock(),
+            ["/f\t!\r\n", "/f\t!\r\n", "/f\t+\t1\r\n+-1\r\ns3cret\r\n.\r\n"]
+        );
 
         engine.close_zone(zone).await;
         engine.shutdown().await.expect("shutdown");

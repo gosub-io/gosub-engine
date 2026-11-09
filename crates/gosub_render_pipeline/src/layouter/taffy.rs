@@ -28,7 +28,7 @@ use gosub_interface::font_system::FontSystem;
 use gosub_interface::style::{
     BackgroundImage, BackgroundSize, BorderStyle, ComputedStyle, Display as CssDisplay, Float as CssFloat,
     LengthPercentage as CssLp, LengthPercentageAuto as CssLpa, LineHeight, ListStylePosition, Overflow as CssOverflow,
-    OverflowWrap, Position as CssPosition, TextAlign, TextTransform as CssTextTransform,
+    OverflowWrap, Position as CssPosition, TabSize, TextAlign, TextTransform as CssTextTransform,
     VerticalAlign as CssVerticalAlign, WhiteSpace, WordBreak,
 };
 use gosub_interface::used;
@@ -416,6 +416,9 @@ pub struct TaffyLayouter {
     /// inside their line box (see [`TaffyLayouter::emit_line`]). Their taffy position is relative
     /// to that box.
     glue_map: HashMap<LayoutElementId, TaffyNodeId>,
+    /// The box of each preserved tab, with its `tab-size` and the width settled for it once its
+    /// line is known (see [`TaffyLayouter::settle_tabs`]).
+    tab_stops: HashMap<LayoutElementId, (TabSize, f64)>,
 }
 
 /// family, size, weight and line-height, the inputs that set a font's line metrics.
@@ -577,6 +580,7 @@ impl TaffyLayouter {
             flattened_inlines: Vec::new(),
             text_words: HashMap::new(),
             glue_map: HashMap::new(),
+            tab_stops: HashMap::new(),
         }
     }
 
@@ -1464,6 +1468,7 @@ impl TaffyLayouter {
         self.flattened_inlines.clear();
         self.text_words.clear();
         self.glue_map.clear();
+        self.tab_stops.clear();
         self.baseline_shifts.clear();
         self.collapsed_spaces.clear();
         self.baseline_index = None;
@@ -1551,6 +1556,7 @@ impl TaffyLayouter {
             match entry {
                 InlineEntry::Item(id, taffy) => segment.push((*id, *taffy)),
                 InlineEntry::Break(lh) => {
+                    self.settle_tabs(layout_tree, &segment, element_node.dom_node_id);
                     if segment.is_empty() {
                         let placement = cursor.as_mut().map(BandCursor::placement);
                         if let Some(c) = cursor.as_mut() {
@@ -1587,6 +1593,7 @@ impl TaffyLayouter {
             }
         }
         if !segment.is_empty() {
+            self.settle_tabs(layout_tree, &segment, element_node.dom_node_id);
             self.emit_banded(
                 layout_tree,
                 &segment,
@@ -1765,6 +1772,9 @@ impl TaffyLayouter {
 
     /// Natural width of one inline item, measured the same way taffy will measure it.
     fn inline_item_width(&mut self, layout_tree: &LayoutTree, id: &LayoutElementId) -> Option<f64> {
+        if let Some((_, width)) = self.tab_stops.get(id) {
+            return Some(*width);
+        }
         match &layout_tree.arena.get(id)?.context {
             ElementContext::Text(text) => {
                 // Through the shared cache, not the font system directly: `fill_band` asks for
@@ -1992,9 +2002,41 @@ impl TaffyLayouter {
                 .get(id)
                 .is_some_and(|el| matches!(&el.context, ElementContext::Text(t) if t.font_info.breaks_inside_words()))
         };
+        // Preserved white space is never broken from what comes before it: under `pre-wrap` it
+        // hangs at the end of the line, and `break-spaces` breaks only after a space (css-text-3
+        // §5.1). Only a tab or an item of nothing but spaces is held: text after the spaces has
+        // to stay free to wrap.
+        let tabs: Vec<LayoutElementId> = items
+            .iter()
+            .filter(|(id, _)| self.tab_stops.contains_key(id))
+            .map(|(id, _)| *id)
+            .collect();
+        let holds_to = |before: &LayoutElementId, id: &LayoutElementId| {
+            let Some(el) = layout_tree.arena.get(id) else {
+                return false;
+            };
+            let white_space = layout_tree
+                .render_tree
+                .doc
+                .computed_style(el.dom_node_id)
+                .inherited
+                .white_space;
+            let is_tab = |id: &LayoutElementId| tabs.contains(id);
+            let is_space = is_tab(id)
+                || (white_space.preserves_spaces()
+                    && matches!(&el.context, ElementContext::Text(t) if !t.text.is_empty() && t.text.chars().all(|c| c == ' ')));
+            let after_space = is_tab(before)
+                || layout_tree.arena.get(before).is_some_and(
+                    |el| matches!(&el.context, ElementContext::Text(t) if t.text.ends_with(char::is_whitespace)),
+                );
+            is_space && !(white_space == WhiteSpace::BreakSpaces && after_space)
+        };
         let mut rest = items;
         while !rest.is_empty() {
-            let run = rest.iter().take_while(|(id, _)| touches(id)).count().max(1);
+            let run = 1 + rest
+                .windows(2)
+                .take_while(|pair| (touches(&pair[0].0) && touches(&pair[1].0)) || holds_to(&pair[0].0, &pair[1].0))
+                .count();
             let parent = if run > 1 {
                 let shrinks = rest[..run].iter().any(|(id, _)| breaks_inside_words(id));
                 self.glue_box(taffy_container_id, shrinks)
@@ -2130,6 +2172,116 @@ impl TaffyLayouter {
             if let Some(pair) = self.build_text_word_leaf(layout_tree, &token_node, render_node_id) {
                 group.push(InlineEntry::Item(pair.0, pair.1));
             }
+        }
+    }
+
+    /// Split preserved text at its newlines and tabs. Each newline is a segment break that ends
+    /// the line, as a `<br>` does (css-text-3 §4.1.1). Each tab is a box of its own, sized to
+    /// reach the next tab stop once its line is known (§4.1.3, see [`Self::settle_tabs`]). The
+    /// pieces between them are text boxes of their own.
+    fn push_preserved_lines(
+        &mut self,
+        layout_tree: &mut LayoutTree,
+        text_node: &Node,
+        render_node_id: RenderNodeId,
+        group: &mut Vec<InlineEntry>,
+    ) {
+        let NodeType::Text(full) = &text_node.node_type else {
+            return;
+        };
+        let style = layout_tree.render_tree.doc.computed_style(text_node.node_id);
+        let line_height = line_height_px(&style, f64::from(style.inherited.font_size));
+        for (i, line) in full.split('\n').enumerate() {
+            if i > 0 {
+                group.push(InlineEntry::Break(line_height));
+            }
+            for (j, piece) in line.split('\t').enumerate() {
+                if j > 0 {
+                    // A space that is not ASCII whitespace, so the box is never trimmed away at
+                    // a line edge; it draws nothing visible.
+                    let mut tab_node = text_node.clone();
+                    tab_node.node_type = NodeType::Text("\u{00A0}".to_string());
+                    if let Some(pair) = self.build_text_word_leaf(layout_tree, &tab_node, render_node_id) {
+                        self.tab_stops.insert(pair.0, (style.inherited.tab_size, 0.0));
+                        group.push(InlineEntry::Item(pair.0, pair.1));
+                    }
+                }
+                if piece.is_empty() {
+                    continue;
+                }
+                let mut piece_node = text_node.clone();
+                piece_node.node_type = NodeType::Text(piece.to_string());
+                if let Some(pair) = self.build_text_word_leaf(layout_tree, &piece_node, render_node_id) {
+                    group.push(InlineEntry::Item(pair.0, pair.1));
+                }
+            }
+        }
+    }
+
+    /// Size the tab boxes of one line so each ends on the next tab stop: a multiple of the tab
+    /// size from the start of the line, at least half a `ch` on (css-text-3 §4.1.3, §8.3). A
+    /// number of spaces is measured in the font of `block`, the tab's block container.
+    ///
+    /// The line is taken to be `items` unwrapped: under `pre-wrap` a tab after a soft wrap is
+    /// placed as if the line had not wrapped. An item with no width before layout, such as an
+    /// auto-width inline-block, counts as zero wide.
+    fn settle_tabs(&mut self, layout_tree: &LayoutTree, items: &[(LayoutElementId, TaffyNodeId)], block: DomNodeId) {
+        if !items.iter().any(|(id, _)| self.tab_stops.contains_key(id)) {
+            return;
+        }
+        let doc = &layout_tree.render_tree.doc;
+        let font_info = control_font_info(&**doc, block);
+        let letter_spacing = used::letter_spacing(doc.computed_style(block).inherited.letter_spacing, font_info.size);
+        let (space, ch) = {
+            let mut font_system = self.font_system.lock();
+            let mut advance = |text: &str| {
+                get_text_layout(text, &font_info, MAX_CONTENT_WIDTH, &mut *font_system)
+                    .map(|d| d.width)
+                    .unwrap_or(font_info.size * 0.5)
+            };
+            (advance("\u{00A0}"), advance("0"))
+        };
+        let mut x = 0.0;
+        for (id, taffy_id) in items {
+            let Some((tab_size, _)) = self.tab_stops.get(id).copied() else {
+                // A white-space-only box is pinned to its measured width; the measure of its text
+                // here would round it up and add the trailing-space allowance.
+                let pinned = self
+                    .tree
+                    .style(*taffy_id)
+                    .ok()
+                    .and_then(|style| match style.size.width.expand() {
+                        taffy::ExpandedDimension::Length(width) => Some(f64::from(width)),
+                        _ => None,
+                    });
+                x += pinned
+                    .or_else(|| self.inline_item_width(layout_tree, id))
+                    .unwrap_or(0.0);
+                continue;
+            };
+            let interval = match tab_size {
+                TabSize::Spaces(n) => f64::from(n) * (space + letter_spacing),
+                TabSize::Length(px) => f64::from(px),
+            };
+            let width = if interval > 0.0 {
+                let mut stop = ((x / interval).floor() + 1.0) * interval;
+                if stop - x < ch / 2.0 {
+                    stop += interval;
+                }
+                stop - x
+            } else {
+                0.0
+            };
+            if let Ok(style) = self.tree.style(*taffy_id) {
+                let mut style = style.clone();
+                style.size.width = Dimension::from_length(width as f32);
+                style.min_size.width = LengthPercentageAuto::length(width as f32);
+                if let Err(e) = self.tree.set_style(*taffy_id, style) {
+                    log::warn!("Failed to size a tab: {:?}", e);
+                }
+            }
+            self.tab_stops.insert(*id, (tab_size, width));
+            x += width;
         }
     }
 
@@ -2342,6 +2494,13 @@ impl TaffyLayouter {
                 white_space if white_space.preserves_spaces()
             );
             match &child.node_type {
+                NodeType::Text(text) if preserved && text.contains(['\n', '\t']) => {
+                    let before = group.len();
+                    self.push_preserved_lines(layout_tree, &child, child_id, group);
+                    content.extend(items(&group[before..]));
+                    *trailing_ws_count = 0;
+                    continue;
+                }
                 NodeType::Text(text) if !is_collapsible_whitespace(text) && !preserved => {
                     let before = group.len();
                     self.push_text_words(layout_tree, &child, child_id, group);
@@ -2726,25 +2885,33 @@ impl TaffyLayouter {
             // In a mixed inline run, split text into per-word inline boxes (see push_text_words).
             // Whitespace-only nodes fall through to the normal NBSP-separator path below.
             // Preserved text (`white-space: pre`/`pre-wrap`) is never word-split - its spaces
-            // are significant and `pre` forbids wrapping anyway, so it stays one atomic box.
-            if has_inline_element_child {
-                if let NodeType::Text(text) = &child_node.node_type {
-                    let preserved = matches!(
-                        layout_tree
-                            .render_tree
-                            .doc
-                            .computed_style(child_node.node_id)
-                            .inherited
-                            .white_space,
-                        white_space if white_space.preserves_spaces()
-                    );
-                    // ASCII, not `str::trim`: `trim` uses the Unicode whitespace set, so a text
-                    // node holding only an `&nbsp;` looked like source formatting.
-                    if !is_collapsible_whitespace(text) && !preserved {
-                        self.push_text_words(layout_tree, &child_node, *child_id, &mut current_inline_group);
-                        trailing_ws_count = 0;
-                        continue;
-                    }
+            // are significant and `pre` forbids wrapping anyway, so it stays one atomic box per
+            // line, split only at its newlines. A tab needs a box of its own, so preserved text
+            // holding one is split even where it is all the block holds.
+            if let NodeType::Text(text) = &child_node.node_type {
+                let preserved = matches!(
+                    layout_tree
+                        .render_tree
+                        .doc
+                        .computed_style(child_node.node_id)
+                        .inherited
+                        .white_space,
+                    white_space if white_space.preserves_spaces()
+                );
+                if preserved
+                    && !parent_is_flex_or_grid
+                    && (text.contains('\t') || (has_inline_element_child && text.contains('\n')))
+                {
+                    self.push_preserved_lines(layout_tree, &child_node, *child_id, &mut current_inline_group);
+                    trailing_ws_count = 0;
+                    continue;
+                }
+                // ASCII, not `str::trim`: `trim` uses the Unicode whitespace set, so a text
+                // node holding only an `&nbsp;` looked like source formatting.
+                if has_inline_element_child && !is_collapsible_whitespace(text) && !preserved {
+                    self.push_text_words(layout_tree, &child_node, *child_id, &mut current_inline_group);
+                    trailing_ws_count = 0;
+                    continue;
                 }
             }
 

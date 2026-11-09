@@ -554,6 +554,15 @@ pub enum LetterSpacing {
     Length(LengthPercentage),
 }
 
+/// `tab-size` (css-text-3 §8.3): the distance between tab stops.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum TabSize {
+    /// A multiple of the advance of a space, letter-spacing included.
+    Spaces(f32),
+    /// A length in px.
+    Length(f32),
+}
+
 /// `text-decoration-line`, as the two lines this engine paints.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TextDecorationLine {
@@ -608,6 +617,7 @@ declare_props! {
     OverflowWrap,
     WordBreak,
     LetterSpacing,
+    TabSize,
     CaptionSide,
     ListStyleType,
     ListStylePosition,
@@ -780,6 +790,7 @@ pub struct InheritedGroup {
     pub overflow_wrap: OverflowWrap,
     pub word_break: WordBreak,
     pub letter_spacing: LetterSpacing,
+    pub tab_size: TabSize,
     pub caption_side: CaptionSide,
     pub list_style_type: ListStyleType,
     pub list_style_position: ListStylePosition,
@@ -1337,6 +1348,7 @@ impl ComputedStyle {
                 overflow_wrap: OverflowWrap::Normal,
                 word_break: WordBreak::Normal,
                 letter_spacing: LetterSpacing::Normal,
+                tab_size: TabSize::Spaces(8.0),
                 caption_side: CaptionSide::Top,
                 list_style_type: ListStyleType::Disc,
                 list_style_position: ListStylePosition::Outside,

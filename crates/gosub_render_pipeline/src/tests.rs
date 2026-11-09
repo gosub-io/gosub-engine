@@ -1182,6 +1182,37 @@ mod rendertree_from_engine {
     }
 
     #[test]
+    fn tab_size_is_a_number_of_spaces_or_a_length() {
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    .n { tab-size: 4; }
+                    .l { tab-size: 2em; font-size: 10px; }
+                </style>
+            </head>
+            <body><pre class="d">a</pre><pre class="n">b</pre><pre class="l">c</pre></body>
+            </html>
+        "#;
+
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use gosub_interface::style::TabSize;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let tab_size = |class| {
+            let node = find_node_by_class_dfs(&adapter.doc, root, class).expect("find the pre");
+            adapter.computed_style(node).inherited.tab_size
+        };
+
+        assert_eq!(tab_size("d"), TabSize::Spaces(8.0));
+        assert_eq!(tab_size("n"), TabSize::Spaces(4.0));
+        assert_eq!(tab_size("l"), TabSize::Length(20.0));
+    }
+
+    #[test]
     fn a_rem_in_the_style_attribute_follows_the_root_font_size_too() {
         // The `style` attribute cascades at inline specificity like any other declaration, so
         // its `rem` resolves in the CSS computed stage against the root's font-size.
@@ -5126,6 +5157,8 @@ mod rendertree_from_engine {
 
 #[cfg(test)]
 mod list_markers;
+#[cfg(test)]
+mod preserved_white_space;
 #[cfg(test)]
 mod shadow_dom;
 #[cfg(test)]

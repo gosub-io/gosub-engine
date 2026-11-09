@@ -15,9 +15,20 @@ pub fn document_in(lang: Option<&str>, title: &str, style: &str, body: &str) -> 
         .filter(|l| !l.is_empty() && l.len() <= 35 && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
         .map(|l| format!(" lang=\"{l}\""))
         .unwrap_or_default();
+    format!("{}{body}{DOCUMENT_END}", head_in(&lang, title, style))
+}
+
+/// The start of a [`document`], up to its body's content, for a page served in parts.
+pub fn document_head(title: &str, style: &str) -> String {
+    head_in("", title, style)
+}
+
+/// What closes a page [`document_head`] began.
+pub const DOCUMENT_END: &str = "</body></html>";
+
+fn head_in(lang_attr: &str, title: &str, style: &str) -> String {
     format!(
-        "<!DOCTYPE html><html{lang}><head><meta charset=\"utf-8\"><title>{}</title><style>{style}</style></head>\
-<body>{body}</body></html>",
+        "<!DOCTYPE html><html{lang_attr}><head><meta charset=\"utf-8\"><title>{}</title><style>{style}</style></head><body>",
         escape(title)
     )
 }
