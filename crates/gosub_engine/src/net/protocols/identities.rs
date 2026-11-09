@@ -232,11 +232,10 @@ pub use sqlite::SqliteClientIdentities;
 #[cfg(feature = "sqlite_client_identities")]
 mod sqlite {
     use super::{ClientIdentities, ClientIdentity, IdentityScope};
-    use crate::engine::storage::sqlite_key::{self, SqliteKey};
+    use crate::engine::storage::sqlite_key::{self, SqliteConnectionManager, SqliteKey};
     use crate::EngineError;
     use r2d2::Pool;
-    use r2d2_sqlite::rusqlite::{self, params, Connection};
-    use r2d2_sqlite::SqliteConnectionManager;
+    use rusqlite::{self, params, Connection};
     use std::path::PathBuf;
     use zeroize::Zeroizing;
 

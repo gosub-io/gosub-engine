@@ -16,7 +16,7 @@ log = { workspace = true }
 cow-utils = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-rusqlite = "0.39.0"
+rusqlite = "0.41.1"
 zeroize = "1.8.2"
 
 [dev-dependencies]

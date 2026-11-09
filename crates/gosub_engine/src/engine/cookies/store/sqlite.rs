@@ -22,14 +22,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use r2d2::{Pool, PooledConnection};
-use r2d2_sqlite::rusqlite::params;
-use r2d2_sqlite::SqliteConnectionManager;
+use rusqlite::params;
 
 use crate::engine::cookies::cookie_jar::{CookieJar, DefaultCookieJar};
 use crate::engine::cookies::cookies::WeakCookieStore;
 use crate::engine::cookies::store::CookieStore;
 use crate::engine::cookies::{Cookie, CookieJarHandle};
-use crate::engine::storage::sqlite_key::{self, SqliteKey};
+use crate::engine::storage::sqlite_key::{self, SqliteConnectionManager, SqliteKey};
 use crate::engine::zone::ZoneId;
 use crate::EngineError;
 

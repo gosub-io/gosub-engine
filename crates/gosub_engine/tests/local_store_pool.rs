@@ -9,7 +9,7 @@
 
 use gosub_engine::storage::SqliteLocalStore;
 use parking_lot::Mutex;
-use r2d2_sqlite::rusqlite::Connection;
+use rusqlite::Connection;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Barrier;
 use std::time::Duration;
