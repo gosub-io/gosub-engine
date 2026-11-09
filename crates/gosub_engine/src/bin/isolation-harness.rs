@@ -8728,7 +8728,8 @@ fn engine_net_events() -> i32 {
 }
 
 /// A gopher navigation served from the network process: the menu streams to its page, a binary
-/// over the socket's 4 MiB cap streams across to a download saved whole, the menu's link to a
+/// streams across to a download saved whole (over the socket's 4 MiB cap on Linux, under it
+/// elsewhere, where bodies do not stream), the menu's link to a
 /// server that does not answer is served by the mirror the menu named, and turning
 /// `net.gopher.enabled` off refuses the next one before it reaches the server.
 #[cfg(feature = "gopher")]
@@ -8744,7 +8745,7 @@ fn engine_gopher() -> i32 {
 
     // A gopher server answering `/big` with a binary of `BIG` bytes and anything else with the
     // same menu, counting requests.
-    const BIG: usize = 5 * 1024 * 1024;
+    const BIG: usize = if cfg!(target_os = "linux") { 5 } else { 3 } * 1024 * 1024;
     let Ok(listener) = TcpListener::bind("127.0.0.1:0") else {
         eprintln!("could not start the test server");
         return 1;
@@ -8882,7 +8883,7 @@ fn engine_gopher() -> i32 {
             return 1;
         }
 
-        // A binary over the cap: offered as a download, its body spooled across the ring.
+        // A binary: offered as a download, its body spooled across the ring on Linux.
         if tab.navigate(format!("gopher://127.0.0.1:{port}/9/big")).await.is_err() {
             eprintln!("navigate failed");
             return 1;
