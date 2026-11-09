@@ -289,6 +289,19 @@ fn a_tab_stop_is_measured_from_the_start_of_the_line_among_inline_elements() {
 }
 
 #[test]
+fn spaces_before_a_tab_count_at_their_laid_out_width() {
+    let (tree, [pre, column]) = lay_out(
+        "<body style=\"margin: 0\">\
+         <pre id=\"pre\">ab<b>c</b>   \tz</pre>\
+         <pre id=\"column\">12345678901234567890</pre></body>",
+        ["pre", "column"],
+    );
+    let advance = monospace_advance(&tree, column, 20.0);
+    let z = x_of(&tree, pre, "z");
+    assert!((z - 8.0 * advance).abs() < 1.0, "z is in column 9 at {z}");
+}
+
+#[test]
 fn a_tab_is_not_drawn_as_a_glyph() {
     let (tree, [pre]) = lay_out("<body style=\"margin: 0\"><pre id=\"pre\">a\tb</pre></body>", ["pre"]);
     assert!(

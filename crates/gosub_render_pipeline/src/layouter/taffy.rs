@@ -2224,7 +2224,7 @@ impl TaffyLayouter {
     ///
     /// The line is taken to be `items` unwrapped: under `pre-wrap` a tab after a soft wrap is
     /// placed as if the line had not wrapped. An item with no width before layout, such as an
-    /// inline-block, counts as zero wide.
+    /// auto-width inline-block, counts as zero wide.
     fn settle_tabs(&mut self, layout_tree: &LayoutTree, items: &[(LayoutElementId, TaffyNodeId)], block: DomNodeId) {
         if !items.iter().any(|(id, _)| self.tab_stops.contains_key(id)) {
             return;
@@ -2244,7 +2244,19 @@ impl TaffyLayouter {
         let mut x = 0.0;
         for (id, taffy_id) in items {
             let Some((tab_size, _)) = self.tab_stops.get(id).copied() else {
-                x += self.inline_item_width(layout_tree, id).unwrap_or(0.0);
+                // A white-space-only box is pinned to its measured width; the measure of its text
+                // here would round it up and add the trailing-space allowance.
+                let pinned = self
+                    .tree
+                    .style(*taffy_id)
+                    .ok()
+                    .and_then(|style| match style.size.width.expand() {
+                        taffy::ExpandedDimension::Length(width) => Some(f64::from(width)),
+                        _ => None,
+                    });
+                x += pinned
+                    .or_else(|| self.inline_item_width(layout_tree, id))
+                    .unwrap_or(0.0);
                 continue;
             };
             let interval = match tab_size {
