@@ -262,6 +262,11 @@ pub fn attributes_page(url: &Url, request: &Request, body: &[u8]) -> String {
                 item = menu::parse_line(encoding, block.value);
                 out.push(' ');
                 out.push_str(&lines.line(block.value).unwrap_or_default());
+                // The item's break is held back for mirrors, and a line that is no item has none.
+                out.push_str(lines.end());
+                if !out.ends_with('\n') {
+                    out.push('\n');
+                }
             }
             b"VIEWS" => {
                 out.push_str("<br>");
@@ -792,6 +797,19 @@ mod tests {
         assert!(page.contains("Frodo &lt;fng@bogus.edu&gt;"));
         assert!(!page.contains("<b>"));
         assert!(!page.contains("AFTER"));
+    }
+
+    #[test]
+    fn each_block_label_starts_its_own_line() {
+        for body in [
+            &b"+INFO: 0Some file\tmoo\thost2\t7070\t+\r\n+ADMIN:\r\n Admin: Frodo\r\n"[..],
+            b"+INFO: junk\r\n+ADMIN:\r\n",
+        ] {
+            let url = Url::parse("gopher://h/0/moo%09%09!").unwrap();
+            let request = Request::from_url(&url).unwrap();
+            let page = attributes_page(&url, &request, body);
+            assert!(page.contains("\n<span class=\"t\">+ADMIN:</span>"), "{page}");
+        }
     }
 
     #[test]
