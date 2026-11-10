@@ -1,4 +1,5 @@
-//! `overflow` clips descendants to the padding box, along the containing block chain.
+//! What clips paint: `overflow` clips descendants to the padding box along the containing block
+//! chain; `clip` and `clip-path: inset()` clip the box itself and everything under it.
 
 use std::sync::Arc;
 
@@ -211,4 +212,52 @@ fn a_box_clipped_to_nothing_paints_nothing() {
     );
     let painter = Painter::new(Arc::clone(&layers), None);
     assert!(painter.paint_element(hidden, &state()).is_empty());
+}
+
+/// `clip: rect()` clips an absolutely positioned box and what it holds, from its border box's
+/// top-left corner, `auto` being the border edge. On a box that is not absolutely positioned
+/// it does nothing.
+#[test]
+fn clip_rect_clips_an_absolutely_positioned_box() {
+    let (layers, [abs, inner, hidden, static_box]) = lay_out(
+        r#"<html><body>
+          <div id="abs" style="position: absolute; top: 10px; left: 10px; width: 100px; height: 50px;
+            clip: rect(5px, auto, 20px, 30px)"><div id="inner" style="height: 200px"></div></div>
+          <div id="hidden" style="position: absolute; width: 10px; height: 10px; clip: rect(0 0 0 0)"></div>
+          <div id="static" style="width: 10px; height: 10px; clip: rect(0 0 0 0)"></div>
+        </body></html>"#,
+        ["abs", "inner", "hidden", "static"],
+    );
+    let b = layers.layout_tree.get_node_by_id(abs).unwrap().box_model.border_box;
+    let expected = Rect::new(b.x + 30.0, b.y + 5.0, b.width - 30.0, 15.0);
+    assert_eq!(layers.clip(abs), Some(expected), "the box itself");
+    assert_eq!(layers.clip(inner), Some(expected), "and what it holds");
+
+    let painter = Painter::new(Arc::clone(&layers), None);
+    assert!(painter.paint_element(hidden, &state()).is_empty());
+    assert_eq!(layers.clip(static_box), None);
+}
+
+/// `clip-path: inset()` takes one to four insets from the border box, a percentage of its width
+/// or height, and clips fixed descendants too. `inset(50%)` leaves nothing.
+#[test]
+fn clip_path_inset_clips_the_box_and_all_under_it() {
+    let (layers, [boxed, fixed, gone]) = lay_out(
+        r#"<html><body>
+          <div id="boxed" style="width: 200px; height: 100px; clip-path: inset(10px 10% round 4px)">
+            <div id="fixed" style="position: fixed; top: 0; left: 0; width: 50px; height: 50px"></div>
+          </div>
+          <div id="gone" style="height: 20px; clip-path: inset(50%)"></div>
+        </body></html>"#,
+        ["boxed", "fixed", "gone"],
+    );
+    let b = layers.layout_tree.get_node_by_id(boxed).unwrap().box_model.border_box;
+    let expected = Rect::new(b.x + 20.0, b.y + 10.0, 160.0, 80.0);
+    assert_eq!(layers.clip(boxed), Some(expected));
+    assert_eq!(layers.clip(fixed), Some(expected), "a fixed box does not escape it");
+
+    let clip = layers.clip(gone).expect("clipped");
+    assert_eq!((clip.width, clip.height), (0.0, 0.0));
+    let painter = Painter::new(Arc::clone(&layers), None);
+    assert!(painter.paint_element(gone, &state()).is_empty());
 }

@@ -544,6 +544,54 @@ fn translation(value: &CssValue, font_size: f32) -> Option<(LengthPercentage, Le
     total
 }
 
+/// `rect(top, right, bottom, left)`, commas or not, with `None` for an `auto` edge. `None` for
+/// `auto` itself.
+fn clip_rect(value: &CssValue, font_size: f32) -> Option<[Option<f32>; 4]> {
+    let [function] = grid_tokens(value) else {
+        return None;
+    };
+    let (name, args) = as_function(function)?;
+    if !name.eq_ignore_ascii_case("rect") {
+        return None;
+    }
+    let edges: Vec<&CssValue> = args.iter().filter(|arg| !matches!(arg, CssValue::Comma)).collect();
+    let [top, right, bottom, left] = edges.as_slice() else {
+        return None;
+    };
+    let edge = |value: &CssValue| {
+        if is_keyword(value, "auto") {
+            None
+        } else {
+            length_px(value, font_size)
+        }
+    };
+    Some([edge(top), edge(right), edge(bottom), edge(left)])
+}
+
+/// `inset()` with one to four insets, spread over the sides as `margin` does; what follows
+/// `round` is dropped. `None` for any other shape, a `<geometry-box>`, a `url()` and `none`.
+fn clip_inset(value: &CssValue, font_size: f32) -> Option<[LengthPercentage; 4]> {
+    let [function] = grid_tokens(value) else {
+        return None;
+    };
+    let (name, args) = as_function(function)?;
+    if !name.eq_ignore_ascii_case("inset") {
+        return None;
+    }
+    let insets = args
+        .iter()
+        .take_while(|arg| !is_keyword(arg, "round"))
+        .map(|arg| length_percentage(arg, font_size))
+        .collect::<Option<Vec<_>>>()?;
+    match *insets.as_slice() {
+        [all] => Some([all; 4]),
+        [vertical, horizontal] => Some([vertical, horizontal, vertical, horizontal]),
+        [top, horizontal, bottom] => Some([top, horizontal, bottom, horizontal]),
+        [top, right, bottom, left] => Some([top, right, bottom, left]),
+        _ => None,
+    }
+}
+
 // ── Grid ─────────────────────────────────────────────────────────────────────
 
 /// A value as the token sequence the grid grammars are written over.
@@ -1040,6 +1088,8 @@ static ENGINE_LONGHANDS: &[(LonghandId, Prop, u16)] = &[
     (LonghandId::ObjectFit, Prop::ObjectFit, G_BOX),
     (LonghandId::ObjectPosition, Prop::ObjectPosition, G_BOX),
     (LonghandId::Transform, Prop::Transform, G_BOX),
+    (LonghandId::Clip, Prop::Clip, G_BOX),
+    (LonghandId::ClipPath, Prop::ClipPath, G_BOX),
     (LonghandId::VerticalAlign, Prop::VerticalAlign, G_BOX),
     // size
     (LonghandId::Width, Prop::Width, G_SIZE),
@@ -1693,6 +1743,13 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
     ));
 
     read!(map, style, Transform, box_mut, translate, |value| Some(translation(
+        value, font_size
+    )));
+
+    read!(map, style, Clip, box_mut, clip, |value| Some(clip_rect(
+        value, font_size
+    )));
+    read!(map, style, ClipPath, box_mut, clip_path, |value| Some(clip_inset(
         value, font_size
     )));
 

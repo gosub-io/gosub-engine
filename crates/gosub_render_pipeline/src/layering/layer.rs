@@ -1,6 +1,6 @@
 use crate::common::document::node::NodeId;
 use crate::common::geo::Rect;
-use crate::layering::clip::overflow_clips;
+use crate::layering::clip::paint_clips;
 use crate::layouter::{LayoutElementId, LayoutElementNode, LayoutTree};
 use crate::render::backend::{StickyConstraint, TileAnchor};
 use gosub_interface::style::{ComputedStyle, Display, LengthPercentageAuto, Position, Prop, ZIndex};
@@ -78,7 +78,7 @@ pub struct LayerList {
     /// DOM nodes that must NOT get per-element opacity: their layer is faded once at composite
     /// time, so applying it twice would darken them. See [`LayerList::is_opacity_grouped`].
     opacity_group_nodes: RwLock<HashSet<NodeId>>,
-    /// Where each element may paint, for those an `overflow` clips. See [`crate::layering::clip`].
+    /// Where each element may paint, for those something clips. See [`crate::layering::clip`].
     clips: HashMap<LayoutElementId, Rect>,
 }
 
@@ -110,7 +110,7 @@ impl LayerList {
     /// Takes the tree already shared so the caller can keep its own handle on it - the engine
     /// retains one across frames to recompute geometry without rebuilding the taffy tree.
     pub fn new(layout_tree: Arc<LayoutTree>) -> LayerList {
-        let clips = overflow_clips(&layout_tree);
+        let clips = paint_clips(&layout_tree);
         let mut layer_list = LayerList {
             layout_tree,
             layers: RwLock::new(HashMap::new()),

@@ -350,6 +350,8 @@ and the clause that makes the new value right.
 -   `<svg>` is on the unrenderable list, so no selector reaches an SVG element.
 -   Subtree invalidation on restyle compares only custom properties, so an inherited change
     through `:hover` can leave descendants stale.
+-   `clip-path` paints only `inset()`, square: its `round` is dropped, and every other shape, a
+    `<geometry-box>` and a `url()` clip nothing.
 -   `overflow: hidden`, `clip`, `scroll` and `auto` clip what they hold to a square padding box:
     `border-radius` does not round the clip, and a `scroll` or `auto` box does not scroll, so
     what it holds past its edge is out of reach. `text-overflow: ellipsis` cuts the text, one
