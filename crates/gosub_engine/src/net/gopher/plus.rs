@@ -269,7 +269,7 @@ pub fn attributes_page(url: &Url, request: &Request, body: &[u8]) -> String {
                 }
             }
             b"VIEWS" => {
-                out.push_str("<br>");
+                out.push('\n');
                 for view in views(&block) {
                     let mut plus = b"+".to_vec();
                     plus.extend_from_slice(view.name);
@@ -279,11 +279,11 @@ pub fn attributes_page(url: &Url, request: &Request, body: &[u8]) -> String {
                         .unwrap_or_default();
                     match item.as_ref().and_then(|item| plus_url(item, host, port, &plus)) {
                         Some(href) => out.push_str(&format!(
-                            "  <a href=\"{}\">{}</a>{size}<br>",
+                            "  <a href=\"{}\">{}</a>{size}\n",
                             escape(href.as_str()),
                             text(view.name)
                         )),
-                        None => out.push_str(&format!("  {}{size}<br>", text(view.name))),
+                        None => out.push_str(&format!("  {}{size}\n", text(view.name))),
                     }
                 }
             }
@@ -297,9 +297,9 @@ pub fn attributes_page(url: &Url, request: &Request, body: &[u8]) -> String {
                         out.push_str(&format!(" <a href=\"{}\">[form]</a>", escape(href.as_str())));
                     }
                 }
-                out.push_str("<br>");
+                out.push('\n');
                 for line in &block.lines {
-                    out.push_str(&format!("  {}<br>", text(line)));
+                    out.push_str(&format!("  {}\n", text(line)));
                 }
             }
         }
@@ -810,6 +810,17 @@ mod tests {
             let page = attributes_page(&url, &request, body);
             assert!(page.contains("\n<span class=\"t\">+ADMIN:</span>"), "{page}");
         }
+    }
+
+    /// The page is a `<pre>`, so its lines end in newlines, which copy as real line ends.
+    #[test]
+    fn attribute_lines_end_in_newlines() {
+        let url = Url::parse("gopher://h/0/moo%09%09!").unwrap();
+        let request = Request::from_url(&url).unwrap();
+        let page = attributes_page(&url, &request, ATTRIBUTES);
+        assert!(!page.contains("<br>"), "{page}");
+        assert!(page.contains("<span class=\"t\">+ADMIN:</span>\n  Admin: "), "{page}");
+        assert!(page.contains("<span class=\"t\">15k</span>\n"), "{page}");
     }
 
     #[test]
