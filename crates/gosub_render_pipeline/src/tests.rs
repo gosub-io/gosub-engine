@@ -4512,6 +4512,27 @@ mod rendertree_from_engine {
         assert!(sizes[3].0.is_finite(), "{sizes:?}");
     }
 
+    /// The attributes are a ratio too, so an unloaded image with `height: auto` still reserves
+    /// its shape (HTML 15.4.3). A ratio the page declares beats it.
+    #[test]
+    fn an_unloaded_image_keeps_the_ratio_of_its_attributes() {
+        let boxes = border_boxes(
+            r#"<body style="margin: 0"><div style="width: 400px">
+               <img id="auto" style="display: block; height: auto" src="missing.png" width="80" height="40">
+               <img id="wide" style="display: block; width: 160px; height: auto" src="missing.png" width="80" height="40">
+               <img id="css" style="display: block; height: auto; aspect-ratio: 1" src="missing.png" width="80" height="40">
+               <img id="pct" style="display: block; height: auto" src="missing.png" width="50%" height="40">
+            </div></body>"#,
+            &["auto", "wide", "css", "pct"],
+        );
+        let sizes: Vec<(f64, f64)> = boxes.iter().map(|b| (b.width, b.height)).collect();
+        assert_eq!(sizes[0], (80.0, 40.0), "{sizes:?}");
+        assert_eq!(sizes[1], (160.0, 80.0), "{sizes:?}");
+        assert_eq!(sizes[2], (80.0, 80.0), "{sizes:?}");
+        // No ratio from a percentage: nothing gives the box a height.
+        assert_eq!(sizes[3].0, 200.0, "{sizes:?}");
+    }
+
     /// A range input stretched by its flex container takes the container's height, so its thumb
     /// is centred on the stretched box (WPT css-flexbox/flexitem-stretch-range). The UA sheet
     /// pinned its 129x21 as `width`/`height`, a definite size that `align-items: stretch` cannot

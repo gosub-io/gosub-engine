@@ -295,6 +295,17 @@ pub fn hints_for<'a>(
         if let Some(height) = lookup("height").and_then(dimension) {
             push(&mut out, "height", &height);
         }
+        // §15.4.3: on img, video and the image button the pair is also a ratio, as long as
+        // neither is a percentage.
+        if !matches!(tag, "embed" | "iframe" | "object") {
+            let length = |name| match lookup(name).and_then(parse_dimension_value) {
+                Some(DimensionValue::Length(number)) => Some(number),
+                _ => None,
+            };
+            if let (Some(width), Some(height)) = (length("width"), length("height")) {
+                push(&mut out, "aspect-ratio", &format!("auto {width} / {height}"));
+            }
+        }
     } else if matches!(tag, "table" | "td" | "th" | "col" | "colgroup" | "hr") {
         // §15.3.6 and §15.3.10: the same attribute on the table family and on `<hr>`, where a
         // zero is an error rather than a zero-width box.
@@ -454,9 +465,42 @@ mod tests {
                 false,
             )
         };
-        assert_eq!(sized("img").as_deref(), Some("width:80px;height:40px"));
+        assert_eq!(
+            sized("img").as_deref(),
+            Some("width:80px;height:40px;aspect-ratio:auto 80 / 40")
+        );
+        assert_eq!(
+            sized("video").as_deref(),
+            Some("width:80px;height:40px;aspect-ratio:auto 80 / 40")
+        );
         assert_eq!(sized("iframe").as_deref(), Some("width:80px;height:40px"));
         assert_eq!(sized("hr").as_deref(), Some("width:80px"));
+    }
+
+    /// The ratio needs two lengths: a percentage or a missing side leaves it out.
+    #[test]
+    fn the_ratio_hint_needs_two_lengths() {
+        let ratio = |width: &'static str, height: &'static str| {
+            let hint = hints_for(
+                "img",
+                false,
+                |name| match name {
+                    "width" => Some(width),
+                    "height" => Some(height),
+                    _ => None,
+                },
+                none,
+                false,
+            );
+            hint.and_then(|hint| {
+                hint.split(';')
+                    .find_map(|decl| decl.strip_prefix("aspect-ratio:"))
+                    .map(String::from)
+            })
+        };
+        assert_eq!(ratio("300px", "150").as_deref(), Some("auto 300 / 150"));
+        assert_eq!(ratio("50%", "150"), None);
+        assert_eq!(ratio("300", "auto"), None);
     }
 
     #[test]
