@@ -212,7 +212,8 @@ impl Painter {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         let visible = doc.computed_style(dom_node_id).is_visible();
 
-        // An ancestor's `overflow` clips the element's own paint; the debug overlays stay whole.
+        // An ancestor's `overflow`, and its own or an ancestor's `clip`/`clip-path`, clip the element's
+        // own paint; the debug overlays stay whole.
         let clip = self.layer_list.clip(element_id);
         let clipped = |own: Vec<PaintCommand>| match clip {
             None => own,

@@ -519,7 +519,7 @@ impl TileList {
                         margin_box.height + ext * 2.0,
                     );
                 }
-                // Only the part an ancestor's `overflow` lets through needs tiles.
+                // Only the part its clip lets through needs tiles.
                 if let Some(clip) = self.layer_list.clip(element_id) {
                     margin_box = crate::layering::clip::intersect(margin_box, clip);
                     if margin_box.width <= 0.0 || margin_box.height <= 0.0 {

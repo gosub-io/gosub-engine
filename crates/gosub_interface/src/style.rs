@@ -668,6 +668,8 @@ declare_props! {
     ObjectPosition,
     VerticalAlign,
     Transform,
+    Clip,
+    ClipPath,
 
     Width,
     Height,
@@ -882,6 +884,13 @@ pub struct BoxGroup {
     /// `translateY()` in the list, summed. `None` for `none` and for a list with no translation.
     /// The other transform functions are not applied, and not carried.
     pub translate: Option<(LengthPercentage, LengthPercentage)>,
+    /// `clip: rect()` as its edges (top, right, bottom, left) in px from the border box's
+    /// top-left corner, `None` for an `auto` edge; `None` for `auto`. It clips only an
+    /// absolutely positioned box (CSS 2.1 §11.1.2).
+    pub clip: Option<[Option<f32>; 4]>,
+    /// `clip-path: inset()` as its insets (top, right, bottom, left) from the border box. The
+    /// only shape carried: `round` is dropped, and any other value is `None`.
+    pub clip_path: Option<[LengthPercentage; 4]>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1403,6 +1412,8 @@ impl ComputedStyle {
                 object_position: (Anchor::CENTER, Anchor::CENTER),
                 vertical_align: VerticalAlign::Baseline,
                 translate: None,
+                clip: None,
+                clip_path: None,
             }),
             size: Arc::new(SizeGroup {
                 width: LengthPercentageAuto::Auto,
