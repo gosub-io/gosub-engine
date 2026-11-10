@@ -1,4 +1,6 @@
 use crate::common::document::node::NodeId;
+use crate::common::geo::Rect;
+use crate::layering::clip::overflow_clips;
 use crate::layouter::{LayoutElementId, LayoutElementNode, LayoutTree};
 use crate::render::backend::{StickyConstraint, TileAnchor};
 use gosub_interface::style::{ComputedStyle, Display, LengthPercentageAuto, Position, Prop, ZIndex};
@@ -76,6 +78,8 @@ pub struct LayerList {
     /// DOM nodes that must NOT get per-element opacity: their layer is faded once at composite
     /// time, so applying it twice would darken them. See [`LayerList::is_opacity_grouped`].
     opacity_group_nodes: RwLock<HashSet<NodeId>>,
+    /// Where each element may paint, for those an `overflow` clips. See [`crate::layering::clip`].
+    clips: HashMap<LayoutElementId, Rect>,
 }
 
 impl std::fmt::Debug for LayerList {
@@ -95,6 +99,7 @@ impl Clone for LayerList {
             layers: RwLock::new(self.layers.read().clone()),
             next_layer_id: RwLock::new(*self.next_layer_id.read()),
             opacity_group_nodes: RwLock::new(self.opacity_group_nodes.read().clone()),
+            clips: self.clips.clone(),
         }
     }
 }
@@ -105,12 +110,14 @@ impl LayerList {
     /// Takes the tree already shared so the caller can keep its own handle on it - the engine
     /// retains one across frames to recompute geometry without rebuilding the taffy tree.
     pub fn new(layout_tree: Arc<LayoutTree>) -> LayerList {
+        let clips = overflow_clips(&layout_tree);
         let mut layer_list = LayerList {
             layout_tree,
             layers: RwLock::new(HashMap::new()),
             layer_ids: RwLock::new(Vec::new()),
             next_layer_id: RwLock::new(LayerId::new(0)),
             opacity_group_nodes: RwLock::new(HashSet::new()),
+            clips,
         };
 
         layer_list.generate_layers();
@@ -163,6 +170,9 @@ impl LayerList {
                     // is under it (css-ui-4 §5.1 via `visibility`).
                     let doc = &self.layout_tree.render_tree.doc;
                     if !doc.computed_style(layout_element.dom_node_id).is_visible() {
+                        continue;
+                    }
+                    if self.clip(*element_id).is_some_and(|clip| !clip.contains(x, y)) {
                         continue;
                     }
                     return Some(*element_id);
@@ -223,6 +233,11 @@ impl LayerList {
         self.layers.write().insert(layer_id, layer);
 
         layer_id
+    }
+
+    /// The part of the page `element_id` may paint into, or `None` when nothing clips it.
+    pub fn clip(&self, element_id: LayoutElementId) -> Option<Rect> {
+        self.clips.get(&element_id).copied()
     }
 
     /// Group opacity for a layer; 1.0 if the layer is unknown.

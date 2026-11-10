@@ -77,6 +77,19 @@ impl Rasterable for CairoRasterizer {
                         // The tile path applies layer opacity/anchor at composite, so these
                         // scene-only group markers never appear here - ignore them.
                         PaintCommand::PushLayer { .. } | PaintCommand::PopLayer => {}
+                        PaintCommand::PushClip(rect) => {
+                            _ = cr.save();
+                            // Only the part inside the tile: a clip edge on the tile border would
+                            // anti-alias into a seam, and page-sized rects overflow Cairo's fixed point.
+                            let r = gosub_render_pipeline::layering::clip::intersect(*rect, tile.rect);
+                            if r != tile.rect {
+                                cr.rectangle(r.x - tile.rect.x, r.y - tile.rect.y, r.width, r.height);
+                                cr.clip();
+                            }
+                        }
+                        PaintCommand::PopClip => {
+                            _ = cr.restore();
+                        }
                         PaintCommand::Svg(command) => {
                             svg::do_paint_svg(&cr.clone(), tile, &command.rect, command.media_id, media_store, dpr);
                         }

@@ -1,9 +1,8 @@
 //! `text-overflow: ellipsis` (css-overflow-3 §5.1): inline content that runs past the end edge of
 //! a block that does not let it show is cut there, and the cut is marked with "…".
 //!
-//! Paint commands cannot clip, so the text is cut instead, as a text field's is: the run that
-//! crosses the edge keeps the graphemes that fit beside the ellipsis, and a run wholly past the
-//! edge is not painted. Each run is decided on its own, so a line whose last visible run happens
+//! The text is cut, as a text field's is: the run that crosses the edge keeps the graphemes that
+//! fit beside the ellipsis, and a run wholly past the edge is not painted. Each run is decided on its own, so a line whose last visible run happens
 //! to end exactly at the edge gets no ellipsis, and the `<string>` form is not supported.
 
 use unicode_segmentation::UnicodeSegmentation;

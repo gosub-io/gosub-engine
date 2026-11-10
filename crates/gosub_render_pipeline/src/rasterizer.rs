@@ -226,6 +226,14 @@ pub fn tile_cache_key(tile: &crate::tiler::Tile) -> TileCacheKey {
                 // Scene-only layer-group markers; never present in per-tile commands, so they don't
                 // affect a tile's content hash.
                 PaintCommand::PushLayer { .. } | PaintCommand::PopLayer => {}
+                PaintCommand::PushClip(rect) => {
+                    fnv!(&[3u8]);
+                    hf64!(rect.x);
+                    hf64!(rect.y);
+                    hf64!(rect.width);
+                    hf64!(rect.height);
+                }
+                PaintCommand::PopClip => fnv!(&[4u8]),
                 PaintCommand::Rectangle(r) => {
                     fnv!(&[0u8]);
                     let rect = r.rect();

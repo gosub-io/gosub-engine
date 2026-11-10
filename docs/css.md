@@ -350,9 +350,10 @@ and the clause that makes the new value right.
 -   `<svg>` is on the unrenderable list, so no selector reaches an SVG element.
 -   Subtree invalidation on restyle compares only custom properties, so an inherited change
     through `:hover` can leave descendants stale.
--   `overflow: hidden`, `clip`, `scroll` and `auto` do not clip what they hold when it is painted:
-    paint commands cannot clip. `text-overflow: ellipsis` cuts the text instead, one inline run
-    at a time, so a line whose last visible run ends exactly at the edge gets no ellipsis, and an
+-   `overflow: hidden`, `clip`, `scroll` and `auto` clip what they hold to a square padding box:
+    `border-radius` does not round the clip, and a `scroll` or `auto` box does not scroll, so
+    what it holds past its edge is out of reach. `text-overflow: ellipsis` cuts the text, one
+    inline run at a time, so a line whose last visible run ends exactly at the edge gets no ellipsis, and an
     atomic inline past the edge still shows. Its `<string>` form and the two-value form are not
     read.
 -   `word-break: keep-all` reaches only Parley; Pango and cosmic-text break as under `normal`.
