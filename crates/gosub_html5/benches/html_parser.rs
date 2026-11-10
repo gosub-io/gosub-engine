@@ -2,6 +2,7 @@
 //!
 //! Run timing:    cargo bench -p gosub_html5 --bench html_parser
 //! Run allocs:    cargo bench -p gosub_html5 --bench html_parser -- allocs
+//! Run attrs:     cargo bench -p gosub_html5 --bench html_parser -- many-attributes
 //!
 //! The allocation benchmarks use a custom global allocator defined in this file
 //! (applies only to this benchmark binary).
@@ -320,6 +321,32 @@ fn bench_cpu(c: &mut Criterion) {
     group.finish();
 }
 
+/// `<div a0="0" ... a{n-1}="{n-1}" a0="dup">`: the trailing duplicate makes every check count.
+fn many_attributes(n: usize) -> String {
+    let mut html = String::from("<div");
+    for i in 0..n {
+        html.push_str(&format!(" a{i}=\"{i}\""));
+    }
+    html.push_str(" a0=\"dup\"></div>");
+    html
+}
+
+/// One element with 25k and with 100k attributes. Throughput is per attribute, so linear
+/// tokenizing shows as the same rate at both sizes; a lookup that scans the attributes so far
+/// (GOS-300) makes the 100k rate about four times lower.
+fn bench_many_attributes(c: &mut Criterion) {
+    let mut group = c.benchmark_group("parser/many-attributes");
+    group.sample_size(10).measurement_time(Duration::from_secs(10));
+    for n in [25_000, 100_000] {
+        let html = many_attributes(n);
+        group.throughput(Throughput::Elements(n as u64));
+        group.bench_function(format!("{}k", n / 1000), |b| {
+            b.iter(|| parse_html(&html));
+        });
+    }
+    group.finish();
+}
+
 // ── Allocation-ops benchmarks ─────────────────────────────────────────────────
 
 fn bench_alloc_ops(c: &mut Criterion<AllocOps>) {
@@ -386,7 +413,7 @@ fn bench_alloc_bytes(c: &mut Criterion<AllocBytes>) {
 
 // ── Criterion groups ──────────────────────────────────────────────────────────
 
-criterion_group!(cpu_benches, bench_cpu);
+criterion_group!(cpu_benches, bench_cpu, bench_many_attributes);
 
 // `without_plots`: the alloc counters are exact, and criterion's KDE plotting
 // panics on a zero-variance sample when a count is identical to its baseline.
