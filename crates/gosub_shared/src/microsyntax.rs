@@ -84,6 +84,43 @@ pub fn parse_floating_point_number(input: &str) -> Option<f64> {
     convert(&number)
 }
 
+/// A value read by the rules for parsing dimension values.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DimensionValue {
+    Length(f64),
+    Percentage(f64),
+}
+
+/// The rules for parsing dimension values (HTML 2.3.4.4).
+///
+/// Leading ASCII whitespace, then digits with an optional fraction. A `%` straight after the
+/// number makes it a percentage; anything else ends it, so `300px` is a length of 300. No sign,
+/// exponent, `inf` or `NaN`, and a value too large for a double is an error.
+#[must_use]
+pub fn parse_dimension_value(input: &str) -> Option<DimensionValue> {
+    let input = input.trim_start_matches(|c: char| c.is_ascii_whitespace());
+    let bytes = input.as_bytes();
+    let mut position = bytes.iter().take_while(|b| b.is_ascii_digit()).count();
+    if position == 0 {
+        return None;
+    }
+    let mut end = position;
+    if bytes.get(position) == Some(&b'.') {
+        let count = bytes[position + 1..].iter().take_while(|b| b.is_ascii_digit()).count();
+        // A `.` with no digit after it is skipped, so `50.%` is still a percentage.
+        position += 1 + count;
+        if count > 0 {
+            end = position;
+        }
+    }
+    let value = convert(&input[..end])?;
+    Some(if bytes.get(position) == Some(&b'%') {
+        DimensionValue::Percentage(value)
+    } else {
+        DimensionValue::Length(value)
+    })
+}
+
 /// The conversion step: the nearest finite double, an error past the largest one, and no `-0`.
 fn convert(number: &str) -> Option<f64> {
     let value = number.parse::<f64>().ok().filter(|value| value.is_finite())?;
@@ -156,5 +193,49 @@ mod tests {
         let zero = parse("-0").expect("a number");
         assert!(zero == 0.0 && zero.is_sign_positive());
         assert!(parse("-0.0e5").expect("a number").is_sign_positive());
+    }
+
+    mod dimension {
+        use crate::microsyntax::parse_dimension_value as parse;
+        use crate::microsyntax::DimensionValue::{Length, Percentage};
+
+        #[test]
+        fn reads_lengths_and_percentages() {
+            assert_eq!(parse("80"), Some(Length(80.0)));
+            assert_eq!(parse("  \t80"), Some(Length(80.0)));
+            assert_eq!(parse("12.5"), Some(Length(12.5)));
+            assert_eq!(parse("50%"), Some(Percentage(50.0)));
+            assert_eq!(parse("12.5%"), Some(Percentage(12.5)));
+            assert_eq!(parse("0"), Some(Length(0.0)));
+        }
+
+        #[test]
+        fn anything_after_the_number_ends_it() {
+            assert_eq!(parse("300px"), Some(Length(300.0)));
+            assert_eq!(parse("1.5.6"), Some(Length(1.5)));
+            assert_eq!(parse("1e3"), Some(Length(1.0)));
+        }
+
+        /// A trailing `.` is skipped before the `%` check (the spec's "current dimension value").
+        #[test]
+        fn a_trailing_dot_keeps_the_percentage() {
+            assert_eq!(parse("50.%"), Some(Percentage(50.0)));
+            assert_eq!(parse("50."), Some(Length(50.0)));
+            assert_eq!(parse("50.px"), Some(Length(50.0)));
+        }
+
+        #[test]
+        fn rejects_what_is_not_a_dimension() {
+            assert_eq!(parse(""), None);
+            assert_eq!(parse("auto"), None);
+            assert_eq!(parse("inf"), None);
+            assert_eq!(parse("infinity"), None);
+            assert_eq!(parse("NaN"), None);
+            assert_eq!(parse("-5"), None);
+            assert_eq!(parse("+5"), None);
+            assert_eq!(parse(".5"), None);
+            assert_eq!(parse("\u{a0}5"), None);
+            assert_eq!(parse(&"9".repeat(400)), None);
+        }
     }
 }

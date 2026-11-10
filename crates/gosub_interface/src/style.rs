@@ -448,6 +448,28 @@ pub enum TableLayout {
     Fixed,
 }
 
+/// `aspect-ratio` (css-sizing-4 §5.1). A degenerate ratio (a zero on either side) is `auto`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum AspectRatio {
+    /// Only a replaced element's natural ratio.
+    Auto,
+    /// `<ratio>`: this ratio, natural one or not.
+    Ratio(f32),
+    /// `auto <ratio>`: a replaced element's natural ratio when it has one, this otherwise.
+    AutoRatio(f32),
+}
+
+impl AspectRatio {
+    /// The declared ratio, natural ratio aside.
+    #[must_use]
+    pub fn ratio(self) -> Option<f32> {
+        match self {
+            Self::Auto => None,
+            Self::Ratio(ratio) | Self::AutoRatio(ratio) => Some(ratio),
+        }
+    }
+}
+
 /// `object-fit`: how a replaced element's content is sized into its content box.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ObjectFit {
@@ -849,7 +871,7 @@ pub struct BoxGroup {
     pub resize: Arc<str>,
     /// `None` unless a plain number was given, which is the only form taffy takes.
     pub scrollbar_width: Option<f32>,
-    pub aspect_ratio: Option<f32>,
+    pub aspect_ratio: AspectRatio,
     pub text_wrap: TextWrap,
     pub table_layout: TableLayout,
     pub object_fit: ObjectFit,
@@ -1374,7 +1396,7 @@ impl ComputedStyle {
                 mix_blend_mode: Arc::from("normal"),
                 resize: Arc::from("none"),
                 scrollbar_width: None,
-                aspect_ratio: None,
+                aspect_ratio: AspectRatio::Auto,
                 text_wrap: TextWrap::Wrap,
                 table_layout: TableLayout::Auto,
                 object_fit: ObjectFit::Fill,

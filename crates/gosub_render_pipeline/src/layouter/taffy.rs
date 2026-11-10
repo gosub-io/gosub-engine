@@ -26,7 +26,7 @@ use crate::rendertree_builder::{RenderNodeId, RenderTree};
 use gosub_fontmanager::ParleyFontSystem;
 use gosub_interface::font_system::FontSystem;
 use gosub_interface::style::{
-    BackgroundImage, BackgroundSize, BorderStyle, ComputedStyle, Display as CssDisplay, Float as CssFloat,
+    AspectRatio, BackgroundImage, BackgroundSize, BorderStyle, ComputedStyle, Display as CssDisplay, Float as CssFloat,
     LengthPercentage as CssLp, LengthPercentageAuto as CssLpa, LineHeight, ListStylePosition, Overflow as CssOverflow,
     OverflowWrap, Position as CssPosition, TabSize, TextAlign, TextTransform as CssTextTransform,
     VerticalAlign as CssVerticalAlign, WhiteSpace, WordBreak,
@@ -249,14 +249,6 @@ const MAX_CONTROL_CHARS: usize = 1000;
 /// the smallest stack an embedder might run us on. Raising it much further needs an iterative
 /// walk here plus a layout thread of our own - taffy's recursion is not ours to change.
 pub(crate) const MAX_LAYOUT_DEPTH: usize = 128;
-
-/// Parse an HTML presentational length attribute (e.g. `<img width="80">`) into pixels.
-/// Accepts a bare integer/float or a trailing `px`; ignores `%` and other units.
-fn parse_px_attr(v: &str) -> Option<f32> {
-    let s = v.trim();
-    let s = s.strip_suffix("px").unwrap_or(s);
-    s.trim().parse::<f32>().ok().filter(|n| *n >= 0.0)
-}
 
 // Cache key: (text, font_family, size_bits, line_height_bits, weight, max_width_bits,
 // letter_spacing_bits). Floats are stored as their bit pattern so the tuple is Hash + Eq.
@@ -3341,8 +3333,18 @@ impl TaffyLayouter {
                             // inside a `figure`). Without this, taffy's block layout leaves height
                             // unconstrained and the image stretches to fill its box. Skip it when the
                             // author fixed BOTH axes to definite lengths - the explicit box wins then,
-                            // matching CSS `aspect-ratio: auto` for replaced elements.
-                            if !is_placeholder && dimension.width > 0.0 && dimension.height > 0.0 {
+                            // matching CSS `aspect-ratio: auto` for replaced elements. A ratio
+                            // declared without `auto` beats the natural one (css-sizing-4 §5.1).
+                            let declared_ratio = matches!(
+                                layout_tree
+                                    .render_tree
+                                    .doc
+                                    .computed_style(dom_node.node_id)
+                                    .box_group
+                                    .aspect_ratio,
+                                AspectRatio::Ratio(_)
+                            );
+                            if !is_placeholder && !declared_ratio && dimension.width > 0.0 && dimension.height > 0.0 {
                                 let both_fixed = taffy_style.size.width.into_option().is_some()
                                     && taffy_style.size.height.into_option().is_some();
                                 let ratio = (dimension.width / dimension.height) as f32;
@@ -3368,18 +3370,6 @@ impl TaffyLayouter {
                                             ratio,
                                         );
                                     }
-                                }
-                            }
-
-                            // A broken/placeholder image still reserves the author's declared
-                            // box (HTML width/height attrs), matching Firefox, which draws a small
-                            // broken-image icon inside that reserved space rather than collapsing.
-                            if is_placeholder {
-                                if let Some(w) = data.get_attribute("width").and_then(|s| parse_px_attr(s)) {
-                                    taffy_style.size.width = Dimension::from_length(w);
-                                }
-                                if let Some(h) = data.get_attribute("height").and_then(|s| parse_px_attr(s)) {
-                                    taffy_style.size.height = Dimension::from_length(h);
                                 }
                             }
 
@@ -3415,15 +3405,8 @@ impl TaffyLayouter {
                             });
                         }
                         MediaRequest::Pending => {
-                            // Placeholder size: honour the HTML width/height attributes if present,
-                            // otherwise leave whatever CSS sizing convert() produced (0x0 for a bare
-                            // <img>). The reflow after the fetch completes installs the real size.
-                            if let Some(w) = data.get_attribute("width").and_then(|s| parse_px_attr(s)) {
-                                taffy_style.size.width = Dimension::from_length(w);
-                            }
-                            if let Some(h) = data.get_attribute("height").and_then(|s| parse_px_attr(s)) {
-                                taffy_style.size.height = Dimension::from_length(h);
-                            }
+                            // The cascade already carries the width/height attributes as
+                            // presentational hints; the reflow after the fetch installs the real size.
                         }
                     }
                 }

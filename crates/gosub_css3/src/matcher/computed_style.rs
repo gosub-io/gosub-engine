@@ -15,9 +15,9 @@ use std::sync::{Arc, LazyLock};
 
 use cow_utils::CowUtils;
 use gosub_interface::style::{
-    AlignValue, Anchor, BackgroundImage, BackgroundLayer, BackgroundRepeat, BackgroundSize, BackgroundTile,
-    BorderCollapse, BorderStyle, BoxShadow, BoxSizing, CaptionSide, Clear, Color, ComputedStyle, Display,
-    FlexDirection, FlexWrap, Float, FontStyle, FontWeight, GradientStop, GridAreas, GridAutoFlow, GridLine,
+    AlignValue, Anchor, AspectRatio, BackgroundImage, BackgroundLayer, BackgroundRepeat, BackgroundSize,
+    BackgroundTile, BorderCollapse, BorderStyle, BoxShadow, BoxSizing, CaptionSide, Clear, Color, ComputedStyle,
+    Display, FlexDirection, FlexWrap, Float, FontStyle, FontWeight, GradientStop, GridAreas, GridAutoFlow, GridLine,
     LengthPercentage, LengthPercentageAuto, LetterSpacing, LineHeight, LinearGradient, ListStylePosition,
     ListStyleType, ObjectFit, Overflow, OverflowWrap, Position, Prop, RepeatCount, TabSize, TableLayout, TextAlign,
     TextDecorationLine, TextOverflow, TextTransform, TextWrap, TrackBreadth, TrackList, TrackListItem, TrackSize,
@@ -111,6 +111,31 @@ fn as_number(value: &CssValue) -> Option<f32> {
         CssValue::Zero => Some(0.0),
         _ => None,
     }
+}
+
+/// `auto || <ratio>`, where a `<ratio>` is `<number> [ / <number> ]?`. A degenerate ratio is
+/// `auto` (css-sizing-4 §5.1).
+fn aspect_ratio(value: &CssValue) -> Option<AspectRatio> {
+    let items = match value {
+        CssValue::List(items) => items.as_slice(),
+        single => std::slice::from_ref(single),
+    };
+    let auto = items
+        .iter()
+        .any(|item| matches!(item, CssValue::String(word) if word.eq_ignore_ascii_case("auto")));
+    let numbers: Vec<f32> = items.iter().filter_map(as_number).collect();
+    let ratio = match numbers.as_slice() {
+        [] => None,
+        [width] => Some(*width),
+        [width, height] => Some(width / height),
+        _ => return None,
+    }
+    .filter(|ratio| ratio.is_finite() && *ratio > 0.0);
+    Some(match ratio {
+        None => AspectRatio::Auto,
+        Some(ratio) if auto => AspectRatio::AutoRatio(ratio),
+        Some(ratio) => AspectRatio::Ratio(ratio),
+    })
 }
 
 /// An `<integer>`. The grammar has already turned away anything fractional; the cast saturates
@@ -1630,8 +1655,7 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
     )
     .map(Some));
 
-    read!(map, style, AspectRatio, box_mut, aspect_ratio, |value| as_number(value)
-        .map(Some));
+    read!(map, style, AspectRatio, box_mut, aspect_ratio, aspect_ratio);
 
     // `text-wrap` is a shorthand for these two (css-text-4 §5.1); one field holds both, since a
     // line that does not wrap has no style of wrapping.
@@ -2243,6 +2267,19 @@ mod tests {
 
     fn style_of(css: &str) -> ComputedStyle {
         computed_style(&map_of(css), None)
+    }
+
+    /// `aspect-ratio` keeps whether a natural ratio wins, and a degenerate ratio is `auto`.
+    #[test]
+    fn aspect_ratio_reads_auto_and_the_ratio() {
+        let ratio = |css: &str| style_of(&format!("aspect-ratio: {css}")).box_group.aspect_ratio;
+        assert_eq!(ratio("2"), AspectRatio::Ratio(2.0));
+        assert_eq!(ratio("16 / 8"), AspectRatio::Ratio(2.0));
+        assert_eq!(ratio("auto 80 / 40"), AspectRatio::AutoRatio(2.0));
+        assert_eq!(ratio("80 / 40 auto"), AspectRatio::AutoRatio(2.0));
+        assert_eq!(ratio("auto"), AspectRatio::Auto);
+        assert_eq!(ratio("0 / 1"), AspectRatio::Auto);
+        assert_eq!(ratio("auto 1 / 0"), AspectRatio::Auto);
     }
 
     /// `list-item` gives the box a marker on top of the box the rest of `display` names.

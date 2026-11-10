@@ -13,6 +13,7 @@
 
 use cow_utils::CowUtils;
 use gosub_shared::css_colors::named_color_hex;
+use gosub_shared::microsyntax::{parse_dimension_value, DimensionValue};
 
 /// Append `property: value` when the value cannot escape the declaration it is written into.
 ///
@@ -40,44 +41,25 @@ fn push(out: &mut String, property: &str, value: &str) {
 /// it for every cell at once.
 const DEFAULT_CELL_PADDING: &str = "1px";
 
-/// A markup dimension, as HTML's "rules for parsing dimension values" read one: an optional run
-/// of digits with an optional fraction, then a `%` for a percentage and anything else for a
-/// length in px. That is what makes `width="300px"` mean 300px, since the `p` merely ends the
-/// number, and `width="50%"` a percentage.
+/// A markup dimension, as HTML's "rules for parsing dimension values" read one, written as CSS:
+/// `width="300px"` is 300px, since the `p` merely ends the number, and `width="50%"` is 50%.
 fn dimension(raw: &str) -> Option<String> {
-    let raw = raw.trim_start_matches([' ', '\t', '\n', '\u{0c}', '\r']);
-    let bytes = raw.as_bytes();
-    let mut pos = 0;
-    while bytes.get(pos).is_some_and(u8::is_ascii_digit) {
-        pos += 1;
-    }
-    if pos == 0 {
-        return None;
-    }
-    if bytes.get(pos) == Some(&b'.') {
-        pos += 1;
-        while bytes.get(pos).is_some_and(u8::is_ascii_digit) {
-            pos += 1;
-        }
-    }
-    let number = raw.get(..pos)?;
-    // A trailing `.` parses as a number here but not in CSS, so it is dropped rather than
-    // written out as `50.px`.
-    let number = number.trim_end_matches('.');
-    let rest = raw.get(pos..)?.trim_start_matches([' ', '\t', '\n', '\u{0c}', '\r']);
-    Some(if rest.starts_with('%') {
-        format!("{number}%")
-    } else {
-        format!("{number}px")
-    })
+    parse_dimension_value(raw).map(css_dimension)
 }
 
 /// The same, for the attributes whose value may not be zero: a `<table width=0>` is an error
 /// rather than a zero-width table.
 fn nonzero_dimension(raw: &str) -> Option<String> {
-    let value = dimension(raw)?;
-    let number = value.trim_end_matches(['%', 'p', 'x']);
-    (number.parse::<f64>().ok()? != 0.0).then_some(value)
+    let value = parse_dimension_value(raw)?;
+    let (DimensionValue::Length(number) | DimensionValue::Percentage(number)) = value;
+    (number != 0.0).then(|| css_dimension(value))
+}
+
+fn css_dimension(value: DimensionValue) -> String {
+    match value {
+        DimensionValue::Length(number) => format!("{number}px"),
+        DimensionValue::Percentage(number) => format!("{number}%"),
+    }
 }
 
 /// A non-negative integer, as HTML's rules for parsing one read it: leading whitespace, an
@@ -300,7 +282,7 @@ pub fn hints_for<'a>(
         push(&mut out, "list-style-type", value);
     }
 
-    // §15.3.9, the dimension attributes: a replaced element's `width` is a CSS width.
+    // §15.3.9, the dimension attributes: a replaced element's `width` and `height` are CSS ones.
     let dimension_attr = match tag {
         "img" | "embed" | "iframe" | "object" | "video" => true,
         "input" => lookup("type").is_some_and(|value| value.eq_ignore_ascii_case("image")),
@@ -309,6 +291,20 @@ pub fn hints_for<'a>(
     if dimension_attr {
         if let Some(width) = lookup("width").and_then(dimension) {
             push(&mut out, "width", &width);
+        }
+        if let Some(height) = lookup("height").and_then(dimension) {
+            push(&mut out, "height", &height);
+        }
+        // §15.4.3: on img, video and the image button the pair is also a ratio, as long as
+        // neither is a percentage.
+        if !matches!(tag, "embed" | "iframe" | "object") {
+            let length = |name| match lookup(name).and_then(parse_dimension_value) {
+                Some(DimensionValue::Length(number)) => Some(number),
+                _ => None,
+            };
+            if let (Some(width), Some(height)) = (length("width"), length("height")) {
+                push(&mut out, "aspect-ratio", &format!("auto {width} / {height}"));
+            }
         }
     } else if matches!(tag, "table" | "td" | "th" | "col" | "colgroup" | "hr") {
         // §15.3.6 and §15.3.10: the same attribute on the table family and on `<hr>`, where a
@@ -350,10 +346,15 @@ mod tests {
         assert_eq!(dimension("300"), Some("300px".to_string()));
         assert_eq!(dimension("300px"), Some("300px".to_string()));
         assert_eq!(dimension("50%"), Some("50%".to_string()));
-        assert_eq!(dimension("  12.5 % "), Some("12.5%".to_string()));
+        assert_eq!(dimension("  12.5% "), Some("12.5%".to_string()));
+        // The `%` has to follow the number; after a space it is just text that ends it.
+        assert_eq!(dimension("12.5 %"), Some("12.5px".to_string()));
         assert_eq!(dimension("auto"), None);
+        assert_eq!(dimension("inf"), None);
+        assert_eq!(dimension("-5"), None);
         // A trailing dot ends the number without being part of it.
         assert_eq!(dimension("50."), Some("50px".to_string()));
+        assert_eq!(dimension("50.%"), Some("50%".to_string()));
     }
 
     /// A zero is an error for the attributes that use the nonzero rules, and only for those.
@@ -446,6 +447,60 @@ mod tests {
         assert_eq!(input(Some("image")).as_deref(), Some("width:10px"));
         assert_eq!(input(Some("text")), None);
         assert_eq!(input(None), None);
+    }
+
+    /// `height` maps next to `width` on a replaced element, and on `<hr>` it means nothing.
+    #[test]
+    fn height_maps_with_width_on_replaced_elements() {
+        let sized = |tag: &str| {
+            hints_for(
+                tag,
+                false,
+                |name| match name {
+                    "width" => Some("80"),
+                    "height" => Some("40"),
+                    _ => None,
+                },
+                none,
+                false,
+            )
+        };
+        assert_eq!(
+            sized("img").as_deref(),
+            Some("width:80px;height:40px;aspect-ratio:auto 80 / 40")
+        );
+        assert_eq!(
+            sized("video").as_deref(),
+            Some("width:80px;height:40px;aspect-ratio:auto 80 / 40")
+        );
+        assert_eq!(sized("iframe").as_deref(), Some("width:80px;height:40px"));
+        assert_eq!(sized("hr").as_deref(), Some("width:80px"));
+    }
+
+    /// The ratio needs two lengths: a percentage or a missing side leaves it out.
+    #[test]
+    fn the_ratio_hint_needs_two_lengths() {
+        let ratio = |width: &'static str, height: &'static str| {
+            let hint = hints_for(
+                "img",
+                false,
+                |name| match name {
+                    "width" => Some(width),
+                    "height" => Some(height),
+                    _ => None,
+                },
+                none,
+                false,
+            );
+            hint.and_then(|hint| {
+                hint.split(';')
+                    .find_map(|decl| decl.strip_prefix("aspect-ratio:"))
+                    .map(String::from)
+            })
+        };
+        assert_eq!(ratio("300px", "150").as_deref(), Some("auto 300 / 150"));
+        assert_eq!(ratio("50%", "150"), None);
+        assert_eq!(ratio("300", "auto"), None);
     }
 
     #[test]
