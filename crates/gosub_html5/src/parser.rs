@@ -278,6 +278,13 @@ enum DispatcherMode {
     Html,
 }
 
+/// Where foreign content hands the current token to HTML processing
+enum Delegate {
+    None,
+    UnexpectedHtmlTag,
+    HtmlContent,
+}
+
 /// Extracts the encoding declared by a `<meta charset="…">` or
 /// `<meta http-equiv="Content-Type" content="…; charset=…">` token.
 /// Returns `None` when no valid/supported encoding is found.
@@ -567,13 +574,14 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
     // Process token in foreign content (svg, mathml)
     fn process_foreign_content(&mut self) {
-        // NOTE: unlike `process_html_content`, this keeps a clone: foreign handling
-        // delegates back into `process_html_content` (directly and via
-        // `process_unexpected_html_tag`), which re-reads `self.current_token`, so the
-        // real token must stay in place here.
-        let current_token = self.current_token.clone();
+        // Move the token out as `process_html_content` does. The arms that hand the token
+        // to HTML processing only set `delegate`; the token is put back before that call,
+        // as `process_html_content` re-reads `self.current_token`.
+        let loc = self.current_token.get_location();
+        let mut current_token = std::mem::replace(&mut self.current_token, Token::Eof { location: loc });
 
         let mut handle_as_script_endtag = false;
+        let mut delegate = Delegate::None;
 
         match &current_token {
             Token::Text { text: value, .. } if current_token.is_mixed() => {
@@ -649,7 +657,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     || name == "ul"
                     || name == "var" =>
             {
-                self.process_unexpected_html_tag();
+                delegate = Delegate::UnexpectedHtmlTag;
             }
             Token::StartTag { name, attributes, .. }
                 if name == "font"
@@ -657,15 +665,16 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                         || attributes.contains_key("face")
                         || attributes.contains_key("size")) =>
             {
-                self.process_unexpected_html_tag();
+                delegate = Delegate::UnexpectedHtmlTag;
             }
             Token::EndTag { name, .. } if name == "br" || name == "p" => {
-                self.process_unexpected_html_tag();
+                delegate = Delegate::UnexpectedHtmlTag;
             }
             Token::StartTag {
                 name, is_self_closing, ..
             } => {
-                let mut current_token = current_token.clone();
+                let is_self_closing = *is_self_closing;
+                let is_script = name == "script";
 
                 let acn_id = self.get_adjusted_current_node_id();
                 let acn_ns = self.document.namespace(acn_id).unwrap_or(HTML_NAMESPACE).to_owned();
@@ -681,9 +690,9 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 self.adjust_foreign_attributes(&mut current_token);
                 self.insert_foreign_element(&mut current_token, &acn_ns);
 
-                if *is_self_closing {
+                if is_self_closing {
                     let cn_id = current_node_id!(self);
-                    if name == "script" && node_ns!(self, cn_id) == Some(SVG_NAMESPACE) {
+                    if is_script && node_ns!(self, cn_id) == Some(SVG_NAMESPACE) {
                         self.ack_self_closing = true;
                         handle_as_script_endtag = true;
                     } else {
@@ -732,11 +741,25 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                         continue;
                     }
 
-                    self.process_html_content();
+                    delegate = Delegate::HtmlContent;
                     break;
                 }
             }
             Token::Eof { .. } => {
+                return;
+            }
+        }
+
+        match delegate {
+            Delegate::None => {}
+            Delegate::UnexpectedHtmlTag => {
+                self.current_token = current_token;
+                self.process_unexpected_html_tag();
+                return;
+            }
+            Delegate::HtmlContent => {
+                self.current_token = current_token;
+                self.process_html_content();
                 return;
             }
         }
@@ -3056,51 +3079,34 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 self.insert_html_element(token);
             }
             Token::StartTag {
-                name,
-                is_self_closing,
-                attributes,
-                ..
+                name, is_self_closing, ..
             } if name == "math" => {
+                let is_self_closing = *is_self_closing;
                 self.reconstruct_formatting();
 
-                let mut token = Token::StartTag {
-                    name: name.clone(),
-                    attributes: attributes.clone(),
-                    is_self_closing: *is_self_closing,
-                    location: token.get_location(),
-                };
-                self.adjust_mathml_attributes(&mut token);
-                self.adjust_foreign_attributes(&mut token);
+                self.adjust_mathml_attributes(token);
+                self.adjust_foreign_attributes(token);
 
-                self.insert_foreign_element(&mut token, MATHML_NAMESPACE);
+                self.insert_foreign_element(token, MATHML_NAMESPACE);
 
-                if *is_self_closing {
+                if is_self_closing {
                     self.open_elements.pop();
-                    self.acknowledge_closing_tag(*is_self_closing);
+                    self.acknowledge_closing_tag(is_self_closing);
                 }
             }
             Token::StartTag {
-                name,
-                is_self_closing,
-                attributes,
-                ..
+                name, is_self_closing, ..
             } if name == "svg" => {
+                let is_self_closing = *is_self_closing;
                 self.reconstruct_formatting();
 
-                let mut token = Token::StartTag {
-                    name: name.clone(),
-                    attributes: attributes.clone(),
-                    is_self_closing: *is_self_closing,
-                    location: token.get_location(),
-                };
+                self.adjust_svg_attributes(token);
+                self.adjust_foreign_attributes(token);
+                self.insert_foreign_element(token, SVG_NAMESPACE);
 
-                self.adjust_svg_attributes(&mut token);
-                self.adjust_foreign_attributes(&mut token);
-                self.insert_foreign_element(&mut token, SVG_NAMESPACE);
-
-                if *is_self_closing {
+                if is_self_closing {
                     self.open_elements.pop();
-                    self.acknowledge_closing_tag(*is_self_closing);
+                    self.acknowledge_closing_tag(is_self_closing);
                 }
             }
             Token::StartTag { name, .. }
@@ -3160,7 +3166,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             } if name == "base" || name == "basefont" || name == "bgsound" || name == "link" => {
                 if name == "link" {
                     // Handle link elements, as it depends on rel/itemprop attributes and other factors
-                    self.handle_link_element(attributes.clone());
+                    self.handle_link_element(attributes);
                 }
 
                 self.acknowledge_closing_tag(*is_self_closing);
@@ -4430,7 +4436,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     /// does not do is logged, not reported as a parse error: none of it is one (the tree
     /// builder's rules for `<link>` have no error case), and a page's report should hold
     /// only what the HTML spec calls an error.
-    fn handle_link_element(&mut self, attributes: Attributes) {
+    fn handle_link_element(&mut self, attributes: &Attributes) {
         if attributes.contains_key("rel") && attributes.contains_key("itemprop") {
             // cannot have them both
             log::debug!("link element cannot have both 'rel' and 'itemprop' attributes");
@@ -5091,5 +5097,69 @@ mod owner_media_tests {
             .map(|PendingStylesheet { media, .. }| media.as_deref())
             .collect();
         assert_eq!(media, [Some("print"), None]);
+    }
+}
+
+#[cfg(test)]
+mod foreign_content_tests {
+    use crate::document::document_impl::DocumentImpl;
+    use crate::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
+    use crate::parser::Html5Parser;
+    use gosub_css3::system::Css3System;
+    use gosub_interface::config::ModuleConfiguration;
+    use gosub_interface::document::Document;
+    use gosub_shared::node::NodeId;
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct Config;
+    impl ModuleConfiguration for Config {
+        type CssSystem = Css3System;
+        type Document = DocumentImpl<Self>;
+        type HtmlParser = Html5Parser<'static, Self>;
+    }
+
+    /// First element with this tag name, depth first.
+    fn find(doc: &DocumentImpl<Config>, id: NodeId, tag: &str) -> Option<NodeId> {
+        if doc.tag_name(id) == Some(tag) {
+            return Some(id);
+        }
+        doc.children(id).iter().find_map(|&c| find(doc, c, tag))
+    }
+
+    #[test]
+    fn foreign_start_tags_get_adjusted_names_and_attributes() {
+        let doc = crate::html_compile::<Config>(
+            r##"<svg viewbox="0 0 1 1"><foreignobject></foreignobject><path xlink:href="#a"/></svg>
+                <math definitionurl="u"></math>"##,
+        );
+        let svg = find(&doc, NodeId::root(), "svg").unwrap();
+        assert_eq!(doc.namespace(svg), Some(SVG_NAMESPACE));
+        assert_eq!(doc.attribute(svg, "viewBox"), Some("0 0 1 1"));
+        assert!(find(&doc, svg, "foreignObject").is_some());
+        let path = find(&doc, svg, "path").unwrap();
+        assert_eq!(doc.attribute(path, "xlink href"), Some("#a"));
+
+        let math = find(&doc, NodeId::root(), "math").unwrap();
+        assert_eq!(doc.namespace(math), Some(MATHML_NAMESPACE));
+        assert_eq!(doc.attribute(math, "definitionURL"), Some("u"));
+    }
+
+    /// Tokens handed from foreign content to HTML processing must be the real token.
+    #[test]
+    fn tokens_handed_back_to_html_keep_their_contents() {
+        let doc = crate::html_compile::<Config>(
+            r#"<svg><b class="x">t</b></svg><svg><font color="red"></font></svg><div><svg><g></div>after"#,
+        );
+        let b = find(&doc, NodeId::root(), "b").unwrap();
+        assert_eq!(doc.namespace(b), Some(HTML_NAMESPACE));
+        assert_eq!(doc.attribute(b, "class"), Some("x"));
+
+        let font = find(&doc, NodeId::root(), "font").unwrap();
+        assert_eq!(doc.namespace(font), Some(HTML_NAMESPACE));
+        assert_eq!(doc.attribute(font, "color"), Some("red"));
+
+        let body = find(&doc, NodeId::root(), "body").unwrap();
+        let last = *doc.children(body).last().unwrap();
+        assert_eq!(doc.text_value(last), Some("after"));
     }
 }
