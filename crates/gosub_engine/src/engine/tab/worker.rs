@@ -914,6 +914,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 // The document's own title, if it has one yet: `self.title` may
                 // still be the last page's (a remote page's comes later).
                 let visit_title = title.clone().unwrap_or_default();
+                let title_changed = title.as_ref().is_some_and(|t| *t != self.title);
                 if let Some(t) = title.clone() {
                     self.title = t;
                 }
@@ -973,6 +974,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
                 // The handle shows the new page before anyone woken by `Finished` reads it.
                 self.publish_tab_state();
+                // After the publish, so `tab.title()` already answers the new title.
+                if title_changed {
+                    self.send_event(EngineEvent::TitleChanged {
+                        tab_id: self.tab_id,
+                        title: self.title.clone(),
+                    });
+                }
                 self.send_event(EngineEvent::SecurityChanged { tab_id: self.tab_id });
                 self.send_event(EngineEvent::Navigation {
                     tab_id: self.tab_id,
