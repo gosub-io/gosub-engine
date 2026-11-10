@@ -1019,17 +1019,22 @@ fn run_platform_probe(probe: &str) {
         // namespace ids must change - checking only net would miss a regression
         // that dropped ipc/uts from the flag set.
         let (net0, ipc0, uts0) = (ns_link("net"), ns_link("ipc"), ns_link("uts"));
-        assert!(
-            interfaces().len() > 1,
-            "host netns looks empty already — probe proves nothing"
-        );
+        // A host with only loopback (`--network none`) makes "only lo after the
+        // unshare" vacuous, so skip that comparison; the namespace ids still prove
+        // the unshare happened.
+        let host_has_network = interfaces().len() > 1;
+        if !host_has_network {
+            eprintln!("[selftest] netns: host has only loopback - skipping the interface comparison");
+        }
 
         crate::isolate_namespaces(crate::NamespaceIsolation::Full).expect("unshare namespaces");
 
         // The network namespace must actually have changed, and the new one must
         // hold nothing but loopback: no route off this machine exists at all.
         assert_ne!(net0, ns_link("net"), "still in the host network namespace");
-        assert_eq!(interfaces(), vec!["lo".to_string()], "netns is not empty");
+        if host_has_network {
+            assert_eq!(interfaces(), vec!["lo".to_string()], "netns is not empty");
+        }
         // ...and the IPC and UTS namespaces changed too (defense in depth).
         assert_ne!(ipc0, ns_link("ipc"), "still in the host IPC namespace");
         assert_ne!(uts0, ns_link("uts"), "still in the host UTS namespace");
