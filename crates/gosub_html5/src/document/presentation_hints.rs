@@ -246,6 +246,12 @@ pub fn hints_for<'a>(
         if let Some(width) = lookup("width").and_then(dimension) {
             push(&mut out, "width", &width);
         }
+        // Read back into an inline `<svg>`'s markup, where the page's CSS has to beat them.
+        for property in ["fill", "stroke", "color"] {
+            if let Some(value) = lookup(property) {
+                push(&mut out, property, value.trim());
+            }
+        }
         return (!out.is_empty()).then_some(out);
     }
 
@@ -533,5 +539,21 @@ mod tests {
         assert_eq!(valigned("td").as_deref(), Some("vertical-align:top"));
         assert_eq!(valigned("tbody").as_deref(), Some("vertical-align:top"));
         assert_eq!(valigned("div"), None);
+    }
+
+    #[test]
+    fn svg_paint_attributes_are_hints() {
+        let attrs = |name: &str| match name {
+            "fill" => Some(" red "),
+            "stroke" => Some("url(#g)"),
+            "color" => Some("blue"),
+            _ => None,
+        };
+        assert_eq!(
+            hints_for("path", true, attrs, none, false).as_deref(),
+            Some("fill:red;stroke:url(#g);color:blue")
+        );
+        // The same names on an HTML element mean nothing.
+        assert_eq!(hints_for("div", false, attrs, none, false), None);
     }
 }

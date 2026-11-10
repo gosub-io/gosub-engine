@@ -321,9 +321,9 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     //
     // A hint outlives it. What the check skips is *selector matching* - no rule is expected to
     // reach a `<head>` or a `<title>` - but an element's own attributes describe it whatever
-    // the sheets say, and `<svg>` is on the list while still being laid out. That used to work
-    // because the presentational attributes were applied to the computed style after the
-    // cascade had run, so an element with no map at all still got them.
+    // the sheets say. That used to work because the presentational attributes were applied to
+    // the computed style after the cascade had run, so an element with no map at all still got
+    // them.
     let matches_rules = pseudo.is_some() || !node_is_unrenderable::<C>(doc, id);
     if !matches_rules && hint_sheet.is_none() {
         return None;
@@ -1206,7 +1206,7 @@ fn sheet_scope_for<C: HasDocument>(
 /// pruned by the render tree's own list, or it will render after all - `noscript` used to be
 /// listed here and nowhere else, which is exactly how its raw text ended up on the page.
 pub fn node_is_unrenderable<C: HasDocument>(doc: &C::Document, id: NodeId) -> bool {
-    const REMOVABLE_ELEMENTS: [&str; 5] = ["head", "script", "style", "svg", "title"];
+    const REMOVABLE_ELEMENTS: [&str; 4] = ["head", "script", "style", "title"];
 
     match doc.node_type(id) {
         NodeType::ElementNode => doc.tag_name(id).is_some_and(|name| REMOVABLE_ELEMENTS.contains(&name)),

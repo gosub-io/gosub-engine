@@ -1381,7 +1381,7 @@
   },
   {
     "name": "<paint>",
-    "syntax": "none | <image> | <svg-paint>"
+    "syntax": "none | <color> | <url> [ none | <color> ]? | context-fill | context-stroke"
   },
   {
     "name": "<palette-identifier>",

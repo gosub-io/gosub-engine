@@ -1078,14 +1078,14 @@ impl RawInitial {
 
     /// The initial value this describes for the property `name`, if it describes one at all.
     fn value(&self, name: &str) -> Option<CssValue> {
+        if let Some((_, value)) = INITIAL_OVERRIDES.iter().find(|(property, _)| *property == name) {
+            return Some(initial_token(value));
+        }
+
         let RawInitial::Value(text) = self else {
             // A shorthand's initial is its longhand list; the longhands carry the values.
             return None;
         };
-
-        if let Some((_, value)) = INITIAL_OVERRIDES.iter().find(|(property, _)| *property == name) {
-            return Some(initial_token(value));
-        }
 
         if INITIAL_IS_PROSE.contains(&text.as_str()) {
             return None;
@@ -1111,7 +1111,7 @@ impl RawInitial {
 }
 
 /// Initial values the definitions data gets wrong or leaves to the UA, by property.
-const INITIAL_OVERRIDES: [(&str, &str); 3] = [
+const INITIAL_OVERRIDES: [(&str, &str); 4] = [
     // "depends on user agent": the family the engine's typed style falls back to. Without a value
     // `font-family: initial` resolved to nothing and kept the parent's family.
     ("font-family", "serif"),
@@ -1119,6 +1119,9 @@ const INITIAL_OVERRIDES: [(&str, &str); 3] = [
     ("flood-opacity", "1"),
     // The same copy of `stop-color`'s initial; SVG 2 §13.2.3 says 1.
     ("stop-opacity", "1"),
+    // css-fill-stroke-3 makes `stroke` a shorthand and the data lists its longhands; the engine
+    // reads it as SVG 2's longhand, whose initial is `none` (SVG 2 §13.2).
+    ("stroke", "none"),
 ];
 
 /// One token of an initial value, as the stylesheet parser would read it: a bare zero is its
@@ -2934,7 +2937,7 @@ mod initial_values {
 
     /// Longhands whose initial value still does not match their own grammar, and why. Each is a
     /// vendor or draft property whose data disagrees with its grammar; none is read by the engine.
-    const KNOWN_MISMATCHES: [&str; 15] = [
+    const KNOWN_MISMATCHES: [&str; 14] = [
         // Microsoft's `snapInterval()` and "depends on the user agent".
         "-ms-content-zoom-snap-points",
         "-ms-scroll-snap-points-x",
@@ -2953,8 +2956,6 @@ mod initial_values {
         "position-visibility",
         "speak-as",
         "text-emphasis-position",
-        // `<paint>` names a colour the data spells as a bare keyword.
-        "fill",
     ];
 
     /// Every longhand's initial value is a value its own grammar accepts, so `initial` means

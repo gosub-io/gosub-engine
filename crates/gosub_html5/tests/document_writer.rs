@@ -179,6 +179,23 @@ fn xml_mode_escapes_raw_text_without_turning_literal_entities_into_characters() 
     );
 }
 
+/// Root attributes replace the root's own of the same name, and only the root's.
+#[test]
+fn svg_mode_sets_attributes_on_the_root_only() {
+    let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+    let svg = doc.create_element("svg", Some(SVG_NAMESPACE), Attributes::new(), Location::default());
+    let path = doc.create_element("path", Some(SVG_NAMESPACE), Attributes::new(), Location::default());
+    doc.attach(svg, doc.root(), None);
+    doc.attach(path, svg, None);
+    doc.set_attribute(svg, "fill", "black");
+    doc.set_attribute(svg, "viewBox", "0 0 1 1");
+    doc.set_attribute(path, "fill", "blue");
+    assert_eq!(
+        doc.write_svg_from_node(svg, &[("fill", "#fff".to_string()), ("color", "a\"b".to_string())]),
+        "<svg viewBox=\"0 0 1 1\" fill=\"#fff\" color=\"a&quot;b\"><path fill=\"blue\"></path></svg>"
+    );
+}
+
 /// XML consumers require balanced tags even for HTML void elements inside foreignObject content.
 #[test]
 fn xml_mode_closes_html_void_elements_and_keeps_their_children() {

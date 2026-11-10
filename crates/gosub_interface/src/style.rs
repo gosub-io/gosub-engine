@@ -415,6 +415,17 @@ pub enum ListStylePosition {
     Outside,
 }
 
+/// An SVG `<paint>`: what `fill` and `stroke` paint with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Paint {
+    None,
+    Color(Color),
+    /// `currentColor`, kept as the keyword so a descendant with another `color` paints with its own.
+    CurrentColor,
+    /// A paint server in the SVG (`url(#gradient)`), by reference.
+    Url(Arc<str>),
+}
+
 /// `visibility`: whether the box paints. A hidden box still takes its place in layout, and a
 /// descendant that says `visible` paints inside it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -647,6 +658,8 @@ declare_props! {
     BorderSpacingY,
     BorderCollapse,
     Visibility,
+    Fill,
+    Stroke,
 
     Display,
     Position,
@@ -824,6 +837,8 @@ pub struct InheritedGroup {
     pub border_spacing_y: f32,
     pub border_collapse: BorderCollapse,
     pub visibility: Visibility,
+    pub fill: Paint,
+    pub stroke: Paint,
     /// Whether this element or any ancestor computes to `visibility: force-hidden`.
     ///
     /// A descendant that says `visible` under such a box still computes to `visible` (the
@@ -1387,6 +1402,8 @@ impl ComputedStyle {
                 border_spacing_y: 0.0,
                 border_collapse: BorderCollapse::Separate,
                 visibility: Visibility::Visible,
+                fill: Paint::Color(Color::BLACK),
+                stroke: Paint::None,
                 force_hidden_in_chain: false,
                 font_size_declared_in_chain: false,
             }),
@@ -1540,6 +1557,11 @@ impl HeapSize for InheritedGroup {
         self.font_family.heap_size(walk);
         if let ListStyleType::String(text) = &self.list_style_type {
             text.heap_size(walk);
+        }
+        for paint in [&self.fill, &self.stroke] {
+            if let Paint::Url(target) = paint {
+                target.heap_size(walk);
+            }
         }
     }
 }
