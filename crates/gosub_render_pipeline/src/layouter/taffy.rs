@@ -32,7 +32,7 @@ use gosub_interface::style::{
     VerticalAlign as CssVerticalAlign, WhiteSpace, WordBreak,
 };
 use gosub_interface::used;
-use gosub_shared::microsyntax::{parse_dimension_value, parse_floating_point_number, DimensionValue};
+use gosub_shared::microsyntax::parse_floating_point_number;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -249,17 +249,6 @@ const MAX_CONTROL_CHARS: usize = 1000;
 /// the smallest stack an embedder might run us on. Raising it much further needs an iterative
 /// walk here plus a layout thread of our own - taffy's recursion is not ours to change.
 pub(crate) const MAX_LAYOUT_DEPTH: usize = 128;
-
-/// An HTML dimension attribute (`<img width="80">`, `width="50%"`), read by the rules for
-/// parsing dimension values. A value past f32 range is dropped.
-fn parse_dimension_attr(v: &str) -> Option<Dimension> {
-    match parse_dimension_value(v)? {
-        DimensionValue::Length(px) => Some(px as f32).filter(|px| px.is_finite()).map(Dimension::length),
-        DimensionValue::Percentage(pct) => Some(pct as f32 / 100.0)
-            .filter(|f| f.is_finite())
-            .map(Dimension::percent),
-    }
-}
 
 // Cache key: (text, font_family, size_bits, line_height_bits, weight, max_width_bits,
 // letter_spacing_bits). Floats are stored as their bit pattern so the tuple is Hash + Eq.
@@ -3374,18 +3363,6 @@ impl TaffyLayouter {
                                 }
                             }
 
-                            // A broken/placeholder image still reserves the author's declared
-                            // box (HTML width/height attrs), matching Firefox, which draws a small
-                            // broken-image icon inside that reserved space rather than collapsing.
-                            if is_placeholder {
-                                if let Some(w) = data.get_attribute("width").and_then(|s| parse_dimension_attr(s)) {
-                                    taffy_style.size.width = w;
-                                }
-                                if let Some(h) = data.get_attribute("height").and_then(|s| parse_dimension_attr(s)) {
-                                    taffy_style.size.height = h;
-                                }
-                            }
-
                             // Browsers show the `alt` text only when the image itself renders
                             // nothing useful: a broken/placeholder load, or a fully transparent
                             // image. A normally-decoded, visible image never shows its alt.
@@ -3418,15 +3395,8 @@ impl TaffyLayouter {
                             });
                         }
                         MediaRequest::Pending => {
-                            // Placeholder size: honour the HTML width/height attributes if present,
-                            // otherwise leave whatever CSS sizing convert() produced (0x0 for a bare
-                            // <img>). The reflow after the fetch completes installs the real size.
-                            if let Some(w) = data.get_attribute("width").and_then(|s| parse_dimension_attr(s)) {
-                                taffy_style.size.width = w;
-                            }
-                            if let Some(h) = data.get_attribute("height").and_then(|s| parse_dimension_attr(s)) {
-                                taffy_style.size.height = h;
-                            }
+                            // The cascade already carries the width/height attributes as
+                            // presentational hints; the reflow after the fetch installs the real size.
                         }
                     }
                 }
@@ -4828,22 +4798,6 @@ impl TaffyLayouter {
 mod tests {
     use super::{apply_text_transform, img_natural_size, to_absolute_url};
     use gosub_interface::style::TextTransform;
-
-    /// `width`/`height` on an image read as HTML dimensions: `inf` and `NaN` are not sizes.
-    #[test]
-    fn img_dimension_attributes_follow_the_html_rules() {
-        use super::parse_dimension_attr as parse;
-        use taffy::style::Dimension;
-
-        assert_eq!(parse("80"), Some(Dimension::length(80.0)));
-        assert_eq!(parse("80px"), Some(Dimension::length(80.0)));
-        assert_eq!(parse("50%"), Some(Dimension::percent(0.5)));
-        assert_eq!(parse("inf"), None);
-        assert_eq!(parse("NaN"), None);
-        assert_eq!(parse("-5"), None);
-        assert_eq!(parse("1e40"), Some(Dimension::length(1.0)));
-        assert_eq!(parse(&"9".repeat(40)), None);
-    }
 
     /// A 4000x3000 image the decoder kept as a small buffer still lays out at
     /// 4000x3000, not at the buffer's size.

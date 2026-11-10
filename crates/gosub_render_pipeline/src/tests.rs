@@ -4492,6 +4492,26 @@ mod rendertree_from_engine {
             .collect()
     }
 
+    /// An image that has not loaded reserves its `width`/`height` attributes, and author CSS
+    /// beats them: they are presentational hints (HTML 15.4.3), not a size of their own.
+    #[test]
+    fn an_unloaded_image_reserves_its_attributes_below_author_css() {
+        let boxes = border_boxes(
+            r#"<body style="margin: 0"><div style="width: 400px">
+               <img id="attrs" style="display: block" src="missing.png" width="80" height="40">
+               <img id="css" style="display: block; width: 120px" src="missing.png" width="50%">
+               <img id="pct" style="display: block" src="missing.png" width="50%" height="10">
+               <img id="inf" style="display: block" src="missing.png" width="inf" height="10">
+            </div></body>"#,
+            &["attrs", "css", "pct", "inf"],
+        );
+        let sizes: Vec<(f64, f64)> = boxes.iter().map(|b| (b.width, b.height)).collect();
+        assert_eq!(sizes[0], (80.0, 40.0), "{sizes:?}");
+        assert_eq!(sizes[1].0, 120.0, "{sizes:?}");
+        assert_eq!(sizes[2].0, 200.0, "{sizes:?}");
+        assert!(sizes[3].0.is_finite(), "{sizes:?}");
+    }
+
     /// A range input stretched by its flex container takes the container's height, so its thumb
     /// is centred on the stretched box (WPT css-flexbox/flexitem-stretch-range). The UA sheet
     /// pinned its 129x21 as `width`/`height`, a definite size that `align-items: stretch` cannot
