@@ -19,9 +19,9 @@ use gosub_interface::style::{
     BackgroundTile, BorderCollapse, BorderStyle, BoxShadow, BoxSizing, CaptionSide, Clear, Color, ComputedStyle,
     Display, FlexDirection, FlexWrap, Float, FontStyle, FontWeight, GradientStop, GridAreas, GridAutoFlow, GridLine,
     LengthPercentage, LengthPercentageAuto, LetterSpacing, LineHeight, LinearGradient, ListStylePosition,
-    ListStyleType, ObjectFit, Overflow, OverflowWrap, Position, Prop, RepeatCount, TabSize, TableLayout, TextAlign,
-    TextDecorationLine, TextOverflow, TextTransform, TextWrap, TrackBreadth, TrackList, TrackListItem, TrackSize,
-    VerticalAlign, Visibility, WhiteSpace, WordBreak, ZIndex,
+    ListStyleType, ObjectFit, Overflow, OverflowWrap, Paint, Position, Prop, RepeatCount, TabSize, TableLayout,
+    TextAlign, TextDecorationLine, TextOverflow, TextTransform, TextWrap, TrackBreadth, TrackList, TrackListItem,
+    TrackSize, VerticalAlign, Visibility, WhiteSpace, WordBreak, ZIndex,
 };
 
 use crate::colors::resolve::{resolve_color, ColorContext};
@@ -284,6 +284,20 @@ pub(crate) fn used_color(value: &CssValue, current: Color) -> Option<Color> {
     ));
     let context = ColorContext { current: Some(current) };
     resolve_color(value, &context).color().map(to_color)
+}
+
+/// An SVG `<paint>`. A fallback colour after a `url()` is dropped.
+fn paint(value: &CssValue) -> Option<Paint> {
+    if is_keyword(value, "none") {
+        return Some(Paint::None);
+    }
+    if is_keyword(value, "currentcolor") {
+        return Some(Paint::CurrentColor);
+    }
+    if let Some(target) = first_url(value) {
+        return Some(Paint::Url(Arc::from(target)));
+    }
+    color(value).map(Paint::Color)
 }
 
 // ── `url()` ──────────────────────────────────────────────────────────────────
@@ -1064,6 +1078,8 @@ static ENGINE_LONGHANDS: &[(LonghandId, Prop, u16)] = &[
     (LonghandId::ListStylePosition, Prop::ListStylePosition, G_INHERITED),
     (LonghandId::BorderCollapse, Prop::BorderCollapse, G_INHERITED),
     (LonghandId::Visibility, Prop::Visibility, G_INHERITED),
+    (LonghandId::Fill, Prop::Fill, G_INHERITED),
+    (LonghandId::Stroke, Prop::Stroke, G_INHERITED),
     (LonghandId::TextDecorationLine, Prop::TextDecorationLine, G_INHERITED),
     (LonghandId::BorderSpacing, Prop::BorderSpacingX, G_INHERITED),
     (LonghandId::BorderSpacing, Prop::BorderSpacingY, G_INHERITED),
@@ -1556,6 +1572,8 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
             VisibilityKeyword::Collapse => Visibility::Collapse,
         })
     });
+    read!(map, style, Fill, inherited_mut, fill, paint);
+    read!(map, style, Stroke, inherited_mut, stroke, paint);
     // Inside a `force-hidden` box a descendant that says `visible` computes to `visible` but
     // still does not render; the flag carries that down, since the value cannot.
     if style.inherited.visibility == Visibility::ForceHidden && !style.inherited.force_hidden_in_chain {
@@ -2953,6 +2971,30 @@ mod tests {
 
     fn keyword(value: &str) -> CssValue {
         CssValue::String(value.to_string())
+    }
+
+    #[test]
+    fn fill_and_stroke_read_a_paint() {
+        let fill = |css: &str| style_of(&format!("fill: {css}")).inherited.fill.clone();
+        assert_eq!(fill("white"), Paint::Color(Color::rgba(255, 255, 255, 255)));
+        assert_eq!(fill("none"), Paint::None);
+        assert_eq!(fill("currentColor"), Paint::CurrentColor);
+        assert_eq!(fill("url(#g) red"), Paint::Url(Arc::from("#g")));
+        assert_eq!(style_of("color: red").inherited.fill, Paint::Color(Color::BLACK));
+        assert_eq!(
+            style_of("stroke: blue").inherited.stroke,
+            Paint::Color(Color::rgba(0, 0, 255, 255))
+        );
+        assert_eq!(style_of("stroke: initial").inherited.stroke, Paint::None);
+    }
+
+    /// `currentColor` inherits as the keyword, so it follows the child's own `color`.
+    #[test]
+    fn current_color_fill_inherits_as_the_keyword() {
+        let parent = style_of("fill: currentColor; color: red");
+        let child = computed_style(&map_of("color: blue"), Some(&parent));
+        assert_eq!(child.inherited.fill, Paint::CurrentColor);
+        assert_eq!(child.inherited.color, Color::rgba(0, 0, 255, 255));
     }
 
     /// Nothing declared is the parent's inherited group and the initial value of everything

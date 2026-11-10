@@ -12,15 +12,25 @@ impl DocumentWriter {
     /// Serialize a node and its descendants with HTML fragment serialization rules.
     pub fn write_from_node<C: HasDocument>(node_id: NodeId, doc: &C::Document) -> String {
         let mut buffer = String::new();
-        write_node::<C>(node_id, doc, Format::Html, &mut buffer);
+        write_node::<C>(node_id, doc, Format::Html, &[], &mut buffer);
         buffer
     }
 
     /// Serialize an inline SVG subtree for an XML consumer: escape all text, avoid HTML-only
     /// entities, and close every element, including HTML elements inside `foreignObject`.
     pub fn write_xml_from_node<C: HasDocument>(node_id: NodeId, doc: &C::Document) -> String {
+        Self::write_svg_from_node::<C>(node_id, doc, &[])
+    }
+
+    /// The same, with `root_attrs` set on the subtree's root element in place of any attribute
+    /// of the same name.
+    pub fn write_svg_from_node<C: HasDocument>(
+        node_id: NodeId,
+        doc: &C::Document,
+        root_attrs: &[(&str, String)],
+    ) -> String {
         let mut buffer = String::new();
-        write_node::<C>(node_id, doc, Format::Xml, &mut buffer);
+        write_node::<C>(node_id, doc, Format::Xml, root_attrs, &mut buffer);
         buffer
     }
 }
@@ -132,7 +142,13 @@ enum Step {
 
 /// Append a subtree in the selected format using a heap work stack to keep deep trees stack-safe.
 /// Shadow roots are emitted as declarative templates before their host's light children.
-fn write_node<C: HasDocument>(root: NodeId, doc: &C::Document, format: Format, buf: &mut String) {
+fn write_node<C: HasDocument>(
+    root: NodeId,
+    doc: &C::Document,
+    format: Format,
+    root_attrs: &[(&str, String)],
+    buf: &mut String,
+) {
     let mut stack = vec![Step::Enter(root)];
 
     while let Some(step) = stack.pop() {
@@ -210,14 +226,25 @@ fn write_node<C: HasDocument>(root: NodeId, doc: &C::Document, format: Format, b
                 };
                 buf.push('<');
                 buf.push_str(name);
+                let overrides = if id == root { root_attrs } else { &[] };
                 if let Some(attrs) = doc.attributes(id) {
                     for (attr_name, attr_value) in attrs {
+                        if overrides.iter().any(|(name, _)| name == attr_name) {
+                            continue;
+                        }
                         buf.push(' ');
                         write_attribute_name(attr_name, buf);
                         buf.push_str("=\"");
                         write_escaped(attr_value, true, format, buf);
                         buf.push('"');
                     }
+                }
+                for (attr_name, attr_value) in overrides {
+                    buf.push(' ');
+                    buf.push_str(attr_name);
+                    buf.push_str("=\"");
+                    write_escaped(attr_value, true, format, buf);
+                    buf.push('"');
                 }
                 buf.push('>');
                 if format == Format::Html && serializes_as_void::<C>(id, name, doc) {

@@ -4,7 +4,7 @@ use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem, CssValue};
 use gosub_interface::document::Document as _;
 use gosub_interface::node::NodeType as GosubNodeType;
-use gosub_interface::style::{ComputedStyle, Display, Prop};
+use gosub_interface::style::{Color, ComputedStyle, Display, Paint, Prop};
 use gosub_shared::node::NodeId;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -318,6 +318,25 @@ const fn role_is_text(role: u64) -> bool {
 struct PseudoBox<P> {
     styles: Arc<P>,
     text: Option<String>,
+}
+
+/// A paint as an SVG attribute value.
+fn svg_paint(paint: &Paint) -> String {
+    match paint {
+        Paint::None => "none".to_string(),
+        Paint::Color(color) => svg_color(*color),
+        Paint::CurrentColor => "currentColor".to_string(),
+        Paint::Url(target) => format!("url({target})"),
+    }
+}
+
+fn svg_color(color: Color) -> String {
+    let Color { r, g, b, a } = color;
+    if a == 255 {
+        format!("#{r:02x}{g:02x}{b:02x}")
+    } else {
+        format!("rgba({r}, {g}, {b}, {:.3})", f32::from(a) / 255.0)
+    }
 }
 
 fn unquote(s: &str) -> String {
@@ -1634,11 +1653,21 @@ where
     }
 
     /// Serialize a real DOM subtree for the SVG XML decoder; synthetic layout nodes emit nothing.
+    ///
+    /// The decoder never sees the page's CSS, so the root takes its computed `fill`, `stroke` and
+    /// `color` as attributes, and the SVG inherits them from there.
     fn svg_xml(&self, id: NodeId) -> String {
         if is_pseudo_id(u64::from(id)) || is_anon_box_id(u64::from(id)) {
             return String::new();
         }
-        self.doc.write_xml_from_node(id)
+        let style = self.cached_computed_style(id);
+        let inherited = &style.inherited;
+        let root_attrs = [
+            ("fill", svg_paint(&inherited.fill)),
+            ("stroke", svg_paint(&inherited.stroke)),
+            ("color", svg_color(inherited.color)),
+        ];
+        self.doc.write_svg_from_node(id, &root_attrs)
     }
 
     fn get_node_by_id(&self, id: NodeId) -> Option<Node> {

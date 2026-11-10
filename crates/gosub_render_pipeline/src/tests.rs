@@ -67,6 +67,57 @@ mod rendertree_from_engine {
         );
     }
 
+    /// The SVG decoder never sees the page's CSS, so the root `<svg>` carries its computed
+    /// `fill`, `stroke` and `color` (GOS-360). They replace the root's own attributes, which the
+    /// cascade already weighed as presentation attributes.
+    #[test]
+    fn inline_svg_root_takes_the_computed_paint() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_shared::node::NodeId;
+        use resvg::usvg;
+
+        fn find(a: &GosubDocumentAdapter<Config>, node: NodeId) -> Option<NodeId> {
+            if a.doc.tag_name(node) == Some("svg") {
+                return Some(node);
+            }
+            a.doc.children(node).iter().find_map(|&child| find(a, child))
+        }
+        let xml = |html: &str| {
+            let mut doc = html_compile::<Config>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+            let svg = find(&adapter, adapter.doc.root()).expect("an svg");
+            adapter.svg_xml(svg)
+        };
+        let path_fill = |xml: &str| {
+            let tree = usvg::Tree::from_str(xml, &usvg::Options::default()).expect("the svg decodes");
+            let usvg::Node::Path(path) = &tree.root().children()[0] else {
+                panic!("not a path");
+            };
+            match path.fill().map(usvg::Fill::paint) {
+                Some(usvg::Paint::Color(c)) => Some((c.red, c.green, c.blue)),
+                _ => None,
+            }
+        };
+
+        // Apple's nav: no fill in the SVG that counts, the colour comes from the link.
+        let apple = xml(r#"<style>a { color: #fff } svg { fill: currentColor }</style>
+            <a><svg viewBox="0 0 10 10" fill="black"><path d="M0 0H10V10z"/></svg></a>"#);
+        assert!(
+            apple.starts_with(r##"<svg viewBox="0 0 10 10" fill="currentColor" stroke="none" color="#ffffff">"##),
+            "{apple}"
+        );
+        assert_eq!(path_fill(&apple), Some((255, 255, 255)));
+
+        // Without CSS the root's own attribute stands, and a path's own fill still wins.
+        let own = xml(r#"<svg viewBox="0 0 10 10" fill="red"><path d="M0 0H10V10z"/></svg>"#);
+        assert_eq!(path_fill(&own), Some((255, 0, 0)));
+        let path = xml(
+            r#"<style>svg { fill: red }</style><svg viewBox="0 0 10 10"><path fill="blue" d="M0 0H10V10z"/></svg>"#,
+        );
+        assert_eq!(path_fill(&path), Some((0, 0, 255)));
+    }
+
     /// Range and meter attributes are read with HTML's rules for parsing floating-point numbers
     /// (#1392). `NaN` used to reach `f64::clamp` as a bound and panic layout; `inf` and `1e999`
     /// were taken as numbers. Each is an error now, and the attribute's default applies.
