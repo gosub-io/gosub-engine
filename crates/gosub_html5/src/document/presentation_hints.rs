@@ -300,7 +300,7 @@ pub fn hints_for<'a>(
         push(&mut out, "list-style-type", value);
     }
 
-    // §15.3.9, the dimension attributes: a replaced element's `width` is a CSS width.
+    // §15.3.9, the dimension attributes: a replaced element's `width` and `height` are CSS ones.
     let dimension_attr = match tag {
         "img" | "embed" | "iframe" | "object" | "video" => true,
         "input" => lookup("type").is_some_and(|value| value.eq_ignore_ascii_case("image")),
@@ -309,6 +309,9 @@ pub fn hints_for<'a>(
     if dimension_attr {
         if let Some(width) = lookup("width").and_then(dimension) {
             push(&mut out, "width", &width);
+        }
+        if let Some(height) = lookup("height").and_then(dimension) {
+            push(&mut out, "height", &height);
         }
     } else if matches!(tag, "table" | "td" | "th" | "col" | "colgroup" | "hr") {
         // §15.3.6 and §15.3.10: the same attribute on the table family and on `<hr>`, where a
@@ -446,6 +449,27 @@ mod tests {
         assert_eq!(input(Some("image")).as_deref(), Some("width:10px"));
         assert_eq!(input(Some("text")), None);
         assert_eq!(input(None), None);
+    }
+
+    /// `height` maps next to `width` on a replaced element, and on `<hr>` it means nothing.
+    #[test]
+    fn height_maps_with_width_on_replaced_elements() {
+        let sized = |tag: &str| {
+            hints_for(
+                tag,
+                false,
+                |name| match name {
+                    "width" => Some("80"),
+                    "height" => Some("40"),
+                    _ => None,
+                },
+                none,
+                false,
+            )
+        };
+        assert_eq!(sized("img").as_deref(), Some("width:80px;height:40px"));
+        assert_eq!(sized("iframe").as_deref(), Some("width:80px;height:40px"));
+        assert_eq!(sized("hr").as_deref(), Some("width:80px"));
     }
 
     #[test]
