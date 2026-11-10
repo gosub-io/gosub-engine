@@ -212,19 +212,34 @@ impl Painter {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         let visible = doc.computed_style(dom_node_id).is_visible();
 
+        // An ancestor's `overflow` clips the element's own paint; the debug overlays stay whole.
+        let clip = self.layer_list.clip(element_id);
+        let clipped = |own: Vec<PaintCommand>| match clip {
+            None => own,
+            Some(_) if own.is_empty() => own,
+            Some(rect) if rect.width <= 0.0 || rect.height <= 0.0 => Vec::new(),
+            Some(rect) => {
+                let mut out = Vec::with_capacity(own.len() + 2);
+                out.push(PaintCommand::PushClip(rect));
+                out.extend(own);
+                out.push(PaintCommand::PopClip);
+                out
+            }
+        };
+
         match state.wireframed {
             WireframeState::Only => {
                 commands.extend(self.generate_wireframe_commands(layout_element));
             }
             WireframeState::Both => {
                 if visible {
-                    commands.extend(self.generate_element_commands(layout_element, dom_node_id));
+                    commands.extend(clipped(self.generate_element_commands(layout_element, dom_node_id)));
                 }
                 commands.extend(self.generate_wireframe_commands(layout_element));
             }
             WireframeState::None => {
                 if visible {
-                    commands.extend(self.generate_element_commands(layout_element, dom_node_id));
+                    commands.extend(clipped(self.generate_element_commands(layout_element, dom_node_id)));
                 }
             }
         }
@@ -1040,7 +1055,7 @@ impl Painter {
                 // No caret index into a placeholder; it sits at the start.
                 let mut caret = caret.map(|c| if is_placeholder { 0 } else { c.min(text.chars().count()) });
 
-                // Paint commands can't clip, so cut the text to what fits (see `text_field`).
+                // Nothing clips a control's own text, so cut it to what fits (see `text_field`).
                 let mut caret_pos: Option<(f64, f64)> = None;
                 let mut rows_to_draw: Vec<(String, f64)> = Vec::new();
                 let mut highlights: Vec<Rect> = Vec::new();

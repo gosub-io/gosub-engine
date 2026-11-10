@@ -27,7 +27,7 @@ use gosub_interface::style::{Overflow, Position, Prop};
 
 /// `id`'s `overflow` on each axis, as computed: `visible` beside a value that scrolls or hides
 /// becomes `auto` (CSS Overflow 3, §3.1), so only `visible` beside `visible` or `clip` stays.
-fn overflow(doc: &dyn PipelineDocument, id: DomNodeId) -> (Overflow, Overflow) {
+pub(crate) fn overflow(doc: &dyn PipelineDocument, id: DomNodeId) -> (Overflow, Overflow) {
     let style = doc.computed_style(id);
     let x = if style.has(Prop::OverflowX) {
         style.box_group.overflow_x
@@ -48,7 +48,7 @@ fn overflow(doc: &dyn PipelineDocument, id: DomNodeId) -> (Overflow, Overflow) {
 }
 
 /// Whether `id`'s box clips what overflows it, horizontally and vertically.
-fn clips(doc: &dyn PipelineDocument, id: DomNodeId) -> (bool, bool) {
+pub(crate) fn clips(doc: &dyn PipelineDocument, id: DomNodeId) -> (bool, bool) {
     let (x, y) = overflow(doc, id);
     (x != Overflow::Visible, y != Overflow::Visible)
 }
@@ -56,6 +56,16 @@ fn clips(doc: &dyn PipelineDocument, id: DomNodeId) -> (bool, bool) {
 fn is_fixed(doc: &dyn PipelineDocument, id: DomNodeId) -> bool {
     let style = doc.computed_style(id);
     style.has(Prop::Position) && style.box_group.position == Position::Fixed
+}
+
+/// The box whose `overflow` the window takes: the root's, or the body's when the root's is
+/// `visible` (§3.3). That box itself clips nothing.
+pub(crate) fn viewport_overflow_node(doc: &dyn PipelineDocument) -> Option<DomNodeId> {
+    let visible = (Overflow::Visible, Overflow::Visible);
+    match doc.html_node_id() {
+        Some(id) if overflow(doc, id) != visible => Some(id),
+        _ => doc.body_node_id(),
+    }
 }
 
 /// The size of the page the window scrolls over, measured from the origin.
@@ -72,11 +82,7 @@ pub fn scrollable_extent(layout_tree: &LayoutTree) -> Dimension {
     // it hides or clips; `auto` and `scroll` scroll over the overflow.
     let doc = layout_tree.render_tree.doc.as_ref();
     let visible = (Overflow::Visible, Overflow::Visible);
-    let html = doc.html_node_id();
-    let propagated = match html {
-        Some(id) if overflow(doc, id) != visible => Some(id),
-        _ => doc.body_node_id(),
-    };
+    let propagated = viewport_overflow_node(doc);
     let (window_x, window_y) = propagated.map_or(visible, |id| overflow(doc, id));
     let stops = |v| matches!(v, Overflow::Hidden | Overflow::Clip);
     let (window_x, window_y) = (stops(window_x), stops(window_y));

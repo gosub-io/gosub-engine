@@ -111,6 +111,10 @@ GPU backends that render the whole viewport as a single scene (no tiles) get the
 
 Note that per-tile rasterizers never see `PushLayer`/`PopLayer` — the tile path applies opacity and anchoring at composite time, so tile rasterizers simply ignore those commands.
 
+## Overflow clips
+
+`LayerList` also holds each element's clip (`layering/clip.rs`): the padding boxes of the ancestors whose `overflow` is not `visible`, intersected, following the containing block chain - an absolutely positioned box escapes a clipping box below its containing block, a fixed box escapes all. The box the window takes its `overflow` from (root, or body) clips nothing. `Painter::paint_element` wraps an element's own commands in `PushClip(rect) ... PopClip`, which every rasterizer applies, on both the tile and the scene path; a clip with no area paints nothing. The tiler gives an element only the tiles its clip lets through, and hit-testing skips the clipped part.
+
 ## Hit-testing across layers
 
 `LayerList::find_element_at(vp_x, vp_y, scroll_x, scroll_y)` walks layers **top-to-bottom** (reverse `layer_ids` order) and inverts each layer's composite mapping to convert the viewport point into that layer's page space: fixed layers are tested at the raw viewport coordinate, scrolling layers at `viewport + scroll`, sticky layers at `viewport + scroll − sticky_offset`. This is why hovering a fixed navbar works regardless of scroll position.

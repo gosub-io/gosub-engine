@@ -108,6 +108,11 @@ pub(crate) fn paint_commands_to_scene(
                     cur = prev;
                 }
             }
+            PaintCommand::PushClip(rect) => {
+                let clip = Rect::new(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height);
+                scene.push_clip_layer(Fill::NonZero, cur, &clip);
+            }
+            PaintCommand::PopClip => scene.pop_layer(),
             PaintCommand::Svg(command) if !on_surface(command.rect.rect(), cur) => {}
             PaintCommand::Rectangle(command) if !on_surface(command.ink_rect(), cur) => {}
             PaintCommand::Text(command) if !on_surface(text_ink_box(command), cur) => {}

@@ -1,3 +1,4 @@
+use crate::common::geo::Rect;
 use crate::common::media::MediaId;
 use crate::painter::commands::rectangle::Rectangle;
 use crate::painter::commands::text::Text;
@@ -41,6 +42,11 @@ pub enum PaintCommand {
     },
     /// End the most recent [`PaintCommand::PushLayer`] group.
     PopLayer,
+    /// Clip everything up to the matching [`PaintCommand::PopClip`] to this rect, in page
+    /// coordinates. Both the tile and the scene path emit these.
+    PushClip(Rect),
+    /// End the most recent [`PaintCommand::PushClip`].
+    PopClip,
 }
 
 impl PaintCommand {

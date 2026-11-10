@@ -5199,6 +5199,8 @@ mod rendertree_from_engine {
 #[cfg(test)]
 mod list_markers;
 #[cfg(test)]
+mod overflow_clip;
+#[cfg(test)]
 mod preserved_white_space;
 #[cfg(test)]
 mod shadow_dom;
