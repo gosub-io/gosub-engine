@@ -343,6 +343,7 @@ mod tests {
         assert_eq!(dimension("-5"), None);
         // A trailing dot ends the number without being part of it.
         assert_eq!(dimension("50."), Some("50px".to_string()));
+        assert_eq!(dimension("50.%"), Some("50%".to_string()));
     }
 
     /// A zero is an error for the attributes that use the nonzero rules, and only for those.

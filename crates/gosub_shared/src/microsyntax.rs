@@ -104,14 +104,16 @@ pub fn parse_dimension_value(input: &str) -> Option<DimensionValue> {
     if position == 0 {
         return None;
     }
+    let mut end = position;
     if bytes.get(position) == Some(&b'.') {
         let count = bytes[position + 1..].iter().take_while(|b| b.is_ascii_digit()).count();
-        if count == 0 {
-            return convert(&input[..position]).map(DimensionValue::Length);
-        }
+        // A `.` with no digit after it is skipped, so `50.%` is still a percentage.
         position += 1 + count;
+        if count > 0 {
+            end = position;
+        }
     }
-    let value = convert(&input[..position])?;
+    let value = convert(&input[..end])?;
     Some(if bytes.get(position) == Some(&b'%') {
         DimensionValue::Percentage(value)
     } else {
@@ -210,9 +212,16 @@ mod tests {
         #[test]
         fn anything_after_the_number_ends_it() {
             assert_eq!(parse("300px"), Some(Length(300.0)));
-            assert_eq!(parse("50.%"), Some(Length(50.0)));
             assert_eq!(parse("1.5.6"), Some(Length(1.5)));
             assert_eq!(parse("1e3"), Some(Length(1.0)));
+        }
+
+        /// A trailing `.` is skipped before the `%` check (the spec's "current dimension value").
+        #[test]
+        fn a_trailing_dot_keeps_the_percentage() {
+            assert_eq!(parse("50.%"), Some(Percentage(50.0)));
+            assert_eq!(parse("50."), Some(Length(50.0)));
+            assert_eq!(parse("50.px"), Some(Length(50.0)));
         }
 
         #[test]
