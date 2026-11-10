@@ -26,7 +26,7 @@ use crate::rendertree_builder::{RenderNodeId, RenderTree};
 use gosub_fontmanager::ParleyFontSystem;
 use gosub_interface::font_system::FontSystem;
 use gosub_interface::style::{
-    BackgroundImage, BackgroundSize, BorderStyle, ComputedStyle, Display as CssDisplay, Float as CssFloat,
+    AspectRatio, BackgroundImage, BackgroundSize, BorderStyle, ComputedStyle, Display as CssDisplay, Float as CssFloat,
     LengthPercentage as CssLp, LengthPercentageAuto as CssLpa, LineHeight, ListStylePosition, Overflow as CssOverflow,
     OverflowWrap, Position as CssPosition, TabSize, TextAlign, TextTransform as CssTextTransform,
     VerticalAlign as CssVerticalAlign, WhiteSpace, WordBreak,
@@ -3333,8 +3333,18 @@ impl TaffyLayouter {
                             // inside a `figure`). Without this, taffy's block layout leaves height
                             // unconstrained and the image stretches to fill its box. Skip it when the
                             // author fixed BOTH axes to definite lengths - the explicit box wins then,
-                            // matching CSS `aspect-ratio: auto` for replaced elements.
-                            if !is_placeholder && dimension.width > 0.0 && dimension.height > 0.0 {
+                            // matching CSS `aspect-ratio: auto` for replaced elements. A ratio
+                            // declared without `auto` beats the natural one (css-sizing-4 §5.1).
+                            let declared_ratio = matches!(
+                                layout_tree
+                                    .render_tree
+                                    .doc
+                                    .computed_style(dom_node.node_id)
+                                    .box_group
+                                    .aspect_ratio,
+                                AspectRatio::Ratio(_)
+                            );
+                            if !is_placeholder && !declared_ratio && dimension.width > 0.0 && dimension.height > 0.0 {
                                 let both_fixed = taffy_style.size.width.into_option().is_some()
                                     && taffy_style.size.height.into_option().is_some();
                                 let ratio = (dimension.width / dimension.height) as f32;

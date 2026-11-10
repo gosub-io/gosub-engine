@@ -77,7 +77,7 @@ impl<'a> CssTaffyConverter<'a> {
         ts.min_size.height = self.lpa(Prop::MinHeight, size.min_height, ts.min_size.height);
         ts.max_size.width = self.lpa(Prop::MaxWidth, size.max_width, ts.max_size.width);
         ts.max_size.height = self.lpa(Prop::MaxHeight, size.max_height, ts.max_size.height);
-        ts.aspect_ratio = self.style.box_group.aspect_ratio.or(ts.aspect_ratio);
+        ts.aspect_ratio = self.style.box_group.aspect_ratio.ratio().or(ts.aspect_ratio);
         ts.gap = self.get_gap(ts.gap);
         ts.align_items = self.get_align_items(Prop::AlignItems, flex.align_items, ts.align_items);
         ts.align_self = self.get_align_self(Prop::AlignSelf, flex.align_self, ts.align_self);
