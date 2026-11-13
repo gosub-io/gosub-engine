@@ -212,13 +212,15 @@ fn cell_border_box_width<T: TableTree>(
     width: f64,
     collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
 ) -> f64 {
-    // Px(1.0) = `box-sizing: border-box`.
-    if tree.css_length(node, CssProp::BoxSizing) == CssLength::Px(1.0) {
-        return width;
-    }
     let border = effective_border(tree, node, collapsed_borders);
     let padding = read_padding(tree, node);
-    width + padding.left + padding.right + border.left + border.right
+    let edges = padding.left + padding.right + border.left + border.right;
+    // Px(1.0) = `box-sizing: border-box`. The content box floors at zero, so the border box
+    // never drops below the edges.
+    if tree.css_length(node, CssProp::BoxSizing) == CssLength::Px(1.0) {
+        return width.max(edges);
+    }
+    width + edges
 }
 
 /// Raise the values in `range` so they sum to at least `required`. The deficit

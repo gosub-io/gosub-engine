@@ -1119,6 +1119,26 @@ mod layout_tests {
         assert_approx!(tree.layout(cells[0]).unwrap().size.width, 200.0, "the rest");
     }
 
+    // Fixed layout: a border-box width below the cell's edges floors at the edges.
+    #[test]
+    fn fixed_layout_border_box_width_floors_at_edges() {
+        let (mut tree, root) = MockTable::new(400.0)
+            .width(400.0)
+            .spacing(0.0, 0.0)
+            .fixed()
+            .body_row(vec![
+                cell("a").padding(0.0),
+                cell("b").width(80.0).padding(60.0).border(5.0).border_box(),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 400.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        assert_approx!(tree.layout(cells[1]).unwrap().size.width, 130.0, "edges, not 80");
+        assert_approx!(tree.layout(cells[0]).unwrap().size.width, 270.0, "the rest");
+    }
+
     // Fixed layout: percentage widths resolve against the table width MINUS
     // the border-spacing gutters (WPT fixed-table-layout-017..020).
     #[test]
