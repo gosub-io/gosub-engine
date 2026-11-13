@@ -223,10 +223,13 @@ fn ensure_anon_row<N>(rows: &mut Vec<TableRow<N>>) {
     }
 }
 
+/// Fixed layout needs a non-auto table width; with `width: auto` the auto algorithm applies
+/// (CSS 2 §17.5.2, css-tables-3 §3.9.3).
 fn parse_table_sizing<T: TableTree>(tree: &T, node: T::NodeId) -> TableSizing {
+    let auto_width = tree.css_length(node, CssProp::Width) == CssLength::Auto;
     match tree.css_length(node, CssProp::TableLayout) {
         // We use Px(1.0) as "fixed" sentinel - implementors should use this convention.
-        CssLength::Px(1.0) => TableSizing::Fixed,
+        CssLength::Px(1.0) if !auto_width => TableSizing::Fixed,
         _ => TableSizing::Auto,
     }
 }
