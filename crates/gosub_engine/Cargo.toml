@@ -9,7 +9,9 @@ name = "gosub_engine"
 crate-type = ["rlib"]
 
 [dependencies]
-gosub-sonar = "0.16.1"
+# `socks`: a SOCKS proxy in the environment (`ALL_PROXY=socks5h://...`) carries http(s) too, as
+# it does gemini. Without it sonar refuses to build a fetcher for such a proxy.
+gosub-sonar = { version = "0.17.0", features = ["socks"] }
 sys-locale = "0.3"
 gosub_shared = { version = "0.1.1", path = "../gosub_shared" }
 gosub_config = { version = "0.1.1", path = "../gosub_config" }
