@@ -4417,7 +4417,9 @@ fn text_has_inline_neighbor(
 /// Whether `node` is a block-level box in normal flow, which breaks an inline box around it
 /// (CSS 2.1 §9.2.1.1). A float or a positioned box is out of flow and breaks nothing.
 fn is_in_flow_block(doc: &Arc<dyn crate::common::document::pipeline_doc::PipelineDocument>, node: &Node) -> bool {
-    if !matches!(node.node_type, NodeType::Element(_)) {
+    // An anonymous table in inline context carries inline-block on its node while its style says
+    // `table`: it is an inline-table (CSS 2.1 §17.2.1).
+    if !matches!(node.node_type, NodeType::Element(_)) || node.is_inline_block_element() {
         return false;
     }
     let style = doc.computed_style(node.node_id);

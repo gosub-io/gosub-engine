@@ -1020,6 +1020,51 @@ mod rendertree_from_engine {
         );
     }
 
+    /// CSS 2.1 §17.2.1: the anonymous table around cells inside an inline is an inline-table,
+    /// so it stays on the line: "a bc d", not three lines (WPT table-anonymous-objects-167).
+    #[test]
+    fn anonymous_table_inside_an_inline_stays_on_the_line() {
+        use crate::common::document::node::NodeType;
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout as _;
+
+        let html = r#"<html><body>
+          <div><span>
+            <span id="a">a</span>
+            <span style="display: table-cell">b</span>
+            <span style="display: table-cell">c</span>
+            <span id="d">d</span>
+          </span></div></body></html>"#;
+        let rt = parse_to_rendertree(html);
+        let doc = rt.doc.clone();
+        let mut l = TaffyLayouter::new();
+        let tree = l.layout(
+            rt,
+            Some(Dimension {
+                width: 800.0,
+                height: 600.0,
+            }),
+            1.0,
+        );
+
+        let by_id = |id: &str| {
+            tree.arena
+                .values()
+                .find(|el| {
+                    doc.get_node_by_id(el.dom_node_id).is_some_and(|n| match n.node_type {
+                        NodeType::Element(ref d) => d.attributes.get("id").is_some_and(|v| v == id),
+                        _ => false,
+                    })
+                })
+                .map(|el| el.box_model.border_box)
+                .unwrap_or_else(|| panic!("#{id} in layout tree"))
+        };
+        let (a, d) = (by_id("a"), by_id("d"));
+        assert!((a.y - d.y).abs() < 0.5, "a and d share a line: y {} vs {}", a.y, d.y);
+        assert!(d.x > a.x + 10.0, "the table sits between a and d: x {} vs {}", a.x, d.x);
+    }
+
     /// A descendant combinator has to try *every* ancestor, not commit to the nearest one that
     /// matched the part beside it.
     ///
