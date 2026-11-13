@@ -1072,6 +1072,53 @@ mod layout_tests {
         assert_approx!(tree.layout(cells[2]).unwrap().size.width, 100.0, "(400-200)/2");
     }
 
+    // Auto layout: a cell's width is its content width; the column gets the border box
+    // (CSS 2 §17.5.2.2). A percentage is already the column's share.
+    #[test]
+    fn auto_layout_cell_width_includes_padding_and_border() {
+        let (mut tree, root) = MockTable::new(600.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![
+                cell("a").width(80.0).padding(10.0).border(5.0).content_width(10.0),
+                cell("b")
+                    .width(80.0)
+                    .padding(10.0)
+                    .border(5.0)
+                    .border_box()
+                    .content_width(10.0),
+                cell("c").width_pct(25.0).padding(10.0).content_width(10.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 400.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        let w = |i: usize| tree.layout(cells[i]).unwrap().size.width;
+        assert_approx!(w(0), 110.0, "80 + 2*10 padding + 2*5 border");
+        assert_approx!(w(1), 80.0, "border-box already counts the edges");
+        assert_approx!(w(2), 100.0, "25% of 400");
+    }
+
+    // Fixed layout: `box-sizing: border-box` on a first-row cell counts its edges once.
+    #[test]
+    fn fixed_layout_border_box_cell_width() {
+        let (mut tree, root) = MockTable::new(400.0)
+            .width(400.0)
+            .spacing(0.0, 0.0)
+            .fixed()
+            .body_row(vec![
+                cell("a").padding(0.0),
+                cell("b").width(200.0).padding(60.0).border_box(),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 400.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        assert_approx!(tree.layout(cells[1]).unwrap().size.width, 200.0, "edges inside the 200");
+        assert_approx!(tree.layout(cells[0]).unwrap().size.width, 200.0, "the rest");
+    }
+
     // Fixed layout: percentage widths resolve against the table width MINUS
     // the border-spacing gutters (WPT fixed-table-layout-017..020).
     #[test]

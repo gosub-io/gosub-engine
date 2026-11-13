@@ -98,7 +98,14 @@ pub fn compute_column_widths<T: TableTree>(
         for cell in grid.cells() {
             let (min_c, max_c) = tree.cell_intrinsic_widths(cell.node);
             let max_c = max_c.max(min_c);
-            let w = tree.css_length(cell.node, CssProp::Width).resolve(percent_basis);
+            // A length claims the cell's border box; a percentage is the column's share and
+            // already is one (css-tables-3 §3.9.2).
+            let w = match tree.css_length(cell.node, CssProp::Width) {
+                CssLength::Percent(p) => Some(p / 100.0 * percent_basis),
+                len => len
+                    .resolve(percent_basis)
+                    .map(|w| cell_border_box_width(tree, cell.node, w, collapsed_borders)),
+            };
             if cell.colspan == 1 {
                 let c = cell.col;
                 min[c] = min[c].max(min_c);
@@ -197,6 +204,23 @@ pub fn compute_column_widths<T: TableTree>(
     (widths, used_width)
 }
 
+/// The border-box width of a cell whose `width` property is `width`: padding and borders (halved
+/// under collapse) are added unless `box-sizing: border-box` already counts them.
+fn cell_border_box_width<T: TableTree>(
+    tree: &T,
+    node: T::NodeId,
+    width: f64,
+    collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
+) -> f64 {
+    // Px(1.0) = `box-sizing: border-box`.
+    if tree.css_length(node, CssProp::BoxSizing) == CssLength::Px(1.0) {
+        return width;
+    }
+    let border = effective_border(tree, node, collapsed_borders);
+    let padding = read_padding(tree, node);
+    width + padding.left + padding.right + border.left + border.right
+}
+
 /// Raise the values in `range` so they sum to at least `required`. The deficit
 /// is split proportionally to `weights` (content-heavy columns absorb more),
 /// equally when the weights are all zero.
@@ -252,12 +276,9 @@ fn fixed_column_widths<T: TableTree>(
                 let Some(w) = tree.css_length(cell.node, CssProp::Width).resolve(available) else {
                     continue;
                 };
-                // The width property is the CONTENT width; the column gets the
-                // cell's border-box (CSS 2 §17.5.2.1 as clarified on www-style:
-                // padding and borders - halved under collapse - are added).
-                let border = effective_border(tree, cell.node, collapsed_borders);
-                let padding = read_padding(tree, cell.node);
-                let outer = w + padding.left + padding.right + border.left + border.right;
+                // The column gets the cell's border-box (CSS 2 §17.5.2.1 as clarified on
+                // www-style).
+                let outer = cell_border_box_width(tree, cell.node, w, collapsed_borders);
                 let share = outer / cell.colspan as f64;
                 let end = (cell.col + cell.colspan).min(n_cols);
                 for slot in &mut explicit[cell.col..end] {
