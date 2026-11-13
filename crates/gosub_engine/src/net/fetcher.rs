@@ -407,6 +407,23 @@ mod dns_resolver_tests {
     }
 }
 
+#[cfg(test)]
+mod proxy_tests {
+    use super::*;
+    use crate::engine::settings_store::default_config;
+
+    /// A SOCKS proxy carries http(s) as it does gemini. Without sonar's `socks` feature a
+    /// fetcher is refused for one, from the environment too, and no zone could start.
+    #[test]
+    fn a_fetcher_builds_behind_a_socks_proxy() {
+        let cfg = FetcherConfig {
+            proxy: gosub_sonar::ProxyConfig::Rules(vec![gosub_sonar::ProxyRule::all("socks5h://127.0.0.1:9")]),
+            ..fetcher_config_from(&default_config())
+        };
+        assert!(Fetcher::new(cfg, Arc::new(gosub_sonar::NullContext)).is_ok());
+    }
+}
+
 /// A fetcher with the engine's context against real servers: cookies across redirect hops,
 /// each judged by its method and the chain before it, and how a background revalidation is
 /// reported.
