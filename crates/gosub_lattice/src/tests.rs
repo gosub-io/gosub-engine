@@ -1017,6 +1017,7 @@ mod layout_tests {
     #[test]
     fn fixed_layout_widths_from_first_row() {
         let (mut tree, root) = MockTable::new(600.0)
+            .width(600.0)
             .spacing(0.0, 0.0)
             .fixed()
             .body_row(vec![
@@ -1096,6 +1097,7 @@ mod layout_tests {
     #[test]
     fn fixed_layout_col_widths_and_equal_split() {
         let (mut tree, root) = MockTable::new(600.0)
+            .width(600.0)
             .spacing(0.0, 0.0)
             .fixed()
             .col(Some(100.0))
@@ -1124,10 +1126,39 @@ mod layout_tests {
         );
     }
 
+    // `table-layout: fixed` with `width: auto` uses the auto algorithm: the table
+    // shrinks to its content instead of filling the containing block (CSS 2 §17.5.2).
+    #[test]
+    fn fixed_layout_with_auto_width_uses_auto_algorithm() {
+        let (mut tree, root) = MockTable::new(600.0)
+            .spacing(0.0, 0.0)
+            .fixed()
+            .body_row(vec![
+                cell("a").content_width(50.0).padding(0.0),
+                cell("b").content_width(70.0).padding(0.0),
+            ])
+            .body_row(vec![
+                cell("c").padding(0.0),
+                cell("d").content_width(90.0).padding(0.0), // row 2 counts in auto layout
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 600.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        assert_approx!(tree.layout(cells[0]).unwrap().size.width, 50.0, "content width");
+        assert_approx!(
+            tree.layout(cells[1]).unwrap().size.width,
+            90.0,
+            "widest cell in the column"
+        );
+    }
+
     // Fixed layout: a colspan cell's width divides evenly over its columns.
     #[test]
     fn fixed_layout_colspan_divides_width() {
         let (mut tree, root) = MockTable::new(400.0)
+            .width(400.0)
             .spacing(0.0, 0.0)
             .fixed()
             .body_row(vec![
