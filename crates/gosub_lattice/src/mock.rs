@@ -39,6 +39,8 @@ pub struct MockCell {
     pub content_height: f64,
     /// `vertical-align` for the cell.
     pub valign: VerticalAlign,
+    /// `box-sizing: border-box`.
+    pub border_box: bool,
 }
 
 impl MockCell {
@@ -57,6 +59,7 @@ impl MockCell {
             content_height: 0.0,
             valign: VerticalAlign::Top,
             baseline: None,
+            border_box: false,
         }
     }
 
@@ -107,6 +110,11 @@ impl MockCell {
 
     pub fn valign(mut self, v: VerticalAlign) -> Self {
         self.valign = v;
+        self
+    }
+
+    pub fn border_box(mut self) -> Self {
+        self.border_box = true;
         self
     }
 }
@@ -310,6 +318,7 @@ struct MockNode {
     content_height: f64,
     valign: VerticalAlign,
     baseline: Option<f64>,
+    border_box: bool,
 }
 
 pub struct MockTree {
@@ -375,6 +384,7 @@ impl MockTree {
                 content_height: 0.0,
                 valign: VerticalAlign::Top,
                 baseline: None,
+                border_box: false,
             },
         );
         id
@@ -399,6 +409,7 @@ impl MockTree {
             node.content_height = mc.content_height;
             node.valign = mc.valign;
             node.baseline = mc.baseline;
+            node.border_box = mc.border_box;
         }
         id
     }
@@ -483,6 +494,7 @@ impl TableTree for MockTree {
             CssProp::BorderCollapse if node.role == TableRole::Table && self.collapse => CssLength::Px(1.0),
             CssProp::CaptionSide if node.role == TableRole::Caption && self.caption_bottom => CssLength::Px(1.0),
             CssProp::BoxSizing if node.role == TableRole::Table && self.border_box => CssLength::Px(1.0),
+            CssProp::BoxSizing if node.border_box => CssLength::Px(1.0),
             _ => CssLength::Auto,
         }
     }
