@@ -141,6 +141,8 @@ pub struct MockTable {
     caption: Option<(f64, bool)>,
     /// One entry per `<col>` element: its explicit width, or `None` for auto.
     cols: Vec<Option<f64>>,
+    /// The `<col>` elements sit directly in the table, with no `<colgroup>`.
+    bare_cols: bool,
     header_rows: Vec<Vec<MockCell>>,
     body_rows: Vec<Vec<MockCell>>,
     footer_rows: Vec<Vec<MockCell>>,
@@ -198,6 +200,12 @@ impl MockTable {
         self
     }
 
+    /// Put the `<col>` elements directly in the table instead of in a `<colgroup>`.
+    pub fn bare_cols(mut self) -> Self {
+        self.bare_cols = true;
+        self
+    }
+
     pub fn header_row(mut self, cells: Vec<MockCell>) -> Self {
         self.header_rows.push(cells);
         self
@@ -247,11 +255,16 @@ impl MockTable {
         }
 
         if !self.cols.is_empty() {
-            let cg = tree.alloc(TableRole::ColumnGroup, None, 1, 1, None, None, 0.0, 0.0);
-            tree.add_child(root, cg);
+            let parent = if self.bare_cols {
+                root
+            } else {
+                let cg = tree.alloc(TableRole::ColumnGroup, None, 1, 1, None, None, 0.0, 0.0);
+                tree.add_child(root, cg);
+                cg
+            };
             for width in self.cols {
                 let col = tree.alloc(TableRole::Column, None, 1, 1, width, None, 0.0, 0.0);
-                tree.add_child(cg, col);
+                tree.add_child(parent, col);
             }
         }
 

@@ -12,9 +12,9 @@ use std::collections::HashMap;
 pub fn column_specs<T: TableTree>(tree: &T, model: &TableModel<T::NodeId>) -> Vec<CssLength> {
     let mut specs = Vec::new();
     for group in &model.column_groups {
-        if group.columns.is_empty() {
-            let span = tree.attr_usize(group.node, "span").unwrap_or(1).max(1);
-            let w = tree.css_length(group.node, CssProp::Width);
+        if let (true, Some(node)) = (group.columns.is_empty(), group.node) {
+            let span = tree.attr_usize(node, "span").unwrap_or(1).max(1);
+            let w = tree.css_length(node, CssProp::Width);
             specs.extend(std::iter::repeat_n(w, span));
         } else {
             for &col in &group.columns {
