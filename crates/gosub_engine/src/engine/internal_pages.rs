@@ -720,7 +720,7 @@ mod tests {
         // New pages can be added.
         pages.register_html("mine", "<html><body>MINE</body></html>");
         assert!(resolve(&pages, "gosub://mine").contains("MINE"));
-        assert!(pages.names().contains(&"mine".to_string()));
+        assert!(pages.names().iter().any(|n| n == "mine"));
     }
 
     #[test]
