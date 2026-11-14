@@ -1,6 +1,6 @@
 use crate::common::document::node::NodeId as DomNodeId;
 use crate::common::font::FontInfo;
-use crate::common::geo::{Coordinate, Dimension};
+use crate::common::geo::{Coordinate, Dimension, Rect};
 use crate::common::media::MediaId;
 use crate::layouter::box_model::BoxModel;
 use crate::rendertree_builder::{RenderNodeId, RenderTree};
@@ -409,6 +409,21 @@ pub struct LayoutElementNode {
     /// `Some` for cells of a `border-collapse` table: how the painter must
     /// draw this cell's borders instead of reading the CSS border properties.
     pub collapsed_borders: Option<CollapsedCellBorders>,
+    /// For a table cell: the column group, column, row group and row backgrounds it paints under
+    /// its own, back to front.
+    pub table_layers: Vec<TableLayer>,
+}
+
+/// A background a table cell paints under its own: that of the column group, column, row group
+/// or row it originates in, positioned against that part's box and shown only inside the cell
+/// (css-tables-3 §5.3.2).
+#[derive(Debug, Clone)]
+pub struct TableLayer {
+    pub dom_node_id: DomNodeId,
+    /// The part's layout element. Rows and row groups have one; columns and column groups do not.
+    pub layout_id: Option<LayoutElementId>,
+    /// The part's box, relative to the cell's border box origin so it moves with the cell.
+    pub rect: Rect,
 }
 
 /// Paint instructions for one collapsed table cell's borders, produced by the

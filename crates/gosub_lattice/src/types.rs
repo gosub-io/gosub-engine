@@ -175,6 +175,16 @@ pub enum TableSizing {
     Fixed,
 }
 
+/// One background layer under a cell (css-tables-3 §5.3.2): the column group, column, row group
+/// or row the cell originates in, with that part's box relative to the table. The background is
+/// positioned against this box and shows only inside the cell.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CellLayer<N> {
+    pub node: N,
+    pub position: Point,
+    pub size: Size,
+}
+
 /// Per-cell result of border-collapse conflict resolution.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CollapsedBorders {

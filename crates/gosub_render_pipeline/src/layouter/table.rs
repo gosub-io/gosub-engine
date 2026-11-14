@@ -1,4 +1,4 @@
-use gosub_lattice::{BoxEdges, CellLayout, CssLength, CssProp, TableRole, TableTree, VerticalAlign};
+use gosub_lattice::{BoxEdges, CellLayer, CellLayout, CssLength, CssProp, TableRole, TableTree, VerticalAlign};
 
 use crate::common::document::node::{NodeId as DomNodeId, NodeType};
 use crate::common::document::pipeline_doc::PipelineDocument;
@@ -6,7 +6,9 @@ use crate::common::geo::{Coordinate, Rect};
 use crate::layouter::box_model::{BoxModel, Edges};
 use crate::layouter::float::float_side;
 use crate::layouter::taffy::{TaffyLayouter, MAX_LAYOUT_DEPTH};
-use crate::layouter::{CollapsedCellBorders, ElementContext, LayoutElementId, LayoutElementNode, LayoutTree};
+use crate::layouter::{
+    CollapsedCellBorders, ElementContext, LayoutElementId, LayoutElementNode, LayoutTree, TableLayer,
+};
 use gosub_interface::style::{Display, LengthPercentage, LengthPercentageAuto, Position, Prop};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -31,6 +33,8 @@ pub struct PipelineTableTree<'a> {
     /// these get the `content_offset_y` vertical-align shift: their children
     /// are freshly anchored at the cell top, so the shift applies exactly once.
     relaid: HashSet<DomNodeId>,
+    /// Per cell, the background layers lattice reported, positioned relative to the table.
+    layers: HashMap<DomNodeId, Vec<CellLayer<DomNodeId>>>,
     /// Memo for `subtree_contains_table`: `layout_cell` asks per cell per pass, and each
     /// walk re-materializes anonymous wrappers, so uncached it is superlinear in table size.
     contains_table_cache: RefCell<HashMap<DomNodeId, bool>>,
@@ -51,6 +55,7 @@ impl<'a> PipelineTableTree<'a> {
             pending: HashMap::new(),
             edge_owners: HashMap::new(),
             relaid: HashSet::new(),
+            layers: HashMap::new(),
             contains_table_cache: RefCell::new(HashMap::new()),
         }
     }
@@ -190,6 +195,31 @@ impl<'a> PipelineTableTree<'a> {
             self.layouter,
             &mut self.layout_tree.arena,
         );
+
+        // The layers are table-relative; each cell keeps them relative to its own border box.
+        for (cell, layers) in std::mem::take(&mut self.layers) {
+            let Some(element) = self
+                .dom_to_layout
+                .get(&cell)
+                .and_then(|id| self.layout_tree.arena.get_mut(id))
+            else {
+                continue;
+            };
+            let origin = element.box_model.border_box;
+            element.table_layers = layers
+                .into_iter()
+                .map(|layer| TableLayer {
+                    dom_node_id: layer.node,
+                    layout_id: self.dom_to_layout.get(&layer.node).copied(),
+                    rect: Rect::new(
+                        table_abs.x + layer.position.x - origin.x,
+                        table_abs.y + layer.position.y - origin.y,
+                        layer.size.width,
+                        layer.size.height,
+                    ),
+                })
+                .collect();
+        }
     }
 }
 
@@ -473,6 +503,10 @@ impl TableTree for PipelineTableTree<'_> {
 
     fn set_layout(&mut self, id: DomNodeId, layout: CellLayout) {
         self.pending.insert(id, layout);
+    }
+
+    fn set_cell_layers(&mut self, id: DomNodeId, layers: Vec<CellLayer<DomNodeId>>) {
+        self.layers.insert(id, layers);
     }
 
     fn set_collapsed_cell_borders(&mut self, id: DomNodeId, layout: BoxEdges, edge_owners: [Option<DomNodeId>; 4]) {
@@ -838,6 +872,7 @@ pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut Layou
                 context: crate::layouter::ElementContext::TableBorderOverlay(cells),
                 background_media: None,
                 collapsed_borders: None,
+                table_layers: Vec::new(),
             },
         );
         if let Some(table_el) = layout_tree.arena.get_mut(&table_layout_id) {
