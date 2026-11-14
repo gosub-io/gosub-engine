@@ -84,7 +84,7 @@ log = "0.4.29"
 nom = "8.0.0"
 once_cell = "1.21.3"
 pangocairo = "0.22.0"
-parking_lot = "0.12.4"
+parking_lot = "0.13.0"
 png = "0.18.1"
 parley = {version = "0.11.0", default-features = false}
 # Pulled in by parley for system font enumeration. Declared here only to turn on

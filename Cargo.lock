@@ -413,7 +413,7 @@ dependencies = [
  "objc2-core-foundation",
  "objc2-core-graphics",
  "objc2-foundation 0.3.2",
- "parking_lot",
+ "parking_lot 0.12.5",
  "percent-encoding",
  "windows-sys 0.59.0",
  "x11rb",
@@ -1710,9 +1710,9 @@ dependencies = [
  "cfg-if",
  "crossbeam-utils",
  "hashbrown 0.14.5",
- "lock_api",
+ "lock_api 0.4.14",
  "once_cell",
- "parking_lot_core",
+ "parking_lot_core 0.9.12",
 ]
 
 [[package]]
@@ -1725,8 +1725,8 @@ dependencies = [
  "crossbeam-utils",
  "equivalent",
  "hashbrown 0.15.5",
- "lock_api",
- "parking_lot_core",
+ "lock_api 0.4.14",
+ "parking_lot_core 0.9.12",
 ]
 
 [[package]]
@@ -1946,7 +1946,7 @@ dependencies = [
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
- "parking_lot",
+ "parking_lot 0.12.5",
  "percent-encoding",
  "pollster 0.4.0",
  "profiling",
@@ -2126,7 +2126,7 @@ dependencies = [
  "harfrust 0.7.0",
  "log",
  "nohash-hasher",
- "parking_lot",
+ "parking_lot 0.12.5",
  "profiling",
  "self_cell",
  "skrifa 0.42.1",
@@ -2226,7 +2226,7 @@ dependencies = [
  "gosub_renderer_cairo",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.13.0",
  "simple_logger",
  "tokio",
  "url",
@@ -2245,7 +2245,7 @@ dependencies = [
  "gosub_renderer_skia",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.13.0",
  "simple_logger",
  "tokio",
  "url",
@@ -2264,7 +2264,7 @@ dependencies = [
  "gosub_renderer_vello",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.13.0",
  "simple_logger",
  "tokio",
  "tracing",
@@ -2287,7 +2287,7 @@ dependencies = [
  "gtk4",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.13.0",
  "simple_logger",
  "tokio",
  "url",
@@ -2306,7 +2306,7 @@ dependencies = [
  "gtk4",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.13.0",
  "simple_logger",
  "tokio",
  "url",
@@ -2325,7 +2325,7 @@ dependencies = [
  "gtk4",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.13.0",
  "simple_logger",
  "skia-safe",
  "tokio",
@@ -2348,7 +2348,7 @@ dependencies = [
  "gosub_renderer_cairo",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.13.0",
  "simple_logger",
  "softbuffer",
  "tokio",
@@ -2368,7 +2368,7 @@ dependencies = [
  "gosub_renderer_cairo",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.13.0",
  "simple_logger",
  "softbuffer",
  "tokio",
@@ -2388,7 +2388,7 @@ dependencies = [
  "gosub_renderer_skia",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.13.0",
  "simple_logger",
  "skia-safe",
  "softbuffer",
@@ -2411,7 +2411,7 @@ dependencies = [
  "gosub_renderer_skia",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.13.0",
  "raw-window-handle",
  "simple_logger",
  "skia-safe",
@@ -2435,7 +2435,7 @@ dependencies = [
  "gosub_winit",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.13.0",
  "simple_logger",
  "tokio",
  "url",
@@ -2759,8 +2759,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d930c203dd0b6ff06e0201a4a2fe9149b43c684fd4420555b26d21b1a02956f"
 dependencies = [
  "futures-core",
- "lock_api",
- "parking_lot",
+ "lock_api 0.4.14",
+ "parking_lot 0.12.5",
 ]
 
 [[package]]
@@ -3188,7 +3188,7 @@ dependencies = [
  "gtk4",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.13.0",
  "simple_logger",
  "tokio",
  "url",
@@ -3210,7 +3210,7 @@ dependencies = [
  "image",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.13.0",
  "simple_logger",
  "tokio",
  "url",
@@ -3236,7 +3236,7 @@ dependencies = [
  "hyper-util",
  "js-sys",
  "log",
- "parking_lot",
+ "parking_lot 0.12.5",
  "psl",
  "reqwest",
  "rustls",
@@ -3305,7 +3305,7 @@ dependencies = [
  "js-sys",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.13.0",
  "rand 0.10.3",
  "serde_json",
  "simple_logger",
@@ -3329,7 +3329,7 @@ version = "0.1.1"
 dependencies = [
  "cow-utils",
  "log",
- "parking_lot",
+ "parking_lot 0.13.0",
  "rusqlite",
  "serde",
  "serde_json",
@@ -3353,7 +3353,7 @@ dependencies = [
  "indexmap",
  "log",
  "nom 8.0.0",
- "parking_lot",
+ "parking_lot 0.13.0",
  "serde",
  "serde_json",
  "simple_logger",
@@ -3410,7 +3410,7 @@ dependencies = [
  "mime",
  "mimetype-detector",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.13.0",
  "percent-encoding",
  "psl",
  "r2d2",
@@ -3448,7 +3448,7 @@ dependencies = [
  "gtk4",
  "log",
  "pangocairo",
- "parking_lot",
+ "parking_lot 0.13.0",
  "parley",
  "skia-safe",
  "yeslogic-fontconfig-sys",
@@ -3468,7 +3468,7 @@ dependencies = [
  "log",
  "nom 8.0.0",
  "nom_locate",
- "parking_lot",
+ "parking_lot 0.13.0",
  "phf 0.14.0",
  "regex",
  "serde",
@@ -3485,7 +3485,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "gosub_shared",
- "parking_lot",
+ "parking_lot 0.13.0",
  "url",
 ]
 
@@ -3539,7 +3539,7 @@ dependencies = [
  "gosub_shared",
  "image",
  "log",
- "parking_lot",
+ "parking_lot 0.13.0",
  "png",
  "rayon",
  "resvg",
@@ -3565,7 +3565,7 @@ dependencies = [
  "gosub_render_pipeline",
  "gtk4",
  "log",
- "parking_lot",
+ "parking_lot 0.13.0",
  "resvg",
 ]
 
@@ -3579,7 +3579,7 @@ dependencies = [
  "gosub_renderer_cairo",
  "gosub_renderer_skia",
  "gosub_renderer_vello",
- "parking_lot",
+ "parking_lot 0.13.0",
 ]
 
 [[package]]
@@ -3591,7 +3591,7 @@ dependencies = [
  "gosub_interface",
  "gosub_render_pipeline",
  "log",
- "parking_lot",
+ "parking_lot 0.13.0",
  "resvg",
  "skia-safe",
 ]
@@ -3607,7 +3607,7 @@ dependencies = [
  "gosub_render_pipeline",
  "image",
  "log",
- "parking_lot",
+ "parking_lot 0.13.0",
  "parley",
  "pollster 1.0.1",
  "resvg",
@@ -3640,7 +3640,7 @@ dependencies = [
  "js-sys",
  "lazy_static",
  "memchr",
- "parking_lot",
+ "parking_lot 0.13.0",
  "rand 0.10.3",
  "roxmltree 0.21.2",
  "thiserror 2.0.21",
@@ -3701,7 +3701,7 @@ version = "0.1.1"
 dependencies = [
  "cow-utils",
  "lazy_static",
- "parking_lot",
+ "parking_lot 0.13.0",
  "proc-macro2",
  "quote",
  "syn 3.0.6",
@@ -3713,7 +3713,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "gosub_renderer_vello",
- "parking_lot",
+ "parking_lot 0.13.0",
  "vello",
  "winit",
 ]
@@ -4726,6 +4726,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lock_api"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65d91b22da179613dcf4d6ec8349563f52a363f6849e03b00dd0a185ec4a59af"
+dependencies = [
+ "scopeguard",
+]
+
+[[package]]
 name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5605,8 +5614,18 @@ version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93857453250e3077bd71ff98b6a65ea6621a19bb0f559a85248955ac12c45a1a"
 dependencies = [
- "lock_api",
- "parking_lot_core",
+ "lock_api 0.4.14",
+ "parking_lot_core 0.9.12",
+]
+
+[[package]]
+name = "parking_lot"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9cf937ca4e1d0b7578784559063422fc39ae7c5a00f02471f2614d5486fd226"
+dependencies = [
+ "lock_api 0.5.0",
+ "parking_lot_core 0.10.0",
 ]
 
 [[package]]
@@ -5618,6 +5637,18 @@ dependencies = [
  "cfg-if",
  "libc",
  "redox_syscall 0.5.18",
+ "smallvec",
+ "windows-link",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cfff060068cc18aa7815010fcaf80c68c7fb9e85fc7f5c0f9bf142c21d19826"
+dependencies = [
+ "libc",
+ "redox_syscall 0.9.5",
  "smallvec",
  "windows-link",
 ]
@@ -6186,7 +6217,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51de85fb3fb6524929c8a2eb85e6b6d363de4e8c48f9e2c2eac4944abc181c93"
 dependencies = [
  "log",
- "parking_lot",
+ "parking_lot 0.12.5",
  "scheduled-thread-pool",
 ]
 
@@ -6434,6 +6465,15 @@ name = "redox_syscall"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b44b894f2a6e36457d665d1e08c3866add6ed5e70050c1b4ba8a8ddedb02ce7"
+dependencies = [
+ "bitflags 2.13.2",
+]
+
+[[package]]
+name = "redox_syscall"
+version = "0.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "580c875845b41ecb1564ad1ae4703044cef774145e3d7a94dc2b3fa7c97868fd"
 dependencies = [
  "bitflags 2.13.2",
 ]
@@ -6823,7 +6863,7 @@ version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3cbc66816425a074528352f5789333ecff06ca41b36b0b0efdfbb29edc391a19"
 dependencies = [
- "parking_lot",
+ "parking_lot 0.12.5",
 ]
 
 [[package]]
@@ -7169,9 +7209,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.15.1"
+version = "1.16.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
+checksum = "149309498a5f7334b12ddae0cad8aba81ce785fe91755068867e017cf98fee46"
 
 [[package]]
 name = "smithay-client-toolkit"
@@ -7774,7 +7814,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
- "parking_lot",
+ "parking_lot 0.12.5",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
@@ -8709,7 +8749,7 @@ dependencies = [
  "js-sys",
  "log",
  "naga",
- "parking_lot",
+ "parking_lot 0.12.5",
  "portable-atomic",
  "profiling",
  "raw-window-handle",
@@ -8741,7 +8781,7 @@ dependencies = [
  "log",
  "naga",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.5",
  "portable-atomic",
  "profiling",
  "raw-window-handle",
@@ -8827,7 +8867,7 @@ dependencies = [
  "objc2-quartz-core 0.3.2",
  "once_cell",
  "ordered-float",
- "parking_lot",
+ "parking_lot 0.12.5",
  "portable-atomic",
  "portable-atomic-util",
  "profiling",
