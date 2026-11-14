@@ -12,25 +12,25 @@ impl DocumentWriter {
     /// Serialize a node and its descendants with HTML fragment serialization rules.
     pub fn write_from_node<C: HasDocument>(node_id: NodeId, doc: &C::Document) -> String {
         let mut buffer = String::new();
-        write_node::<C>(node_id, doc, Format::Html, &[], &mut buffer);
+        write_node::<C>(node_id, doc, Format::Html, &|_| Vec::new(), &mut buffer);
         buffer
     }
 
     /// Serialize an inline SVG subtree for an XML consumer: escape all text, avoid HTML-only
     /// entities, and close every element, including HTML elements inside `foreignObject`.
     pub fn write_xml_from_node<C: HasDocument>(node_id: NodeId, doc: &C::Document) -> String {
-        Self::write_svg_from_node::<C>(node_id, doc, &[])
+        Self::write_svg_from_node::<C>(node_id, doc, &|_| Vec::new())
     }
 
-    /// The same, with `root_attrs` set on the subtree's root element in place of any attribute
-    /// of the same name.
+    /// The same, with the attributes `attrs` gives for each element set on it in place of any
+    /// attribute of the same name.
     pub fn write_svg_from_node<C: HasDocument>(
         node_id: NodeId,
         doc: &C::Document,
-        root_attrs: &[(&str, String)],
+        attrs: &dyn Fn(NodeId) -> Vec<(&'static str, String)>,
     ) -> String {
         let mut buffer = String::new();
-        write_node::<C>(node_id, doc, Format::Xml, root_attrs, &mut buffer);
+        write_node::<C>(node_id, doc, Format::Xml, attrs, &mut buffer);
         buffer
     }
 }
@@ -146,7 +146,7 @@ fn write_node<C: HasDocument>(
     root: NodeId,
     doc: &C::Document,
     format: Format,
-    root_attrs: &[(&str, String)],
+    attrs: &dyn Fn(NodeId) -> Vec<(&'static str, String)>,
     buf: &mut String,
 ) {
     let mut stack = vec![Step::Enter(root)];
@@ -226,7 +226,7 @@ fn write_node<C: HasDocument>(
                 };
                 buf.push('<');
                 buf.push_str(name);
-                let overrides = if id == root { root_attrs } else { &[] };
+                let overrides = attrs(id);
                 if let Some(attrs) = doc.attributes(id) {
                     for (attr_name, attr_value) in attrs {
                         if overrides.iter().any(|(name, _)| name == attr_name) {
@@ -239,7 +239,7 @@ fn write_node<C: HasDocument>(
                         buf.push('"');
                     }
                 }
-                for (attr_name, attr_value) in overrides {
+                for (attr_name, attr_value) in &overrides {
                     buf.push(' ');
                     buf.push_str(attr_name);
                     buf.push_str("=\"");

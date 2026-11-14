@@ -104,7 +104,7 @@ mod rendertree_from_engine {
         let apple = xml(r#"<style>a { color: #fff } svg { fill: currentColor }</style>
             <a><svg viewBox="0 0 10 10" fill="black"><path d="M0 0H10V10z"/></svg></a>"#);
         assert!(
-            apple.starts_with(r##"<svg viewBox="0 0 10 10" fill="currentColor" stroke="none" color="#ffffff">"##),
+            apple.starts_with(r##"<svg viewBox="0 0 10 10" fill="currentColor" stroke="none" color="#ffffff""##),
             "{apple}"
         );
         assert_eq!(path_fill(&apple), Some((255, 255, 255)));
@@ -116,6 +116,98 @@ mod rendertree_from_engine {
             r#"<style>svg { fill: red }</style><svg viewBox="0 0 10 10"><path fill="blue" d="M0 0H10V10z"/></svg>"#,
         );
         assert_eq!(path_fill(&path), Some((0, 0, 255)));
+    }
+
+    /// Elements inside an inline SVG take the SVG properties their own rules declared, as a
+    /// `style` attribute the decoder reads (GOS-362). Inherited values stay out of it, so a
+    /// `<use>` still hands its paint down to what it references.
+    #[test]
+    fn inline_svg_descendants_take_their_declared_css() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_shared::node::NodeId;
+        use resvg::usvg;
+
+        fn find(a: &GosubDocumentAdapter<Config>, node: NodeId) -> Option<NodeId> {
+            if a.doc.tag_name(node) == Some("svg") {
+                return Some(node);
+            }
+            a.doc.children(node).iter().find_map(|&child| find(a, child))
+        }
+        let tree = |html: &str| {
+            let mut doc = html_compile::<Config>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+            let svg = find(&adapter, adapter.doc.root()).expect("an svg");
+            let xml = adapter.svg_xml(svg);
+            usvg::Tree::from_str(&xml, &usvg::Options::default()).unwrap_or_else(|e| panic!("{e}: {xml}"))
+        };
+        let rgb = |paint: &usvg::Paint| match paint {
+            usvg::Paint::Color(c) => Some((c.red, c.green, c.blue)),
+            _ => None,
+        };
+        let path = |tree: &usvg::Tree, id: &str| match tree.node_by_id(id) {
+            Some(usvg::Node::Path(path)) => Some(path.clone()),
+            _ => None,
+        };
+        let fill = |tree: &usvg::Tree, id: &str| path(tree, id).and_then(|p| p.fill().and_then(|f| rgb(f.paint())));
+        let d = r#"d="M0 0H10V10z""#;
+
+        // demo.wireleaf.org: `var()` in the presentation attributes.
+        let leaf = tree(&format!(
+            r#"<style>:root {{ --leaf: #3f8f63; --stem: #5b4a36 }}</style>
+            <svg viewBox="0 0 24 24"><path id="s" fill="none" stroke="var(--stem)" stroke-width="1.2" {d}/><path id="l" fill="var(--leaf)" {d}/></svg>"#
+        ));
+        assert_eq!(fill(&leaf, "l"), Some((63, 143, 99)));
+        let stem = path(&leaf, "s")
+            .and_then(|p| p.stroke().cloned())
+            .expect("the stem is stroked");
+        assert_eq!(rgb(stem.paint()), Some((91, 74, 54)));
+
+        // GOV.UK: a class rule on an element inside the SVG, with the rest of the SVG white.
+        let gov = tree(&format!(
+            r#"<style>svg {{ fill: #fff }} .dot {{ fill: #00ffe0 }}</style>
+            <svg viewBox="0 0 24 24"><path id="a" {d}/><path id="b" class="dot" {d}/></svg>"#
+        ));
+        assert_eq!(fill(&gov, "a"), Some((255, 255, 255)));
+        assert_eq!(fill(&gov, "b"), Some((0, 255, 224)));
+
+        // Properties outside the typed style, `display: none`, and the element's own `style`.
+        let more = tree(&format!(
+            r#"<style>.w {{ stroke: blue; stroke-width: 3px }} .gone {{ display: none }} .own {{ fill: red }}</style>
+            <svg viewBox="0 0 24 24"><path id="w" class="w" {d}/><path id="gone" class="gone" {d}/><path id="own" class="own" style="stroke: lime" {d}/></svg>"#
+        ));
+        assert_eq!(
+            path(&more, "w").and_then(|p| p.stroke().map(|s| s.width().get())),
+            Some(3.0)
+        );
+        assert!(path(&more, "gone").is_none(), "display: none still painted");
+        assert_eq!(fill(&more, "own"), Some((255, 0, 0)));
+        let own_stroke = path(&more, "own").and_then(|p| p.stroke().and_then(|s| rgb(s.paint())));
+        assert_eq!(own_stroke, Some((0, 255, 0)));
+
+        // Colours the decoder cannot read are written as ones it can, and `currentcolor` keeps
+        // following `color`.
+        let colors = tree(&format!(
+            r#"<style>.ok {{ fill: oklch(62.8% 0.2577 29.23) }} .cur {{ fill: currentcolor; color: blue }}</style>
+            <svg viewBox="0 0 24 24"><path id="ok" class="ok" {d}/><path id="cur" class="cur" {d}/></svg>"#
+        ));
+        let (r, g, b) = fill(&colors, "ok").expect("oklch red");
+        assert!(r > 240 && g < 20 && b < 20, "{:?}", (r, g, b));
+        assert_eq!(fill(&colors, "cur"), Some((0, 0, 255)));
+
+        // A sprite: nothing declared on the referenced path, so the `<use>` paints it.
+        let sprite = tree(&format!(
+            r##"<style>svg {{ fill: black }}</style>
+            <svg viewBox="0 0 24 24"><defs><path id="p" {d}/></defs><use href="#p" fill="red"/></svg>"##
+        ));
+        let used = sprite.root().children().iter().find_map(|node| match node {
+            usvg::Node::Group(group) => group.children().iter().find_map(|node| match node {
+                usvg::Node::Path(path) => path.fill().and_then(|f| rgb(f.paint())),
+                _ => None,
+            }),
+            _ => None,
+        });
+        assert_eq!(used, Some((255, 0, 0)));
     }
 
     /// Range and meter attributes are read with HTML's rules for parsing floating-point numbers

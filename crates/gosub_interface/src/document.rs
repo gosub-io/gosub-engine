@@ -229,9 +229,9 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     fn write_xml_from_node(&self, id: NodeId) -> String {
         self.write_from_node(id)
     }
-    /// [`Document::write_xml_from_node`] with `root_attrs` set on the root element, replacing
-    /// any attribute of the same name.
-    fn write_svg_from_node(&self, id: NodeId, root_attrs: &[(&str, String)]) -> String;
+    /// [`Document::write_xml_from_node`] with the attributes `attrs` gives for each element set
+    /// on it, replacing any attribute of the same name.
+    fn write_svg_from_node(&self, id: NodeId, attrs: &dyn Fn(NodeId) -> Vec<(&'static str, String)>) -> String;
 
     fn is_hovered(&self, _id: NodeId) -> bool {
         false
