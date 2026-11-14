@@ -1154,6 +1154,34 @@ mod layout_tests {
         );
     }
 
+    // A `<col>` directly in the table gets an anonymous column group and still sets its
+    // column's width (CSS 2.1 §17.2.1).
+    #[test]
+    fn bare_col_widths_count() {
+        let (mut tree, root) = MockTable::new(600.0)
+            .width(600.0)
+            .spacing(0.0, 0.0)
+            .fixed()
+            .col(Some(100.0))
+            .col(None)
+            .col(Some(200.0))
+            .bare_cols()
+            .body_row(vec![
+                cell("a").padding(0.0),
+                cell("b").padding(0.0),
+                cell("c").padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 600.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        let w = |i: usize| tree.layout(cells[i]).unwrap().size.width;
+        assert_approx!(w(0), 100.0, "first bare col");
+        assert_approx!(w(1), 300.0, "auto col takes the rest");
+        assert_approx!(w(2), 200.0, "third bare col");
+    }
+
     // Fixed layout: a colspan cell's width divides evenly over its columns.
     #[test]
     fn fixed_layout_colspan_divides_width() {

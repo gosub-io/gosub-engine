@@ -19,7 +19,8 @@ pub struct TableModel<N> {
 }
 
 pub struct ColGroup<N> {
-    pub node: N,
+    /// `None` for the anonymous group around bare columns.
+    pub node: Option<N>,
     pub columns: Vec<N>,
 }
 
@@ -67,9 +68,12 @@ pub fn build_model<T: TableTree>(tree: &T, table_node: T::NodeId) -> TableModel<
     // Consecutive non-table children share one anonymous cell, so only the first of a run
     // opens one; the rest are already inside it.
     let mut in_anonymous_run = false;
+    let mut prev_role = None;
 
     for child in tree.children(table_node) {
-        match tree.table_role(child) {
+        let role = tree.table_role(child);
+        let after_column = prev_role.replace(role) == Some(TableRole::Column);
+        match role {
             TableRole::Caption => {
                 if model.caption.is_none() {
                     model.caption = Some(child);
@@ -136,7 +140,16 @@ pub fn build_model<T: TableTree>(tree: &T, table_node: T::NodeId) -> TableModel<
                 in_anonymous_run = true;
                 continue;
             }
-            TableRole::Table | TableRole::Column => {}
+            // Bare column directly inside the table -> anonymous column group, shared by a run of
+            // them (CSS 2.1 §17.2.1)
+            TableRole::Column => match model.column_groups.last_mut() {
+                Some(group) if after_column && group.node.is_none() => group.columns.push(child),
+                _ => model.column_groups.push(ColGroup {
+                    node: None,
+                    columns: vec![child],
+                }),
+            },
+            TableRole::Table => {}
         }
         in_anonymous_run = false;
     }
@@ -146,7 +159,7 @@ pub fn build_model<T: TableTree>(tree: &T, table_node: T::NodeId) -> TableModel<
 
 fn build_col_group<T: TableTree>(tree: &T, node: T::NodeId) -> ColGroup<T::NodeId> {
     let mut group = ColGroup {
-        node,
+        node: Some(node),
         columns: Vec::new(),
     };
     for child in tree.children(node) {
