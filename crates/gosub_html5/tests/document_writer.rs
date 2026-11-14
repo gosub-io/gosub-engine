@@ -179,20 +179,32 @@ fn xml_mode_escapes_raw_text_without_turning_literal_entities_into_characters() 
     );
 }
 
-/// Root attributes replace the root's own of the same name, and only the root's.
+/// The attributes given for an element replace its own of the same name, and only its own.
 #[test]
-fn svg_mode_sets_attributes_on_the_root_only() {
+fn svg_mode_sets_attributes_per_element() {
     let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
     let svg = doc.create_element("svg", Some(SVG_NAMESPACE), Attributes::new(), Location::default());
     let path = doc.create_element("path", Some(SVG_NAMESPACE), Attributes::new(), Location::default());
+    let rect = doc.create_element("rect", Some(SVG_NAMESPACE), Attributes::new(), Location::default());
     doc.attach(svg, doc.root(), None);
     doc.attach(path, svg, None);
+    doc.attach(rect, svg, None);
     doc.set_attribute(svg, "fill", "black");
     doc.set_attribute(svg, "viewBox", "0 0 1 1");
     doc.set_attribute(path, "fill", "blue");
+    doc.set_attribute(rect, "fill", "red");
+    let attrs = |id| {
+        if id == svg {
+            vec![("fill", "#fff".to_string()), ("color", "a\"b".to_string())]
+        } else if id == path {
+            vec![("style", "fill: green".to_string())]
+        } else {
+            Vec::new()
+        }
+    };
     assert_eq!(
-        doc.write_svg_from_node(svg, &[("fill", "#fff".to_string()), ("color", "a\"b".to_string())]),
-        "<svg viewBox=\"0 0 1 1\" fill=\"#fff\" color=\"a&quot;b\"><path fill=\"blue\"></path></svg>"
+        doc.write_svg_from_node(svg, &attrs),
+        "<svg viewBox=\"0 0 1 1\" fill=\"#fff\" color=\"a&quot;b\"><path fill=\"blue\" style=\"fill: green\"></path><rect fill=\"red\"></rect></svg>"
     );
 }
 

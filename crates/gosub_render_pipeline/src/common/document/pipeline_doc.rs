@@ -339,6 +339,80 @@ fn svg_color(color: Color) -> String {
     }
 }
 
+/// The SVG presentation properties an element's own CSS can set inside an inline SVG. Geometry
+/// and `transform` stay out: as CSS they take another syntax and reference box than the
+/// attributes the decoder knows.
+const SVG_PROPERTIES: &[&str] = &[
+    "alignment-baseline",
+    "baseline-shift",
+    "clip-path",
+    "clip-rule",
+    "color",
+    "display",
+    "dominant-baseline",
+    "fill",
+    "fill-opacity",
+    "fill-rule",
+    "filter",
+    "flood-color",
+    "flood-opacity",
+    "font-family",
+    "font-size",
+    "font-stretch",
+    "font-style",
+    "font-variant",
+    "font-weight",
+    "image-rendering",
+    "isolation",
+    "letter-spacing",
+    "lighting-color",
+    "marker-end",
+    "marker-mid",
+    "marker-start",
+    "mask",
+    "mask-type",
+    "mix-blend-mode",
+    "opacity",
+    "paint-order",
+    "shape-rendering",
+    "stop-color",
+    "stop-opacity",
+    "stroke",
+    "stroke-dasharray",
+    "stroke-dashoffset",
+    "stroke-linecap",
+    "stroke-linejoin",
+    "stroke-miterlimit",
+    "stroke-opacity",
+    "stroke-width",
+    "text-anchor",
+    "text-rendering",
+    "visibility",
+    "word-spacing",
+    "writing-mode",
+];
+
+/// The properties of [`SVG_PROPERTIES`] that take a colour or a paint.
+const SVG_COLOR_PROPERTIES: &[&str] = &["color", "fill", "flood-color", "lighting-color", "stop-color", "stroke"];
+
+/// A computed value as the SVG decoder reads it. A colour is written as hex or `rgba()`: the
+/// decoder knows neither `oklch()` nor the space-separated `rgb()`, and takes `currentcolor` for
+/// black unless it is spelled `currentColor`.
+fn svg_value<S: CssSystem>(name: &str, value: &S::Property, current: Color) -> Option<String> {
+    let text = value.to_string();
+    if !SVG_COLOR_PROPERTIES.contains(&name) {
+        return Some(text);
+    }
+    let is_url = text.get(..4).is_some_and(|start| start.eq_ignore_ascii_case("url("));
+    if is_url || text.eq_ignore_ascii_case("none") {
+        return Some(text);
+    }
+    if text.eq_ignore_ascii_case("currentcolor") {
+        return Some("currentColor".to_string());
+    }
+    value.used_color(current).map(svg_color)
+}
+
 fn unquote(s: &str) -> String {
     let b = s.as_bytes();
     if b.len() >= 2 && ((b[0] == b'"' && b[b.len() - 1] == b'"') || (b[0] == b'\'' && b[b.len() - 1] == b'\'')) {
@@ -972,6 +1046,38 @@ where
         let style = Arc::new(self.build_computed_style(id));
         self.computed_cache.lock().insert(id, style.clone());
         style
+    }
+
+    /// The [`SVG_PROPERTIES`] `id`'s own cascade declared, after its `style` attribute. Only what
+    /// it declared: an inherited value written out would stop a `<use>` from passing down its own.
+    /// `None` when it declared none of them.
+    fn svg_style(&self, id: NodeId) -> Option<String> {
+        let map = self.cached_styles(id);
+        let mut current = None;
+        let mut declared = Vec::new();
+        for &name in SVG_PROPERTIES {
+            let Some(value) = map.get(name) else {
+                continue;
+            };
+            let current = *current.get_or_insert_with(|| self.cached_computed_style(id).inherited.color);
+            if let Some(value) = svg_value::<C::CssSystem>(name, value, current) {
+                declared.push(format!("{name}: {value}"));
+            }
+        }
+        if declared.is_empty() {
+            return None;
+        }
+        // The cascade has already weighed the element's own `style`; it stays for what the list
+        // leaves out, and comes first so the declarations here win.
+        let own = self
+            .doc
+            .attribute(id, "style")
+            .map(|style| style.trim().trim_end_matches(';'))
+            .filter(|style| !style.is_empty());
+        Some(match own {
+            Some(own) => format!("{own}; {}", declared.join("; ")),
+            None => declared.join("; "),
+        })
     }
 
     /// The typed style of the node the inherited values come from: the flat-tree parent when it
@@ -1655,7 +1761,8 @@ where
     /// Serialize a real DOM subtree for the SVG XML decoder; synthetic layout nodes emit nothing.
     ///
     /// The decoder never sees the page's CSS, so the root takes its computed `fill`, `stroke` and
-    /// `color` as attributes, and the SVG inherits them from there.
+    /// `color` as attributes, and the SVG inherits them from there. Every element also takes the
+    /// SVG properties its own rules declared, as a `style` attribute.
     fn svg_xml(&self, id: NodeId) -> String {
         if is_pseudo_id(u64::from(id)) || is_anon_box_id(u64::from(id)) {
             return String::new();
@@ -1667,7 +1774,14 @@ where
             ("stroke", svg_paint(&inherited.stroke)),
             ("color", svg_color(inherited.color)),
         ];
-        self.doc.write_svg_from_node(id, &root_attrs)
+        let attrs = |node: NodeId| {
+            let mut attrs = if node == id { root_attrs.to_vec() } else { Vec::new() };
+            if let Some(style) = self.svg_style(node) {
+                attrs.push(("style", style));
+            }
+            attrs
+        };
+        self.doc.write_svg_from_node(id, &attrs)
     }
 
     fn get_node_by_id(&self, id: NodeId) -> Option<Node> {

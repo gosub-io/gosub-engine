@@ -505,8 +505,8 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         crate::writer::DocumentWriter::write_xml_from_node::<C>(node_id, self)
     }
 
-    fn write_svg_from_node(&self, node_id: NodeId, root_attrs: &[(&str, String)]) -> String {
-        crate::writer::DocumentWriter::write_svg_from_node::<C>(node_id, self, root_attrs)
+    fn write_svg_from_node(&self, node_id: NodeId, attrs: &dyn Fn(NodeId) -> Vec<(&'static str, String)>) -> String {
+        crate::writer::DocumentWriter::write_svg_from_node::<C>(node_id, self, attrs)
     }
 
     fn is_hovered(&self, id: NodeId) -> bool {
