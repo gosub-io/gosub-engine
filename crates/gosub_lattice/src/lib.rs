@@ -8,7 +8,9 @@ mod tests;
 pub mod types;
 
 pub use compute::compute_table_layout;
-pub use types::{BorderCollapse, BoxEdges, CellLayout, CssLength, CssProp, TableRole, TableSizing, VerticalAlign};
+pub use types::{
+    BorderCollapse, BoxEdges, CellLayer, CellLayout, CssLength, CssProp, TableRole, TableSizing, VerticalAlign,
+};
 
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -104,4 +106,8 @@ pub trait TableTree {
         _edge_owners: [Option<Self::NodeId>; 4],
     ) {
     }
+
+    /// The background layers under cell `id`, back to front: the column group, column, row group
+    /// and row it originates in, those that have a node (css-tables-3 §5.3.2).
+    fn set_cell_layers(&mut self, _id: Self::NodeId, _layers: Vec<types::CellLayer<Self::NodeId>>) {}
 }

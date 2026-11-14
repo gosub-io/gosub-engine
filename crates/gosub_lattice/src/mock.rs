@@ -347,6 +347,8 @@ pub struct MockTree {
     pub caption_bottom: bool,
     /// `box-sizing: border-box` on the table node, via the Px(1.0) sentinel.
     pub border_box: bool,
+    /// What `set_cell_layers` reported, per cell.
+    pub cell_layers: HashMap<u32, Vec<crate::types::CellLayer<u32>>>,
 }
 
 impl MockTree {
@@ -360,6 +362,7 @@ impl MockTree {
             collapse: false,
             caption_bottom: false,
             border_box: false,
+            cell_layers: HashMap::new(),
         }
     }
 
@@ -451,6 +454,28 @@ impl MockTree {
         self.nodes.get(&id)?.layout.as_ref()
     }
 
+    /// `id`'s position relative to the table: its own position plus every ancestor's below the
+    /// table. Layouts are written relative to the DOM parent.
+    pub fn position_in_table(&self, id: u32) -> crate::geo::Point {
+        let mut pos = crate::geo::Point::ZERO;
+        let mut node = Some(id);
+        while let Some(current) = node {
+            if self.nodes.get(&current).is_some_and(|n| n.role == TableRole::Table) {
+                break;
+            }
+            if let Some(layout) = self.layout(current) {
+                pos.x += layout.position.x;
+                pos.y += layout.position.y;
+            }
+            node = self
+                .nodes
+                .iter()
+                .find(|(_, n)| n.children.contains(&current))
+                .map(|(&parent, _)| parent);
+        }
+        pos
+    }
+
     pub fn label(&self, id: u32) -> Option<&str> {
         self.nodes.get(&id)?.label.as_deref()
     }
@@ -525,6 +550,10 @@ impl TableTree for MockTree {
         if let Some(node) = self.nodes.get_mut(&id) {
             node.layout = Some(layout);
         }
+    }
+
+    fn set_cell_layers(&mut self, id: u32, layers: Vec<crate::types::CellLayer<u32>>) {
+        self.cell_layers.insert(id, layers);
     }
 
     fn layout_cell(&mut self, id: u32, _available_width: f64) -> f64 {

@@ -9,7 +9,7 @@ use crate::sizing::rows::{
     compute_row_heights, distribute_table_height, effective_border, read_border, read_padding, read_padding_against,
     SectionRows,
 };
-use crate::types::{BorderCollapse, CellLayout, CollapsedBorders, CssLength, CssProp, TableSizing};
+use crate::types::{BorderCollapse, CellLayer, CellLayout, CollapsedBorders, CssLength, CssProp, TableSizing};
 use crate::TableTree;
 
 /// A length property of `node` in px, a percentage resolved against `basis`; `None` for `auto`
@@ -396,11 +396,15 @@ pub fn compute_table_layout<T: TableTree>(
     // Apply positions
     //
     //    Per CSS: sections are rendered in the order header -> body -> footer,
-    //    regardless of their source position.  Each group is positioned
-    //    relative to the table.  Each row is positioned relative to its group.
-    //    Each cell is positioned relative to its row.
-    let inner_width = match (col_x.last(), col_widths.last()) {
-        (Some(&x), Some(&w)) => x + w + spacing_x,
+    //    regardless of their source position. Positions go out relative to the node's DOM
+    //    parent (group to table, row to group, cell to row); an anonymous group or row has no
+    //    node, so its offset folds into its children.
+    //
+    //    Groups and rows span the columns, not the gutters or the perimeter border around them:
+    //    their backgrounds are positioned against that box (css-tables-3 §5.3.2).
+    let grid_left = col_x.first().copied().unwrap_or(0.0);
+    let grid_width = match (col_x.last(), col_widths.last()) {
+        (Some(&x), Some(&w)) => x + w - grid_left,
         _ => 0.0,
     };
 
@@ -409,6 +413,12 @@ pub fn compute_table_layout<T: TableTree>(
     // rows (also across group boundaries), one below the last. Groups therefore carry
     // only the (n_rows - 1) *internal* gutters; the shared boundary gutters live here.
     let mut group_y = if caption_bottom { 0.0 } else { caption_height } + spacing_y + perimeter.top;
+    let grid_top = group_y;
+    let mut grid_bottom = grid_top;
+
+    // Every cell with the row group and row layers under it; the column layers need the grid's
+    // bottom and are added after the last group.
+    let mut cell_layers: Vec<RowLayers<T::NodeId>> = Vec::new();
 
     #[allow(clippy::type_complexity)]
     let section_data: &[(&[RowGroup<T::NodeId>], &[SectionGrid<T::NodeId>], &[Vec<f64>])] = &[
@@ -421,13 +431,14 @@ pub fn compute_table_layout<T: TableTree>(
         for ((group, grid), row_heights) in groups.iter().zip(grids.iter()).zip(heights.iter()) {
             let row_y = row_y_offsets(row_heights, spacing_y);
             let group_height = section_height(row_heights, &row_y);
+            let group_box = (Point::new(grid_left, group_y), Size::new(grid_width, group_height));
 
             if let Some(node) = group.node {
                 tree.set_layout(
                     node,
                     CellLayout {
-                        position: Point::new(0.0, group_y),
-                        size: Size::new(inner_width, group_height),
+                        position: group_box.0,
+                        size: group_box.1,
                         border: BOX_EDGES_ZERO,
                         padding: BOX_EDGES_ZERO,
                         content_offset_y: 0.0,
@@ -437,25 +448,54 @@ pub fn compute_table_layout<T: TableTree>(
                 );
             }
 
-            // Positions are consumed relative to the DOM parent chain. An anonymous group has
-            // no node to carry `group_y`, so its offset folds into its rows/cells instead.
-            let group_base_y = if group.node.is_none() { group_y } else { 0.0 };
+            let placement = Placement {
+                row_heights,
+                row_y: &row_y,
+                col_x: &col_x,
+                col_widths: &col_widths,
+                grid_left,
+                grid_width,
+                group_y,
+                group_box,
+            };
             place_rows(
                 tree,
                 group,
                 grid,
-                row_heights,
-                &row_y,
-                &col_x,
-                &col_widths,
+                &placement,
                 &content_heights,
                 &collapsed_borders,
                 &baseline_shifts,
-                group_base_y,
+                &mut cell_layers,
             );
 
+            grid_bottom = group_y + group_height;
             group_y += group_height + spacing_y;
         }
+    }
+
+    // Column groups and columns run from the first row's top to the last row's bottom.
+    let columns = column_parts(tree, &model, n_cols);
+    let grid_height = grid_bottom - grid_top;
+    let col_box = |first: usize, last: usize| {
+        let x = col_x.get(first).copied().unwrap_or(0.0);
+        let right = col_x.get(last).copied().unwrap_or(0.0) + col_widths.get(last).copied().unwrap_or(0.0);
+        (Point::new(x, grid_top), Size::new(right - x, grid_height))
+    };
+    for (cell, col, row_layers) in cell_layers {
+        let mut layers = Vec::with_capacity(row_layers.len() + 2);
+        if let Some(part) = columns.get(col) {
+            if let Some((node, first, last)) = part.group {
+                let (position, size) = col_box(first, last);
+                layers.push(CellLayer { node, position, size });
+            }
+            if let Some(node) = part.column {
+                let (position, size) = col_box(col, col);
+                layers.push(CellLayer { node, position, size });
+            }
+        }
+        layers.extend(row_layers);
+        tree.set_cell_layers(cell, layers);
     }
 
     // A top caption's height is already part of group_y; a bottom caption
@@ -489,40 +529,59 @@ pub fn compute_table_layout<T: TableTree>(
     Ok((table_width, total_height))
 }
 
-/// Write layouts for every row and cell within one section.
+/// A cell, the column it starts in, and the row group and row layers under it.
+type RowLayers<N> = (N, usize, Vec<CellLayer<N>>);
+
+/// Where one row group's rows and cells go: the table's column geometry and the group's place.
+/// Every position here is relative to the table.
+struct Placement<'a> {
+    row_heights: &'a [f64],
+    row_y: &'a [f64],
+    col_x: &'a [f64],
+    col_widths: &'a [f64],
+    grid_left: f64,
+    grid_width: f64,
+    group_y: f64,
+    group_box: (Point, Size),
+}
+
+/// Write layouts for every row and cell within one section, and collect each cell's row group
+/// and row layers into `cell_layers`.
 ///
 /// Positions are relative to the nearest ANCESTOR WITH A NODE (the consumer resolves them
-/// along the DOM parent chain): `group_base_y` carries an anonymous group's table-relative
-/// offset, and an anonymous row folds its own offset into its cells the same way.
+/// along the DOM parent chain): an anonymous group or row passes its own offset on to its
+/// children.
 #[allow(clippy::too_many_arguments)]
 fn place_rows<T: TableTree>(
     tree: &mut T,
     group: &RowGroup<T::NodeId>,
     grid: &SectionGrid<T::NodeId>,
-    row_heights: &[f64],
-    row_y: &[f64],
-    col_x: &[f64],
-    col_widths: &[f64],
+    at: &Placement<'_>,
     content_heights: &HashMap<T::NodeId, f64>,
     collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
     baseline_shifts: &HashMap<T::NodeId, f64>,
-    group_base_y: f64,
+    cell_layers: &mut Vec<RowLayers<T::NodeId>>,
 ) {
-    let inner_width: f64 = match (col_x.last(), col_widths.last()) {
-        (Some(&x), Some(&w)) => x + w - col_x.first().copied().unwrap_or(0.0),
-        _ => 0.0,
+    let group_origin = if group.node.is_some() {
+        at.group_box.0
+    } else {
+        Point::ZERO
     };
 
+    let mut row_boxes = Vec::with_capacity(group.rows.len());
     for (row_idx, row) in group.rows.iter().enumerate() {
-        let ry = row_y[row_idx];
-        let rh = row_heights[row_idx];
+        let row_box = (
+            Point::new(at.grid_left, at.group_y + at.row_y[row_idx]),
+            Size::new(at.grid_width, at.row_heights[row_idx]),
+        );
+        row_boxes.push(row_box);
 
         if let Some(node) = row.node {
             tree.set_layout(
                 node,
                 CellLayout {
-                    position: Point::new(0.0, group_base_y + ry),
-                    size: Size::new(inner_width, rh),
+                    position: Point::new(row_box.0.x - group_origin.x, row_box.0.y - group_origin.y),
+                    size: row_box.1,
                     border: BOX_EDGES_ZERO,
                     padding: BOX_EDGES_ZERO,
                     content_offset_y: 0.0,
@@ -532,41 +591,53 @@ fn place_rows<T: TableTree>(
             );
         }
 
-        // Cells of an anonymous row hang off the group (or table) in the DOM, so they
-        // carry the row's offset themselves.
-        let cell_base_y = if row.node.is_some() { 0.0 } else { group_base_y + ry };
+        // Cells of an anonymous row hang off the group (or table) in the DOM.
+        let cell_parent = if row.node.is_some() { row_box.0 } else { group_origin };
         for cell in grid.cells_in_row(row_idx) {
             place_cell(
                 tree,
                 cell,
-                row_heights,
-                col_x,
-                col_widths,
-                row_y,
+                at,
+                cell_parent,
                 content_heights,
                 collapsed_borders,
                 baseline_shifts,
-                cell_base_y,
             );
         }
     }
+
+    // A cell takes the layers of the group and the row it originates in.
+    for cell in grid.cells() {
+        let mut layers = Vec::with_capacity(2);
+        if let Some(node) = group.node {
+            layers.push(CellLayer {
+                node,
+                position: at.group_box.0,
+                size: at.group_box.1,
+            });
+        }
+        if let (Some(node), Some(&(position, size))) = (
+            group.rows.get(cell.row).and_then(|row| row.node),
+            row_boxes.get(cell.row),
+        ) {
+            layers.push(CellLayer { node, position, size });
+        }
+        cell_layers.push((cell.node, cell.col, layers));
+    }
 }
 
-/// Write the layout for one placed cell.
-#[allow(clippy::too_many_arguments)]
+/// Write the layout for one placed cell. `parent` is the table-relative origin of the cell's DOM
+/// parent.
 fn place_cell<T: TableTree>(
     tree: &mut T,
     cell: &PlacedCell<T::NodeId>,
-    row_heights: &[f64],
-    col_x: &[f64],
-    col_widths: &[f64],
-    row_y: &[f64],
+    at: &Placement<'_>,
+    parent: Point,
     content_heights: &HashMap<T::NodeId, f64>,
     collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
     baseline_shifts: &HashMap<T::NodeId, f64>,
-    // Offset of the cell's (anonymous) row relative to the cell's DOM parent; 0 in a real row.
-    base_y: f64,
 ) {
+    let (row_heights, row_y, col_x, col_widths) = (at.row_heights, at.row_y, at.col_x, at.col_widths);
     // Extents come from the offset tables so gutters (separate borders) and
     // overlaps (collapsed borders) are both handled: a spanning cell runs from
     // its first column/row's start to its last column/row's end.
@@ -578,9 +649,7 @@ fn place_cell<T: TableTree>(
     let cell_row_y = row_y.get(cell.row).copied().unwrap_or(0.0);
     let cell_height =
         row_y.get(last_row).copied().unwrap_or(0.0) + row_heights.get(last_row).copied().unwrap_or(0.0) - cell_row_y;
-
-    // Cell y is relative to its own row's top (plus that row's own offset when anonymous).
-    let y_within_row = base_y;
+    let y = at.group_y + cell_row_y;
 
     let collapsed = collapsed_borders.get(&cell.node).copied();
     let border = effective_border(tree, cell.node, collapsed_borders);
@@ -603,7 +672,7 @@ fn place_cell<T: TableTree>(
     tree.set_layout(
         cell.node,
         CellLayout {
-            position: Point::new(x, y_within_row),
+            position: Point::new(x - parent.x, y - parent.y),
             size: Size::new(cell_width, cell_height),
             border,
             padding,
@@ -612,6 +681,49 @@ fn place_cell<T: TableTree>(
             border_outsets: collapsed.map(|c| c.outsets).unwrap_or([0.0; 4]),
         },
     );
+}
+
+/// The column group and column element of one column, if any.
+struct ColumnPart<N> {
+    /// The column group with the first and last column it covers.
+    group: Option<(N, usize, usize)>,
+    column: Option<N>,
+}
+
+/// Which `<colgroup>` and `<col>` each of the first `n_cols` columns belongs to, expanded by
+/// `span` the way [`column_specs`] expands their widths.
+fn column_parts<T: TableTree>(
+    tree: &T,
+    model: &crate::model::TableModel<T::NodeId>,
+    n_cols: usize,
+) -> Vec<ColumnPart<T::NodeId>> {
+    let mut parts: Vec<ColumnPart<T::NodeId>> = Vec::new();
+    for group in &model.column_groups {
+        let first = parts.len();
+        if let (true, Some(node)) = (group.columns.is_empty(), group.node) {
+            let span = tree.attr_usize(node, "span").unwrap_or(1).max(1);
+            parts.extend((0..span).map(|_| ColumnPart {
+                group: None,
+                column: None,
+            }));
+        } else {
+            for &col in &group.columns {
+                let span = tree.attr_usize(col, "span").unwrap_or(1).max(1);
+                parts.extend((0..span).map(|_| ColumnPart {
+                    group: None,
+                    column: Some(col),
+                }));
+            }
+        }
+        let last = parts.len().saturating_sub(1).min(n_cols.saturating_sub(1));
+        if let Some(node) = group.node {
+            for part in &mut parts[first..] {
+                part.group = Some((node, first, last));
+            }
+        }
+    }
+    parts.truncate(n_cols);
+    parts
 }
 
 // Offset helpers

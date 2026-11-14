@@ -444,7 +444,21 @@ impl Painter {
         layout_element: &LayoutElementNode,
         dom_node_id: NodeId,
     ) -> Vec<PaintCommand> {
-        let border_box = layout_element.box_model.border_box;
+        match self.background_media_at(bg, layout_element.box_model.border_box, dom_node_id) {
+            // Collapsed cells get their border from the TableBorderOverlay.
+            PaintCommand::Rectangle(r) if layout_element.collapsed_borders.is_none() => {
+                vec![PaintCommand::rectangle(self.decorate_with_border_and_radius(
+                    dom_node_id,
+                    None,
+                    r,
+                ))]
+            }
+            command => vec![command],
+        }
+    }
+
+    /// `dom_node_id`'s `background-image` laid out over `area`, without its border.
+    fn background_media_at(&self, bg: BackgroundMedia, area: Rect, dom_node_id: NodeId) -> PaintCommand {
         match bg {
             BackgroundMedia::Image {
                 media_id,
@@ -452,21 +466,79 @@ impl Painter {
                 layout,
             } => {
                 // Finalize the tile geometry now that the box is known (cover/contain need it).
-                let tiling = compute_bg_tiling(natural, &layout, border_box.width as f32, border_box.height as f32);
-                let brush = Brush::image_tiled(media_id, tiling);
-                let r = Rectangle::new(border_box)
-                    .with_background(brush)
+                let tiling = compute_bg_tiling(natural, &layout, area.width as f32, area.height as f32);
+                let r = Rectangle::new(area)
+                    .with_background(Brush::image_tiled(media_id, tiling))
                     .with_blend_mode(self.mix_blend_mode(dom_node_id));
-                // Collapsed cells get their border from the TableBorderOverlay.
-                let r = if layout_element.collapsed_borders.is_some() {
-                    r
-                } else {
-                    self.decorate_with_border_and_radius(dom_node_id, None, r)
-                };
-                vec![PaintCommand::rectangle(r)]
+                PaintCommand::rectangle(r)
             }
-            BackgroundMedia::Svg(media_id) => vec![PaintCommand::svg(media_id, Rectangle::new(border_box))],
+            BackgroundMedia::Svg(media_id) => PaintCommand::svg(media_id, Rectangle::new(area)),
         }
+    }
+
+    /// The backgrounds of the column group, column, row group and row under a table cell, back to
+    /// front. A colour fills the cell; images are laid out over the part's box and show only inside
+    /// the cell (css-tables-3 §5.3.2).
+    fn table_layer_commands(&self, cell: &LayoutElementNode) -> Vec<PaintCommand> {
+        let cell_box = cell.box_model.border_box;
+        let mut commands = Vec::new();
+        for layer in &cell.table_layers {
+            let area = Rect::new(
+                cell_box.x + layer.rect.x,
+                cell_box.y + layer.rect.y,
+                layer.rect.width,
+                layer.rect.height,
+            );
+            let (brush, mut overlays) =
+                self.background_fill(layer.dom_node_id, (area.width as f32, area.height as f32));
+            // A lone gradient comes back as the base brush, in place of the colour; here the
+            // gradient covers the part and the colour the cell, so they are painted apart.
+            let color = match brush {
+                Brush::Gradient(gradient) => {
+                    overlays.push(gradient);
+                    let transparent = Brush::solid(Color::TRANSPARENT);
+                    self.get_brush(layer.dom_node_id, |style| style.background.color, transparent)
+                }
+                brush => brush,
+            };
+            let media = layer
+                .layout_id
+                .and_then(|id| self.layer_list.layout_tree.get_node_by_id(id))
+                .and_then(|part| part.background_media);
+            let transparent = matches!(&color, Brush::Solid(c) if c.a() == 0.0);
+            if transparent && overlays.is_empty() && media.is_none() {
+                continue;
+            }
+            let blend = self.mix_blend_mode(layer.dom_node_id);
+            commands.push(PaintCommand::PushClip(cell_box));
+            if !transparent {
+                commands.push(PaintCommand::rectangle(
+                    Rectangle::new(cell_box).with_background(color).with_blend_mode(blend),
+                ));
+            }
+            if let Some(bg) = media {
+                commands.push(self.background_media_at(bg, area, layer.dom_node_id));
+            }
+            for gradient in overlays.into_iter().rev() {
+                commands.push(PaintCommand::rectangle(
+                    Rectangle::new(area)
+                        .with_background(Brush::gradient(gradient))
+                        .with_blend_mode(blend),
+                ));
+            }
+            commands.push(PaintCommand::PopClip);
+        }
+        commands
+    }
+
+    /// A table row or row group. Its background shows only under its cells, which paint it, and
+    /// its border has no effect in the separated borders model (CSS 2.1 §17.5.1, §17.6.1).
+    fn is_table_track_group(&self, dom_node_id: NodeId) -> bool {
+        let doc = &self.layer_list.layout_tree.render_tree.doc;
+        matches!(
+            doc.computed_style(dom_node_id).declared_display(),
+            Some(Display::TableRow | Display::TableRowGroup | Display::TableHeaderGroup | Display::TableFooterGroup)
+        )
     }
 
     fn generate_element_commands(&self, layout_element: &LayoutElementNode, dom_node_id: NodeId) -> Vec<PaintCommand> {
@@ -643,7 +715,21 @@ impl Painter {
             ElementContext::SelectPopup(popup) => {
                 commands.extend(self.select_popup_commands(popup, layout_element));
             }
+            ElementContext::None if self.is_table_track_group(dom_node_id) => {
+                // Under collapse the row's border still paints here until it joins the cells'
+                // conflict resolution.
+                let doc = &self.layer_list.layout_tree.render_tree.doc;
+                if doc.computed_style(dom_node_id).inherited.border_collapse == BorderCollapse::Collapse {
+                    let r = Rectangle::new(layout_element.box_model.border_box);
+                    commands.push(PaintCommand::rectangle(self.decorate_with_border_and_radius(
+                        dom_node_id,
+                        None,
+                        r,
+                    )));
+                }
+            }
             ElementContext::None => {
+                commands.extend(self.table_layer_commands(layout_element));
                 let border_box = layout_element.box_model.border_box;
                 let (brush, overlay_layers) =
                     self.background_fill(dom_node_id, (border_box.width as f32, border_box.height as f32));
