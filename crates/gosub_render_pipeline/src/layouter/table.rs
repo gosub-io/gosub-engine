@@ -182,6 +182,11 @@ impl<'a> PipelineTableTree<'a> {
             })
             .unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
         let table_abs = Coordinate::new(table_box.x, table_box.y);
+        // A caption's vertical percentages need a definite height: the table's specified one.
+        let caption_height_basis = match self.doc.computed_style(table_dom_id).size.height {
+            LengthPercentageAuto::Px(px) => Some(f64::from(px)),
+            _ => None,
+        };
 
         let pending = std::mem::take(&mut self.pending);
         apply_recursive(
@@ -189,7 +194,7 @@ impl<'a> PipelineTableTree<'a> {
             table_dom_id,
             table_abs,
             Coordinate::ZERO,
-            (table_box.width, table_box.height),
+            (table_box.width, caption_height_basis),
             &pending,
             &self.collapsed_paint,
             &self.collapsed_slots,
@@ -230,14 +235,27 @@ impl<'a> PipelineTableTree<'a> {
 /// How far `position: relative` moves a table part from where the table put it: captions, cells,
 /// rows and row groups move, a row taking the cells that start in it along (css-position-3
 /// §3.4). `left` wins over `right` and `top` over `bottom`.
-fn relative_shift(doc: &dyn PipelineDocument, id: DomNodeId, (width, height): (f64, f64)) -> Coordinate {
+///
+/// Percentages resolve against the containing block (CSS 2 §9.3.2): horizontally the table's
+/// width. Vertically a percentage against an indefinite height behaves as `auto`, and the grid's
+/// height is never definite for its own parts; only a caption, in the table wrapper, has one
+/// when the table's height is specified (`caption_height`).
+fn relative_shift(
+    doc: &dyn PipelineDocument,
+    id: DomNodeId,
+    (width, caption_height): (f64, Option<f64>),
+) -> Coordinate {
     let style = doc.computed_style(id);
     if !style.has(Prop::Position) || style.box_group.position != Position::Relative {
         return Coordinate::ZERO;
     }
-    let side = |value, basis| gosub_interface::used::length_auto(value, basis);
+    let height = caption_height.filter(|_| style.box_group.display == Display::TableCaption);
+    let side = |value, basis: Option<f64>| match (value, basis) {
+        (LengthPercentageAuto::Percent(_) | LengthPercentageAuto::Calc { .. }, None) => None,
+        (value, basis) => gosub_interface::used::length_auto(value, basis.unwrap_or(0.0)),
+    };
     let inset = &style.inset;
-    let x = side(inset.inline_start, width).or_else(|| side(inset.inline_end, width).map(|r| -r));
+    let x = side(inset.inline_start, Some(width)).or_else(|| side(inset.inline_end, Some(width)).map(|r| -r));
     let y = side(inset.block_start, height).or_else(|| side(inset.block_end, height).map(|b| -b));
     Coordinate::new(x.unwrap_or(0.0), y.unwrap_or(0.0))
 }
@@ -251,8 +269,9 @@ fn apply_recursive(
     // lattice-repositioned cell this is (new_cell_abs - old_cell_abs), plus
     // the cell's vertical-align shift when its subtree was re-anchored.
     offset: Coordinate,
-    // What the percentages of a part's `position: relative` insets resolve against.
-    inset_basis: (f64, f64),
+    // What the percentages of a part's `position: relative` insets resolve against: the table's
+    // width, and the height a caption's resolve against if there is one.
+    inset_basis: (f64, Option<f64>),
     pending: &HashMap<DomNodeId, CellLayout>,
     collapsed_paint: &HashMap<DomNodeId, CollapsedCellBorders>,
     collapsed_slots: &HashMap<DomNodeId, Vec<CollapsedSlot>>,

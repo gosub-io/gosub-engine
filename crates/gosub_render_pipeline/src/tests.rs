@@ -1210,6 +1210,39 @@ mod rendertree_from_engine {
         );
     }
 
+    /// Percentage insets on table parts: horizontally against the table's width; vertically only
+    /// a caption has a definite height to resolve against, the table's specified one. A row's or
+    /// a cell's vertical percentage behaves as `auto` (matches Chromium).
+    #[test]
+    fn relative_table_part_percentages() {
+        let page = |insets: &str| {
+            format!(
+                r#"<html><body style="margin: 0"><table style="border-spacing: 0; height: 300px">
+                  <caption id="cap" style="height: 20px; {insets}"></caption>
+                  <tr id="row" style="{insets}"><td id="a" style="width: 40px; padding: 0"></td>
+                    <td id="b" style="width: 40px; padding: 0; {insets}"></td></tr>
+                </table></body></html>"#
+            )
+        };
+        let origins = |html: &str| {
+            let (layers, ids) = crate::tests::overflow_clip::lay_out(html, ["cap", "row", "b"]);
+            ids.map(|id| {
+                let b = layers
+                    .layout_tree
+                    .get_node_by_id(id)
+                    .expect("laid out")
+                    .box_model
+                    .border_box;
+                (b.x, b.y)
+            })
+        };
+        let still = origins(&page(""));
+        let moved = origins(&page("position: relative; left: 10%; top: 10%"));
+        let delta: Vec<_> = still.iter().zip(&moved).map(|(s, m)| (m.0 - s.0, m.1 - s.1)).collect();
+        // 10% of the 80px table; the caption's 10% of 300px. The cell rides along with its row.
+        assert_eq!(delta, [(8.0, 30.0), (8.0, 0.0), (16.0, 0.0)]);
+    }
+
     /// CSS 2.1 §17.2.1: the anonymous table around cells inside an inline is an inline-table,
     /// so it stays on the line: "a bc d", not three lines (WPT table-anonymous-objects-167).
     #[test]
