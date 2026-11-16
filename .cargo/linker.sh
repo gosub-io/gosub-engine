@@ -12,8 +12,9 @@
 # Referenced from .cargo/config.toml as the [target.*] linker.
 #
 # -fuse-ld=mold goes last: rustc passes its own -fuse-ld=lld and the last one wins.
+# clang resolves it to ld.mold, so that is what the check looks for.
 
-if [ "$(uname -s)" = "Linux" ] && command -v mold >/dev/null 2>&1 && command -v clang >/dev/null 2>&1; then
+if [ "$(uname -s)" = "Linux" ] && command -v ld.mold >/dev/null 2>&1 && command -v clang >/dev/null 2>&1; then
     exec clang "$@" -fuse-ld=mold
 fi
 
