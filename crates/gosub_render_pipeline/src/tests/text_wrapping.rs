@@ -405,3 +405,18 @@ fn a_nowrap_inline_keeps_its_text_on_one_line() {
     tops.dedup();
     assert_eq!(tops.len(), 1, "the nowrap text stays on one line");
 }
+
+/// No space between a `nowrap` run and the text after it, so the line cannot break there.
+#[test]
+fn a_nowrap_inline_stays_with_the_text_it_touches() {
+    let (tree, _, [block]) = lay_out(
+        r#"<body style="margin: 0">
+            <div id="block" style="width: 120px">aaaa <span style="white-space: nowrap">one two</span><b>three</b></div>
+        </body>"#,
+        ["block"],
+    );
+    let boxes = text_boxes(&tree, block);
+    let three = boxes.last().expect("text");
+    let two = boxes.iter().rev().nth(1).expect("text");
+    assert_eq!(two.y.round(), three.y.round(), "`two` and `three` share a line");
+}

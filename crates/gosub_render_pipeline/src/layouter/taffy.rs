@@ -1983,11 +1983,16 @@ impl TaffyLayouter {
         // Every item is a flex item, and the line wraps between any two of them; CSS breaks a
         // line only at a space. Text items that touch - `(` and the link after it in
         // `(<a>example.com</a>)` - go into one box that does not wrap, so the line cannot break
-        // between them.
-        let touches = |id: &LayoutElementId| {
-            layout_tree.arena.get(id).is_some_and(|el| {
-                matches!(&el.context, ElementContext::Text(t) if !t.text.is_empty() && !t.text.chars().any(char::is_whitespace))
+        // between them. Only the boundary counts: a `nowrap` item holds spaces of its own.
+        let text_of = |id: &LayoutElementId| {
+            layout_tree.arena.get(id).and_then(|el| match &el.context {
+                ElementContext::Text(t) if !t.text.is_empty() => Some(t.text.as_str()),
+                _ => None,
             })
+        };
+        let touches = |before: &LayoutElementId, after: &LayoutElementId| {
+            text_of(before).is_some_and(|text| !text.ends_with(char::is_whitespace))
+                && text_of(after).is_some_and(|text| !text.starts_with(char::is_whitespace))
         };
         // A flex item is never narrower than its min-content width unless told otherwise, and
         // under `overflow-wrap: break-word` that is the longest word: the line box would hand the
@@ -2033,7 +2038,7 @@ impl TaffyLayouter {
         while !rest.is_empty() {
             let run = 1 + rest
                 .windows(2)
-                .take_while(|pair| (touches(&pair[0].0) && touches(&pair[1].0)) || holds_to(&pair[0].0, &pair[1].0))
+                .take_while(|pair| touches(&pair[0].0, &pair[1].0) || holds_to(&pair[0].0, &pair[1].0))
                 .count();
             let parent = if run > 1 {
                 let shrinks = rest[..run].iter().any(|(id, _)| breaks_inside_words(id));
