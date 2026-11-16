@@ -4,6 +4,7 @@ use crate::functions::var::{
     compute_custom_property, resolve_var, AttrResolver, CustomScope, SubstitutionBudget, MAX_VAR_DEPTH,
 };
 use crate::matcher::bloom::{ancestor_filter, AncestorFilter};
+use crate::matcher::computed_style::{names_monospace_first, undeclared_font_size};
 use crate::matcher::expansion::{canonical_if_changed, single_value, ExpandedDeclaration};
 use crate::matcher::index::ElementKeys;
 use crate::matcher::property_definitions::get_css_definitions;
@@ -844,14 +845,14 @@ fn resolve_font_size_basis(map: &mut CssProperties, inherited: Option<&CssProper
     let parent_lh = inherited.map_or(DEFAULT_LINE_HEIGHT_PX, |parent| parent.line_height_px);
     let parent_root_lh = inherited.map_or(DEFAULT_LINE_HEIGHT_PX, |parent| parent.root_line_height_px);
 
-    let own_px = match map.get_id_mut(FONT_SIZE) {
+    let declared_px = match map.get_id_mut(FONT_SIZE) {
         Some(font_size) => {
             font_size.font_size_basis = parent_px;
             font_size.root_font_size_basis = parent_root_px;
             font_size.line_height_basis = Some(parent_lh);
             font_size.root_line_height_basis = Some(parent_root_lh);
             font_size.mark_dirty();
-            match font_size.compute_value() {
+            Some(match font_size.compute_value() {
                 CssValue::Unit(px, unit) if unit.eq_ignore_ascii_case("px") => *px as f32,
                 // A percentage font-size is a fraction of the *parent's* computed font-size
                 // (css-fonts-4 §3.5), which is a basis this already has - unlike every other
@@ -863,10 +864,17 @@ fn resolve_font_size_basis(map: &mut CssProperties, inherited: Option<&CssProper
                 // settle, such as a `calc()` over a percentage and a length: inheriting the
                 // parent's size is closer than falling back to the initial one.
                 _ => parent_px,
-            }
+            })
         }
+        None => None,
+    };
+    let own_px = match declared_px {
+        Some(px) => px,
         // Undeclared, so inherited - which is what `font-size` does by default.
-        None => parent_px,
+        None if map.inherited_value(FONT_SIZE).is_some() => parent_px,
+        // Nothing up the chain declared one either, so it is the family's default. The same
+        // quirk as in `computed_style`, applied here so that an `em` sees it.
+        None => undeclared_font_size(family_is_monospace(map)),
     };
     map.font_size_px = own_px;
 
@@ -884,6 +892,17 @@ fn resolve_font_size_basis(map: &mut CssProperties, inherited: Option<&CssProper
     }
 
     resolve_line_height_basis(map, inherited, own_px);
+}
+
+/// Whether this element's `font-family`, its own or inherited, is the bare generic `monospace`.
+fn family_is_monospace(map: &mut CssProperties) -> bool {
+    if let Some(family) = map.get_id_mut(FONT_FAMILY) {
+        let value = family.compute_value();
+        if !matches!(value, CssValue::None) {
+            return names_monospace_first(value);
+        }
+    }
+    map.inherited_value(FONT_FAMILY).is_some_and(names_monospace_first)
 }
 
 /// Work out what an `lh` and an `rlh` mean on this element, and tell every property.
@@ -1051,6 +1070,7 @@ fn record_hover_compound<'a>(
 
 /// `font-size` is the one property every other property's `em` resolves against.
 const FONT_SIZE: PropertyId = PropertyId::Longhand(LonghandId::FontSize);
+const FONT_FAMILY: PropertyId = PropertyId::Longhand(LonghandId::FontFamily);
 const LINE_HEIGHT: PropertyId = PropertyId::Longhand(LonghandId::LineHeight);
 
 /// Whether the property `name` denotes inherits by default.

@@ -62,6 +62,12 @@ fn split_collapsible_whitespace(text: &str) -> impl Iterator<Item = &str> {
     text.split(|c: char| c.is_ascii_whitespace()).filter(|s| !s.is_empty())
 }
 
+/// Whether text under this `white-space` is split into one inline box per word. Preserved text
+/// keeps its spaces as content, and `nowrap` text has no wrap points for the words to give.
+fn splits_into_words(white_space: WhiteSpace) -> bool {
+    !white_space.preserves_spaces() && white_space != WhiteSpace::NoWrap
+}
+
 const DEFAULT_FONT_SIZE: f64 = 16.0;
 
 /// Width an inline item is measured at to get its natural size. Large enough that nothing wraps;
@@ -1977,11 +1983,16 @@ impl TaffyLayouter {
         // Every item is a flex item, and the line wraps between any two of them; CSS breaks a
         // line only at a space. Text items that touch - `(` and the link after it in
         // `(<a>example.com</a>)` - go into one box that does not wrap, so the line cannot break
-        // between them.
-        let touches = |id: &LayoutElementId| {
-            layout_tree.arena.get(id).is_some_and(|el| {
-                matches!(&el.context, ElementContext::Text(t) if !t.text.is_empty() && !t.text.chars().any(char::is_whitespace))
+        // between them. Only the boundary counts: a `nowrap` item holds spaces of its own.
+        let text_of = |id: &LayoutElementId| {
+            layout_tree.arena.get(id).and_then(|el| match &el.context {
+                ElementContext::Text(t) if !t.text.is_empty() => Some(t.text.as_str()),
+                _ => None,
             })
+        };
+        let touches = |before: &LayoutElementId, after: &LayoutElementId| {
+            text_of(before).is_some_and(|text| !text.ends_with(char::is_whitespace))
+                && text_of(after).is_some_and(|text| !text.starts_with(char::is_whitespace))
         };
         // A flex item is never narrower than its min-content width unless told otherwise, and
         // under `overflow-wrap: break-word` that is the longest word: the line box would hand the
@@ -2027,7 +2038,7 @@ impl TaffyLayouter {
         while !rest.is_empty() {
             let run = 1 + rest
                 .windows(2)
-                .take_while(|pair| (touches(&pair[0].0) && touches(&pair[1].0)) || holds_to(&pair[0].0, &pair[1].0))
+                .take_while(|pair| touches(&pair[0].0, &pair[1].0) || holds_to(&pair[0].0, &pair[1].0))
                 .count();
             let parent = if run > 1 {
                 let shrinks = rest[..run].iter().any(|(id, _)| breaks_inside_words(id));
@@ -2483,10 +2494,13 @@ impl TaffyLayouter {
             let Some(child) = layout_tree.render_tree.get_document_node_by_render_id(child_id) else {
                 continue;
             };
-            let preserved = matches!(
-                layout_tree.render_tree.doc.computed_style(child.node_id).inherited.white_space,
-                white_space if white_space.preserves_spaces()
-            );
+            let white_space = layout_tree
+                .render_tree
+                .doc
+                .computed_style(child.node_id)
+                .inherited
+                .white_space;
+            let preserved = white_space.preserves_spaces();
             match &child.node_type {
                 NodeType::Text(text) if preserved && text.contains(['\n', '\t']) => {
                     let before = group.len();
@@ -2495,7 +2509,7 @@ impl TaffyLayouter {
                     *trailing_ws_count = 0;
                     continue;
                 }
-                NodeType::Text(text) if !is_collapsible_whitespace(text) && !preserved => {
+                NodeType::Text(text) if !is_collapsible_whitespace(text) && splits_into_words(white_space) => {
                     let before = group.len();
                     self.push_text_words(layout_tree, &child, child_id, group);
                     content.extend(items(&group[before..]));
@@ -2887,15 +2901,13 @@ impl TaffyLayouter {
             // line, split only at its newlines. A tab needs a box of its own, so preserved text
             // holding one is split even where it is all the block holds.
             if let NodeType::Text(text) = &child_node.node_type {
-                let preserved = matches!(
-                    layout_tree
-                        .render_tree
-                        .doc
-                        .computed_style(child_node.node_id)
-                        .inherited
-                        .white_space,
-                    white_space if white_space.preserves_spaces()
-                );
+                let white_space = layout_tree
+                    .render_tree
+                    .doc
+                    .computed_style(child_node.node_id)
+                    .inherited
+                    .white_space;
+                let preserved = white_space.preserves_spaces();
                 if preserved
                     && !parent_is_flex_or_grid
                     && (text.contains('\t') || (has_inline_element_child && text.contains('\n')))
@@ -2906,7 +2918,7 @@ impl TaffyLayouter {
                 }
                 // ASCII, not `str::trim`: `trim` uses the Unicode whitespace set, so a text
                 // node holding only an `&nbsp;` looked like source formatting.
-                if has_inline_element_child && !is_collapsible_whitespace(text) && !preserved {
+                if has_inline_element_child && !is_collapsible_whitespace(text) && splits_into_words(white_space) {
                     self.push_text_words(layout_tree, &child_node, *child_id, &mut current_inline_group);
                     trailing_ws_count = 0;
                     continue;
