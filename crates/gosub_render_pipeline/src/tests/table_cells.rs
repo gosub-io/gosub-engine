@@ -66,6 +66,22 @@ fn table_overflow_does_not_clip_its_caption() {
     assert!(layers.clip(inner).is_some(), "the cells are clipped");
 }
 
+/// A generated caption gets no anonymous table, so it sits in the block, and the block's
+/// `overflow` clips it.
+#[test]
+fn a_caption_outside_a_table_is_clipped() {
+    let (layers, [block]) = lay_out(
+        r#"<html><head><style>
+          #block::before { content: "x"; display: table-caption; height: 100px }
+        </style></head><body>
+          <div id="block" style="overflow: hidden; height: 10px"></div>
+        </body></html>"#,
+        ["block"],
+    );
+    let before = layers.layout_tree.get_node_by_id(block).expect("laid out").children[0];
+    assert!(layers.clip(before).is_some());
+}
+
 /// A cell's `height` is a minimum: the row grows to the content, with or without `overflow`, and
 /// `max-height` does not cap it.
 #[test]
