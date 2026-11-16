@@ -412,6 +412,9 @@ pub struct LayoutElementNode {
     /// For a table cell: the column group, column, row group and row backgrounds it paints under
     /// its own, back to front.
     pub table_layers: Vec<TableLayer>,
+    /// For rows of a `border-collapse` table: the slots no cell covers, whose share of the
+    /// table's borders the row paints.
+    pub collapsed_slots: Vec<CollapsedSlot>,
 }
 
 /// A background a table cell paints under its own: that of the column group, column, row group
@@ -427,25 +430,12 @@ pub struct TableLayer {
 }
 
 /// Paint instructions for one collapsed table cell's borders, produced by the
-/// table layouter. Collapsed borders are centered on the grid lines and each
-/// cell paints its own half of every boundary, so the rendered table doesn't
-/// depend on the order cells are painted in (a later cell's opaque background
-/// can never cover an earlier cell's border). Edge order everywhere:
-/// `[top, right, bottom, left]`.
-#[derive(Debug, Clone, Copy)]
-pub struct CollapsedCellBorders {
-    /// Width to paint per edge - the cell's layout border, i.e. half the
-    /// resolved boundary width.
-    pub widths: [f32; 4],
-    /// Extra distance the painted edge extends outside the border box. Only
-    /// non-zero on table-perimeter edges, where the other half of the border
-    /// sticks out of the table box (nothing paints over it there).
-    pub outsets: [f32; 4],
-    /// Node whose CSS border color/style paints each edge: `None` for the
-    /// cell's own border, `Some(winner)` when this edge lost its conflict and
-    /// must render in the adjacent winner's style.
-    pub owners: [Option<DomNodeId>; 4],
-}
+/// table layouter: per edge the segments it paints and whose border wins each, per
+/// corner the winner of the joint.
+pub type CollapsedCellBorders = gosub_lattice::CollapsedPaint<DomNodeId>;
+
+/// A slot of a collapsed table no cell covers, painted by its row.
+pub type CollapsedSlot = gosub_lattice::EmptySlotPaint<DomNodeId>;
 
 /// A resolved CSS `background-image` and its media kind. The painter finalizes tile geometry once
 /// the border box is known. A tiling SVG is rasterized to an `Image` during layout so only one

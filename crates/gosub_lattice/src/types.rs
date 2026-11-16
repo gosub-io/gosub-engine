@@ -138,17 +138,6 @@ pub struct CellLayout {
     /// to the content-box top) to realize `vertical-align` when the cell is
     /// taller than its content. Always 0 for non-cell nodes.
     pub content_offset_y: f64,
-    /// Border edges the host should NOT paint, as `[top, right, bottom, left]`.
-    /// Under `border-collapse` every shared boundary is painted by exactly one
-    /// of the two adjacent cells (the wider border wins; ties go to the
-    /// left/top cell) - the losing cell gets its edge flagged here.
-    pub suppressed_borders: [bool; 4],
-    /// How far outside the border box each painted edge extends, as
-    /// `[top, right, bottom, left]` px. Collapsed borders are centered on the
-    /// grid line: the cell's layout only reserves half the border (in
-    /// `border`), and the winning cell paints its full border shifted outward
-    /// by the other half. Zero everywhere for separate-border tables.
-    pub border_outsets: [f64; 4],
 }
 
 impl Default for CellLayout {
@@ -159,8 +148,6 @@ impl Default for CellLayout {
             border: BoxEdges::default(),
             padding: BoxEdges::default(),
             content_offset_y: 0.0,
-            suppressed_borders: [false; 4],
-            border_outsets: [0.0; 4],
         }
     }
 }
@@ -188,16 +175,89 @@ pub struct CellLayer<N> {
 /// Per-cell result of border-collapse conflict resolution.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CollapsedBorders {
-    /// The layout border: HALF the resolved boundary width on every edge
+    /// The layout border: HALF the widest resolved boundary along each edge
     /// (collapsed borders are centered on the grid lines, so each adjacent
     /// cell's geometry carries half; outer table edges carry half too, the
     /// other half sticking out of the table box like in browsers).
     pub layout: BoxEdges,
-    /// Edges this cell lost - it paints nothing there.
-    pub suppressed: [bool; 4],
-    /// Paint outset per edge (`[top, right, bottom, left]`): the winning cell
-    /// paints its full CSS border shifted outward by half its width.
-    pub outsets: [f64; 4],
+}
+
+/// `border-style`, ordered by its weight in border-conflict resolution (CSS 2 §17.6.2.1):
+/// `hidden` beats everything, `none` loses to everything, and between equally wide
+/// borders the later variant wins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum BorderStyle {
+    None,
+    Inset,
+    Groove,
+    Outset,
+    Ridge,
+    Dotted,
+    Dashed,
+    Solid,
+    Double,
+    Hidden,
+}
+
+/// One side of a box.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    Top,
+    Right,
+    Bottom,
+    Left,
+}
+
+impl Side {
+    pub const ALL: [Side; 4] = [Side::Top, Side::Right, Side::Bottom, Side::Left];
+}
+
+/// The border that won a collapsed boundary: paint it with this node's `side` border
+/// color and style.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BorderOwner<N> {
+    pub node: N,
+    pub side: Side,
+}
+
+/// A stretch of a collapsed cell edge between two grid lines that cross it, with its own
+/// conflict winner.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EdgeSegment<N> {
+    /// Start and end along the edge, from the cell's top-left border-box corner.
+    pub start: f64,
+    pub end: f64,
+    /// The cell's half of the boundary, painted inside its border box.
+    pub width: f64,
+    /// Painted outside the border box: the other half, where no cell sits across the line (the
+    /// table perimeter, an empty row).
+    pub outset: f64,
+    /// `None` when nothing is painted (a `hidden` border won, or no border at all).
+    pub owner: Option<BorderOwner<N>>,
+}
+
+/// A slot of a collapsed table that no cell covers. Its row paints the slot's share of the
+/// lines around it, the way a cell would.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EmptySlotPaint<N> {
+    /// Left edge and width of the slot, relative to the row's border box.
+    pub x: f64,
+    pub width: f64,
+    pub paint: CollapsedPaint<N>,
+}
+
+/// How a collapsed cell paints its share of the table's borders. Each cell paints its own
+/// half of every boundary, so the result does not depend on the order cells are painted in.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CollapsedPaint<N> {
+    /// Segments along each edge, `[top, right, bottom, left]`, in increasing offset.
+    pub edges: [Vec<EdgeSegment<N>>; 4],
+    /// Winner of the joint at each corner, `[top-left, top-right, bottom-right,
+    /// bottom-left]`: the cell's quarter of the joint is painted in its style.
+    pub corners: [Option<BorderOwner<N>>; 4],
+    /// How far each corner's quarter of the joint reaches outside the border box, `[x, y]`:
+    /// as far as the widest line through the joint, where nothing is painted across.
+    pub corner_outsets: [[f64; 2]; 4],
 }
 
 /// `border-collapse` property.

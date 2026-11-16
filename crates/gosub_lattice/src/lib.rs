@@ -1,3 +1,4 @@
+mod collapse;
 pub mod compute;
 pub mod geo;
 pub mod grid;
@@ -9,7 +10,8 @@ pub mod types;
 
 pub use compute::compute_table_layout;
 pub use types::{
-    BorderCollapse, BoxEdges, CellLayer, CellLayout, CssLength, CssProp, TableRole, TableSizing, VerticalAlign,
+    BorderCollapse, BorderOwner, BorderStyle, BoxEdges, CellLayer, CellLayout, CollapsedPaint, CssLength, CssProp,
+    EdgeSegment, EmptySlotPaint, Side, TableRole, TableSizing, VerticalAlign,
 };
 
 use std::fmt::Debug;
@@ -86,26 +88,28 @@ pub trait TableTree {
         types::VerticalAlign::Top
     }
 
+    /// `border-style` of one side of `id`. Under `border-collapse` it decides conflicts between
+    /// equally wide borders, and `hidden` (which computes to a zero width) wins outright.
+    fn border_style(&self, _id: Self::NodeId, _side: Side) -> BorderStyle {
+        BorderStyle::Solid
+    }
+
     /// Under `border-collapse`, gives the implementor cell `id`'s LAYOUT
-    /// border - half the resolved boundary width per edge, since collapsed
+    /// border - half the widest resolved boundary per edge, since collapsed
     /// borders are centered on the grid lines - BEFORE any measurement
     /// happens. Implementors backed by a layout engine should override the
     /// cell's border widths in the engine's style so content sits where the
     /// collapse geometry says.
-    ///
-    /// `edge_owners` (`[top, right, bottom, left]`) names, per edge, the cell
-    /// whose CSS border style/color must be used when painting this cell's
-    /// half of the boundary: `None` means the cell's own border (it won or the
-    /// edge is on the table perimeter), `Some(other)` means it lost the
-    /// conflict and paints its half in the winner's style. Painting each half
-    /// from its own cell keeps the result independent of cell paint order.
-    fn set_collapsed_cell_borders(
-        &mut self,
-        _id: Self::NodeId,
-        _layout: types::BoxEdges,
-        _edge_owners: [Option<Self::NodeId>; 4],
-    ) {
-    }
+    fn set_collapsed_cell_borders(&mut self, _id: Self::NodeId, _layout: types::BoxEdges) {}
+
+    /// Under `border-collapse`, how cell `id` paints its share of the table's borders. Called
+    /// once the cell is placed, after [`TableTree::set_layout`].
+    fn set_collapsed_cell_paint(&mut self, _id: Self::NodeId, _paint: CollapsedPaint<Self::NodeId>) {}
+
+    /// Under `border-collapse`, the slots of row `id` that no cell covers and how the row
+    /// paints their share of the table's borders. Called after [`TableTree::set_layout`] for
+    /// the row, only for rows with such slots.
+    fn set_collapsed_row_paint(&mut self, _id: Self::NodeId, _slots: Vec<EmptySlotPaint<Self::NodeId>>) {}
 
     /// The background layers under cell `id`, back to front: the column group, column, row group
     /// and row it originates in, those that have a node (css-tables-3 §5.3.2).

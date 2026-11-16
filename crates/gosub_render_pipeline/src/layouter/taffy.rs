@@ -2304,6 +2304,7 @@ impl TaffyLayouter {
             background_media: None,
             collapsed_borders: None,
             table_layers: Vec::new(),
+            collapsed_slots: Vec::new(),
         };
         let layout_element_id = element_node.id;
         layout_tree.arena.insert(layout_element_id, element_node);
@@ -2574,6 +2575,7 @@ impl TaffyLayouter {
                 background_media: None,
                 collapsed_borders: None,
                 table_layers: Vec::new(),
+                collapsed_slots: Vec::new(),
             },
         );
         self.dom_to_layout_mapping.insert(dom_node.node_id, id);
@@ -2759,6 +2761,7 @@ impl TaffyLayouter {
             background_media,
             collapsed_borders: None,
             table_layers: Vec::new(),
+            collapsed_slots: Vec::new(),
         };
 
         // Children are tracked in both the taffy tree and the element_node's children vec.
@@ -4799,6 +4802,7 @@ impl TaffyLayouter {
                 background_media: None,
                 collapsed_borders: None,
                 table_layers: Vec::new(),
+                collapsed_slots: Vec::new(),
             },
         );
         layout_tree.popup = Some(id);

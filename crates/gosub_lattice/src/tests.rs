@@ -12,7 +12,7 @@
 mod layout_tests {
     use crate::compute::compute_table_layout;
     use crate::mock::{cell, MockTable, MockTree};
-    use crate::types::TableRole;
+    use crate::types::{BorderStyle, Side, TableRole};
 
     fn approx(a: f64, b: f64) -> bool {
         (a - b).abs() < 0.01
@@ -1595,9 +1595,18 @@ mod layout_tests {
         assert_approx!(total_h, 23.0, "grid plus a perimeter half-border on each side");
     }
 
+    /// Owner of segment `seg` on edge `side` of collapsed cell `id`.
+    fn owner(tree: &MockTree, id: u32, side: Side, seg: usize) -> Option<(u32, Side)> {
+        let paint = tree.collapsed_paint(id).expect("collapsed paint");
+        paint.edges[side as usize][seg].owner.map(|o| (o.node, o.side))
+    }
+
+    fn segments(tree: &MockTree, id: u32, side: Side) -> usize {
+        tree.collapsed_paint(id).expect("collapsed paint").edges[side as usize].len()
+    }
+
     // Collapse conflict resolution, uniform borders: ties go to the left/top
-    // cell, so each cell paints its top+left shared edges' winners - i.e. the
-    // right/bottom cell of every boundary suppresses its facing edge.
+    // cell, and both cells of a boundary paint their half in its style.
     #[test]
     fn border_collapse_ties_go_left_top() {
         let (mut tree, root) = MockTable::new(100.0)
@@ -1616,13 +1625,26 @@ mod layout_tests {
 
         compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
 
-        // [top, right, bottom, left]
-        let cells = tree.nodes_with_role(TableRole::Cell);
-        let sup = |i: usize| tree.layout(cells[i]).unwrap().suppressed_borders;
-        assert_eq!(sup(0), [false, false, false, false], "top-left wins both boundaries");
-        assert_eq!(sup(1), [false, false, false, true], "b loses its left edge to a");
-        assert_eq!(sup(2), [true, false, false, false], "c loses its top edge to a");
-        assert_eq!(sup(3), [true, false, false, true], "d loses top and left");
+        let c = tree.nodes_with_role(TableRole::Cell);
+        let (a, b, cc, d) = (c[0], c[1], c[2], c[3]);
+        assert_eq!(owner(&tree, a, Side::Right, 0), Some((a, Side::Right)));
+        assert_eq!(
+            owner(&tree, b, Side::Left, 0),
+            Some((a, Side::Right)),
+            "b paints a's border"
+        );
+        assert_eq!(
+            owner(&tree, cc, Side::Top, 0),
+            Some((a, Side::Bottom)),
+            "c paints a's border"
+        );
+        assert_eq!(owner(&tree, d, Side::Top, 0), Some((b, Side::Bottom)));
+        assert_eq!(owner(&tree, d, Side::Left, 0), Some((cc, Side::Right)));
+        // The centre joint goes to the segment above it, a's right border.
+        let joint =
+            |id: u32, corner: usize| tree.collapsed_paint(id).unwrap().corners[corner].map(|o| (o.node, o.side));
+        assert_eq!(joint(a, 2), Some((a, Side::Right)));
+        assert_eq!(joint(d, 0), Some((a, Side::Right)));
     }
 
     // Collapse conflict resolution: the wider border wins even against the
@@ -1641,10 +1663,245 @@ mod layout_tests {
 
         compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
 
-        let cells = tree.nodes_with_role(TableRole::Cell);
-        let sup = |i: usize| tree.layout(cells[i]).unwrap().suppressed_borders;
-        assert_eq!(sup(0), [false, true, false, false], "thin loses its right edge");
-        assert_eq!(sup(1), [false, false, false, false], "thick paints the shared border");
+        let c = tree.nodes_with_role(TableRole::Cell);
+        assert_eq!(owner(&tree, c[0], Side::Right, 0), Some((c[1], Side::Left)));
+        assert_eq!(owner(&tree, c[1], Side::Left, 0), Some((c[1], Side::Left)));
+        assert_approx!(tree.layout(c[0]).unwrap().border.right, 1.5, "half the 3px boundary");
+    }
+
+    // CSS 2 §17.6.2.1: between equally wide borders the style decides (double > solid >
+    // dashed > ...), before the left/top preference.
+    #[test]
+    fn border_collapse_style_beats_position() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .width(100.0)
+            .spacing(0.0, 0.0)
+            .collapse()
+            .body_row(vec![
+                cell("a")
+                    .border_side(Side::Right, 5.0, BorderStyle::Dashed)
+                    .padding(0.0),
+                cell("b").border_side(Side::Left, 5.0, BorderStyle::Solid).padding(0.0),
+                cell("c").border_side(Side::Left, 5.0, BorderStyle::Ridge).padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        let c = tree.nodes_with_role(TableRole::Cell);
+        assert_eq!(
+            owner(&tree, c[0], Side::Right, 0),
+            Some((c[1], Side::Left)),
+            "solid beats dashed"
+        );
+        assert_eq!(
+            owner(&tree, c[2], Side::Left, 0),
+            Some((c[2], Side::Left)),
+            "ridge beats none"
+        );
+    }
+
+    // `hidden` wins every conflict and suppresses the border: nothing is painted and no
+    // width is reserved, however wide the other side is.
+    #[test]
+    fn border_collapse_hidden_wins() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .width(100.0)
+            .spacing(0.0, 0.0)
+            .collapse()
+            .body_row(vec![
+                cell("a")
+                    .border_side(Side::Right, 9.0, BorderStyle::Hidden)
+                    .padding(0.0),
+                cell("b").border(5.0).padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        let c = tree.nodes_with_role(TableRole::Cell);
+        assert_eq!(owner(&tree, c[0], Side::Right, 0), None);
+        assert_eq!(owner(&tree, c[1], Side::Left, 0), None);
+        assert_approx!(tree.layout(c[1]).unwrap().border.left, 0.0, "hidden reserves nothing");
+        assert_approx!(
+            tree.layout(c[1]).unwrap().border.right,
+            2.5,
+            "the perimeter keeps b's border"
+        );
+    }
+
+    // Rows, row groups and the table take part: a wider row border wins a line, an equal one
+    // loses to the cell (cell > row > row group > column > column group > table).
+    #[test]
+    fn border_collapse_rows_groups_and_table_take_part() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .width(100.0)
+            .spacing(0.0, 0.0)
+            .collapse()
+            .body_row(vec![
+                cell("a").border(1.0).padding(0.0),
+                cell("b").border(1.0).padding(0.0),
+            ])
+            .body_row(vec![
+                cell("c").border(1.0).padding(0.0),
+                cell("d").border(1.0).padding(0.0),
+            ])
+            .into_tree();
+        let rows = tree.nodes_with_role(TableRole::Row);
+        let group = tree.nodes_with_role(TableRole::RowGroup)[0];
+        tree.set_border(rows[0], Side::Bottom, 4.0, BorderStyle::Solid);
+        tree.set_border(rows[1], Side::Left, 1.0, BorderStyle::Solid);
+        tree.set_border(group, Side::Bottom, 3.0, BorderStyle::Solid);
+        tree.set_border(root, Side::Right, 6.0, BorderStyle::Solid);
+
+        compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        let c = tree.nodes_with_role(TableRole::Cell);
+        assert_eq!(
+            owner(&tree, c[1], Side::Bottom, 0),
+            Some((rows[0], Side::Bottom)),
+            "row wins"
+        );
+        assert_eq!(owner(&tree, c[2], Side::Top, 0), Some((rows[0], Side::Bottom)));
+        assert_eq!(
+            owner(&tree, c[2], Side::Left, 0),
+            Some((c[2], Side::Left)),
+            "cell beats row"
+        );
+        assert_eq!(
+            owner(&tree, c[3], Side::Bottom, 0),
+            Some((group, Side::Bottom)),
+            "group wins"
+        );
+        assert_eq!(
+            owner(&tree, c[1], Side::Right, 0),
+            Some((root, Side::Right)),
+            "table wins"
+        );
+        assert_approx!(tree.layout(c[0]).unwrap().border.bottom, 2.0, "half the row's 4px");
+    }
+
+    // A column's border runs along its whole vertical line; a column group's only at the
+    // group's edges.
+    #[test]
+    fn border_collapse_columns_take_part() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .width(100.0)
+            .spacing(0.0, 0.0)
+            .collapse()
+            .col(None)
+            .col(None)
+            .body_row(vec![
+                cell("a").border(1.0).padding(0.0),
+                cell("b").border(1.0).padding(0.0),
+            ])
+            .body_row(vec![
+                cell("c").border(1.0).padding(0.0),
+                cell("d").border(1.0).padding(0.0),
+            ])
+            .into_tree();
+        let cols = tree.nodes_with_role(TableRole::Column);
+        let group = tree.nodes_with_role(TableRole::ColumnGroup)[0];
+        tree.set_border(cols[1], Side::Left, 2.0, BorderStyle::Solid);
+        tree.set_border(group, Side::Top, 3.0, BorderStyle::Solid);
+        tree.set_border(group, Side::Right, 3.0, BorderStyle::Solid);
+
+        compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        let c = tree.nodes_with_role(TableRole::Cell);
+        assert_eq!(owner(&tree, c[0], Side::Right, 0), Some((cols[1], Side::Left)));
+        assert_eq!(owner(&tree, c[2], Side::Right, 0), Some((cols[1], Side::Left)));
+        assert_eq!(owner(&tree, c[0], Side::Top, 0), Some((group, Side::Top)));
+        assert_eq!(owner(&tree, c[3], Side::Right, 0), Some((group, Side::Right)));
+    }
+
+    // A slot no cell covers is painted by its row: the row's border runs on over it, and the
+    // cells next to it paint only their own half (WPT border-collapse-empty-row).
+    #[test]
+    fn border_collapse_rows_paint_their_empty_slots() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .width(100.0)
+            .spacing(0.0, 0.0)
+            .collapse()
+            .body_row(vec![
+                cell("a").border(10.0).padding(0.0),
+                cell("b").border(10.0).padding(0.0),
+            ])
+            .body_row(vec![cell("c").border(10.0).padding(0.0)])
+            .into_tree();
+        let rows = tree.nodes_with_role(TableRole::Row);
+        tree.set_border(rows[1], Side::Bottom, 20.0, BorderStyle::Solid);
+
+        compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        let c = tree.nodes_with_role(TableRole::Cell);
+        let slots = tree.empty_slots(rows[1]);
+        assert_eq!(slots.len(), 1, "row 1 has one empty slot");
+        let slot = &slots[0];
+        assert_approx!(slot.x, tree.layout(c[1]).unwrap().position.x, "under b");
+        let bottom = slot.paint.edges[Side::Bottom as usize][0];
+        assert_eq!(bottom.owner.map(|o| (o.node, o.side)), Some((rows[1], Side::Bottom)));
+        assert_approx!(bottom.outset, 10.0, "the perimeter half sticks out");
+        let top = slot.paint.edges[Side::Top as usize][0];
+        assert_eq!(top.owner.map(|o| (o.node, o.side)), Some((c[1], Side::Bottom)));
+        assert_approx!(top.outset, 0.0, "b paints the other half");
+        let b_bottom = tree.collapsed_paint(c[1]).unwrap().edges[Side::Bottom as usize][0];
+        assert_approx!(b_bottom.outset, 0.0, "the slot below is painted by its row");
+        assert_eq!(
+            slot.paint.corner_outsets[1],
+            [5.0, 0.0],
+            "the top-right joint reaches past the perimeter as far as b's right border"
+        );
+        assert!(tree.empty_slots(rows[0]).is_empty());
+    }
+
+    // A spanning cell's edge is resolved per grid segment: each row it spans has its own
+    // winner, and a line inside it has no border at all (WPT
+    // rowspan-cell-border-after-color, border-collapse-spanning-cells-*).
+    #[test]
+    fn border_collapse_resolves_spanning_edges_per_segment() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .width(100.0)
+            .spacing(0.0, 0.0)
+            .collapse()
+            .body_row(vec![
+                cell("span").rowspan(3).border(1.0).padding(0.0),
+                cell("b").border(1.0).height(10.0).padding(0.0),
+            ])
+            .body_row(vec![cell("c")
+                .border(1.0)
+                .border_side(Side::Left, 3.0, BorderStyle::Solid)
+                .height(10.0)
+                .padding(0.0)])
+            .body_row(vec![cell("d").border(1.0).height(10.0).padding(0.0)])
+            .into_tree();
+        let rows = tree.nodes_with_role(TableRole::Row);
+        tree.set_border(rows[0], Side::Bottom, 5.0, BorderStyle::Solid);
+        tree.set_border(rows[2], Side::Bottom, 5.0, BorderStyle::Solid);
+
+        compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        let c = tree.nodes_with_role(TableRole::Cell);
+        let span = c[0];
+        assert_eq!(segments(&tree, span, Side::Right), 3);
+        assert_eq!(owner(&tree, span, Side::Right, 0), Some((span, Side::Right)));
+        assert_eq!(owner(&tree, span, Side::Right, 1), Some((c[2], Side::Left)));
+        assert_eq!(owner(&tree, span, Side::Right, 2), Some((span, Side::Right)));
+        let paint = tree.collapsed_paint(span).unwrap();
+        let mid = paint.edges[Side::Right as usize][1];
+        assert_approx!(mid.start, 13.0, "second row starts below the first (0.5 + 10 + 2.5)");
+        assert_approx!(mid.width, 1.5, "half of c's 3px border");
+        assert_eq!(
+            owner(&tree, span, Side::Bottom, 0),
+            Some((rows[2], Side::Bottom)),
+            "the bottom edge takes the last spanned row's border"
+        );
+        assert_eq!(
+            owner(&tree, c[1], Side::Bottom, 0),
+            Some((rows[0], Side::Bottom)),
+            "row 0's border stays outside the span"
+        );
+        assert_approx!(tree.layout(span).unwrap().border.right, 1.5, "widest segment");
     }
 
     // CSS 2.1 §17.2.1: bare cells sitting BETWEEN two row groups form an anonymous row that

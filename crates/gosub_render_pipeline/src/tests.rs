@@ -5293,6 +5293,8 @@ mod rendertree_from_engine {
 }
 
 #[cfg(test)]
+mod collapsed_borders;
+#[cfg(test)]
 mod list_markers;
 #[cfg(test)]
 mod overflow_clip;
