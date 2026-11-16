@@ -3588,7 +3588,7 @@ mod rendertree_from_engine {
         let html = r#"
             <html><head><style>
                 table { border-spacing: 0; }
-                td { padding: 0; }
+                td { padding: 0; line-height: 10px; }
             </style></head>
             <body style="margin:0">
                 <table id="t" style="height: 300px">
@@ -3649,7 +3649,7 @@ mod rendertree_from_engine {
         let html = r#"
             <html><head><style>
                 table { border-spacing: 0; }
-                td { padding: 0; height: 20px; }
+                td { padding: 0; height: 20px; line-height: 10px; }
             </style></head>
             <body style="margin:0">
                 <table id="t">

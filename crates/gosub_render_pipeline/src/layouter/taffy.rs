@@ -1317,6 +1317,9 @@ impl TaffyLayouter {
     /// cell itself afterwards via `apply_positions`). Returns the cell's
     /// content-box height at that width, or `None` when the cell is unknown or
     /// the compute fails.
+    ///
+    /// A length `height` of the cell's own is what percentage heights of its children resolve
+    /// against; the height returned is then what the children take up, not the content box.
     pub(super) fn relayout_cell(
         &mut self,
         layout_tree: &mut LayoutTree,
@@ -1332,8 +1335,20 @@ impl TaffyLayouter {
             width: AvailableSpace::Definite(border_box_width),
             height: AvailableSpace::MaxContent,
         };
+        // A cell's `height` is a minimum that lattice applies to the row (CSS 2 §17.5.3), and its
+        // `max-height` is undefined (§10.7), so neither caps what is measured here. For this
+        // compute only: the first pass keeps them, and the table's first height with them.
+        let style = self.tree.style(taffy_id).ok()?.clone();
+        let mut measured = style.clone();
+        if style.size.height.into_option().is_none() {
+            measured.size.height = Dimension::auto();
+        }
+        let fixed_height = !measured.size.height.is_auto();
+        measured.max_size.height = LengthPercentageAuto::auto();
+        self.tree.set_style(taffy_id, measured).ok()?;
         if let Err(e) = self.compute_taffy(taffy_id, size) {
             log::warn!("lattice: cell re-layout failed for {:?}: {:?}", cell_layout_id, e);
+            let _ = self.tree.set_style(taffy_id, style);
             return None;
         }
         // The cell's lines wrap at its new width, so their rows - and the baselines shared
@@ -1351,9 +1366,20 @@ impl TaffyLayouter {
         let offset = Coordinate::new(old_origin.x - root_location.x, old_origin.y - root_location.y);
         self.populate_boxmodel(layout_tree, cell_layout_id, offset, border_box_width as f64);
 
-        layout_tree
-            .get_node_by_id(cell_layout_id)
-            .map(|el| el.box_model.content_box.height as f32)
+        let _ = self.tree.set_style(taffy_id, style);
+
+        let el = layout_tree.get_node_by_id(cell_layout_id)?;
+        if !fixed_height {
+            return Some(el.box_model.content_box.height as f32);
+        }
+        let top = el.box_model.content_box.y;
+        let bottom = el
+            .children
+            .iter()
+            .filter_map(|id| layout_tree.get_node_by_id(*id))
+            .map(|child| child.box_model.margin_box.y + child.box_model.margin_box.height)
+            .fold(top, f64::max);
+        Some((bottom - top) as f32)
     }
 
     fn populate_boxmodel(

@@ -1,4 +1,5 @@
-//! Cell sizing: min-content under an explicit width, and a table's `overflow` and its captions.
+//! Cell sizing: min-content under an explicit width, a cell's `height` as a minimum, and a
+//! table's `overflow` and its captions.
 
 use super::overflow_clip::lay_out;
 use crate::common::geo::Rect;
@@ -49,4 +50,27 @@ fn table_overflow_does_not_clip_its_caption() {
     );
     assert_eq!(layers.clip(caption), None);
     assert!(layers.clip(inner).is_some(), "the cells are clipped");
+}
+
+/// A cell's `height` is a minimum: the row grows to the content, with or without `overflow`, and
+/// `max-height` does not cap it.
+#[test]
+fn a_cell_height_is_a_minimum() {
+    let (layers, [hidden, capped, short]) = lay_out(
+        r#"<html><body>
+          <table><tr><td id="hidden" style="height: 20px; overflow: hidden; padding: 0">
+            <div style="height: 300px"></div>
+          </td></tr></table>
+          <table><tr><td id="capped" style="height: 20px; max-height: 20px; padding: 0">
+            <div style="height: 300px"></div>
+          </td></tr></table>
+          <table><tr><td id="short" style="height: 40px; padding: 0">
+            <div style="height: 10px"></div>
+          </td></tr></table>
+        </body></html>"#,
+        ["hidden", "capped", "short"],
+    );
+    assert_eq!(border_box(&layers, hidden).height, 300.0);
+    assert_eq!(border_box(&layers, capped).height, 300.0);
+    assert_eq!(border_box(&layers, short).height, 40.0);
 }
