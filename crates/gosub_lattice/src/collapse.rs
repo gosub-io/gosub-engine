@@ -91,6 +91,17 @@ pub(crate) struct CellEdges<N> {
 }
 
 impl<N: Copy + PartialEq> CellEdges<N> {
+    /// The widest half on each edge: what the slot's border takes in layout.
+    pub(crate) fn halves(&self) -> BoxEdges {
+        let half = |e: usize| self.edges[e].iter().map(|s| s.width).fold(0.0, f64::max);
+        BoxEdges {
+            top: half(0),
+            right: half(1),
+            bottom: half(2),
+            left: half(3),
+        }
+    }
+
     /// Turn tracks into offsets along each edge. `col_x`/`col_widths` and `row_y`/`row_heights`
     /// are the placed tracks; `first_col`/`first_row` are the cell's own first tracks.
     pub(crate) fn paint(
@@ -438,31 +449,18 @@ pub(crate) fn resolve<T: TableTree>(
                 .map(|g| track_segment(vseg[c0][g], local_row + g - g0, 0))
                 .collect(),
         ];
-        let half = |e: usize| edges[e].iter().map(|s| s.width).fold(0.0, f64::max);
-        out.borders.insert(
-            node,
-            CollapsedBorders {
-                layout: BoxEdges {
-                    top: half(0),
-                    right: half(1),
-                    bottom: half(2),
-                    left: half(3),
-                },
-            },
-        );
-        out.cells.insert(
-            node,
-            CellEdges {
-                edges,
-                corners: [joint(g0, c0), joint(g0, c1), joint(g1, c1), joint(g1, c0)],
-                corner_outsets: [
-                    corner_outset(g0, c0, g0, c0),
-                    corner_outset(g0, c1, g0, c1 - 1),
-                    corner_outset(g1, c1, g1 - 1, c1 - 1),
-                    corner_outset(g1, c0, g1 - 1, c0),
-                ],
-            },
-        );
+        let cell = CellEdges {
+            edges,
+            corners: [joint(g0, c0), joint(g0, c1), joint(g1, c1), joint(g1, c0)],
+            corner_outsets: [
+                corner_outset(g0, c0, g0, c0),
+                corner_outset(g0, c1, g0, c1 - 1),
+                corner_outset(g1, c1, g1 - 1, c1 - 1),
+                corner_outset(g1, c0, g1 - 1, c0),
+            ],
+        };
+        out.borders.insert(node, CollapsedBorders { layout: cell.halves() });
+        out.cells.insert(node, cell);
     }
     out
 }

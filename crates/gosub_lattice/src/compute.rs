@@ -197,7 +197,7 @@ pub fn compute_table_layout<T: TableTree>(
     // the table box, not in its margin. Grow the box by the widest perimeter half on
     // each side and shift the grid inward to make room.
     let perimeter = if collapse {
-        perimeter_halves::<T>(&collapsed_borders, n_cols, &all_grids)
+        perimeter_halves::<T>(&collapsed_borders, &empty_slots, n_cols, &all_grids)
     } else {
         BOX_EDGES_ZERO
     };
@@ -788,9 +788,11 @@ fn section_height(row_heights: &[f64], row_y: &[f64]) -> f64 {
 }
 
 /// The widest outer border half on each side of a collapsed table: the halves that
-/// stick out beyond the grid and become part of the table's border box.
+/// stick out beyond the grid and become part of the table's border box. Empty slots count
+/// as the cells css-tables-3 fills them with.
 fn perimeter_halves<T: TableTree>(
     collapsed: &HashMap<T::NodeId, CollapsedBorders>,
+    empty_slots: &EmptySlots<T::NodeId>,
     n_cols: usize,
     grids: &[&SectionGrid<T::NodeId>],
 ) -> crate::types::BoxEdges {
@@ -798,6 +800,26 @@ fn perimeter_halves<T: TableTree>(
     let last_grid = grids.iter().rposition(|g| g.n_rows > 0);
     let first_grid = grids.iter().position(|g| g.n_rows > 0);
     for (gi, grid) in grids.iter().enumerate() {
+        for (row, node) in grid.row_nodes.iter().enumerate() {
+            let Some(slots) = node.and_then(|node| empty_slots.get(&node)) else {
+                continue;
+            };
+            for (col, slot) in slots {
+                let halves = slot.halves();
+                if *col == 0 {
+                    out.left = out.left.max(halves.left);
+                }
+                if col + 1 >= n_cols {
+                    out.right = out.right.max(halves.right);
+                }
+                if Some(gi) == first_grid && row == 0 {
+                    out.top = out.top.max(halves.top);
+                }
+                if Some(gi) == last_grid && row + 1 >= grid.n_rows {
+                    out.bottom = out.bottom.max(halves.bottom);
+                }
+            }
+        }
         for cell in grid.cells() {
             let Some(cb) = collapsed.get(&cell.node) else { continue };
             if cell.col == 0 {

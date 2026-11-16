@@ -1855,6 +1855,27 @@ mod layout_tests {
         assert!(tree.empty_slots(rows[0]).is_empty());
     }
 
+    // An empty slot on the perimeter widens the table like a cell would: css-tables-3 fills it
+    // with an anonymous cell, and its outer half is painted outside the grid.
+    #[test]
+    fn border_collapse_empty_slots_count_toward_the_perimeter() {
+        let (mut tree, root) = MockTable::new(200.0)
+            .width(100.0)
+            .spacing(0.0, 0.0)
+            .collapse()
+            .body_row(vec![
+                cell("a").border(2.0).padding(0.0),
+                cell("b").border(2.0).padding(0.0),
+            ])
+            .body_row(vec![cell("c").border(2.0).padding(0.0)])
+            .into_tree();
+        let rows = tree.nodes_with_role(TableRole::Row);
+        tree.set_border(rows[1], Side::Right, 20.0, BorderStyle::Solid);
+
+        let (width, _) = compute_table_layout(&mut tree, root, 200.0, None).expect("layout");
+        assert_approx!(width, 111.0, "1px half on the left, the slot's 10px half on the right");
+    }
+
     // A spanning cell's edge is resolved per grid segment: each row it spans has its own
     // winner, and a line inside it has no border at all (WPT
     // rowspan-cell-border-after-color, border-collapse-spanning-cells-*).
