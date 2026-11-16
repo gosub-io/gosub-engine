@@ -413,8 +413,42 @@ fn svg_value<S: CssSystem>(name: &str, value: &S::Property, current: Color) -> O
     value.used_color(current).map(svg_color)
 }
 
+/// `style` with each comment outside a string replaced by a space.
+fn strip_comments(style: &str) -> String {
+    let mut out = String::with_capacity(style.len());
+    let mut quote = None;
+    let mut chars = style.chars().peekable();
+    while let Some(c) = chars.next() {
+        match (quote, c) {
+            (Some(_), '\\') => {
+                out.push(c);
+                out.extend(chars.next());
+                continue;
+            }
+            (Some(q), _) if c == q => quote = None,
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '/') if chars.peek() == Some(&'*') => {
+                chars.next();
+                let mut prev = '\0';
+                for c in chars.by_ref() {
+                    if prev == '*' && c == '/' {
+                        break;
+                    }
+                    prev = c;
+                }
+                out.push(' ');
+                continue;
+            }
+            _ => {}
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// The declarations of a `style` attribute, split on the `;` outside strings and brackets.
-fn split_declarations(style: &str) -> Vec<&str> {
+fn split_declarations(style: &str) -> Vec<String> {
+    let style = &strip_comments(style);
     let mut out = Vec::new();
     let (mut start, mut depth, mut quote) = (0, 0usize, None);
     let mut chars = style.char_indices();
@@ -436,7 +470,11 @@ fn split_declarations(style: &str) -> Vec<&str> {
         }
     }
     out.push(&style[start..]);
-    out.into_iter().map(str::trim).filter(|decl| !decl.is_empty()).collect()
+    out.into_iter()
+        .map(str::trim)
+        .filter(|decl| !decl.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 /// Whether a declaration of `name` sets `property`, itself or through `font` or `marker`.
@@ -1104,9 +1142,8 @@ where
         // leaves out. What the list covers goes, as the decoder keeps an `!important` over a later
         // copy, and so do custom properties: the decoder stops at the first name it cannot parse.
         let own = split_declarations(self.doc.attribute(id, "style").unwrap_or_default());
-        let kept: Vec<&str> = own
+        let kept: Vec<&String> = own
             .iter()
-            .copied()
             .filter(|decl| {
                 let name = decl.split(':').next().unwrap_or_default().trim();
                 !name.starts_with("--") && !names.iter().any(|property| sets_property(name, property))
@@ -1115,7 +1152,7 @@ where
         if declared.is_empty() && kept.len() == own.len() {
             return None;
         }
-        declared.extend(kept.into_iter().map(str::to_string));
+        declared.extend(kept.into_iter().cloned());
         Some(declared.join("; "))
     }
 
@@ -1949,6 +1986,11 @@ mod tests {
         assert_eq!(
             split_declarations(r#" a: 1;; font: 9px "x;y", 'z\';w'; b: url(data:a;b) ;"#),
             [r#"a: 1"#, r#"font: 9px "x;y", 'z\';w'"#, "b: url(data:a;b)"]
+        );
+        // A comment is not part of a declaration, nor does a bracket or `;` in it count.
+        assert_eq!(
+            split_declarations("--note: /* ( */ 0; /* a;b */ transform: matrix(1,0,0,1,10,0); c: '/*'"),
+            ["--note:   0", "transform: matrix(1,0,0,1,10,0)", "c: '/*'"]
         );
         assert!(sets_property("FONT", "font-size"));
         assert!(sets_property("marker", "marker-end"));

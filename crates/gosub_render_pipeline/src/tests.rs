@@ -202,6 +202,12 @@ mod rendertree_from_engine {
         ));
         assert_eq!(fill(&important, "i"), Some((255, 0, 0)));
 
+        // A comment in the element's own `style` does not swallow the declaration after it.
+        let commented = tree(&format!(
+            r#"<svg viewBox="0 0 24 24"><path id="c" style="--note: /* ( */ 0; transform: matrix(1,0,0,1,10,0)" {d}/></svg>"#
+        ));
+        assert_eq!(path(&commented, "c").map(|p| p.abs_transform().tx), Some(10.0));
+
         // The root's opacity fades its box as a layer, so the decoder must not apply it again.
         fn opacities(group: &usvg::Group, out: &mut Vec<(String, f32)>) {
             out.push((group.id().to_string(), group.opacity().get()));
