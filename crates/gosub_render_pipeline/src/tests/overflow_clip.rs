@@ -36,7 +36,7 @@ impl ModuleConfiguration for Config {
 }
 
 /// `html` laid out in an 800x600 viewport, as a layer list, with the layout element of each `id`.
-fn lay_out<const N: usize>(html: &str, ids: [&str; N]) -> (Arc<LayerList>, [LayoutElementId; N]) {
+pub(super) fn lay_out<const N: usize>(html: &str, ids: [&str; N]) -> (Arc<LayerList>, [LayoutElementId; N]) {
     let mut doc = html_compile::<Config>(html);
     doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
     let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
@@ -73,7 +73,7 @@ fn padding_box(layers: &LayerList, id: LayoutElementId) -> Rect {
         .padding_box
 }
 
-fn state() -> BrowserState {
+pub(super) fn state() -> BrowserState {
     BrowserState {
         visible_layer_list: vec![true; 8],
         wireframed: WireframeState::None,

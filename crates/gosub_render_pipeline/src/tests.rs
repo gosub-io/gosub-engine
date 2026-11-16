@@ -5301,4 +5301,6 @@ mod preserved_white_space;
 #[cfg(test)]
 mod shadow_dom;
 #[cfg(test)]
+mod table_backgrounds;
+#[cfg(test)]
 mod text_wrapping;

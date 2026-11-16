@@ -102,9 +102,9 @@ mod layout_tests {
         let ll = tree.layout(cells[0]).expect("left cell");
         let lr = tree.layout(cells[1]).expect("right cell");
 
-        assert_approx!(ll.position.x, 4.0, "left cell x (first gutter)");
+        assert_approx!(tree.position_in_table(cells[0]).x, 4.0, "left cell x (first gutter)");
         assert_approx!(ll.size.width, 44.0, "left cell width");
-        assert_approx!(lr.position.x, 52.0, "right cell x");
+        assert_approx!(tree.position_in_table(cells[1]).x, 52.0, "right cell x");
         assert_approx!(lr.size.width, 44.0, "right cell width");
     }
 
@@ -314,7 +314,85 @@ mod layout_tests {
         let cells = tree.nodes_with_role(TableRole::Cell);
         let wide = tree.layout(cells[2]).expect("wide cell");
         assert_approx!(wide.size.width, 92.0, "44 + 4 (gutter) + 44");
-        assert_approx!(wide.position.x, 4.0, "starts after the first gutter");
+        assert_approx!(tree.position_in_table(cells[2]).x, 4.0, "starts after the first gutter");
+    }
+
+    // A cell paints the column group, column, row group and row it originates in, back to front,
+    // each positioned against its own box: columns over the full grid height, rows and groups
+    // over the columns but not the gutters around them (css-tables-3 §5.3.2).
+    #[test]
+    fn cell_layers_are_its_column_and_row_boxes() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .spacing(4.0, 2.0)
+            .col(None)
+            .col(None)
+            .body_row(vec![
+                cell("a").height(10.0).padding(0.0),
+                cell("b").height(10.0).padding(0.0),
+            ])
+            .body_row(vec![
+                cell("c").height(20.0).padding(0.0),
+                cell("d").height(20.0).padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        let colgroup = tree.nodes_with_role(TableRole::ColumnGroup)[0];
+        let cols = tree.nodes_with_role(TableRole::Column);
+        let group = tree.nodes_with_role(TableRole::RowGroup)[0];
+        let rows = tree.nodes_with_role(TableRole::Row);
+        let cells = tree.nodes_with_role(TableRole::Cell);
+
+        // Columns are (100 - 3 * 4) / 2 = 44 wide at x 4 and 52; rows 10 and 20 tall at y 2 and 14.
+        let d = &tree.cell_layers[&cells[3]];
+        let nodes: Vec<u32> = d.iter().map(|l| l.node).collect();
+        assert_eq!(nodes, vec![colgroup, cols[1], group, rows[1]], "back to front");
+        let boxes: Vec<(f64, f64, f64, f64)> = d
+            .iter()
+            .map(|l| (l.position.x, l.position.y, l.size.width, l.size.height))
+            .collect();
+        assert_eq!(boxes[0], (4.0, 2.0, 92.0, 32.0), "column group: both columns, all rows");
+        assert_eq!(boxes[1], (52.0, 2.0, 44.0, 32.0), "column: its own column, all rows");
+        assert_eq!(boxes[2], (4.0, 2.0, 92.0, 32.0), "row group: the columns, its rows");
+        assert_eq!(boxes[3], (4.0, 14.0, 92.0, 20.0), "row: the columns, its own height");
+
+        // The row group's own box is the same one, not the full table width.
+        let gl = tree.layout(group).expect("group");
+        assert_approx!(gl.position.x, 4.0, "group starts at the first column");
+        assert_approx!(gl.size.width, 92.0, "group spans the columns");
+        assert_approx!(tree.position_in_table(cells[3]).x, 52.0, "cell d stays in column 1");
+    }
+
+    // Bare <col>s sit in an anonymous column group, which has no box to paint.
+    #[test]
+    fn cell_layers_skip_the_anonymous_column_group() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .spacing(4.0, 2.0)
+            .col(None)
+            .col(None)
+            .bare_cols()
+            .body_row(vec![
+                cell("a").height(10.0).padding(0.0),
+                cell("b").height(10.0).padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        let cols = tree.nodes_with_role(TableRole::Column);
+        let group = tree.nodes_with_role(TableRole::RowGroup)[0];
+        let row = tree.nodes_with_role(TableRole::Row)[0];
+        let cells = tree.nodes_with_role(TableRole::Cell);
+
+        let b = &tree.cell_layers[&cells[1]];
+        let nodes: Vec<u32> = b.iter().map(|l| l.node).collect();
+        assert_eq!(nodes, vec![cols[1], group, row], "no column group layer");
+        assert_eq!(
+            (b[0].position.x, b[0].size.width),
+            (52.0, 44.0),
+            "column: its own column"
+        );
     }
 
     // 12. A rowspan cell covers the vertical gutters between its rows.
@@ -1492,15 +1570,11 @@ mod layout_tests {
         // grid starts at 0.5 and the box is 23px tall (0.5 + 11 + 11 + 0.5).
         let cells = tree.nodes_with_role(TableRole::Cell);
         assert_approx!(
-            tree.layout(cells[0]).expect("a").position.x,
+            tree.position_in_table(cells[0]).x,
             0.5,
             "col 0 starts after the left perimeter half (no gutter)"
         );
-        assert_approx!(
-            tree.layout(cells[1]).expect("b").position.x,
-            50.5,
-            "col 1 flush against col 0"
-        );
+        assert_approx!(tree.position_in_table(cells[1]).x, 50.5, "col 1 flush against col 0");
 
         // Collapsed borders are centered on the grid lines: each cell's layout
         // reserves half the resolved 1px boundary, so both rows are 0.5+10+0.5 = 11px.
