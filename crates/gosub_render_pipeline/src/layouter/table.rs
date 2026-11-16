@@ -162,26 +162,32 @@ impl<'a> PipelineTableTree<'a> {
     }
 
     /// Convert pending relative positions to absolute `BoxModel`s in the arena.
-    /// Must be called after `compute_table_layout` returns.
-    pub fn apply_positions(&mut self, table_dom_id: DomNodeId, border_corrected: &mut HashSet<DomNodeId>) {
+    /// Must be called after `compute_table_layout` returns, with the `table_width` it returned:
+    /// the arena still holds the table's previous size.
+    pub fn apply_positions(
+        &mut self,
+        table_dom_id: DomNodeId,
+        table_width: f64,
+        border_corrected: &mut HashSet<DomNodeId>,
+    ) {
         // Under border-collapse the grid (incl. the perimeter border halves) starts at
         // the table's BORDER box origin - the table's own border joined the conflict
         // inside lattice and no longer insets the content. The box model read here is
         // still the taffy first-pass one, whose border/padding would inset wrongly.
         let collapse = borders_collapse(self.doc, table_dom_id);
-        let table_box = self
+        let table_abs = self
             .dom_to_layout
             .get(&table_dom_id)
             .and_then(|id| self.layout_tree.arena.get(id))
             .map(|e| {
-                if collapse {
+                let b = if collapse {
                     e.box_model.border_box
                 } else {
                     e.box_model.content_box
-                }
+                };
+                Coordinate::new(b.x, b.y)
             })
-            .unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
-        let table_abs = Coordinate::new(table_box.x, table_box.y);
+            .unwrap_or(Coordinate::ZERO);
         // A caption's vertical percentages need a definite height: the table's specified one.
         let caption_height_basis = match self.doc.computed_style(table_dom_id).size.height {
             LengthPercentageAuto::Px(px) => Some(f64::from(px)),
@@ -194,7 +200,7 @@ impl<'a> PipelineTableTree<'a> {
             table_dom_id,
             table_abs,
             Coordinate::ZERO,
-            (table_box.width, caption_height_basis),
+            (table_width, caption_height_basis),
             &pending,
             &self.collapsed_paint,
             &self.collapsed_slots,
@@ -1023,7 +1029,7 @@ fn lay_out_one_table(
 
     match gosub_lattice::compute_table_layout(&mut tree, table_dom_id, available_width, None) {
         Ok((table_width, table_height)) => {
-            tree.apply_positions(table_dom_id, border_corrected);
+            tree.apply_positions(table_dom_id, table_width, border_corrected);
             // Write back both dimensions so deeply-nested tables can read the
             // correct width from this table's box model via their parent lookup.
             // Lattice returns the GRID extents (content box); the table's own border
