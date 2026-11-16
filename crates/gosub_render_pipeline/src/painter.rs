@@ -33,6 +33,7 @@ use crate::painter::commands::text::Text;
 use crate::painter::commands::PaintCommand;
 use crate::painter::shape_cache::ShapeCache;
 use crate::render::backend::TileAnchor;
+use crate::render::DEVICE_PIXEL_RATIO;
 use crate::tiler::TiledLayoutElement;
 use gosub_interface::document::ControlEditState;
 use gosub_interface::font::FontStyle;
@@ -41,6 +42,7 @@ use gosub_interface::used;
 use gosub_lattice::{BorderOwner, EdgeSegment, Side};
 use gosub_shared::microsyntax::parse_floating_point_number;
 use parking_lot::Mutex;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 /// A whole-viewport paint command list for the GPU-scene path, translated by a backend's `render`
@@ -1421,11 +1423,13 @@ impl Painter {
     }
 
     /// A collapsed cell's share of its table's borders: a strip per edge segment and a quarter
-    /// joint per corner, each in the style of the border that won it. Coordinates are snapped
-    /// to whole device pixels; the two cells of a boundary snap the same shared edge, so their
-    /// halves abut without a seam.
+    /// joint per corner, each in the style of the border that won it. Every coordinate is a grid
+    /// line and half a border, snapped by [`snap_collapsed`], so the two cells of a boundary
+    /// abut without a seam.
     fn collapsed_cell_border_commands(&self, border_box: Rect, cb: &CollapsedCellBorders) -> Vec<PaintCommand> {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
+        let dpr = f64::from(DEVICE_PIXEL_RATIO.load(Ordering::Relaxed).max(1));
+        let snap = |line: f64, half: f64| snap_collapsed(line, half, dpr);
         let (x0, y0) = (border_box.x, border_box.y);
         let (x1, y1) = (x0 + border_box.width, y0 + border_box.height);
         let zero = EdgeSegment {
@@ -1441,7 +1445,6 @@ impl Painter {
         let mut commands = Vec::new();
         let mut paint = |owner: Option<BorderOwner<NodeId>>, left: f64, top: f64, right: f64, bottom: f64| {
             let Some(owner) = owner else { return };
-            let (left, top, right, bottom) = (left.round(), top.round(), right.round(), bottom.round());
             if right <= left || bottom <= top {
                 return;
             }
@@ -1494,71 +1497,95 @@ impl Painter {
         let n = cb.edges[Side::Top as usize].len();
         for (i, s) in cb.edges[Side::Top as usize].iter().enumerate() {
             let from = match i {
-                0 if tl_h => x0 - tl_x,
-                0 => x0 + l0.width,
-                _ => x0 + s.start,
+                0 if tl_h => snap(x0, -tl_x),
+                0 => snap(x0, l0.width),
+                _ => snap(x0 + s.start, 0.0),
             };
             let to = match i + 1 == n {
-                true if tr_h => x1 + tr_x,
-                true => x1 - r0.width,
-                false => x0 + s.end,
+                true if tr_h => snap(x1, tr_x),
+                true => snap(x1, -r0.width),
+                false => snap(x0 + s.end, 0.0),
             };
-            paint(s.owner, from, y0 - s.outset, to, y0 + s.width);
+            paint(s.owner, from, snap(y0, -s.outset), to, snap(y0, s.width));
         }
         let n = cb.edges[Side::Bottom as usize].len();
         for (i, s) in cb.edges[Side::Bottom as usize].iter().enumerate() {
             let from = match i {
-                0 if bl_h => x0 - bl_x,
-                0 => x0 + ln.width,
-                _ => x0 + s.start,
+                0 if bl_h => snap(x0, -bl_x),
+                0 => snap(x0, ln.width),
+                _ => snap(x0 + s.start, 0.0),
             };
             let to = match i + 1 == n {
-                true if br_h => x1 + br_x,
-                true => x1 - rn.width,
-                false => x0 + s.end,
+                true if br_h => snap(x1, br_x),
+                true => snap(x1, -rn.width),
+                false => snap(x0 + s.end, 0.0),
             };
-            paint(s.owner, from, y1 - s.width, to, y1 + s.outset);
+            paint(s.owner, from, snap(y1, -s.width), to, snap(y1, s.outset));
         }
         let n = cb.edges[Side::Left as usize].len();
         for (i, s) in cb.edges[Side::Left as usize].iter().enumerate() {
             let from = match i {
-                0 if tl_v => y0 - tl_y,
-                0 => y0 + t0.width,
-                _ => y0 + s.start,
+                0 if tl_v => snap(y0, -tl_y),
+                0 => snap(y0, t0.width),
+                _ => snap(y0 + s.start, 0.0),
             };
             let to = match i + 1 == n {
-                true if bl_v => y1 + bl_y,
-                true => y1 - b0.width,
-                false => y0 + s.end,
+                true if bl_v => snap(y1, bl_y),
+                true => snap(y1, -b0.width),
+                false => snap(y0 + s.end, 0.0),
             };
-            paint(s.owner, x0 - s.outset, from, x0 + s.width, to);
+            paint(s.owner, snap(x0, -s.outset), from, snap(x0, s.width), to);
         }
         let n = cb.edges[Side::Right as usize].len();
         for (i, s) in cb.edges[Side::Right as usize].iter().enumerate() {
             let from = match i {
-                0 if tr_v => y0 - tr_y,
-                0 => y0 + tn.width,
-                _ => y0 + s.start,
+                0 if tr_v => snap(y0, -tr_y),
+                0 => snap(y0, tn.width),
+                _ => snap(y0 + s.start, 0.0),
             };
             let to = match i + 1 == n {
-                true if br_v => y1 + br_y,
-                true => y1 - bn.width,
-                false => y0 + s.end,
+                true if br_v => snap(y1, br_y),
+                true => snap(y1, -bn.width),
+                false => snap(y0 + s.end, 0.0),
             };
-            paint(s.owner, x1 - s.width, from, x1 + s.outset, to);
+            paint(s.owner, snap(x1, -s.width), from, snap(x1, s.outset), to);
         }
 
         if !tl_h && !tl_v {
-            paint(tl, x0 - tl_x, y0 - tl_y, x0 + l0.width, y0 + t0.width);
+            paint(
+                tl,
+                snap(x0, -tl_x),
+                snap(y0, -tl_y),
+                snap(x0, l0.width),
+                snap(y0, t0.width),
+            );
         }
         if !tr_h && !tr_v {
-            paint(tr, x1 - r0.width, y0 - tr_y, x1 + tr_x, y0 + tn.width);
+            paint(
+                tr,
+                snap(x1, -r0.width),
+                snap(y0, -tr_y),
+                snap(x1, tr_x),
+                snap(y0, tn.width),
+            );
         }
         if !br_h && !br_v {
-            paint(br, x1 - rn.width, y1 - bn.width, x1 + br_x, y1 + br_y);
+            paint(
+                br,
+                snap(x1, -rn.width),
+                snap(y1, -bn.width),
+                snap(x1, br_x),
+                snap(y1, br_y),
+            );
         }
         if !bl_h && !bl_v {
-            paint(bl, x0 - bl_x, y1 - b0.width, x0 + ln.width, y1 + bl_y);
+            paint(
+                bl,
+                snap(x0, -bl_x),
+                snap(y1, -b0.width),
+                snap(x0, ln.width),
+                snap(y1, bl_y),
+            );
         }
 
         commands
@@ -1851,6 +1878,50 @@ fn gradient_stops(gradient: &CssLinearGradient) -> Vec<ColorStop> {
             }
         })
         .collect()
+}
+
+/// `line` moved by `half` a collapsed border, in whole device pixels. The border snaps whole as
+/// a border width does (css-values-4): at least one device pixel, else floored. The side before
+/// the line takes the odd pixel, as the top-left cell does in css-tables-3 §5.3.3.1.
+fn snap_collapsed(line: f64, half: f64, dpr: f64) -> f64 {
+    let line = (line * dpr).round();
+    let full = 2.0 * half.abs() * dpr;
+    let full = if full > 0.0 && full < 1.0 { 1.0 } else { full.floor() };
+    let after = (full / 2.0).floor();
+    if half > 0.0 {
+        (line + after) / dpr
+    } else {
+        (line - (full - after)) / dpr
+    }
+}
+
+#[cfg(test)]
+mod collapsed_snap_tests {
+    use super::snap_collapsed;
+
+    /// Both halves of a thin border used to round onto the line and paint nothing.
+    #[test]
+    fn a_thin_border_keeps_a_device_pixel() {
+        for line in [10.0, 10.25, 10.5] {
+            let (before, after) = (snap_collapsed(line, -0.25, 1.0), snap_collapsed(line, 0.25, 1.0));
+            let at = snap_collapsed(line, 0.0, 1.0);
+            assert_eq!((at - before, after - at), (1.0, 0.0), "at {line}");
+        }
+        // A hairline on a 2x display: half a CSS pixel, one device pixel.
+        assert_eq!(snap_collapsed(10.0, -0.25, 2.0), 9.5);
+        assert_eq!(snap_collapsed(10.0, 0.25, 2.0), 10.0);
+    }
+
+    /// A border floors to whole device pixels and the side before the line takes the odd one.
+    #[test]
+    fn a_border_splits_at_the_line() {
+        assert_eq!(snap_collapsed(10.0, -1.5, 1.0), 8.0);
+        assert_eq!(snap_collapsed(10.0, 1.5, 1.0), 11.0);
+        assert_eq!(snap_collapsed(10.0, -1.4, 1.0), 9.0);
+        assert_eq!(snap_collapsed(10.0, 1.4, 1.0), 11.0);
+        assert_eq!(snap_collapsed(10.0, -1.4, 2.0), 8.5);
+        assert_eq!(snap_collapsed(10.0, 1.4, 2.0), 11.0);
+    }
 }
 
 #[cfg(test)]

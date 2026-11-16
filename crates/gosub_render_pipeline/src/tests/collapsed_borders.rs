@@ -195,3 +195,36 @@ fn a_row_border_runs_over_empty_slots() {
         "the line runs the width of the table, {left}..{right}: {red:?}"
     );
 }
+
+/// A border thinner than a device pixel still paints one; both its halves used to round onto
+/// the line between the cells, and nothing was drawn.
+#[test]
+fn a_thin_border_paints_a_device_pixel() {
+    let (layers, table) = lay_out(
+        r#"<html><body><table id="t" style="border-collapse: collapse">
+          <tr><td style="width: 19.75px; padding: 0; border-right: 0.5px solid rgb(255, 0, 0)">a</td><td>b</td></tr>
+        </table></body></html>"#,
+        "t",
+    );
+    let tree = &layers.layout_tree;
+    let painter = Painter::new(Arc::clone(&layers), None);
+    let overlay = tree
+        .get_node_by_id(table)
+        .unwrap()
+        .children
+        .iter()
+        .copied()
+        .find(|&id| {
+            matches!(
+                tree.get_node_by_id(id).unwrap().context,
+                ElementContext::TableBorderOverlay(_)
+            )
+        })
+        .expect("a collapsed table has a border overlay");
+    let red: Vec<Rectangle> = rectangles(painter.paint_element(overlay, &state()))
+        .into_iter()
+        .filter(is_red)
+        .collect();
+    let width: f64 = red.iter().map(|r| r.rect().width).sum();
+    assert_eq!(width, 1.0, "{red:?}");
+}
