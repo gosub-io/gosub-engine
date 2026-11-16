@@ -261,3 +261,31 @@ fn clip_path_inset_clips_the_box_and_all_under_it() {
     let painter = Painter::new(Arc::clone(&layers), None);
     assert!(painter.paint_element(gone, &state()).is_empty());
 }
+
+/// A clip snaps to the device pixel grid like the backgrounds it cuts, so a fractional overflow
+/// edge does not leave half a pixel of the child's background over its parent's.
+#[test]
+fn a_fractional_clip_snaps_with_the_backgrounds() {
+    let (layers, [child]) = lay_out(
+        r#"<html><body>
+          <div style="width: 100.6px; height: 20px; overflow: hidden; background: red">
+            <div id="child" style="height: 20px; background: green"></div>
+          </div>
+        </body></html>"#,
+        ["child"],
+    );
+    let painter = Painter::new(Arc::clone(&layers), None);
+    let commands = painter.paint_element(child, &state());
+    let Some(PaintCommand::PushClip(clip)) = commands.first() else {
+        panic!("the child is clipped: {commands:?}");
+    };
+    let painted = commands
+        .iter()
+        .find_map(|c| match c {
+            PaintCommand::Rectangle(r) if r.background().is_some() => Some(r.rect()),
+            _ => None,
+        })
+        .expect("a background");
+    assert_eq!((clip.x.fract(), clip.width.fract()), (0.0, 0.0), "{clip:?}");
+    assert_eq!(clip.x + clip.width, painted.x + painted.width);
+}
