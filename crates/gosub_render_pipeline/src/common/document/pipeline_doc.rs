@@ -339,6 +339,165 @@ fn svg_color(color: Color) -> String {
     }
 }
 
+/// The SVG presentation properties an element's own CSS can set inside an inline SVG. Geometry
+/// and `transform` stay out: as CSS they take another syntax and reference box than the
+/// attributes the decoder knows.
+const SVG_PROPERTIES: &[&str] = &[
+    "alignment-baseline",
+    "baseline-shift",
+    "clip-path",
+    "clip-rule",
+    "color",
+    "display",
+    "dominant-baseline",
+    "fill",
+    "fill-opacity",
+    "fill-rule",
+    "filter",
+    "flood-color",
+    "flood-opacity",
+    "font-family",
+    "font-size",
+    "font-stretch",
+    "font-style",
+    "font-variant",
+    "font-weight",
+    "image-rendering",
+    "isolation",
+    "letter-spacing",
+    "lighting-color",
+    "marker-end",
+    "marker-mid",
+    "marker-start",
+    "mask",
+    "mask-type",
+    "mix-blend-mode",
+    "opacity",
+    "paint-order",
+    "shape-rendering",
+    "stop-color",
+    "stop-opacity",
+    "stroke",
+    "stroke-dasharray",
+    "stroke-dashoffset",
+    "stroke-linecap",
+    "stroke-linejoin",
+    "stroke-miterlimit",
+    "stroke-opacity",
+    "stroke-width",
+    "text-anchor",
+    "text-rendering",
+    "visibility",
+    "word-spacing",
+    "writing-mode",
+];
+
+/// The properties of [`SVG_PROPERTIES`] that take a colour or a paint.
+const SVG_COLOR_PROPERTIES: &[&str] = &["color", "fill", "flood-color", "lighting-color", "stop-color", "stroke"];
+
+/// A computed value as the SVG decoder reads it. A colour is written as hex or `rgba()`: the
+/// decoder knows neither `oklch()` nor the space-separated `rgb()`, and takes `currentcolor` for
+/// black unless it is spelled `currentColor`.
+fn svg_value<S: CssSystem>(name: &str, value: &S::Property, current: Color) -> Option<String> {
+    let text = value.to_string();
+    if !SVG_COLOR_PROPERTIES.contains(&name) {
+        return Some(text);
+    }
+    let is_url = text.get(..4).is_some_and(|start| start.eq_ignore_ascii_case("url("));
+    if is_url || text.eq_ignore_ascii_case("none") {
+        return Some(text);
+    }
+    if text.eq_ignore_ascii_case("currentcolor") {
+        return Some("currentColor".to_string());
+    }
+    value.used_color(current).map(svg_color)
+}
+
+/// `style` with each comment outside a string or an unquoted `url()` replaced by a space.
+fn strip_comments(style: &str) -> String {
+    let bytes = style.as_bytes();
+    let mut out = String::with_capacity(style.len());
+    let (mut i, mut copied, mut quote) = (0, 0, None);
+    while i < bytes.len() {
+        match (quote, bytes[i]) {
+            (Some(_), b'\\') => i += 1,
+            (Some(q), b) if b == q => quote = None,
+            (Some(_), _) => {}
+            (None, b @ (b'"' | b'\'')) => quote = Some(b),
+            (None, b'/') if bytes.get(i + 1) == Some(&b'*') => {
+                out.push_str(&style[copied..i]);
+                out.push(' ');
+                i = style[i + 2..].find("*/").map_or(bytes.len(), |end| i + 2 + end + 2);
+                copied = i;
+                continue;
+            }
+            (None, _) => i = unquoted_url_end(bytes, i).unwrap_or(i),
+        }
+        i += 1;
+    }
+    out.push_str(&style[copied..]);
+    out
+}
+
+/// When an unquoted `url(` starts at `i`, the index of its closing `)` (or the last byte): a
+/// `/*` inside it is part of the URL (css-syntax-3 "consume a url token").
+fn unquoted_url_end(bytes: &[u8], i: usize) -> Option<usize> {
+    let is_name = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'\\') || b >= 0x80;
+    if !bytes.get(i..i + 4)?.eq_ignore_ascii_case(b"url(") || i > 0 && is_name(bytes[i - 1]) {
+        return None;
+    }
+    let mut j = i + 4;
+    while bytes.get(j).is_some_and(u8::is_ascii_whitespace) {
+        j += 1;
+    }
+    if matches!(bytes.get(j), Some(b'"' | b'\'')) {
+        return None;
+    }
+    while j < bytes.len() && bytes[j] != b')' {
+        j += if bytes[j] == b'\\' { 2 } else { 1 };
+    }
+    Some(j.min(bytes.len() - 1))
+}
+
+/// The declarations of a `style` attribute, split on the `;` outside strings and brackets.
+fn split_declarations(style: &str) -> Vec<String> {
+    let style = &strip_comments(style);
+    let mut out = Vec::new();
+    let (mut start, mut depth, mut quote) = (0, 0usize, None);
+    let mut chars = style.char_indices();
+    while let Some((i, c)) = chars.next() {
+        match (quote, c) {
+            (Some(_), '\\') => {
+                chars.next();
+            }
+            (Some(q), _) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '(' | '[') => depth += 1,
+            (None, ')' | ']') => depth = depth.saturating_sub(1),
+            (None, ';') if depth == 0 => {
+                out.push(&style[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(&style[start..]);
+    out.into_iter()
+        .map(str::trim)
+        .filter(|decl| !decl.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Whether a declaration of `name` sets `property`, itself or through `font` or `marker`.
+fn sets_property(name: &str, property: &str) -> bool {
+    name.eq_ignore_ascii_case(property)
+        || ["font", "marker"].iter().any(|short| {
+            name.eq_ignore_ascii_case(short) && property.strip_prefix(short).is_some_and(|rest| rest.starts_with('-'))
+        })
+}
+
 fn unquote(s: &str) -> String {
     let b = s.as_bytes();
     if b.len() >= 2 && ((b[0] == b'"' && b[b.len() - 1] == b'"') || (b[0] == b'\'' && b[b.len() - 1] == b'\'')) {
@@ -972,6 +1131,42 @@ where
         let style = Arc::new(self.build_computed_style(id));
         self.computed_cache.lock().insert(id, style.clone());
         style
+    }
+
+    /// The [`SVG_PROPERTIES`] `id`'s own cascade declared, after its `style` attribute. Only what
+    /// it declared: an inherited value written out would stop a `<use>` from passing down its own.
+    /// `skip` stays out, also from the `style` attribute. `None` when nothing changes.
+    fn svg_style(&self, id: NodeId, skip: &[&'static str]) -> Option<String> {
+        let map = self.cached_styles(id);
+        let mut current = None;
+        let mut names = skip.to_vec();
+        let mut declared = Vec::new();
+        for &name in SVG_PROPERTIES {
+            let Some(value) = map.get(name).filter(|_| !skip.contains(&name)) else {
+                continue;
+            };
+            let current = *current.get_or_insert_with(|| self.cached_computed_style(id).inherited.color);
+            if let Some(value) = svg_value::<C::CssSystem>(name, value, current) {
+                names.push(name);
+                declared.push(format!("{name}: {value}"));
+            }
+        }
+        // The cascade has already weighed the element's own `style`; it stays for what the list
+        // leaves out. What the list covers goes, as the decoder keeps an `!important` over a later
+        // copy, and so do custom properties: the decoder stops at the first name it cannot parse.
+        let own = split_declarations(self.doc.attribute(id, "style").unwrap_or_default());
+        let kept: Vec<&String> = own
+            .iter()
+            .filter(|decl| {
+                let name = decl.split(':').next().unwrap_or_default().trim();
+                !name.starts_with("--") && !names.iter().any(|property| sets_property(name, property))
+            })
+            .collect();
+        if declared.is_empty() && kept.len() == own.len() {
+            return None;
+        }
+        declared.extend(kept.into_iter().cloned());
+        Some(declared.join("; "))
     }
 
     /// The typed style of the node the inherited values come from: the flat-tree parent when it
@@ -1655,7 +1850,8 @@ where
     /// Serialize a real DOM subtree for the SVG XML decoder; synthetic layout nodes emit nothing.
     ///
     /// The decoder never sees the page's CSS, so the root takes its computed `fill`, `stroke` and
-    /// `color` as attributes, and the SVG inherits them from there.
+    /// `color` as attributes, and the SVG inherits them from there. Every element also takes the
+    /// SVG properties its own rules declared, as a `style` attribute.
     fn svg_xml(&self, id: NodeId) -> String {
         if is_pseudo_id(u64::from(id)) || is_anon_box_id(u64::from(id)) {
             return String::new();
@@ -1667,7 +1863,19 @@ where
             ("stroke", svg_paint(&inherited.stroke)),
             ("color", svg_color(inherited.color)),
         ];
-        self.doc.write_svg_from_node(id, &root_attrs)
+        let attrs = |node: NodeId| {
+            let (mut attrs, skip) = if node == id {
+                // The root's box is already faded as a layer.
+                (root_attrs.to_vec(), &["opacity"][..])
+            } else {
+                (Vec::new(), &[][..])
+            };
+            if let Some(style) = self.svg_style(node, skip) {
+                attrs.push(("style", style));
+            }
+            attrs
+        };
+        self.doc.write_svg_from_node(id, &attrs)
     }
 
     fn get_node_by_id(&self, id: NodeId) -> Option<Node> {
@@ -1779,5 +1987,32 @@ where
             children,
             node_type,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{sets_property, split_declarations};
+
+    #[test]
+    fn style_attribute_declarations() {
+        assert_eq!(
+            split_declarations(r#" a: 1;; font: 9px "x;y", 'z\';w'; b: url(data:a;b) ;"#),
+            [r#"a: 1"#, r#"font: 9px "x;y", 'z\';w'"#, "b: url(data:a;b)"]
+        );
+        // A comment is not part of a declaration, nor does a bracket or `;` in it count.
+        assert_eq!(
+            split_declarations("--note: /* ( */ 0; /* a;b */ transform: matrix(1,0,0,1,10,0); c: '/*'"),
+            ["--note:   0", "transform: matrix(1,0,0,1,10,0)", "c: '/*'"]
+        );
+        // In an unquoted `url()` a `/*` is part of the URL; in a quoted one the string holds it.
+        assert_eq!(
+            split_declarations(r#"--a: URL( https://x.org/*); --b: url("/*") /**/; e: myurl(/**/)"#),
+            ["--a: URL( https://x.org/*)", r#"--b: url("/*")"#, "e: myurl( )"]
+        );
+        assert!(sets_property("FONT", "font-size"));
+        assert!(sets_property("marker", "marker-end"));
+        assert!(!sets_property("fill", "fill-opacity"));
+        assert!(!sets_property("font", "fontsize"));
     }
 }

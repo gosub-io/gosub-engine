@@ -1695,6 +1695,10 @@ impl css3::CssProperty<Css3System> for CssProperty {
             .map(|color| (color.r, color.g, color.b, color.a))
     }
 
+    fn used_color(&self, current: gosub_interface::style::Color) -> Option<gosub_interface::style::Color> {
+        css3::CssValue::used_color(&self.computed, current)
+    }
+
     fn as_number(&self) -> Option<f32> {
         match &self.computed {
             CssValue::Number(num, _) => Some(*num as f32),

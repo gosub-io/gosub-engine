@@ -261,6 +261,8 @@ pub trait CssProperty<S: CssSystem>: Debug + Display + Sized + From<S::Value> {
     fn as_color(&self) -> Option<(f32, f32, f32, f32)>;
 
     fn parse_color(&self) -> Option<(f32, f32, f32, f32)>;
+    /// The colour of the computed value; see [`CssValue::used_color`].
+    fn used_color(&self, current: Color) -> Option<Color>;
 
     fn as_number(&self) -> Option<f32>;
     fn as_list(&self) -> Option<&[S::Value]>;
