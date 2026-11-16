@@ -227,12 +227,14 @@ pub fn distribute_table_height<T: TableTree>(
     spacing_y: f64,
 ) -> f64 {
     // The same stack `compute_table_layout` builds: one gutter above every group and one
-    // below the last, and one between adjacent rows inside a group.
-    let extent = spacing_y
-        + sections
-            .iter()
-            .map(|s| s.heights.iter().sum::<f64>() + s.heights.len().saturating_sub(1) as f64 * spacing_y + spacing_y)
-            .sum::<f64>();
+    // below the last, and one between adjacent rows inside a group. Groups without rows take
+    // no gutter, and without any rows there is none at all.
+    let rows: f64 = sections
+        .iter()
+        .map(|s| s.heights.iter().sum::<f64>() + s.heights.len() as f64 * spacing_y)
+        .sum();
+    let has_rows = sections.iter().any(|s| !s.heights.is_empty());
+    let extent = if has_rows { spacing_y + rows } else { 0.0 };
     let mut excess = target - extent;
     if excess <= 0.0 {
         return 0.0;

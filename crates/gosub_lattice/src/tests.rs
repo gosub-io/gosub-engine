@@ -2160,6 +2160,28 @@ mod layout_tests {
         assert_approx!(h, 50.0, "the caption alone");
     }
 
+    // A specified height grows the rows by what the gutters around them leave; an empty group
+    // takes no gutter there either.
+    #[test]
+    fn specified_height_ignores_empty_group_gutters() {
+        use crate::mock::MockTree;
+
+        let mut tree = MockTree::new(0.0, 20.0);
+        let root = tree.alloc(TableRole::Table, None, 1, 1, None, Some(60.0), 0.0, 0.0);
+        let body = tree.alloc(TableRole::RowGroup, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(root, body);
+        let row = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(body, row);
+        let c = tree.alloc_cell(cell("a").height(10.0).padding(0.0));
+        tree.add_child(row, c);
+        let empty = tree.alloc(TableRole::RowGroup, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(root, empty);
+
+        let (_, h) = compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+        assert_approx!(h, 60.0, "the specified height");
+        assert_approx!(tree.layout(row).expect("row").size.height, 20.0, "60 - 2 gutters");
+    }
+
     // CSS 2 §17.5.3: baseline-aligned cells share the deepest first-line baseline;
     // shallower cells shift down and the row grows to fit the shifted content.
     #[test]
