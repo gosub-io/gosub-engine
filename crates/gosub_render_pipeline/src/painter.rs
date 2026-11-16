@@ -214,8 +214,8 @@ impl Painter {
         let visible = doc.computed_style(dom_node_id).is_visible();
 
         // An ancestor's `overflow`, and its own or an ancestor's `clip`/`clip-path`, clip the element's
-        // own paint; the debug overlays stay whole.
-        let clip = self.layer_list.clip(element_id);
+        // own paint; the debug overlays stay whole. The clip snaps as the boxes it cuts do.
+        let clip = self.layer_list.clip(element_id).map(snap_to_pixels);
         let clipped = |own: Vec<PaintCommand>| match clip {
             None => own,
             Some(_) if own.is_empty() => own,
