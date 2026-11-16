@@ -76,6 +76,11 @@ pub enum CssProp {
     PaddingRight,
     PaddingBottom,
     PaddingLeft,
+    /// Margins, read for the caption only.
+    MarginTop,
+    MarginRight,
+    MarginBottom,
+    MarginLeft,
     /// `border-collapse`: `collapse` | `separate`
     BorderCollapse,
     /// Horizontal component of `border-spacing`

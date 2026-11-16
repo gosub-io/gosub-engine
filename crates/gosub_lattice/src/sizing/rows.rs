@@ -175,6 +175,17 @@ pub(crate) fn read_padding_against<T: TableTree>(tree: &T, node: T::NodeId, basi
     }
 }
 
+/// The margins of `node`, percentages against `basis` and `auto` as zero.
+pub(crate) fn read_margin_against<T: TableTree>(tree: &T, node: T::NodeId, basis: f64) -> BoxEdges {
+    let side = |prop| tree.css_length(node, prop).resolve(basis).unwrap_or(0.0);
+    BoxEdges {
+        top: side(CssProp::MarginTop),
+        right: side(CssProp::MarginRight),
+        bottom: side(CssProp::MarginBottom),
+        left: side(CssProp::MarginLeft),
+    }
+}
+
 pub(crate) fn read_padding<T: TableTree>(tree: &T, node: T::NodeId) -> BoxEdges {
     BoxEdges {
         top: tree.css_length(node, CssProp::PaddingTop).px_or(0.0),

@@ -1149,6 +1149,67 @@ mod rendertree_from_engine {
         );
     }
 
+    /// A root element table shrinks to fit in the initial containing block, not in the width
+    /// the first pass gave it (WPT css-tables html-display-table).
+    #[test]
+    fn root_table_fits_in_the_viewport() {
+        let (layers, [html]) = crate::tests::overflow_clip::lay_out(
+            r#"<html id="root" style="display: table; border: 10px solid; border-spacing: 0; margin: auto">
+            <body style="margin: 0">
+              <div style="width: 200px; height: 300px; display: inline-block"></div><div
+                style="width: 80px; height: 300px; display: inline-block"></div>
+            </body></html>"#,
+            ["root"],
+        );
+        let root = layers
+            .layout_tree
+            .get_node_by_id(html)
+            .expect("laid out")
+            .box_model
+            .border_box;
+        assert_eq!((root.width, root.height), (300.0, 320.0), "both blocks on one line");
+    }
+
+    /// `position: relative` moves a caption, a row (with its cells) and a cell (with its content)
+    /// from where the table put them (css-position-3 §3.4, WPT css-tables caption-relative-positioning).
+    #[test]
+    fn relative_table_parts_move_by_their_insets() {
+        let page = |caption: &str, row: &str, cell: &str| {
+            format!(
+                r#"<html><body><table style="border-spacing: 0">
+                  <caption id="cap" style="height: 20px; {caption}"></caption>
+                  <tr id="row" style="{row}">
+                    <td id="a" style="width: 40px; height: 20px; padding: 0"></td>
+                    <td id="b" style="width: 40px; height: 20px; padding: 0; {cell}"><div id="in"></div></td>
+                  </tr>
+                </table></body></html>"#
+            )
+        };
+        let origins = |html: &str| {
+            let (layers, ids) = crate::tests::overflow_clip::lay_out(html, ["cap", "row", "a", "b", "in"]);
+            ids.map(|id| {
+                let b = layers
+                    .layout_tree
+                    .get_node_by_id(id)
+                    .expect("laid out")
+                    .box_model
+                    .border_box;
+                (b.x, b.y)
+            })
+        };
+        let still = origins(&page("", "", ""));
+        let moved = origins(&page(
+            "position: relative; left: -10px; top: 5px",
+            "position: relative; bottom: 3px",
+            "position: relative; right: -7px",
+        ));
+        let delta: Vec<_> = still.iter().zip(&moved).map(|(s, m)| (m.0 - s.0, m.1 - s.1)).collect();
+        assert_eq!(
+            delta,
+            [(-10.0, 5.0), (0.0, -3.0), (0.0, -3.0), (7.0, -3.0), (7.0, -3.0)]
+        );
+    }
+
     /// CSS 2.1 §17.2.1: the anonymous table around cells inside an inline is an inline-table,
     /// so it stays on the line: "a bc d", not three lines (WPT table-anonymous-objects-167).
     #[test]
