@@ -746,12 +746,11 @@ fn subtree_min_content_width(
             if root {
                 return from_children;
             }
-            // An explicit width is as unbreakable as an image: the box will be that wide
-            // whatever its words are.
+            // An explicit width is as unbreakable as an image: the box is that wide whatever its
+            // content, and wider content overflows it (css-sizing-3 §5.2).
             let style = doc.computed_style(el.dom_node_id);
-            let explicit = style.has(Prop::Width) && style.size.width.to_px().is_some_and(|w| w > 0.0);
-            if explicit {
-                from_children.max(el.box_model.border_box.width as f32)
+            if style.has(Prop::Width) && style.size.width.to_px().is_some() {
+                el.box_model.border_box.width as f32
             } else {
                 from_children
             }

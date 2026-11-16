@@ -5434,4 +5434,6 @@ mod shadow_dom;
 #[cfg(test)]
 mod table_backgrounds;
 #[cfg(test)]
+mod table_cells;
+#[cfg(test)]
 mod text_wrapping;
