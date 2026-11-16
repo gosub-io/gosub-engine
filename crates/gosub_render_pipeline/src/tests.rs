@@ -1503,6 +1503,31 @@ mod rendertree_from_engine {
         );
     }
 
+    /// Under a bare `monospace` with no size declared anywhere, `em` is worth the 13px the quirk
+    /// gives it, and a descendant that switches family goes back to 16px.
+    #[test]
+    fn em_follows_the_monospace_default_size() {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+
+        let html = r#"<html><head><style>body { font-family: monospace; }</style></head>
+                      <body><div id="mono">x<span id="big" style="font-size: 2em">y</span>
+                      <span id="serif" style="font-family: serif">z</span>
+                      <p id="wide" style="width: 2em"></p></div></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let style = |id| {
+            let node = find_node_by_id_attr(&adapter.doc, root, id).expect("find node");
+            adapter.computed_style(node)
+        };
+
+        assert_eq!(style("mono").inherited.font_size, 13.0);
+        assert_eq!(style("big").inherited.font_size, 26.0);
+        assert_eq!(style("serif").inherited.font_size, 16.0);
+        assert_eq!(style("wide").size.width, LengthPercentageAuto::Px(26.0));
+    }
+
     #[test]
     fn a_percentage_root_font_size_still_sets_the_rem_basis() {
         // `html { font-size: 62.5% }` is the idiom that makes 1rem equal 10px, so the numbers

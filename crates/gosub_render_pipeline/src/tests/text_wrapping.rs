@@ -388,3 +388,20 @@ fn a_nowrap_line_too_wide_beside_a_float_goes_below_it_with_an_inline_block() {
         assert!(piece.y >= 60.0, "below the float: {text:?}");
     }
 }
+
+/// `nowrap` on an inline element keeps its own text on one line inside a block that wraps.
+#[test]
+fn a_nowrap_inline_keeps_its_text_on_one_line() {
+    let (tree, _, [span]) = lay_out(
+        r#"<body style="margin: 0">
+            <div style="width: 100px">Some <span id="span" style="white-space: nowrap">words that do not wrap</span> after</div>
+        </body>"#,
+        ["span"],
+    );
+    let mut tops: Vec<i64> = text_boxes(&tree, span)
+        .iter()
+        .map(|piece| piece.y.round() as i64)
+        .collect();
+    tops.dedup();
+    assert_eq!(tops.len(), 1, "the nowrap text stays on one line");
+}
