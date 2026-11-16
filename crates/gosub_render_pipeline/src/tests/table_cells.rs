@@ -1,10 +1,15 @@
 //! Cell sizing: min-content under an explicit width, a cell's `height` as a minimum, percentage
-//! heights under a cell (css-tables-3 §3.10.6), and a table's `overflow` and its captions.
+//! heights under a cell (css-tables-3 §3.10.6), a table's `overflow` and its captions, and
+//! `empty-cells: hide` (§5.2).
 
-use super::overflow_clip::lay_out;
+use std::sync::Arc;
+
+use super::overflow_clip::{lay_out, state};
 use crate::common::geo::Rect;
 use crate::layering::layer::LayerList;
 use crate::layouter::LayoutElementId;
+use crate::painter::commands::PaintCommand;
+use crate::painter::Painter;
 
 fn border_box(layers: &LayerList, id: LayoutElementId) -> Rect {
     layers
@@ -127,4 +132,37 @@ fn a_percentage_table_height_makes_the_cell_height_specified() {
     );
     assert_eq!(border_box(&layers, cell).height, 100.0);
     assert_eq!(border_box(&layers, child).height, 50.0);
+}
+
+/// `empty-cells: hide` drops the background and borders of an empty cell in the separated
+/// borders model. Whitespace that collapses away and an absolutely positioned child leave a cell
+/// empty; under `border-collapse: collapse` the property does nothing.
+#[test]
+fn empty_cells_hide_paints_nothing_for_an_empty_cell() {
+    let (layers, [empty, spaces, positioned, filled, collapsed]) = lay_out(
+        r#"<html><body>
+          <table style="empty-cells: hide"><tr>
+            <td id="empty" style="background: red; border: 2px solid red; width: 10px; height: 10px"></td>
+            <td id="spaces" style="background: red; width: 10px; height: 10px">  </td>
+            <td id="positioned" style="background: red; width: 10px; height: 10px"><span style="position: absolute"></span></td>
+            <td id="filled" style="background: green; width: 10px; height: 10px">x</td>
+          </tr></table>
+          <table style="empty-cells: hide; border-collapse: collapse"><tr>
+            <td id="collapsed" style="background: green; width: 10px; height: 10px"></td>
+          </tr></table>
+        </body></html>"#,
+        ["empty", "spaces", "positioned", "filled", "collapsed"],
+    );
+    let painter = Painter::new(Arc::clone(&layers), None);
+    let paints_box = |id| {
+        painter
+            .paint_element(id, &state())
+            .iter()
+            .any(|command| matches!(command, PaintCommand::Rectangle(_)))
+    };
+    assert!(!paints_box(empty));
+    assert!(!paints_box(spaces));
+    assert!(!paints_box(positioned));
+    assert!(paints_box(filled));
+    assert!(paints_box(collapsed));
 }

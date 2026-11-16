@@ -7,8 +7,8 @@ use crate::common::browser_state::{BrowserState, WireframeState};
 use crate::common::document::node::NodeId;
 use gosub_interface::style::{
     Anchor, BackgroundImage, BackgroundRepeat, BackgroundSize, BackgroundTile, BorderCollapse,
-    BorderStyle as CssBorderStyle, Color as CssColor, ComputedStyle, Display, LinearGradient as CssLinearGradient,
-    ObjectFit, OverflowWrap, WordBreak,
+    BorderStyle as CssBorderStyle, Color as CssColor, ComputedStyle, Display, EmptyCells,
+    LinearGradient as CssLinearGradient, ObjectFit, OverflowWrap, Position, Prop, WordBreak,
 };
 
 /// Which colour of a [`ComputedStyle`] a brush is made from. A function pointer rather than a
@@ -540,6 +540,26 @@ impl Painter {
         )
     }
 
+    /// An empty cell under `empty-cells: hide` draws no background and no borders, in the
+    /// separated-borders model only (css-tables-3 §5.2). It is empty when nothing in it is in flow
+    /// or floated; whitespace counts only where `white-space` keeps it.
+    fn is_hidden_empty_cell(&self, dom_node_id: NodeId) -> bool {
+        let doc = &self.layer_list.layout_tree.render_tree.doc;
+        let style = doc.computed_style(dom_node_id);
+        if style.declared_display() != Some(Display::TableCell)
+            || style.inherited.empty_cells != EmptyCells::Hide
+            || style.inherited.border_collapse == BorderCollapse::Collapse
+        {
+            return false;
+        }
+        doc.children(dom_node_id).into_iter().all(|child| {
+            let child_style = doc.computed_style(child);
+            let out_of_flow = child_style.has(Prop::Position)
+                && matches!(child_style.box_group.position, Position::Absolute | Position::Fixed);
+            out_of_flow || doc.generates_no_table_box(child)
+        })
+    }
+
     fn generate_element_commands(&self, layout_element: &LayoutElementNode, dom_node_id: NodeId) -> Vec<PaintCommand> {
         let mut commands = Vec::new();
 
@@ -713,6 +733,7 @@ impl Painter {
             // Rows and row groups paint nothing themselves: their backgrounds go under the cells and,
             // under collapse, their borders join the cells' conflict resolution.
             ElementContext::None if self.is_table_track_group(dom_node_id) => {}
+            ElementContext::None if self.is_hidden_empty_cell(dom_node_id) => {}
             ElementContext::None => {
                 commands.extend(self.table_layer_commands(layout_element));
                 let border_box = layout_element.box_model.border_box;

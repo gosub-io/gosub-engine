@@ -384,6 +384,12 @@ pub enum CaptionSide {
     Bottom,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EmptyCells {
+    Show,
+    Hide,
+}
+
 /// `list-style-type`: what a list item's marker shows.
 ///
 /// The counter styles here are the predefined ones pages use; any other name computes to
@@ -652,6 +658,7 @@ declare_props! {
     LetterSpacing,
     TabSize,
     CaptionSide,
+    EmptyCells,
     ListStyleType,
     ListStylePosition,
     BorderSpacingX,
@@ -829,6 +836,7 @@ pub struct InheritedGroup {
     pub letter_spacing: LetterSpacing,
     pub tab_size: TabSize,
     pub caption_side: CaptionSide,
+    pub empty_cells: EmptyCells,
     pub list_style_type: ListStyleType,
     pub list_style_position: ListStylePosition,
     /// Horizontal component of `border-spacing`, in px.
@@ -1396,6 +1404,7 @@ impl ComputedStyle {
                 letter_spacing: LetterSpacing::Normal,
                 tab_size: TabSize::Spaces(8.0),
                 caption_side: CaptionSide::Top,
+                empty_cells: EmptyCells::Show,
                 list_style_type: ListStyleType::Disc,
                 list_style_position: ListStylePosition::Outside,
                 border_spacing_x: 0.0,
