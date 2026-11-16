@@ -1210,6 +1210,40 @@ mod rendertree_from_engine {
         );
     }
 
+    /// The table's own box excludes the caption's whole margin box, not just its border box:
+    /// the margins sit in the wrapper, between the caption and the grid (CSS 2 §17.4).
+    #[test]
+    fn table_box_excludes_the_caption_margins() {
+        for side in ["top", "bottom"] {
+            let html = format!(
+                r#"<html><body><table id="t" style="border-spacing: 0">
+                  <caption id="cap" style="height: 20px; margin: 5px; caption-side: {side}"></caption>
+                  <tr><td id="a" style="height: 10px; padding: 0"></td></tr>
+                </table></body></html>"#
+            );
+            let (layers, ids) = crate::tests::overflow_clip::lay_out(&html, ["t", "cap", "a"]);
+            let [table, cap, cell] = ids.map(|id| {
+                layers
+                    .layout_tree
+                    .get_node_by_id(id)
+                    .expect("laid out")
+                    .box_model
+                    .border_box
+            });
+            assert_eq!(
+                (table.y, table.height),
+                (cell.y, 10.0),
+                "{side}: the table box is the grid"
+            );
+            let gap = if side == "top" {
+                table.y - (cap.y + cap.height)
+            } else {
+                cap.y - (table.y + table.height)
+            };
+            assert_eq!(gap, 5.0, "{side}: one margin between caption and table");
+        }
+    }
+
     /// Percentage insets on table parts: horizontally against the table's width; vertically only
     /// a caption has a definite height to resolve against, the table's specified one. A row's or
     /// a cell's vertical percentage behaves as `auto` (matches Chromium).

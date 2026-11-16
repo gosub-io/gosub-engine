@@ -892,10 +892,21 @@ pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut Layou
         else {
             continue;
         };
+        let Some(table_width) = layout_tree
+            .arena
+            .get(&table_layout_id)
+            .map(|el| el.box_model.border_box.width)
+        else {
+            continue;
+        };
+        // The caption's band is its margin box: lattice keeps the margins inside the wrapper,
+        // resolved against its width.
+        let margin = &doc.computed_style(caption).margin;
+        let margin_y = |side| gosub_interface::used::length_auto(side, table_width).unwrap_or(0.0);
         let Some(band) = dom_to_layout
             .get(&caption)
             .and_then(|id| layout_tree.arena.get(id))
-            .map(|el| el.box_model.border_box.height)
+            .map(|el| el.box_model.border_box.height + margin_y(margin.top) + margin_y(margin.bottom))
         else {
             continue;
         };
