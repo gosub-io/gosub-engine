@@ -195,6 +195,33 @@ mod rendertree_from_engine {
         assert!(r > 240 && g < 20 && b < 20, "{:?}", (r, g, b));
         assert_eq!(fill(&colors, "cur"), Some((0, 0, 255)));
 
+        // An `!important` in the element's own `style` would beat its resolved copy in the decoder.
+        // A custom property ends the decoder's parse of the attribute.
+        let important = tree(&format!(
+            r#"<svg viewBox="0 0 24 24"><path id="i" style="--ink: red; fill: var(--ink) !important" {d}/></svg>"#
+        ));
+        assert_eq!(fill(&important, "i"), Some((255, 0, 0)));
+
+        // The root's opacity fades its box as a layer, so the decoder must not apply it again.
+        fn opacities(group: &usvg::Group, out: &mut Vec<(String, f32)>) {
+            out.push((group.id().to_string(), group.opacity().get()));
+            for node in group.children() {
+                if let usvg::Node::Group(group) = node {
+                    opacities(group, out);
+                }
+            }
+        }
+        let faded = tree(&format!(
+            r#"<style>svg {{ opacity: 0.5 }} .half {{ opacity: 0.5 }}</style>
+            <svg viewBox="0 0 24 24" style="opacity: 0.5"><g id="g" class="half"><path {d}/></g></svg>"#
+        ));
+        let mut groups = Vec::new();
+        opacities(faded.root(), &mut groups);
+        assert_eq!(
+            groups.iter().filter(|(_, opacity)| *opacity < 1.0).collect::<Vec<_>>(),
+            [&("g".to_string(), 0.5)]
+        );
+
         // A sprite: nothing declared on the referenced path, so the `<use>` paints it.
         let sprite = tree(&format!(
             r##"<style>svg {{ fill: black }}</style>

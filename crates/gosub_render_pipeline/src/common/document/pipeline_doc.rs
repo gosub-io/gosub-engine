@@ -413,6 +413,40 @@ fn svg_value<S: CssSystem>(name: &str, value: &S::Property, current: Color) -> O
     value.used_color(current).map(svg_color)
 }
 
+/// The declarations of a `style` attribute, split on the `;` outside strings and brackets.
+fn split_declarations(style: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let (mut start, mut depth, mut quote) = (0, 0usize, None);
+    let mut chars = style.char_indices();
+    while let Some((i, c)) = chars.next() {
+        match (quote, c) {
+            (Some(_), '\\') => {
+                chars.next();
+            }
+            (Some(q), _) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '(' | '[') => depth += 1,
+            (None, ')' | ']') => depth = depth.saturating_sub(1),
+            (None, ';') if depth == 0 => {
+                out.push(&style[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(&style[start..]);
+    out.into_iter().map(str::trim).filter(|decl| !decl.is_empty()).collect()
+}
+
+/// Whether a declaration of `name` sets `property`, itself or through `font` or `marker`.
+fn sets_property(name: &str, property: &str) -> bool {
+    name.eq_ignore_ascii_case(property)
+        || ["font", "marker"].iter().any(|short| {
+            name.eq_ignore_ascii_case(short) && property.strip_prefix(short).is_some_and(|rest| rest.starts_with('-'))
+        })
+}
+
 fn unquote(s: &str) -> String {
     let b = s.as_bytes();
     if b.len() >= 2 && ((b[0] == b'"' && b[b.len() - 1] == b'"') || (b[0] == b'\'' && b[b.len() - 1] == b'\'')) {
@@ -1050,34 +1084,39 @@ where
 
     /// The [`SVG_PROPERTIES`] `id`'s own cascade declared, after its `style` attribute. Only what
     /// it declared: an inherited value written out would stop a `<use>` from passing down its own.
-    /// `None` when it declared none of them.
-    fn svg_style(&self, id: NodeId) -> Option<String> {
+    /// `skip` stays out, also from the `style` attribute. `None` when nothing changes.
+    fn svg_style(&self, id: NodeId, skip: &[&'static str]) -> Option<String> {
         let map = self.cached_styles(id);
         let mut current = None;
+        let mut names = skip.to_vec();
         let mut declared = Vec::new();
         for &name in SVG_PROPERTIES {
-            let Some(value) = map.get(name) else {
+            let Some(value) = map.get(name).filter(|_| !skip.contains(&name)) else {
                 continue;
             };
             let current = *current.get_or_insert_with(|| self.cached_computed_style(id).inherited.color);
             if let Some(value) = svg_value::<C::CssSystem>(name, value, current) {
+                names.push(name);
                 declared.push(format!("{name}: {value}"));
             }
         }
-        if declared.is_empty() {
+        // The cascade has already weighed the element's own `style`; it stays for what the list
+        // leaves out. What the list covers goes, as the decoder keeps an `!important` over a later
+        // copy, and so do custom properties: the decoder stops at the first name it cannot parse.
+        let own = split_declarations(self.doc.attribute(id, "style").unwrap_or_default());
+        let kept: Vec<&str> = own
+            .iter()
+            .copied()
+            .filter(|decl| {
+                let name = decl.split(':').next().unwrap_or_default().trim();
+                !name.starts_with("--") && !names.iter().any(|property| sets_property(name, property))
+            })
+            .collect();
+        if declared.is_empty() && kept.len() == own.len() {
             return None;
         }
-        // The cascade has already weighed the element's own `style`; it stays for what the list
-        // leaves out, and comes first so the declarations here win.
-        let own = self
-            .doc
-            .attribute(id, "style")
-            .map(|style| style.trim().trim_end_matches(';'))
-            .filter(|style| !style.is_empty());
-        Some(match own {
-            Some(own) => format!("{own}; {}", declared.join("; ")),
-            None => declared.join("; "),
-        })
+        declared.extend(kept.into_iter().map(str::to_string));
+        Some(declared.join("; "))
     }
 
     /// The typed style of the node the inherited values come from: the flat-tree parent when it
@@ -1775,8 +1814,13 @@ where
             ("color", svg_color(inherited.color)),
         ];
         let attrs = |node: NodeId| {
-            let mut attrs = if node == id { root_attrs.to_vec() } else { Vec::new() };
-            if let Some(style) = self.svg_style(node) {
+            let (mut attrs, skip) = if node == id {
+                // The root's box is already faded as a layer.
+                (root_attrs.to_vec(), &["opacity"][..])
+            } else {
+                (Vec::new(), &[][..])
+            };
+            if let Some(style) = self.svg_style(node, skip) {
                 attrs.push(("style", style));
             }
             attrs
@@ -1893,5 +1937,22 @@ where
             children,
             node_type,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{sets_property, split_declarations};
+
+    #[test]
+    fn style_attribute_declarations() {
+        assert_eq!(
+            split_declarations(r#" a: 1;; font: 9px "x;y", 'z\';w'; b: url(data:a;b) ;"#),
+            [r#"a: 1"#, r#"font: 9px "x;y", 'z\';w'"#, "b: url(data:a;b)"]
+        );
+        assert!(sets_property("FONT", "font-size"));
+        assert!(sets_property("marker", "marker-end"));
+        assert!(!sets_property("fill", "fill-opacity"));
+        assert!(!sets_property("font", "fontsize"));
     }
 }
