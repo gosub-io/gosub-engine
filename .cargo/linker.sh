@@ -10,9 +10,11 @@
 # elsewhere we always use the system default linker.
 #
 # Referenced from .cargo/config.toml as the [target.*] linker.
+#
+# -fuse-ld=mold goes last: rustc passes its own -fuse-ld=lld and the last one wins.
 
 if [ "$(uname -s)" = "Linux" ] && command -v mold >/dev/null 2>&1 && command -v clang >/dev/null 2>&1; then
-    exec clang -fuse-ld=mold "$@"
+    exec clang "$@" -fuse-ld=mold
 fi
 
 exec cc "$@"
