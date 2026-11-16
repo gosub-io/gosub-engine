@@ -413,37 +413,50 @@ fn svg_value<S: CssSystem>(name: &str, value: &S::Property, current: Color) -> O
     value.used_color(current).map(svg_color)
 }
 
-/// `style` with each comment outside a string replaced by a space.
+/// `style` with each comment outside a string or an unquoted `url()` replaced by a space.
 fn strip_comments(style: &str) -> String {
+    let bytes = style.as_bytes();
     let mut out = String::with_capacity(style.len());
-    let mut quote = None;
-    let mut chars = style.chars().peekable();
-    while let Some(c) = chars.next() {
-        match (quote, c) {
-            (Some(_), '\\') => {
-                out.push(c);
-                out.extend(chars.next());
-                continue;
-            }
-            (Some(q), _) if c == q => quote = None,
-            (None, '"' | '\'') => quote = Some(c),
-            (None, '/') if chars.peek() == Some(&'*') => {
-                chars.next();
-                let mut prev = '\0';
-                for c in chars.by_ref() {
-                    if prev == '*' && c == '/' {
-                        break;
-                    }
-                    prev = c;
-                }
+    let (mut i, mut copied, mut quote) = (0, 0, None);
+    while i < bytes.len() {
+        match (quote, bytes[i]) {
+            (Some(_), b'\\') => i += 1,
+            (Some(q), b) if b == q => quote = None,
+            (Some(_), _) => {}
+            (None, b @ (b'"' | b'\'')) => quote = Some(b),
+            (None, b'/') if bytes.get(i + 1) == Some(&b'*') => {
+                out.push_str(&style[copied..i]);
                 out.push(' ');
+                i = style[i + 2..].find("*/").map_or(bytes.len(), |end| i + 2 + end + 2);
+                copied = i;
                 continue;
             }
-            _ => {}
+            (None, _) => i = unquoted_url_end(bytes, i).unwrap_or(i),
         }
-        out.push(c);
+        i += 1;
     }
+    out.push_str(&style[copied..]);
     out
+}
+
+/// When an unquoted `url(` starts at `i`, the index of its closing `)` (or the last byte): a
+/// `/*` inside it is part of the URL (css-syntax-3 "consume a url token").
+fn unquoted_url_end(bytes: &[u8], i: usize) -> Option<usize> {
+    let is_name = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'\\') || b >= 0x80;
+    if !bytes.get(i..i + 4)?.eq_ignore_ascii_case(b"url(") || i > 0 && is_name(bytes[i - 1]) {
+        return None;
+    }
+    let mut j = i + 4;
+    while bytes.get(j).is_some_and(u8::is_ascii_whitespace) {
+        j += 1;
+    }
+    if matches!(bytes.get(j), Some(b'"' | b'\'')) {
+        return None;
+    }
+    while j < bytes.len() && bytes[j] != b')' {
+        j += if bytes[j] == b'\\' { 2 } else { 1 };
+    }
+    Some(j.min(bytes.len() - 1))
 }
 
 /// The declarations of a `style` attribute, split on the `;` outside strings and brackets.
@@ -1991,6 +2004,11 @@ mod tests {
         assert_eq!(
             split_declarations("--note: /* ( */ 0; /* a;b */ transform: matrix(1,0,0,1,10,0); c: '/*'"),
             ["--note:   0", "transform: matrix(1,0,0,1,10,0)", "c: '/*'"]
+        );
+        // In an unquoted `url()` a `/*` is part of the URL; in a quoted one the string holds it.
+        assert_eq!(
+            split_declarations(r#"--a: URL( https://x.org/*); --b: url("/*") /**/; e: myurl(/**/)"#),
+            ["--a: URL( https://x.org/*)", r#"--b: url("/*")"#, "e: myurl( )"]
         );
         assert!(sets_property("FONT", "font-size"));
         assert!(sets_property("marker", "marker-end"));

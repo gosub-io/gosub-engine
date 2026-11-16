@@ -207,6 +207,10 @@ mod rendertree_from_engine {
             r#"<svg viewBox="0 0 24 24"><path id="c" style="--note: /* ( */ 0; transform: matrix(1,0,0,1,10,0)" {d}/></svg>"#
         ));
         assert_eq!(path(&commented, "c").map(|p| p.abs_transform().tx), Some(10.0));
+        let url = tree(&format!(
+            r#"<svg viewBox="0 0 24 24"><path id="u" style="--note: url(https://example.org/*); transform: matrix(1,0,0,1,10,0)" {d}/></svg>"#
+        ));
+        assert_eq!(path(&url, "u").map(|p| p.abs_transform().tx), Some(10.0));
 
         // The root's opacity fades its box as a layer, so the decoder must not apply it again.
         fn opacities(group: &usvg::Group, out: &mut Vec<(String, f32)>) {
