@@ -8,7 +8,9 @@ use std::collections::HashMap;
 use crate::compute::compute_table_layout;
 use crate::grid::{build_section_grid, PlacedCell, SectionGrid};
 use crate::model::{build_model, RowGroup};
-use crate::types::{CellLayout, CssLength, CssProp, TableRole, VerticalAlign};
+use crate::types::{
+    BorderStyle, CellLayout, CollapsedPaint, CssLength, CssProp, EmptySlotPaint, Side, TableRole, VerticalAlign,
+};
 use crate::TableTree;
 
 // MockCell - a single cell specification used by the builder
@@ -27,6 +29,8 @@ pub struct MockCell {
     pub height: Option<f64>,
     /// Uniform border width on all sides.
     pub border: f64,
+    /// Per-side border width and style, overriding `border` (`[top, right, bottom, left]`).
+    pub border_sides: [Option<(f64, BorderStyle)>; 4],
     /// Uniform padding on all sides.
     pub padding: f64,
     /// Max-content border-box width reported via `cell_intrinsic_widths`.
@@ -53,6 +57,7 @@ impl MockCell {
             width_pct: None,
             height: None,
             border: 0.0,
+            border_sides: [None; 4],
             padding: 1.0,
             content_width: 0.0,
             min_content_width: 0.0,
@@ -87,6 +92,12 @@ impl MockCell {
         self.border = b;
         self
     }
+    /// Width and style of one side's border.
+    pub fn border_side(mut self, side: Side, width: f64, style: BorderStyle) -> Self {
+        self.border_sides[side as usize] = Some((width, style));
+        self
+    }
+
     pub fn padding(mut self, p: f64) -> Self {
         self.padding = p;
         self
@@ -325,6 +336,9 @@ struct MockNode {
     height: Option<f64>,
     height_pct: Option<f64>,
     border: f64,
+    border_sides: [Option<(f64, BorderStyle)>; 4],
+    collapsed_paint: Option<CollapsedPaint<u32>>,
+    empty_slots: Vec<EmptySlotPaint<u32>>,
     padding: f64,
     content_width: f64,
     min_content_width: f64,
@@ -332,6 +346,17 @@ struct MockNode {
     valign: VerticalAlign,
     baseline: Option<f64>,
     border_box: bool,
+}
+
+impl MockNode {
+    /// `none` and `hidden` compute to a zero width, as they do in CSS.
+    fn border_width(&self, side: Side) -> f64 {
+        match self.border_sides[side as usize] {
+            Some((_, BorderStyle::None | BorderStyle::Hidden)) => 0.0,
+            Some((width, _)) => width,
+            None => self.border,
+        }
+    }
 }
 
 pub struct MockTree {
@@ -394,6 +419,9 @@ impl MockTree {
                 height,
                 height_pct: None,
                 border,
+                border_sides: [None; 4],
+                collapsed_paint: None,
+                empty_slots: Vec::new(),
                 padding,
                 content_width: 0.0,
                 min_content_width: 0.0,
@@ -426,6 +454,7 @@ impl MockTree {
             node.valign = mc.valign;
             node.baseline = mc.baseline;
             node.border_box = mc.border_box;
+            node.border_sides = mc.border_sides;
         }
         id
     }
@@ -442,6 +471,23 @@ impl MockTree {
         if let Some(node) = self.nodes.get_mut(&id) {
             node.height_pct = Some(p);
         }
+    }
+
+    /// Width and style of one side's border on any node.
+    pub fn set_border(&mut self, id: u32, side: Side, width: f64, style: BorderStyle) {
+        if let Some(node) = self.nodes.get_mut(&id) {
+            node.border_sides[side as usize] = Some((width, style));
+        }
+    }
+
+    /// What `compute_table_layout` told collapsed cell `id` to paint.
+    pub fn collapsed_paint(&self, id: u32) -> Option<&CollapsedPaint<u32>> {
+        self.nodes.get(&id)?.collapsed_paint.as_ref()
+    }
+
+    /// The empty slots `compute_table_layout` told collapsed row `id` to paint.
+    pub fn empty_slots(&self, id: u32) -> &[EmptySlotPaint<u32>] {
+        self.nodes.get(&id).map_or(&[], |n| &n.empty_slots)
     }
 
     pub fn add_child(&mut self, parent: u32, child: u32) {
@@ -519,10 +565,10 @@ impl TableTree for MockTree {
                 .map(CssLength::Percent)
                 .or(node.height.map(CssLength::Px))
                 .unwrap_or(CssLength::Auto),
-            CssProp::BorderTopWidth
-            | CssProp::BorderRightWidth
-            | CssProp::BorderBottomWidth
-            | CssProp::BorderLeftWidth => CssLength::Px(node.border),
+            CssProp::BorderTopWidth => CssLength::Px(node.border_width(Side::Top)),
+            CssProp::BorderRightWidth => CssLength::Px(node.border_width(Side::Right)),
+            CssProp::BorderBottomWidth => CssLength::Px(node.border_width(Side::Bottom)),
+            CssProp::BorderLeftWidth => CssLength::Px(node.border_width(Side::Left)),
             CssProp::PaddingTop | CssProp::PaddingRight | CssProp::PaddingBottom | CssProp::PaddingLeft => {
                 CssLength::Px(node.padding)
             }
@@ -577,6 +623,25 @@ impl TableTree for MockTree {
 
     fn cell_baseline(&mut self, id: u32) -> Option<f64> {
         self.nodes.get(&id).and_then(|n| n.baseline)
+    }
+
+    fn border_style(&self, id: u32, side: Side) -> BorderStyle {
+        self.nodes
+            .get(&id)
+            .and_then(|n| n.border_sides[side as usize])
+            .map_or(BorderStyle::Solid, |(_, style)| style)
+    }
+
+    fn set_collapsed_cell_paint(&mut self, id: u32, paint: CollapsedPaint<u32>) {
+        if let Some(node) = self.nodes.get_mut(&id) {
+            node.collapsed_paint = Some(paint);
+        }
+    }
+
+    fn set_collapsed_row_paint(&mut self, id: u32, slots: Vec<EmptySlotPaint<u32>>) {
+        if let Some(node) = self.nodes.get_mut(&id) {
+            node.empty_slots = slots;
+        }
     }
 }
 

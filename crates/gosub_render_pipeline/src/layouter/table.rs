@@ -1,4 +1,4 @@
-use gosub_lattice::{BoxEdges, CellLayer, CellLayout, CssLength, CssProp, TableRole, TableTree, VerticalAlign};
+use gosub_lattice::{BoxEdges, CellLayer, CellLayout, CssLength, CssProp, Side, TableRole, TableTree, VerticalAlign};
 
 use crate::common::document::node::{NodeId as DomNodeId, NodeType};
 use crate::common::document::pipeline_doc::PipelineDocument;
@@ -7,7 +7,7 @@ use crate::layouter::box_model::{BoxModel, Edges};
 use crate::layouter::float::float_side;
 use crate::layouter::taffy::{TaffyLayouter, MAX_LAYOUT_DEPTH};
 use crate::layouter::{
-    CollapsedCellBorders, ElementContext, LayoutElementId, LayoutElementNode, LayoutTree, TableLayer,
+    CollapsedCellBorders, CollapsedSlot, ElementContext, LayoutElementId, LayoutElementNode, LayoutTree, TableLayer,
 };
 use gosub_interface::style::{Display, LengthPercentage, LengthPercentageAuto, Position, Prop};
 use std::cell::RefCell;
@@ -25,10 +25,11 @@ pub struct PipelineTableTree<'a> {
     dom_to_layout: &'a HashMap<DomNodeId, LayoutElementId>,
     /// Relative CellLayouts written by `compute_table_layout`.
     pending: HashMap<DomNodeId, CellLayout>,
-    /// Per collapsed cell, the node whose CSS border style paints each edge
-    /// (`[top, right, bottom, left]`; `None` = the cell's own border). Only
-    /// populated for cells of `border-collapse` tables.
-    edge_owners: HashMap<DomNodeId, [Option<DomNodeId>; 4]>,
+    /// How each cell of a `border-collapse` table paints its borders; holds exactly the
+    /// collapsed cells.
+    collapsed_paint: HashMap<DomNodeId, CollapsedCellBorders>,
+    /// Rows of a `border-collapse` table with slots no cell covers.
+    collapsed_slots: HashMap<DomNodeId, Vec<CollapsedSlot>>,
     /// Cells whose subtree was re-laid-out via `relayout_cell` this pass. Only
     /// these get the `content_offset_y` vertical-align shift: their children
     /// are freshly anchored at the cell top, so the shift applies exactly once.
@@ -53,7 +54,8 @@ impl<'a> PipelineTableTree<'a> {
             layout_tree,
             dom_to_layout,
             pending: HashMap::new(),
-            edge_owners: HashMap::new(),
+            collapsed_paint: HashMap::new(),
+            collapsed_slots: HashMap::new(),
             relaid: HashSet::new(),
             layers: HashMap::new(),
             contains_table_cache: RefCell::new(HashMap::new()),
@@ -188,7 +190,8 @@ impl<'a> PipelineTableTree<'a> {
             table_abs,
             Coordinate::ZERO,
             &pending,
-            &self.edge_owners,
+            &self.collapsed_paint,
+            &self.collapsed_slots,
             &self.relaid,
             border_corrected,
             self.dom_to_layout,
@@ -233,7 +236,8 @@ fn apply_recursive(
     // the cell's vertical-align shift when its subtree was re-anchored.
     offset: Coordinate,
     pending: &HashMap<DomNodeId, CellLayout>,
-    edge_owners: &HashMap<DomNodeId, [Option<DomNodeId>; 4]>,
+    collapsed_paint: &HashMap<DomNodeId, CollapsedCellBorders>,
+    collapsed_slots: &HashMap<DomNodeId, Vec<CollapsedSlot>>,
     relaid: &HashSet<DomNodeId>,
     // Cells whose skipped-relayout subtree already received the raw-vs-collapsed border
     // shift; the correction is a one-time conversion, not a per-pass translation.
@@ -281,17 +285,8 @@ fn apply_recursive(
                     if let Some(&layout_id) = dom_to_layout.get(&child_id) {
                         if let Some(element) = arena.get_mut(&layout_id) {
                             element.box_model = cell_layout_to_box_model(cell_layout, abs);
-                            element.collapsed_borders =
-                                edge_owners.get(&child_id).map(|&owners| CollapsedCellBorders {
-                                    widths: [
-                                        cell_layout.border.top as f32,
-                                        cell_layout.border.right as f32,
-                                        cell_layout.border.bottom as f32,
-                                        cell_layout.border.left as f32,
-                                    ],
-                                    outsets: cell_layout.border_outsets.map(|v| v as f32),
-                                    owners,
-                                });
+                            element.collapsed_borders = collapsed_paint.get(&child_id).cloned();
+                            element.collapsed_slots = collapsed_slots.get(&child_id).cloned().unwrap_or_default();
                         }
                     }
                     // vertical-align: only cells whose subtree was re-anchored at the
@@ -305,10 +300,10 @@ fn apply_recursive(
                     // positioned by the FIRST taffy pass with the raw CSS border widths, but the
                     // collapse geometry replaced those with half the resolved boundary. Shift the
                     // subtree by the difference so content sits at the collapsed content origin.
-                    // Rows are in `pending` too but never collapsed cells; `edge_owners` is the
+                    // Rows are in `pending` too but never collapsed cells; `collapsed_paint` is the
                     // exact "collapsed cell" predicate.
                     let border_delta = if !relaid.contains(&child_id)
-                        && edge_owners.contains_key(&child_id)
+                        && collapsed_paint.contains_key(&child_id)
                         && border_corrected.insert(child_id)
                     {
                         let child_border = &doc.computed_style(child_id).border;
@@ -509,10 +504,41 @@ impl TableTree for PipelineTableTree<'_> {
         self.layers.insert(id, layers);
     }
 
-    fn set_collapsed_cell_borders(&mut self, id: DomNodeId, layout: BoxEdges, edge_owners: [Option<DomNodeId>; 4]) {
-        self.edge_owners.insert(id, edge_owners);
+    fn set_collapsed_cell_borders(&mut self, id: DomNodeId, layout: BoxEdges) {
         if let Some(&layout_id) = self.dom_to_layout.get(&id) {
             self.layouter.set_cell_borders(layout_id, layout);
+        }
+    }
+
+    fn set_collapsed_cell_paint(&mut self, id: DomNodeId, paint: CollapsedCellBorders) {
+        self.collapsed_paint.insert(id, paint);
+    }
+
+    fn set_collapsed_row_paint(&mut self, id: DomNodeId, slots: Vec<CollapsedSlot>) {
+        self.collapsed_slots.insert(id, slots);
+    }
+
+    fn border_style(&self, id: DomNodeId, side: Side) -> gosub_lattice::BorderStyle {
+        use gosub_interface::style::BorderStyle as Css;
+        use gosub_lattice::BorderStyle as Lattice;
+        let border = &self.doc.computed_style(id).border;
+        let style = match side {
+            Side::Top => border.top_style,
+            Side::Right => border.right_style,
+            Side::Bottom => border.bottom_style,
+            Side::Left => border.left_style,
+        };
+        match style {
+            Css::None => Lattice::None,
+            Css::Hidden => Lattice::Hidden,
+            Css::Solid => Lattice::Solid,
+            Css::Dashed => Lattice::Dashed,
+            Css::Dotted => Lattice::Dotted,
+            Css::Double => Lattice::Double,
+            Css::Groove => Lattice::Groove,
+            Css::Ridge => Lattice::Ridge,
+            Css::Inset => Lattice::Inset,
+            Css::Outset => Lattice::Outset,
         }
     }
 
@@ -873,6 +899,7 @@ pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut Layou
                 background_media: None,
                 collapsed_borders: None,
                 table_layers: Vec::new(),
+                collapsed_slots: Vec::new(),
             },
         );
         if let Some(table_el) = layout_tree.arena.get_mut(&table_layout_id) {
@@ -882,7 +909,7 @@ pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut Layou
 }
 
 /// DFS-collect (in paint order) the layout elements under `id` that carry collapsed
-/// borders. Nested collapsed tables collect their own overlay, so recursion stops at
+/// borders: cells, and rows with empty slots. Nested collapsed tables collect their own overlay, so recursion stops at
 /// inner `display: table` boundaries.
 fn collect_collapsed_cells(layout_tree: &LayoutTree, id: LayoutElementId, out: &mut Vec<LayoutElementId>) {
     let Some(el) = layout_tree.arena.get(&id) else { return };
@@ -890,7 +917,7 @@ fn collect_collapsed_cells(layout_tree: &LayoutTree, id: LayoutElementId, out: &
         let Some(child) = layout_tree.arena.get(&child_id) else {
             continue;
         };
-        if child.collapsed_borders.is_some() {
+        if child.collapsed_borders.is_some() || !child.collapsed_slots.is_empty() {
             out.push(child_id);
         }
         let child_is_table = is_table_box(&*layout_tree.render_tree.doc, child.dom_node_id);

@@ -2,6 +2,7 @@ use crate::geo::{Point, Size};
 use anyhow::Result;
 use std::collections::HashMap;
 
+use crate::collapse::{self, CellEdges, EmptySlots};
 use crate::grid::{build_section_grid, PlacedCell, SectionGrid};
 use crate::model::{build_model, RowGroup};
 use crate::sizing::columns::{column_specs, compute_column_widths};
@@ -9,7 +10,9 @@ use crate::sizing::rows::{
     compute_row_heights, distribute_table_height, effective_border, read_border, read_padding, read_padding_against,
     SectionRows,
 };
-use crate::types::{BorderCollapse, CellLayer, CellLayout, CollapsedBorders, CssLength, CssProp, TableSizing};
+use crate::types::{
+    BorderCollapse, CellLayer, CellLayout, CollapsedBorders, CssLength, CssProp, EmptySlotPaint, TableSizing,
+};
 use crate::TableTree;
 
 /// A length property of `node` in px, a percentage resolved against `basis`; `None` for `auto`
@@ -156,15 +159,21 @@ pub fn compute_table_layout<T: TableTree>(
     // intrinsic measurement, row heights and cell boxes must all use the
     // collapse geometry. The implementor is notified so its layout engine
     // agrees.
-    let collapsed_borders: HashMap<T::NodeId, CollapsedBorders> = if collapse {
-        let (resolved, owners) = resolve_border_conflicts(tree, table_node, n_cols, &all_grids);
-        for (&node, cb) in &resolved {
-            let edge_owners = owners.get(&node).copied().unwrap_or([None; 4]);
-            tree.set_collapsed_cell_borders(node, cb.layout, edge_owners);
+    let (collapsed_borders, collapsed_edges, empty_slots) = if collapse {
+        let groups: Vec<Option<T::NodeId>> = model
+            .header_groups
+            .iter()
+            .chain(model.row_groups.iter())
+            .chain(model.footer_groups.iter())
+            .map(|g| g.node)
+            .collect();
+        let resolved = collapse::resolve(tree, &model, n_cols, &all_grids, &groups);
+        for (&node, cb) in &resolved.borders {
+            tree.set_collapsed_cell_borders(node, cb.layout);
         }
-        resolved
+        (resolved.borders, resolved.cells, resolved.empty_slots)
     } else {
-        HashMap::new()
+        (HashMap::new(), HashMap::new(), HashMap::new())
     };
 
     // CAPMIN: the caption's minimum border-box width. CSS 2 §17.5.2 floors the used
@@ -188,7 +197,7 @@ pub fn compute_table_layout<T: TableTree>(
     // the table box, not in its margin. Grow the box by the widest perimeter half on
     // each side and shift the grid inward to make room.
     let perimeter = if collapse {
-        perimeter_halves::<T>(&collapsed_borders, n_cols, &all_grids)
+        perimeter_halves::<T>(&collapsed_borders, &empty_slots, n_cols, &all_grids)
     } else {
         BOX_EDGES_ZERO
     };
@@ -268,7 +277,7 @@ pub fn compute_table_layout<T: TableTree>(
 
     // Precompute cumulative column x-offsets (relative to the row's left edge).
     // col_x[i] = x of the left edge of column i (within a row). Under collapse
-    // the cells sit flush (spacing 0) and conflict resolution below decides
+    // the cells sit flush (spacing 0) and conflict resolution (collapse.rs) decides
     // which cell paints each shared border.
     let mut col_x = col_x_offsets(&col_widths, spacing_x);
     for x in &mut col_x {
@@ -442,8 +451,6 @@ pub fn compute_table_layout<T: TableTree>(
                         border: BOX_EDGES_ZERO,
                         padding: BOX_EDGES_ZERO,
                         content_offset_y: 0.0,
-                        suppressed_borders: [false; 4],
-                        border_outsets: [0.0; 4],
                     },
                 );
             }
@@ -465,6 +472,8 @@ pub fn compute_table_layout<T: TableTree>(
                 &placement,
                 &content_heights,
                 &collapsed_borders,
+                &collapsed_edges,
+                &empty_slots,
                 &baseline_shifts,
                 &mut cell_layers,
             );
@@ -517,8 +526,6 @@ pub fn compute_table_layout<T: TableTree>(
                 border,
                 padding,
                 content_offset_y: 0.0,
-                suppressed_borders: [false; 4],
-                border_outsets: [0.0; 4],
             },
         );
         if caption_bottom {
@@ -559,6 +566,8 @@ fn place_rows<T: TableTree>(
     at: &Placement<'_>,
     content_heights: &HashMap<T::NodeId, f64>,
     collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
+    collapsed_edges: &HashMap<T::NodeId, CellEdges<T::NodeId>>,
+    empty_slots: &EmptySlots<T::NodeId>,
     baseline_shifts: &HashMap<T::NodeId, f64>,
     cell_layers: &mut Vec<RowLayers<T::NodeId>>,
 ) {
@@ -585,10 +594,19 @@ fn place_rows<T: TableTree>(
                     border: BOX_EDGES_ZERO,
                     padding: BOX_EDGES_ZERO,
                     content_offset_y: 0.0,
-                    suppressed_borders: [false; 4],
-                    border_outsets: [0.0; 4],
                 },
             );
+            if let Some(slots) = empty_slots.get(&node) {
+                let paint = slots
+                    .iter()
+                    .map(|(c, edges)| EmptySlotPaint {
+                        x: at.col_x.get(*c).copied().unwrap_or(0.0) - at.grid_left,
+                        width: at.col_widths.get(*c).copied().unwrap_or(0.0),
+                        paint: edges.paint(at.col_x, at.col_widths, at.row_y, at.row_heights, *c, row_idx),
+                    })
+                    .collect();
+                tree.set_collapsed_row_paint(node, paint);
+            }
         }
 
         // Cells of an anonymous row hang off the group (or table) in the DOM.
@@ -601,6 +619,7 @@ fn place_rows<T: TableTree>(
                 cell_parent,
                 content_heights,
                 collapsed_borders,
+                collapsed_edges,
                 baseline_shifts,
             );
         }
@@ -628,6 +647,7 @@ fn place_rows<T: TableTree>(
 
 /// Write the layout for one placed cell. `parent` is the table-relative origin of the cell's DOM
 /// parent.
+#[allow(clippy::too_many_arguments)]
 fn place_cell<T: TableTree>(
     tree: &mut T,
     cell: &PlacedCell<T::NodeId>,
@@ -635,6 +655,7 @@ fn place_cell<T: TableTree>(
     parent: Point,
     content_heights: &HashMap<T::NodeId, f64>,
     collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
+    collapsed_edges: &HashMap<T::NodeId, CellEdges<T::NodeId>>,
     baseline_shifts: &HashMap<T::NodeId, f64>,
 ) {
     let (row_heights, row_y, col_x, col_widths) = (at.row_heights, at.row_y, at.col_x, at.col_widths);
@@ -651,7 +672,6 @@ fn place_cell<T: TableTree>(
         row_y.get(last_row).copied().unwrap_or(0.0) + row_heights.get(last_row).copied().unwrap_or(0.0) - cell_row_y;
     let y = at.group_y + cell_row_y;
 
-    let collapsed = collapsed_borders.get(&cell.node).copied();
     let border = effective_border(tree, cell.node, collapsed_borders);
     let padding = read_padding(tree, cell.node);
 
@@ -677,10 +697,12 @@ fn place_cell<T: TableTree>(
             border,
             padding,
             content_offset_y,
-            suppressed_borders: collapsed.map(|c| c.suppressed).unwrap_or([false; 4]),
-            border_outsets: collapsed.map(|c| c.outsets).unwrap_or([0.0; 4]),
         },
     );
+    if let Some(edges) = collapsed_edges.get(&cell.node) {
+        let paint = edges.paint(col_x, col_widths, row_y, row_heights, cell.col, cell.row);
+        tree.set_collapsed_cell_paint(cell.node, paint);
+    }
 }
 
 /// The column group and column element of one column, if any.
@@ -766,9 +788,11 @@ fn section_height(row_heights: &[f64], row_y: &[f64]) -> f64 {
 }
 
 /// The widest outer border half on each side of a collapsed table: the halves that
-/// stick out beyond the grid and become part of the table's border box.
+/// stick out beyond the grid and become part of the table's border box. Empty slots count
+/// as the cells css-tables-3 fills them with.
 fn perimeter_halves<T: TableTree>(
     collapsed: &HashMap<T::NodeId, CollapsedBorders>,
+    empty_slots: &EmptySlots<T::NodeId>,
     n_cols: usize,
     grids: &[&SectionGrid<T::NodeId>],
 ) -> crate::types::BoxEdges {
@@ -776,6 +800,26 @@ fn perimeter_halves<T: TableTree>(
     let last_grid = grids.iter().rposition(|g| g.n_rows > 0);
     let first_grid = grids.iter().position(|g| g.n_rows > 0);
     for (gi, grid) in grids.iter().enumerate() {
+        for (row, node) in grid.row_nodes.iter().enumerate() {
+            let Some(slots) = node.and_then(|node| empty_slots.get(&node)) else {
+                continue;
+            };
+            for (col, slot) in slots {
+                let halves = slot.halves();
+                if *col == 0 {
+                    out.left = out.left.max(halves.left);
+                }
+                if col + 1 >= n_cols {
+                    out.right = out.right.max(halves.right);
+                }
+                if Some(gi) == first_grid && row == 0 {
+                    out.top = out.top.max(halves.top);
+                }
+                if Some(gi) == last_grid && row + 1 >= grid.n_rows {
+                    out.bottom = out.bottom.max(halves.bottom);
+                }
+            }
+        }
         for cell in grid.cells() {
             let Some(cb) = collapsed.get(&cell.node) else { continue };
             if cell.col == 0 {
@@ -793,205 +837,6 @@ fn perimeter_halves<T: TableTree>(
         }
     }
     out
-}
-
-/// CSS border-conflict resolution for `border-collapse`, per CSS 2 §17.6.2:
-/// collapsed borders are CENTERED on the grid lines. The wider border wins a
-/// boundary; ties go to the left/top cell (the style-rank tiebreak is not
-/// implemented). Both cells reserve half the resolved boundary width in their
-/// layout, and each paints ITS OWN half - the losing cell in the winner's
-/// style (see the returned owners map) - so the result does not depend on the
-/// order cells are painted in. Outer (perimeter) edges get a paint outset of
-/// half the cell's own border: the other half sticks out of the table box
-/// like in browsers, where nothing can overpaint it.
-///
-/// A cell edge is suppressed when it loses against EVERY neighbouring segment
-/// along that edge; mixed outcomes keep the edge painted in the cell's own
-/// style. Multi-segment edges (spanning cells) resolve to the widest
-/// segment's winner for the whole edge - per-segment painting is not
-/// implemented.
-///
-/// Grids must be in render order (header -> body -> footer) so cross-section
-/// adjacency is resolved too. Edge index order: `[top, right, bottom, left]`.
-#[allow(clippy::type_complexity)]
-fn resolve_border_conflicts<T: TableTree>(
-    tree: &T,
-    table_node: T::NodeId,
-    n_cols: usize,
-    grids: &[&SectionGrid<T::NodeId>],
-) -> (
-    HashMap<T::NodeId, CollapsedBorders>,
-    HashMap<T::NodeId, [Option<T::NodeId>; 4]>,
-) {
-    // Flat slot occupancy across all sections, in render order.
-    let total_rows: usize = grids.iter().map(|g| g.n_rows).sum();
-    let mut slots: Vec<Vec<Option<T::NodeId>>> = vec![vec![None; n_cols]; total_rows];
-    let mut borders: HashMap<T::NodeId, crate::types::BoxEdges> = HashMap::new();
-
-    let mut row_offset = 0;
-    for grid in grids {
-        for cell in grid.cells() {
-            borders.entry(cell.node).or_insert_with(|| read_border(tree, cell.node));
-            let col_end = (cell.col + cell.colspan).min(n_cols);
-            for r in cell.row..(cell.row + cell.rowspan).min(grid.n_rows) {
-                slots[row_offset + r][cell.col..col_end].fill(Some(cell.node));
-            }
-        }
-        row_offset += grid.n_rows;
-    }
-
-    // Per (cell, edge): whether it faced any neighbour, whether it won at
-    // least one segment, the widest resolved boundary along the edge, and the
-    // widest segment's winning cell.
-    #[derive(Clone, Copy)]
-    struct EdgeState<Id> {
-        has_seg: [bool; 4],
-        won_any: [bool; 4],
-        resolved: [f64; 4],
-        winner: [Option<Id>; 4],
-    }
-    impl<Id> EdgeState<Id> {
-        fn new() -> Self {
-            EdgeState {
-                has_seg: [false; 4],
-                won_any: [false; 4],
-                resolved: [0.0; 4],
-                winner: [None, None, None, None],
-            }
-        }
-    }
-    let mut states: HashMap<T::NodeId, EdgeState<T::NodeId>> = HashMap::new();
-    let zero = crate::types::BoxEdges::default();
-
-    const TOP: usize = 0;
-    const RIGHT: usize = 1;
-    const BOTTOM: usize = 2;
-    const LEFT: usize = 3;
-
-    for r in 0..total_rows {
-        for c in 0..n_cols {
-            let Some(cur) = slots[r][c] else { continue };
-
-            // Vertical boundary with the cell to the right.
-            if c + 1 < n_cols {
-                if let Some(next) = slots[r][c + 1] {
-                    if next != cur {
-                        let left_w = borders.get(&cur).unwrap_or(&zero).right;
-                        let right_w = borders.get(&next).unwrap_or(&zero).left;
-                        let resolved = left_w.max(right_w);
-                        let left_wins = left_w >= right_w;
-                        let seg_winner = if left_wins { cur } else { next };
-                        let s = states.entry(cur).or_insert_with(EdgeState::new);
-                        s.has_seg[RIGHT] = true;
-                        if resolved >= s.resolved[RIGHT] {
-                            s.resolved[RIGHT] = resolved;
-                            s.winner[RIGHT] = Some(seg_winner);
-                        }
-                        if left_wins {
-                            s.won_any[RIGHT] = true;
-                        }
-                        let s = states.entry(next).or_insert_with(EdgeState::new);
-                        s.has_seg[LEFT] = true;
-                        if resolved >= s.resolved[LEFT] {
-                            s.resolved[LEFT] = resolved;
-                            s.winner[LEFT] = Some(seg_winner);
-                        }
-                        if !left_wins {
-                            s.won_any[LEFT] = true;
-                        }
-                    }
-                }
-            }
-
-            // Horizontal boundary with the cell below.
-            if r + 1 < total_rows {
-                if let Some(below) = slots[r + 1][c] {
-                    if below != cur {
-                        let top_w = borders.get(&cur).unwrap_or(&zero).bottom;
-                        let bottom_w = borders.get(&below).unwrap_or(&zero).top;
-                        let resolved = top_w.max(bottom_w);
-                        let top_wins = top_w >= bottom_w;
-                        let seg_winner = if top_wins { cur } else { below };
-                        let s = states.entry(cur).or_insert_with(EdgeState::new);
-                        s.has_seg[BOTTOM] = true;
-                        if resolved >= s.resolved[BOTTOM] {
-                            s.resolved[BOTTOM] = resolved;
-                            s.winner[BOTTOM] = Some(seg_winner);
-                        }
-                        if top_wins {
-                            s.won_any[BOTTOM] = true;
-                        }
-                        let s = states.entry(below).or_insert_with(EdgeState::new);
-                        s.has_seg[TOP] = true;
-                        if resolved >= s.resolved[TOP] {
-                            s.resolved[TOP] = resolved;
-                            s.winner[TOP] = Some(seg_winner);
-                        }
-                        if !top_wins {
-                            s.won_any[TOP] = true;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Every cell of a collapsed table gets an entry. Perimeter edges (no facing
-    // neighbour) conflict with the TABLE's own border instead (CSS 2 §17.6.2.1 -
-    // wider wins, tie -> the cell, per the style-source precedence cell > table):
-    // half the resolved boundary in the layout, half painted as outset up to the
-    // table's border-box edge.
-    let table_border = read_border(tree, table_node);
-    let table_edge = [
-        table_border.top,
-        table_border.right,
-        table_border.bottom,
-        table_border.left,
-    ];
-    let mut collapsed_map = HashMap::new();
-    let mut owners_map = HashMap::new();
-    for (&node, raw) in &borders {
-        let s = states.get(&node).copied().unwrap_or_else(EdgeState::new);
-        let own = [raw.top, raw.right, raw.bottom, raw.left];
-        let mut suppressed = [false; 4];
-        let mut resolved = [0.0_f64; 4];
-        let mut outsets = [0.0_f64; 4];
-        let mut owners = [None; 4];
-        for e in 0..4 {
-            suppressed[e] = s.has_seg[e] && !s.won_any[e];
-            resolved[e] = if s.has_seg[e] {
-                s.resolved[e]
-            } else {
-                own[e].max(table_edge[e])
-            };
-            // Only perimeter edges paint outside the box; internal boundaries
-            // are covered half-and-half by the two adjacent cells.
-            outsets[e] = if s.has_seg[e] { 0.0 } else { resolved[e] / 2.0 };
-            if suppressed[e] {
-                owners[e] = s.winner[e];
-            } else if !s.has_seg[e] && table_edge[e] > own[e] {
-                // The table's wider border wins the perimeter boundary: the cell
-                // paints its half in the table's edge style.
-                suppressed[e] = true;
-                owners[e] = Some(table_node);
-            }
-        }
-        collapsed_map.insert(
-            node,
-            CollapsedBorders {
-                layout: crate::types::BoxEdges {
-                    top: resolved[0] / 2.0,
-                    right: resolved[1] / 2.0,
-                    bottom: resolved[2] / 2.0,
-                    left: resolved[3] / 2.0,
-                },
-                suppressed,
-                outsets,
-            },
-        );
-        owners_map.insert(node, owners);
-    }
-    (collapsed_map, owners_map)
 }
 
 // Zero-value BoxEdges constant (avoids Default derive noise in call sites).
