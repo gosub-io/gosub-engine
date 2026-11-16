@@ -900,9 +900,12 @@ pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut Layou
             continue;
         };
         // The caption's band is its margin box: lattice keeps the margins inside the wrapper,
-        // resolved against its width.
+        // resolved against its width. A `calc()` margin is not declared, as in `css_length`.
         let margin = &doc.computed_style(caption).margin;
-        let margin_y = |side| gosub_interface::used::length_auto(side, table_width).unwrap_or(0.0);
+        let margin_y = |side| match side {
+            LengthPercentageAuto::Calc { .. } => 0.0,
+            side => gosub_interface::used::length_auto(side, table_width).unwrap_or(0.0),
+        };
         let Some(band) = dom_to_layout
             .get(&caption)
             .and_then(|id| layout_tree.arena.get(id))

@@ -1244,6 +1244,26 @@ mod rendertree_from_engine {
         }
     }
 
+    /// A `calc()` caption margin is laid out as though it were not declared, in sizing and in
+    /// splitting the caption off the table box alike.
+    #[test]
+    fn calc_caption_margins_are_not_split_off() {
+        let html = r#"<html><body><table id="t" style="border-spacing: 0; width: 100px">
+              <caption style="height: 20px; margin-block: calc(5px + 5%)"></caption>
+              <tr><td id="a" style="height: 10px; padding: 0"></td></tr>
+            </table></body></html>"#;
+        let (layers, ids) = crate::tests::overflow_clip::lay_out(html, ["t", "a"]);
+        let [table, cell] = ids.map(|id| {
+            layers
+                .layout_tree
+                .get_node_by_id(id)
+                .expect("laid out")
+                .box_model
+                .border_box
+        });
+        assert_eq!((table.y, table.height), (cell.y, 10.0), "the table box is the grid");
+    }
+
     /// Percentage insets on table parts: horizontally against the table's width; vertically only
     /// a caption has a definite height to resolve against, the table's specified one. A row's or
     /// a cell's vertical percentage behaves as `auto` (matches Chromium).
