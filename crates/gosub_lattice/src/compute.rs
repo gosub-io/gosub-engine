@@ -678,7 +678,11 @@ fn place_cell<T: TableTree>(
     // vertical-align: shift the cell's children down within the free space
     // between its content and its (row-driven) height.
     let inner_h = (cell_height - border.vertical() - padding.vertical()).max(0.0);
-    let content_h = content_heights.get(&cell.node).copied().unwrap_or(0.0);
+    let inner_w = (cell_width - border.horizontal() - padding.horizontal()).max(0.0);
+    let content_h = tree
+        .layout_cell_at_height(cell.node, inner_w, inner_h)
+        .or_else(|| content_heights.get(&cell.node).copied())
+        .unwrap_or(0.0);
     let free = (inner_h - content_h).max(0.0);
     let content_offset_y = match tree.vertical_align(cell.node) {
         crate::types::VerticalAlign::Top => 0.0,

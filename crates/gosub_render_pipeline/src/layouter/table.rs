@@ -577,7 +577,7 @@ impl TableTree for PipelineTableTree<'_> {
             .unwrap_or(0.0);
         if let Some(content_h) =
             self.layouter
-                .relayout_cell(self.layout_tree, layout_id, (available_width + extras) as f32)
+                .relayout_cell(self.layout_tree, layout_id, (available_width + extras) as f32, None)
         {
             self.relaid.insert(id);
             return f64::from(content_h);
@@ -589,6 +589,41 @@ impl TableTree for PipelineTableTree<'_> {
             .get(&layout_id)
             .map(|el| el.box_model.content_box.height)
             .unwrap_or(0.0)
+    }
+
+    /// Only a cell whose height counts as specified, with a child whose height is a percentage,
+    /// is laid out again (css-tables-3 §3.10.6): its own `height` is a length, or its table's is
+    /// a length or a percentage.
+    fn layout_cell_at_height(&mut self, id: DomNodeId, inner_width: f64, inner_height: f64) -> Option<f64> {
+        if !self.relaid.contains(&id) {
+            return None;
+        }
+        let percent = |value: LengthPercentageAuto| matches!(value, LengthPercentageAuto::Percent(_));
+        let has_percent_child = self.doc.children(id).into_iter().any(|child| {
+            let style = self.doc.computed_style(child);
+            percent(style.size.height) || percent(style.size.min_height) || percent(style.size.max_height)
+        });
+        if !has_percent_child {
+            return None;
+        }
+        let specified = matches!(self.css_length(id, CssProp::Height), CssLength::Px(_)) || {
+            let mut cur = self.doc.parent(id);
+            while let Some(node) = cur.filter(|&node| self.table_role(node) != TableRole::Table) {
+                cur = self.doc.parent(node);
+            }
+            cur.is_some_and(|table| !matches!(self.css_length(table, CssProp::Height), CssLength::Auto))
+        };
+        if !specified {
+            return None;
+        }
+
+        let &layout_id = self.dom_to_layout.get(&id)?;
+        let bm = &self.layout_tree.arena.get(&layout_id)?.box_model;
+        let width = inner_width + bm.border.left + bm.border.right + bm.padding.left + bm.padding.right;
+        let height = inner_height + bm.border.top + bm.border.bottom + bm.padding.top + bm.padding.bottom;
+        self.layouter
+            .relayout_cell(self.layout_tree, layout_id, width as f32, Some(height as f32))
+            .map(f64::from)
     }
 
     /// Resolves `vertical-align` for a cell by walking up to the table: the

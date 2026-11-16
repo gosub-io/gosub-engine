@@ -1,5 +1,5 @@
-//! Cell sizing: min-content under an explicit width, a cell's `height` as a minimum, and a
-//! table's `overflow` and its captions.
+//! Cell sizing: min-content under an explicit width, a cell's `height` as a minimum, percentage
+//! heights under a cell (css-tables-3 §3.10.6), and a table's `overflow` and its captions.
 
 use super::overflow_clip::lay_out;
 use crate::common::geo::Rect;
@@ -13,6 +13,15 @@ fn border_box(layers: &LayerList, id: LayoutElementId) -> Rect {
         .expect("laid out")
         .box_model
         .border_box
+}
+
+fn content_box(layers: &LayerList, id: LayoutElementId) -> Rect {
+    layers
+        .layout_tree
+        .get_node_by_id(id)
+        .expect("laid out")
+        .box_model
+        .content_box
 }
 
 /// A box with an explicit width is as wide as that in the cell's min-content, whatever it holds,
@@ -73,4 +82,49 @@ fn a_cell_height_is_a_minimum() {
     assert_eq!(border_box(&layers, hidden).height, 300.0);
     assert_eq!(border_box(&layers, capped).height, 300.0);
     assert_eq!(border_box(&layers, short).height, 40.0);
+}
+
+/// With a table height, a percentage height under a cell resolves against the cell's final
+/// height, and the cell's own length height is what the percentage resolves against when the
+/// row is sized.
+#[test]
+fn percentage_heights_resolve_against_the_cell() {
+    let (layers, [cell, child, scroller_cell, scroller]) = lay_out(
+        r#"<html><body>
+          <div style="display: table; width: 150px; height: 100px">
+            <div id="cell" style="display: table-cell; padding: 5px 0 10px">
+              <div id="child" style="height: 100%"></div>
+            </div>
+          </div>
+          <div id="scroller-cell" style="display: table-cell; width: 100px; height: 100px">
+            <div id="scroller" style="overflow: auto; height: 100%"><div style="height: 200px"></div></div>
+          </div>
+        </body></html>"#,
+        ["cell", "child", "scroller-cell", "scroller"],
+    );
+    let cell_content = content_box(&layers, cell);
+    assert_eq!(border_box(&layers, cell).height, 100.0);
+    assert_eq!(border_box(&layers, child).height, cell_content.height);
+    assert_eq!(border_box(&layers, child).y, cell_content.y);
+
+    assert_eq!(border_box(&layers, scroller_cell).height, 100.0);
+    assert_eq!(border_box(&layers, scroller).height, 100.0);
+}
+
+/// A percentage table height counts as specified even where it behaves as auto (§3.10.6), so a
+/// percentage child resolves against the cell's height from the first pass.
+#[test]
+fn a_percentage_table_height_makes_the_cell_height_specified() {
+    let (layers, [cell, child]) = lay_out(
+        r#"<html><body>
+          <div style="display: table; height: 100%; width: 100px">
+            <div id="cell" style="display: table-cell">
+              <div id="child" style="height: 50%"><div style="height: 100px"></div></div>
+            </div>
+          </div>
+        </body></html>"#,
+        ["cell", "child"],
+    );
+    assert_eq!(border_box(&layers, cell).height, 100.0);
+    assert_eq!(border_box(&layers, child).height, 50.0);
 }

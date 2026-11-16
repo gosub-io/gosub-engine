@@ -1318,13 +1318,16 @@ impl TaffyLayouter {
     /// content-box height at that width, or `None` when the cell is unknown or
     /// the compute fails.
     ///
-    /// A length `height` of the cell's own is what percentage heights of its children resolve
-    /// against; the height returned is then what the children take up, not the content box.
+    /// With a `border_box_height` the cell is laid out at that height, so percentage heights
+    /// of its children resolve against it. Without one, a length `height` of the cell's own is
+    /// what they resolve against. Either way the height returned is then what the children take
+    /// up, not the content box.
     pub(super) fn relayout_cell(
         &mut self,
         layout_tree: &mut LayoutTree,
         cell_layout_id: LayoutElementId,
         border_box_width: f32,
+        border_box_height: Option<f32>,
     ) -> Option<f32> {
         let &taffy_id = self.layout_taffy_mapping.get(&cell_layout_id)?;
         let old_origin = layout_tree
@@ -1333,16 +1336,23 @@ impl TaffyLayouter {
 
         let size = Size {
             width: AvailableSpace::Definite(border_box_width),
-            height: AvailableSpace::MaxContent,
+            height: border_box_height.map_or(AvailableSpace::MaxContent, AvailableSpace::Definite),
         };
         // A cell's `height` is a minimum that lattice applies to the row (CSS 2 §17.5.3), and its
         // `max-height` is undefined (§10.7), so neither caps what is measured here. For this
         // compute only: the first pass keeps them, and the table's first height with them.
         let style = self.tree.style(taffy_id).ok()?.clone();
         let mut measured = style.clone();
-        if style.size.height.into_option().is_none() {
-            measured.size.height = Dimension::auto();
-        }
+        measured.size.height = match border_box_height {
+            Some(height) if style.box_sizing == BoxSizing::ContentBox => {
+                let bm = &layout_tree.get_node_by_id(cell_layout_id)?.box_model;
+                let edges = bm.border.top + bm.border.bottom + bm.padding.top + bm.padding.bottom;
+                Dimension::length((f64::from(height) - edges).max(0.0) as f32)
+            }
+            Some(height) => Dimension::length(height),
+            None if style.size.height.into_option().is_some() => style.size.height,
+            None => Dimension::auto(),
+        };
         let fixed_height = !measured.size.height.is_auto();
         measured.max_size.height = LengthPercentageAuto::auto();
         self.tree.set_style(taffy_id, measured).ok()?;
