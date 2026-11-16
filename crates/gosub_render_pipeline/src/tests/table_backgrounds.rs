@@ -98,3 +98,34 @@ fn a_row_spanning_cell_takes_its_first_rows_background() {
         "the gradient is laid out over the row"
     );
 }
+
+/// Cells of a fractional width paint on the device pixel grid, so they meet on one pixel and end
+/// where the table does, with none of its background showing between them (GOS-180, WPT
+/// subpixel-table-cell-width-001).
+#[test]
+fn fractional_cells_paint_on_whole_pixels() {
+    let (layers, [table, a, b]) = lay_out(
+        r#"<html><body>
+          <div id="t" style="display: table; height: 20px; background: red">
+            <div id="a" style="display: table-cell; width: 3.6px; background: blue"></div>
+            <div id="b" style="display: table-cell; width: 3.6px; background: lime"></div>
+          </div>
+        </body></html>"#,
+        ["t", "a", "b"],
+    );
+    let step = border_box(&layers, b).x - border_box(&layers, a).x;
+    assert!((step - 3.6).abs() < 1e-4, "layout keeps the fraction: {step}");
+    let painter = Painter::new(Arc::clone(&layers), None);
+    let painted = |id| {
+        backgrounds(&painter.paint_element(id, &state()))
+            .last()
+            .expect("a background")
+            .1
+    };
+    let (t, a, b) = (painted(table), painted(a), painted(b));
+    for r in [t, a, b] {
+        assert_eq!((r.x.fract(), r.width.fract()), (0.0, 0.0), "{r:?}");
+    }
+    assert_eq!(a.x + a.width, b.x, "the cells meet");
+    assert_eq!(b.x + b.width, t.x + t.width, "and end with the table");
+}
