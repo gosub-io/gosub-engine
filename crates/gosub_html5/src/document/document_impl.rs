@@ -240,31 +240,24 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn set_attribute(&mut self, id: NodeId, name: &str, value: &str) {
-        let is_element = if let Some(node) = self.arena.node_ref_mut(id) {
+        if let Some(node) = self.arena.node_ref_mut(id) {
             if let NodeDataTypeInternal::Element(ref mut e) = node.data {
                 e.add_attribute(name, value);
-                true
-            } else {
-                false
             }
-        } else {
-            false
-        };
-
-        if is_element && name == "id" && is_valid_id_attribute_value(value) {
-            if let Entry::Vacant(e) = self.named_id_elements.entry(value.to_string()) {
-                e.insert(id);
-                self.named_ids_by_node.entry(id).or_default().push(value.to_string());
-            }
+        }
+        if name == "id" {
+            self.on_document_node_mutation_by_id(id);
         }
     }
 
     fn remove_attribute(&mut self, id: NodeId, name: &str) {
-        let Some(node) = self.arena.node_ref_mut(id) else {
-            return;
-        };
-        if let NodeDataTypeInternal::Element(ref mut e) = node.data {
-            e.remove_attribute(name);
+        if let Some(node) = self.arena.node_ref_mut(id) {
+            if let NodeDataTypeInternal::Element(ref mut e) = node.data {
+                e.remove_attribute(name);
+            }
+        }
+        if name == "id" {
+            self.on_document_node_mutation_by_id(id);
         }
     }
 
@@ -1328,5 +1321,25 @@ mod tests {
 
         assert_eq!(doc.node_by_named_id("parent"), Some(parent));
         assert_eq!(doc.node_by_named_id("child"), None);
+    }
+
+    #[test]
+    fn set_and_remove_attribute_keep_the_named_ids_current() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let div = element_with_id(&mut doc, "div", root, Some("old"));
+
+        doc.set_attribute(div, "id", "new");
+        assert_eq!(doc.node_by_named_id("old"), None, "a renamed id stops resolving");
+        assert_eq!(doc.node_by_named_id("new"), Some(div));
+
+        doc.remove_attribute(div, "id");
+        assert_eq!(doc.node_by_named_id("new"), None, "a removed id stops resolving");
+
+        // A child change does not bring a stale id back, and the name is free again.
+        element_with_id(&mut doc, "span", div, None);
+        assert_eq!(doc.node_by_named_id("new"), None);
+        let other = element_with_id(&mut doc, "div", root, Some("old"));
+        assert_eq!(doc.node_by_named_id("old"), Some(other));
     }
 }
