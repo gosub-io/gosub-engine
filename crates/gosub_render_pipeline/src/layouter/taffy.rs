@@ -1389,6 +1389,7 @@ impl TaffyLayouter {
             return Some(el.box_model.content_box.height as f32);
         }
         // From taffy: an anonymous line box, a blank line from a `<br>` say, has no layout element.
+        // An absolutely positioned child takes up no room.
         let cell = self.tree.layout(taffy_id).ok()?;
         let top = cell.border.top + cell.padding.top;
         let bottom = self
@@ -1396,6 +1397,11 @@ impl TaffyLayouter {
             .children(taffy_id)
             .unwrap_or_default()
             .into_iter()
+            .filter(|&child| {
+                self.tree
+                    .style(child)
+                    .is_ok_and(|style| style.position != taffy::Position::Absolute)
+            })
             .filter_map(|child| self.tree.layout(child).ok())
             .map(|child| child.location.y + child.size.height + child.margin.bottom)
             .fold(top, f32::max);

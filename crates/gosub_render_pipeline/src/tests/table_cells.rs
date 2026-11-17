@@ -189,6 +189,25 @@ fn a_blank_line_counts_when_a_cell_is_aligned() {
     assert_eq!(text_y(one) - text_y(two), 10.0);
 }
 
+/// An absolutely positioned child takes up no room in the cell when it is aligned.
+#[test]
+fn an_absolutely_positioned_child_does_not_count_when_a_cell_is_aligned() {
+    let (layers, [cell]) = lay_out(
+        r#"<html><body>
+          <table style="height: 100px; line-height: 10px; border-spacing: 0"><tr>
+            <td id="cell" style="position: relative; vertical-align: bottom; padding: 0"><div style="height: 0%"></div>x<div style="position: absolute; top: 0; height: 300px"></div></td>
+          </tr></table>
+        </body></html>"#,
+        ["cell"],
+    );
+    let el = layers.layout_tree.get_node_by_id(cell).expect("laid out");
+    let text = border_box(&layers, el.children[1]);
+    assert_eq!(
+        text.y + 10.0,
+        el.box_model.border_box.y + el.box_model.border_box.height
+    );
+}
+
 /// A percentage table height counts as specified even where it behaves as auto (§3.10.6), so a
 /// percentage child resolves against the cell's height from the first pass.
 #[test]
