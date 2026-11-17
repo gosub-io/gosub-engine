@@ -3389,6 +3389,7 @@ dependencies = [
  "cow-utils",
  "dashmap 7.0.0-rc2",
  "encoding_rs",
+ "flate2",
  "futures",
  "futures-util",
  "gosub-sonar",
