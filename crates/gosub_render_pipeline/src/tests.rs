@@ -1210,6 +1210,37 @@ mod rendertree_from_engine {
         );
     }
 
+    /// A caption's percentage insets resolve against the table wrapper, as wide as the table's
+    /// border box (CSS 2 §17.4); a cell's against the grid.
+    #[test]
+    fn caption_percentages_resolve_against_the_wrapper() {
+        let page = |insets: &str| {
+            format!(
+                r#"<html><body style="margin: 0"><table style="border: 10px solid black; padding: 5px;
+                  border-spacing: 0; width: 100px; box-sizing: border-box">
+                  <caption id="cap" style="height: 10px; {insets}"></caption>
+                  <tr><td id="a" style="height: 10px; padding: 0; {insets}"></td></tr>
+                </table></body></html>"#
+            )
+        };
+        let xs = |html: &str| {
+            let (layers, ids) = crate::tests::overflow_clip::lay_out(html, ["cap", "a"]);
+            ids.map(|id| {
+                layers
+                    .layout_tree
+                    .get_node_by_id(id)
+                    .expect("laid out")
+                    .box_model
+                    .border_box
+                    .x
+            })
+        };
+        let [cap, cell] = xs(&page(""));
+        let [cap_moved, cell_moved] = xs(&page("position: relative; left: 50%"));
+        assert_eq!(cap_moved - cap, 50.0, "50% of the 100px wrapper");
+        assert_eq!(cell_moved - cell, 35.0, "50% of the 70px grid");
+    }
+
     /// The table's own box excludes the caption's whole margin box, not just its border box:
     /// the margins sit in the wrapper, between the caption and the grid (CSS 2 §17.4).
     #[test]
