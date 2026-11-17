@@ -1384,18 +1384,22 @@ impl TaffyLayouter {
             let _ = self.tree.set_style(node, style);
         }
 
-        let el = layout_tree.get_node_by_id(cell_layout_id)?;
         if matches!(height, CellHeight::Measure { .. }) {
+            let el = layout_tree.get_node_by_id(cell_layout_id)?;
             return Some(el.box_model.content_box.height as f32);
         }
-        let top = el.box_model.content_box.y;
-        let bottom = el
-            .children
-            .iter()
-            .filter_map(|id| layout_tree.get_node_by_id(*id))
-            .map(|child| child.box_model.margin_box.y + child.box_model.margin_box.height)
-            .fold(top, f64::max);
-        Some((bottom - top) as f32)
+        // From taffy: an anonymous line box, a blank line from a `<br>` say, has no layout element.
+        let cell = self.tree.layout(taffy_id).ok()?;
+        let top = cell.border.top + cell.padding.top;
+        let bottom = self
+            .tree
+            .children(taffy_id)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|child| self.tree.layout(child).ok())
+            .map(|child| child.location.y + child.size.height + child.margin.bottom)
+            .fold(top, f32::max);
+        Some(bottom - top)
     }
 
     /// The boxes under a cell whose percentage height resolves against it: its block children,

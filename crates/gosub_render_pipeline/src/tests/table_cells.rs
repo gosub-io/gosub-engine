@@ -169,6 +169,26 @@ fn a_percentage_height_on_a_line_resolves_against_the_row() {
     assert_eq!(border_box(&layers, item).height, 100.0);
 }
 
+/// A blank line from a `<br>` takes up room in the cell when it is aligned.
+#[test]
+fn a_blank_line_counts_when_a_cell_is_aligned() {
+    let (layers, [one, two]) = lay_out(
+        r#"<html><body>
+          <table style="height: 100px; line-height: 10px"><tr>
+            <td id="one" style="vertical-align: bottom; padding: 0"><div style="height: 0%"></div>x</td>
+            <td id="two" style="vertical-align: bottom; padding: 0"><div style="height: 0%"></div>x<br><br></td>
+          </tr></table>
+        </body></html>"#,
+        ["one", "two"],
+    );
+    let text_y = |cell| {
+        let cell = layers.layout_tree.get_node_by_id(cell).expect("laid out");
+        let text = cell.children[1];
+        border_box(&layers, text).y
+    };
+    assert_eq!(text_y(one) - text_y(two), 10.0);
+}
+
 /// A percentage table height counts as specified even where it behaves as auto (§3.10.6), so a
 /// percentage child resolves against the cell's height from the first pass.
 #[test]
