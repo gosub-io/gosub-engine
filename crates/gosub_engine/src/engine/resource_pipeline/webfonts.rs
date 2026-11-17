@@ -722,7 +722,7 @@ fn woff2_to_sfnt(bytes: &[u8]) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("reconstruct: {e:?}"))?
         .into_tables();
 
-    Ok(assemble_sfnt(sfnt_version, tables))
+    assemble_sfnt(sfnt_version, tables)
 }
 
 /// Unpack a WOFF1 font to a flat SFNT. Per WOFF 1.0 §5 a table is zlib-compressed when
@@ -779,14 +779,24 @@ fn woff_to_sfnt(bytes: &[u8]) -> Result<Vec<u8>, String> {
         };
         tables.insert(tag, table.into_boxed_slice());
     }
-    Ok(assemble_sfnt(flavor, tables))
+    assemble_sfnt(flavor, tables)
 }
 
 /// Pack a set of font tables into an SFNT byte buffer per the OpenType spec: a 12-byte offset
 /// table, a 16-byte directory entry per table (sorted by tag), then each table's data padded to
 /// a 4-byte boundary. Per-table checksums are computed; the `head` table's `checkSumAdjustment`
 /// is left as-is (font backends parse without validating it).
-fn assemble_sfnt(sfnt_version: u32, tables: std::collections::HashMap<u32, Box<[u8]>>) -> Vec<u8> {
+///
+/// `searchRange` is a `u16` holding 16 x the largest power of two <= the table count, so a font
+/// of 4096 tables or more cannot be written; no real font comes near that.
+fn assemble_sfnt(sfnt_version: u32, tables: std::collections::HashMap<u32, Box<[u8]>>) -> Result<Vec<u8>, String> {
+    const MAX_TABLES: usize = 4095;
+    if tables.len() > MAX_TABLES {
+        return Err(format!(
+            "{} tables, over the {MAX_TABLES} an SFNT can hold",
+            tables.len()
+        ));
+    }
     let mut entries: Vec<(u32, Box<[u8]>)> = tables.into_iter().collect();
     entries.sort_by_key(|(tag, _)| *tag);
     let num_tables = entries.len() as u16;
@@ -822,7 +832,7 @@ fn assemble_sfnt(sfnt_version: u32, tables: std::collections::HashMap<u32, Box<[
     out.extend_from_slice(&range_shift.to_be_bytes());
     out.extend_from_slice(&directory);
     out.extend_from_slice(&data);
-    out
+    Ok(out)
 }
 
 /// SFNT table checksum: the sum of the table's contents read as big-endian `u32`s, with the
@@ -1037,6 +1047,24 @@ mod tests {
         assert!(decode_web_font(bomb, &url).is_none());
         let err = woff_to_sfnt(&woff_font(64, 4)).unwrap_err();
         assert!(err.contains("longer compressed"), "{err}");
+    }
+
+    /// A font of 4096 tables passes every size check but cannot be written as an SFNT: its
+    /// `searchRange` does not fit a `u16`. It is dropped rather than overflowing the header.
+    #[test]
+    fn woff_with_too_many_tables_is_rejected() {
+        let tags: Vec<[u8; 4]> = (0..4096u32).map(u32::to_be_bytes).collect();
+        let tables: Vec<_> = tags.iter().map(|tag| (tag, vec![0; 4], 4)).collect();
+        let font = woff(4096 * 4, &tables);
+        assert!(check_woff_size(&font, MAX_WEB_FONT_SIZE).is_ok());
+
+        let err = woff_to_sfnt(&font).unwrap_err();
+        assert!(err.contains("4096 tables"), "{err}");
+        let url = url::Url::parse("https://example.test/font.woff").unwrap();
+        assert!(decode_web_font(font, &url).is_none());
+
+        let tables = &tables[..4095];
+        assert!(woff_to_sfnt(&woff(4095 * 4, tables)).is_ok());
     }
 
     /// The SFNT rebuilt from a WOFF2 font is held to the cap too, since rebuilding can grow it
