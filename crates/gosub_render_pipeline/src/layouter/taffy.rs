@@ -1318,16 +1318,15 @@ impl TaffyLayouter {
     /// content-box height at that width, or `None` when the cell is unknown or
     /// the compute fails.
     ///
-    /// With a `border_box_height` the cell is laid out at that height, so percentage heights
-    /// of its children resolve against it. Without one, a length `height` of the cell's own is
-    /// what they resolve against. Either way the height returned is then what the children take
-    /// up, not the content box.
+    /// Measured, the cell's height is auto and so are the percentage heights under it, and the
+    /// height returned is its content box. At a final height, percentage heights under it resolve
+    /// against that, and the height returned is what its children take up.
     pub(super) fn relayout_cell(
         &mut self,
         layout_tree: &mut LayoutTree,
         cell_layout_id: LayoutElementId,
         border_box_width: f32,
-        border_box_height: Option<f32>,
+        height: CellHeight,
     ) -> Option<f32> {
         let &taffy_id = self.layout_taffy_mapping.get(&cell_layout_id)?;
         let old_origin = layout_tree
@@ -1336,29 +1335,34 @@ impl TaffyLayouter {
 
         let size = Size {
             width: AvailableSpace::Definite(border_box_width),
-            height: border_box_height.map_or(AvailableSpace::MaxContent, AvailableSpace::Definite),
+            height: match height {
+                CellHeight::Measure { .. } => AvailableSpace::MaxContent,
+                CellHeight::Final(height) => AvailableSpace::Definite(height),
+            },
         };
         // A cell's `height` is a minimum that lattice applies to the row (CSS 2 §17.5.3), and its
         // `max-height` is undefined (§10.7), so neither caps what is measured here. For this
         // compute only: the first pass keeps them, and the table's first height with them.
         let style = self.tree.style(taffy_id).ok()?.clone();
         let mut measured = style.clone();
-        measured.size.height = match border_box_height {
-            Some(height) if style.box_sizing == BoxSizing::ContentBox => {
+        measured.size.height = match height {
+            CellHeight::Final(height) if style.box_sizing == BoxSizing::ContentBox => {
                 let bm = &layout_tree.get_node_by_id(cell_layout_id)?.box_model;
                 let edges = bm.border.top + bm.border.bottom + bm.padding.top + bm.padding.bottom;
                 Dimension::length((f64::from(height) - edges).max(0.0) as f32)
             }
-            Some(height) => Dimension::length(height),
-            None if style.size.height.into_option().is_some() => style.size.height,
-            None => Dimension::auto(),
+            CellHeight::Final(height) => Dimension::length(height),
+            CellHeight::Measure { .. } => Dimension::auto(),
         };
-        let fixed_height = !measured.size.height.is_auto();
         measured.max_size.height = LengthPercentageAuto::auto();
         self.tree.set_style(taffy_id, measured).ok()?;
+        let mut saved = self.set_percent_heights_under(layout_tree, cell_layout_id, taffy_id, height);
+        saved.push((taffy_id, style));
         if let Err(e) = self.compute_taffy(taffy_id, size) {
             log::warn!("lattice: cell re-layout failed for {:?}: {:?}", cell_layout_id, e);
-            let _ = self.tree.set_style(taffy_id, style);
+            for (node, style) in saved {
+                let _ = self.tree.set_style(node, style);
+            }
             return None;
         }
         // The cell's lines wrap at its new width, so their rows - and the baselines shared
@@ -1376,10 +1380,12 @@ impl TaffyLayouter {
         let offset = Coordinate::new(old_origin.x - root_location.x, old_origin.y - root_location.y);
         self.populate_boxmodel(layout_tree, cell_layout_id, offset, border_box_width as f64);
 
-        let _ = self.tree.set_style(taffy_id, style);
+        for (node, style) in saved {
+            let _ = self.tree.set_style(node, style);
+        }
 
         let el = layout_tree.get_node_by_id(cell_layout_id)?;
-        if !fixed_height {
+        if matches!(height, CellHeight::Measure { .. }) {
             return Some(el.box_model.content_box.height as f32);
         }
         let top = el.box_model.content_box.y;
@@ -1390,6 +1396,99 @@ impl TaffyLayouter {
             .map(|child| child.box_model.margin_box.y + child.box_model.margin_box.height)
             .fold(top, f64::max);
         Some((bottom - top) as f32)
+    }
+
+    /// The boxes under a cell whose percentage height resolves against it: its block children,
+    /// and the items on its lines. Each with the fraction it was recorded with, for a line item.
+    fn percent_heights_under(
+        &self,
+        layout_tree: &LayoutTree,
+        cell_layout_id: LayoutElementId,
+        cell: TaffyNodeId,
+    ) -> Vec<(LayoutElementId, TaffyNodeId, Option<f32>)> {
+        let mut found = Vec::new();
+        let mut stack = layout_tree
+            .get_node_by_id(cell_layout_id)
+            .map(|el| el.children.clone())
+            .unwrap_or_default();
+        while let Some(id) = stack.pop() {
+            let Some(el) = layout_tree.get_node_by_id(id) else {
+                continue;
+            };
+            stack.extend(el.children.iter().copied());
+            let Some(&node) = self.layout_taffy_mapping.get(&id) else {
+                continue;
+            };
+            if let Some(&(line, fraction)) = self.percent_line_items.get(&node) {
+                if self.block_around(line) == Some(cell) {
+                    found.push((id, node, Some(fraction)));
+                }
+                continue;
+            }
+            let percent = self
+                .tree
+                .style(node)
+                .is_ok_and(|style| matches!(style.size.height.expand(), taffy::ExpandedDimension::Percent(_)));
+            if percent && self.tree.parent(node) == Some(cell) {
+                found.push((id, node, None));
+            }
+        }
+        found
+    }
+
+    /// Whether anything under the cell has a percentage height that resolves against it.
+    pub(super) fn has_percent_heights_under(&self, layout_tree: &LayoutTree, cell_layout_id: LayoutElementId) -> bool {
+        self.layout_taffy_mapping
+            .get(&cell_layout_id)
+            .is_some_and(|&cell| !self.percent_heights_under(layout_tree, cell_layout_id, cell).is_empty())
+    }
+
+    /// Set the percentage heights under a cell for one `relayout_cell` compute, and return the
+    /// styles to put back. Measured, they count as auto - as 0 for a scroller under a cell whose
+    /// height they will resolve against later (css-tables-3 §3.10.6). At the final height a line
+    /// item's is set from the cell's, which taffy cannot do through the line box.
+    fn set_percent_heights_under(
+        &mut self,
+        layout_tree: &LayoutTree,
+        cell_layout_id: LayoutElementId,
+        cell: TaffyNodeId,
+        height: CellHeight,
+    ) -> Vec<(TaffyNodeId, Style)> {
+        let doc = &layout_tree.render_tree.doc;
+        let basis = match height {
+            CellHeight::Final(_) => self.definite_content_height(cell, None, 0),
+            CellHeight::Measure { .. } => None,
+        };
+        let mut saved = Vec::new();
+        for (id, node, fraction) in self.percent_heights_under(layout_tree, cell_layout_id, cell) {
+            let Ok(style) = self.tree.style(node).cloned() else {
+                continue;
+            };
+            let set = match (height, fraction, basis) {
+                (CellHeight::Measure { specified }, _, _) => {
+                    let scroller = layout_tree.get_node_by_id(id).is_some_and(|el| {
+                        let style = doc.computed_style(el.dom_node_id);
+                        [style.box_group.overflow_x, style.box_group.overflow_y]
+                            .into_iter()
+                            .any(|o| matches!(o, CssOverflow::Auto | CssOverflow::Scroll))
+                    });
+                    if specified && scroller && !style.item_is_replaced {
+                        Dimension::length(0.0)
+                    } else {
+                        Dimension::auto()
+                    }
+                }
+                (CellHeight::Final(_), Some(fraction), Some(basis)) => Dimension::length(fraction * basis),
+                // A block child's resolves against the cell's height in taffy.
+                (CellHeight::Final(_), _, _) => continue,
+            };
+            let mut changed = style.clone();
+            changed.size.height = set;
+            if self.tree.set_style(node, changed).is_ok() {
+                saved.push((node, style));
+            }
+        }
+        saved
     }
 
     fn populate_boxmodel(
@@ -4267,6 +4366,16 @@ fn percent_height_resolves_in_line(layout_tree: &LayoutTree, id: LayoutElementId
 /// The content-box height of a box whose used `height` is `height`: clamped by any
 /// `min-height`/`max-height` lengths, less padding and border under `border-box`. `None` when an
 /// edge is not a length.
+/// What `relayout_cell` lays a table cell out at.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum CellHeight {
+    /// Its content height, for the row. `specified`: the percentage heights under it will
+    /// resolve against its final height.
+    Measure { specified: bool },
+    /// This border-box height.
+    Final(f32),
+}
+
 fn content_box_height(style: &Style, mut height: f32) -> Option<f32> {
     if let Some(max) = lpa_length(style.max_size.height) {
         height = height.min(max);

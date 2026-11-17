@@ -132,6 +132,43 @@ fn percentage_heights_resolve_against_the_cell() {
     assert_eq!(border_box(&layers, scroller).height, 100.0);
 }
 
+/// Measured for the row, a percentage height under a cell counts as auto, and as 0 for a
+/// scroller; the second pass resolves it against the row's height.
+#[test]
+fn percentage_heights_count_as_auto_for_the_row() {
+    let (layers, [visible, visible_child, scroller, scroller_child]) = lay_out(
+        r#"<html><body>
+          <table><tr><td id="visible" style="height: 20px; overflow: hidden; padding: 0">
+            <div id="visible-child" style="height: 100%"><div style="height: 300px"></div></div>
+          </td></tr></table>
+          <table><tr><td id="scroller" style="height: 20px; padding: 0">
+            <div id="scroller-child" style="height: 100%; overflow: auto"><div style="height: 300px"></div></div>
+          </td></tr></table>
+        </body></html>"#,
+        ["visible", "visible-child", "scroller", "scroller-child"],
+    );
+    assert_eq!(border_box(&layers, visible).height, 300.0);
+    assert_eq!(border_box(&layers, visible_child).height, 300.0);
+    assert_eq!(border_box(&layers, scroller).height, 20.0);
+    assert_eq!(border_box(&layers, scroller_child).height, 20.0);
+}
+
+/// A percentage height on a line resolves against the cell's final height, not its `height`.
+#[test]
+fn a_percentage_height_on_a_line_resolves_against_the_row() {
+    let (layers, [cell, item]) = lay_out(
+        r#"<html><body>
+          <table style="border-spacing: 0"><tr>
+            <td id="cell" style="height: 20px; padding: 0"><span id="item" style="display: inline-block; width: 10px; height: 100%"></span></td>
+            <td style="padding: 0"><div style="height: 100px"></div></td>
+          </tr></table>
+        </body></html>"#,
+        ["cell", "item"],
+    );
+    assert_eq!(border_box(&layers, cell).height, 100.0);
+    assert_eq!(border_box(&layers, item).height, 100.0);
+}
+
 /// A percentage table height counts as specified even where it behaves as auto (§3.10.6), so a
 /// percentage child resolves against the cell's height from the first pass.
 #[test]
