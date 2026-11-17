@@ -634,37 +634,35 @@ fn collect_rule(
                 continue;
             }
 
-            // Convert the nodes into CSS Values. A component value that does not convert makes
-            // the declaration invalid (css-syntax-3 §9), so it is dropped whole: keeping the
-            // tokens that did convert would leave `margin: 1px <unconvertible>` behind as
-            // `margin: 1px`, which is not what the author wrote.
-            let mut css_values = Vec::with_capacity(value.len());
-            let mut converted = true;
-            for node in value {
-                match CssValue::parse_ast_node(node) {
-                    Ok(value) => css_values.push(value),
-                    Err(err) => {
-                        log::debug!("Declaration dropped, {property}: {err}");
-                        converted = false;
-                        break;
-                    }
-                }
-            }
-
             // Only a custom property can arrive with no value at all (`--x:;`, which the parser
             // lets through), and for one that is a value: it substitutes to nothing.
-            if !converted || (css_values.is_empty() && !property.starts_with("--")) {
+            if value.is_empty() && !property.starts_with("--") {
                 drop_here(dropped, CssDroppedKind::InvalidValue, property, at);
                 continue;
             }
 
-            let value = match css_values.pop() {
-                Some(value) if css_values.is_empty() => value,
-                Some(value) => {
-                    css_values.push(value);
-                    CssValue::List(css_values)
+            // Convert the nodes into CSS Values. A component value that does not convert makes
+            // the declaration invalid (css-syntax-3 §9), so it is dropped whole: keeping the
+            // tokens that did convert would leave `margin: 1px <unconvertible>` behind as
+            // `margin: 1px`, which is not what the author wrote. A single component value, the
+            // common case, is converted on its own rather than through a list of one.
+            let converted = match <[CssNode; 1]>::try_from(value) {
+                Ok([node]) => CssValue::parse_ast_node(node),
+                Err(nodes) => {
+                    let mut values = Vec::with_capacity(nodes.len());
+                    nodes
+                        .into_iter()
+                        .try_for_each(|node| CssValue::parse_ast_node(node).map(|value| values.push(value)))
+                        .map(|()| CssValue::List(values))
                 }
-                None => CssValue::List(css_values),
+            };
+            let value = match converted {
+                Ok(value) => value,
+                Err(err) => {
+                    log::debug!("Declaration dropped, {property}: {err}");
+                    drop_here(dropped, CssDroppedKind::InvalidValue, property, at);
+                    continue;
+                }
             };
 
             // The four prefixed `display` keywords the Compatibility Standard requires are
@@ -840,137 +838,142 @@ fn collect_rules(
     layer: Option<u32>,
 ) {
     for node in nodes {
-        let line = line_of(&node.location);
-        match node.node_type {
-            NodeType::Rule { prelude, block } => {
-                if let Some(rule) = collect_rule(sheet.pool, sheet.dropped, line, prelude, block, media, layer) {
-                    sheet.rules.push(rule);
-                }
+        collect_node(sheet, node, media, layer);
+    }
+}
+
+/// One node of [`collect_rules`]; called directly for a top-level node, which comes alone.
+fn collect_node(sheet: &mut SheetParts<'_>, node: CssNode, media: &mut Vec<Arc<MediaQueryList>>, layer: Option<u32>) {
+    let line = line_of(&node.location);
+    match node.node_type {
+        NodeType::Rule { prelude, block } => {
+            if let Some(rule) = collect_rule(sheet.pool, sheet.dropped, line, prelude, block, media, layer) {
+                sheet.rules.push(rule);
             }
-            NodeType::AtRule {
-                name,
-                prelude,
-                block: Some(block),
-            } if name.eq_ignore_ascii_case("media") => {
-                if let NodeType::Block { children } = block.node_type {
-                    // A missing or unparseable prelude yields an empty (always-matching) list,
-                    // so the block's sheet.rules stay visible rather than disappearing.
-                    let list = prelude.map(|node| MediaQueryList::from_ast(&node)).unwrap_or_default();
-                    media.push(Arc::new(list));
-                    collect_rules(sheet, children, media, layer);
-                    media.pop();
-                }
-            }
-            NodeType::AtRule {
-                name,
-                prelude: Some(prelude),
-                block: None,
-            } if name.eq_ignore_ascii_case("import") => {
-                // Per spec `@import` may only appear before any style rule; a later one is
-                // invalid and ignored. Enforcing that keeps `splice_import`'s "imported sheet.rules
-                // go in front" contract honest.
-                if sheet.rules.is_empty() {
-                    if let Some(import) = collect_import(&prelude) {
-                        sheet.imports.push(import);
-                    }
-                } else {
-                    warn!("Ignoring @import that follows a style rule");
-                    drop_here(sheet.dropped, CssDroppedKind::UnsupportedAtRule, "@import", line);
-                }
-            }
-            NodeType::AtRule {
-                name,
-                prelude,
-                block: Some(block),
-            } if name.eq_ignore_ascii_case("supports") => {
-                // A supports condition asks about the engine, never the device, so it can be
-                // settled here: a false block contributes no sheet.rules at all, and a true one
-                // flattens away exactly like `@layer`.
-                let holds = match prelude.as_deref() {
-                    Some(CssNode {
-                        node_type: NodeType::Raw { value },
-                        ..
-                    }) => SupportsCondition::parse(value).matches(),
-                    // No prelude at all is not a valid `@supports`; drop the block.
-                    _ => false,
-                };
-                if holds {
-                    if let NodeType::Block { children } = block.node_type {
-                        collect_rules(sheet, children, media, layer);
-                    }
-                }
-            }
-            // `@layer name { ... }`, or an anonymous `@layer { ... }`. The block's sheet.rules are
-            // flattened into the sheet like any other conditional group, but they carry the
-            // layer with them: which layer a rule sits in decides the cascade before specificity
-            // is ever looked at (css-cascade-5 §6.4.1).
-            NodeType::AtRule {
-                name,
-                prelude,
-                block: Some(block),
-            } if name.eq_ignore_ascii_case("layer") => {
-                // A nested `@layer b` inside `@layer a` is the layer `a.b`.
-                let outer = layer.and_then(|index| sheet.layers.get(index as usize)).cloned();
-                let declared = prelude.as_deref().map_or_else(Vec::new, layer_names);
-                // At most one name may be given when there is a block; an anonymous layer is
-                // its own layer every time, and cannot be reopened, so it gets a name no
-                // author-written `@layer` can collide with.
-                let name = match declared.first() {
-                    Some(name) => qualify_layer(outer.as_deref(), name),
-                    None => format!("%anonymous-{}", sheet.layers.len()),
-                };
-                let inner = register_layer(sheet.layers, &name);
-                if let NodeType::Block { children } = block.node_type {
-                    collect_rules(sheet, children, media, Some(inner));
-                }
-            }
-            // `@layer a, b;` sets the order of sheet.layers before either is filled in. It carries no
-            // sheet.rules; naming them here is its whole purpose.
-            NodeType::AtRule {
-                name,
-                prelude,
-                block: None,
-            } if name.eq_ignore_ascii_case("layer") => {
-                let outer = layer.and_then(|index| sheet.layers.get(index as usize)).cloned();
-                for declared in prelude.as_deref().map_or_else(Vec::new, layer_names) {
-                    register_layer(sheet.layers, &qualify_layer(outer.as_deref(), &declared));
-                }
-            }
-            NodeType::AtRule {
-                name,
-                block: Some(block),
-                ..
-            } if name.eq_ignore_ascii_case("font-face") => {
-                if let NodeType::Block { children } = block.node_type {
-                    if let Some(face) = collect_font_face(children, media) {
-                        sheet.font_faces.push(face);
-                    }
-                }
-            }
-            NodeType::AtRule {
-                name,
-                prelude,
-                block: Some(block),
-            } if name.eq_ignore_ascii_case("property") => {
-                match collect_property(prelude.map(|node| *node), *block, media) {
-                    Some(rule) => sheet.property_rules.push(rule),
-                    None => drop_here(sheet.dropped, CssDroppedKind::InvalidValue, "@property", line),
-                }
-            }
-            // `@charset` only ever named the encoding, which is settled before CSS is parsed.
-            NodeType::AtRule { name, .. } if name.eq_ignore_ascii_case("charset") => {}
-            // An at-rule this engine does not implement (`@keyframes`, `@page`, `@container`),
-            // or a known one in a shape it cannot use (`@media` with no block).
-            NodeType::AtRule { name, .. } => {
-                drop_here(
-                    sheet.dropped,
-                    CssDroppedKind::UnsupportedAtRule,
-                    format!("@{name}"),
-                    line,
-                );
-            }
-            _ => {}
         }
+        NodeType::AtRule {
+            name,
+            prelude,
+            block: Some(block),
+        } if name.eq_ignore_ascii_case("media") => {
+            if let NodeType::Block { children } = block.node_type {
+                // A missing or unparseable prelude yields an empty (always-matching) list,
+                // so the block's sheet.rules stay visible rather than disappearing.
+                let list = prelude.map(|node| MediaQueryList::from_ast(&node)).unwrap_or_default();
+                media.push(Arc::new(list));
+                collect_rules(sheet, children, media, layer);
+                media.pop();
+            }
+        }
+        NodeType::AtRule {
+            name,
+            prelude: Some(prelude),
+            block: None,
+        } if name.eq_ignore_ascii_case("import") => {
+            // Per spec `@import` may only appear before any style rule; a later one is
+            // invalid and ignored. Enforcing that keeps `splice_import`'s "imported sheet.rules
+            // go in front" contract honest.
+            if sheet.rules.is_empty() {
+                if let Some(import) = collect_import(&prelude) {
+                    sheet.imports.push(import);
+                }
+            } else {
+                warn!("Ignoring @import that follows a style rule");
+                drop_here(sheet.dropped, CssDroppedKind::UnsupportedAtRule, "@import", line);
+            }
+        }
+        NodeType::AtRule {
+            name,
+            prelude,
+            block: Some(block),
+        } if name.eq_ignore_ascii_case("supports") => {
+            // A supports condition asks about the engine, never the device, so it can be
+            // settled here: a false block contributes no sheet.rules at all, and a true one
+            // flattens away exactly like `@layer`.
+            let holds = match prelude.as_deref() {
+                Some(CssNode {
+                    node_type: NodeType::Raw { value },
+                    ..
+                }) => SupportsCondition::parse(value).matches(),
+                // No prelude at all is not a valid `@supports`; drop the block.
+                _ => false,
+            };
+            if holds {
+                if let NodeType::Block { children } = block.node_type {
+                    collect_rules(sheet, children, media, layer);
+                }
+            }
+        }
+        // `@layer name { ... }`, or an anonymous `@layer { ... }`. The block's sheet.rules are
+        // flattened into the sheet like any other conditional group, but they carry the
+        // layer with them: which layer a rule sits in decides the cascade before specificity
+        // is ever looked at (css-cascade-5 §6.4.1).
+        NodeType::AtRule {
+            name,
+            prelude,
+            block: Some(block),
+        } if name.eq_ignore_ascii_case("layer") => {
+            // A nested `@layer b` inside `@layer a` is the layer `a.b`.
+            let outer = layer.and_then(|index| sheet.layers.get(index as usize)).cloned();
+            let declared = prelude.as_deref().map_or_else(Vec::new, layer_names);
+            // At most one name may be given when there is a block; an anonymous layer is
+            // its own layer every time, and cannot be reopened, so it gets a name no
+            // author-written `@layer` can collide with.
+            let name = match declared.first() {
+                Some(name) => qualify_layer(outer.as_deref(), name),
+                None => format!("%anonymous-{}", sheet.layers.len()),
+            };
+            let inner = register_layer(sheet.layers, &name);
+            if let NodeType::Block { children } = block.node_type {
+                collect_rules(sheet, children, media, Some(inner));
+            }
+        }
+        // `@layer a, b;` sets the order of sheet.layers before either is filled in. It carries no
+        // sheet.rules; naming them here is its whole purpose.
+        NodeType::AtRule {
+            name,
+            prelude,
+            block: None,
+        } if name.eq_ignore_ascii_case("layer") => {
+            let outer = layer.and_then(|index| sheet.layers.get(index as usize)).cloned();
+            for declared in prelude.as_deref().map_or_else(Vec::new, layer_names) {
+                register_layer(sheet.layers, &qualify_layer(outer.as_deref(), &declared));
+            }
+        }
+        NodeType::AtRule {
+            name,
+            block: Some(block),
+            ..
+        } if name.eq_ignore_ascii_case("font-face") => {
+            if let NodeType::Block { children } = block.node_type {
+                if let Some(face) = collect_font_face(children, media) {
+                    sheet.font_faces.push(face);
+                }
+            }
+        }
+        NodeType::AtRule {
+            name,
+            prelude,
+            block: Some(block),
+        } if name.eq_ignore_ascii_case("property") => {
+            match collect_property(prelude.map(|node| *node), *block, media) {
+                Some(rule) => sheet.property_rules.push(rule),
+                None => drop_here(sheet.dropped, CssDroppedKind::InvalidValue, "@property", line),
+            }
+        }
+        // `@charset` only ever named the encoding, which is settled before CSS is parsed.
+        NodeType::AtRule { name, .. } if name.eq_ignore_ascii_case("charset") => {}
+        // An at-rule this engine does not implement (`@keyframes`, `@page`, `@container`),
+        // or a known one in a shape it cannot use (`@media` with no block).
+        NodeType::AtRule { name, .. } => {
+            drop_here(
+                sheet.dropped,
+                CssDroppedKind::UnsupportedAtRule,
+                format!("@{name}"),
+                line,
+            );
+        }
+        _ => {}
     }
 }
 
@@ -1258,7 +1261,7 @@ pub(crate) fn convert_node_into(
         property_rules: &mut sheet.property_rules,
         layers,
     };
-    collect_rules(&mut parts, vec![node], &mut Vec::new(), None);
+    collect_node(&mut parts, node, &mut Vec::new(), None);
 }
 
 /// Whether any declaration in the sheet uses a viewport-relative unit; see
@@ -1492,6 +1495,37 @@ mod tests {
             .map(|declaration| declaration.property.as_str())
             .collect();
         assert_eq!(properties, vec!["color", "display"]);
+    }
+
+    /// One component value is the value itself, several are a list, and an empty value is kept
+    /// only for a custom property. Units are folded to lowercase.
+    #[test]
+    fn declaration_values_take_the_shape_of_what_was_written() {
+        use crate::stylesheet::CssValue;
+        let stylesheet = Css3::parse_str(
+            "a { width: 1PX; margin: 1px 2EM; --x:; color: ; }",
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        let values: Vec<(&str, &CssValue)> = stylesheet.rules[0]
+            .declarations()
+            .iter()
+            .map(|declaration| (declaration.property.as_str(), &*declaration.value))
+            .collect();
+        assert_eq!(
+            values,
+            vec![
+                ("width", &CssValue::Unit(1.0, "px".into())),
+                (
+                    "margin",
+                    &CssValue::List(vec![CssValue::Unit(1.0, "px".into()), CssValue::Unit(2.0, "em".into())])
+                ),
+                ("--x", &CssValue::List(vec![])),
+            ]
+        );
     }
 
     #[test]

@@ -1669,8 +1669,9 @@ impl CssValue {
             // every point that reads one. Both the syntax matcher (which looks a unit up in a
             // lowercase table) and `unit_to_px` (which matches it literally) took the author's
             // spelling as written, so `width: 1PX` was rejected as an unknown unit.
-            crate::node::NodeType::Dimension { value, unit } => {
-                Ok(CssValue::Unit(value, unit.cow_to_ascii_lowercase().into_owned()))
+            crate::node::NodeType::Dimension { value, mut unit } => {
+                unit.make_ascii_lowercase();
+                Ok(CssValue::Unit(value, unit))
             }
             crate::node::NodeType::String { value } => Ok(CssValue::String(value)),
             crate::node::NodeType::Hash { mut value } => {
@@ -1698,7 +1699,7 @@ impl CssValue {
                 Ok(CssValue::Function("url".to_string(), vec![CssValue::String(url)]))
             }
             crate::node::NodeType::Function { name, arguments } => {
-                let mut list = vec![];
+                let mut list = Vec::with_capacity(arguments.len());
                 for node in arguments {
                     list.push(CssValue::parse_ast_node(node)?);
                 }

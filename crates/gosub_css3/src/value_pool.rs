@@ -17,7 +17,8 @@
 //! Pooling on that would silently replace one with the other, and the survivor is what gets
 //! serialised back to the page.
 
-use std::collections::HashMap;
+use std::borrow::Borrow;
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -37,6 +38,44 @@ impl Eq for ExactValue {}
 impl Hash for ExactValue {
     fn hash<H: Hasher>(&self, state: &mut H) {
         hash_value(&self.0, state);
+    }
+}
+
+/// What the pool is looked up by, so a value already pooled is found without first being put
+/// in an `Arc` of its own.
+trait PoolKey {
+    fn value(&self) -> &CssValue;
+}
+
+impl PoolKey for CssValue {
+    fn value(&self) -> &CssValue {
+        self
+    }
+}
+
+impl PoolKey for ExactValue {
+    fn value(&self) -> &CssValue {
+        &self.0
+    }
+}
+
+impl<'a> Borrow<dyn PoolKey + 'a> for ExactValue {
+    fn borrow(&self) -> &(dyn PoolKey + 'a) {
+        self
+    }
+}
+
+impl PartialEq for dyn PoolKey + '_ {
+    fn eq(&self, other: &Self) -> bool {
+        exactly_equal(self.value(), other.value())
+    }
+}
+
+impl Eq for dyn PoolKey + '_ {}
+
+impl Hash for dyn PoolKey + '_ {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        hash_value(self.value(), state);
     }
 }
 
@@ -96,16 +135,19 @@ fn hash_value<H: Hasher>(value: &CssValue, state: &mut H) {
 /// The distinct values seen while parsing one stylesheet.
 #[derive(Default)]
 pub(crate) struct ValuePool {
-    values: HashMap<ExactValue, Arc<CssValue>>,
+    values: HashSet<ExactValue>,
 }
 
 impl ValuePool {
     /// The shared form of `value`: the one already pooled if this value has been seen, otherwise
     /// this one, pooled.
     pub(crate) fn intern(&mut self, value: CssValue) -> Arc<CssValue> {
+        if let Some(pooled) = self.values.get(&value as &dyn PoolKey) {
+            return Arc::clone(&pooled.0);
+        }
         let value = Arc::new(value);
-        let key = ExactValue(Arc::clone(&value));
-        Arc::clone(self.values.entry(key).or_insert(value))
+        self.values.insert(ExactValue(Arc::clone(&value)));
+        value
     }
 
     /// How many distinct values the pool holds, for tests and diagnostics.
