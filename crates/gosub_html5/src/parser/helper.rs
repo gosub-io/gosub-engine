@@ -361,18 +361,6 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                 Some((idx, node_id)) => (idx, node_id),
             };
 
-            let format_tag = self
-                .document
-                .tag_name(format_elem_node_id)
-                .unwrap_or_default()
-                .to_owned();
-            let format_ns = self.document.namespace(format_elem_node_id).map(|s| s.to_owned());
-            let format_attrs = self
-                .document
-                .attributes(format_elem_node_id)
-                .cloned()
-                .unwrap_or_default();
-
             let format_ele_stack_position = match self.open_elements.iter().rposition(|&x| x == format_elem_node_id) {
                 // step 4.4
                 None => {
@@ -384,7 +372,8 @@ impl<C: HasDocument> Html5Parser<'_, C> {
             };
 
             // step 4.5
-            if !self.is_in_scope(&format_tag, HTML_NAMESPACE, Scope::Regular) {
+            // find_format_element_index matched on the tag name, so it is `subject`
+            if !self.is_in_scope(subject, HTML_NAMESPACE, Scope::Regular) {
                 self.parse_error("format_element_node not in regular scope");
                 return;
             }
@@ -480,8 +469,14 @@ impl<C: HasDocument> Html5Parser<'_, C> {
             self.insert_element_helper(last_node_id, insert_position);
 
             // step 4.15 - create new format node as shallow copy of format_elem
+            let format_ns = self.document.namespace(format_elem_node_id).map(|s| s.to_owned());
+            let format_attrs = self
+                .document
+                .attributes(format_elem_node_id)
+                .cloned()
+                .unwrap_or_default();
             let new_node_id = self.document.create_element(
-                &format_tag,
+                subject,
                 format_ns.as_deref(),
                 format_attrs,
                 gosub_shared::byte_stream::Location::default(),

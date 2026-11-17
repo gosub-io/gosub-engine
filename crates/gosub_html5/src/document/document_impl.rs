@@ -240,31 +240,24 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn set_attribute(&mut self, id: NodeId, name: &str, value: &str) {
-        let is_element = if let Some(node) = self.arena.node_ref_mut(id) {
+        if let Some(node) = self.arena.node_ref_mut(id) {
             if let NodeDataTypeInternal::Element(ref mut e) = node.data {
                 e.add_attribute(name, value);
-                true
-            } else {
-                false
             }
-        } else {
-            false
-        };
-
-        if is_element && name == "id" && is_valid_id_attribute_value(value) {
-            if let Entry::Vacant(e) = self.named_id_elements.entry(value.to_string()) {
-                e.insert(id);
-                self.named_ids_by_node.entry(id).or_default().push(value.to_string());
-            }
+        }
+        if name == "id" {
+            self.on_document_node_mutation_by_id(id);
         }
     }
 
     fn remove_attribute(&mut self, id: NodeId, name: &str) {
-        let Some(node) = self.arena.node_ref_mut(id) else {
-            return;
-        };
-        if let NodeDataTypeInternal::Element(ref mut e) = node.data {
-            e.remove_attribute(name);
+        if let Some(node) = self.arena.node_ref_mut(id) {
+            if let NodeDataTypeInternal::Element(ref mut e) = node.data {
+                e.remove_attribute(name);
+            }
+        }
+        if name == "id" {
+            self.on_document_node_mutation_by_id(id);
         }
     }
 
@@ -817,7 +810,6 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                     parent_node.push(node_id);
                 }
             }
-            self.on_document_node_mutation_by_id(parent_id);
         }
         let Some(node) = self.arena.node_ref_mut(node_id) else {
             log::warn!("attach_node: node {node_id} not found in arena");
@@ -869,7 +861,6 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         if let Some(parent_id) = parent {
             if let Some(parent_node) = self.arena.node_ref_mut(parent_id) {
                 parent_node.remove(node_id);
-                self.on_document_node_mutation_by_id(parent_id);
             }
 
             if let Some(node) = self.arena.node_ref_mut(node_id) {
@@ -937,7 +928,6 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         if let Some(parent_id) = parent {
             if let Some(parent_node) = self.arena.node_ref_mut(parent_id) {
                 parent_node.remove(node_id);
-                self.on_document_node_mutation_by_id(parent_id);
             }
         }
         // Without this the node stays resolvable by `getElementById` after it is gone.
@@ -1316,5 +1306,40 @@ mod tests {
         // The id is free again for a replacement node.
         let replacement = element_with_id(&mut doc, "div", root, Some("gone"));
         assert_eq!(doc.node_by_named_id("gone"), Some(replacement));
+    }
+
+    #[test]
+    fn child_changes_leave_the_parent_id_alone() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let parent = element_with_id(&mut doc, "div", root, Some("parent"));
+
+        let a = element_with_id(&mut doc, "span", parent, None);
+        let b = element_with_id(&mut doc, "span", parent, Some("child"));
+        doc.detach_node(a);
+        doc.delete_node_by_id(b);
+
+        assert_eq!(doc.node_by_named_id("parent"), Some(parent));
+        assert_eq!(doc.node_by_named_id("child"), None);
+    }
+
+    #[test]
+    fn set_and_remove_attribute_keep_the_named_ids_current() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let div = element_with_id(&mut doc, "div", root, Some("old"));
+
+        doc.set_attribute(div, "id", "new");
+        assert_eq!(doc.node_by_named_id("old"), None, "a renamed id stops resolving");
+        assert_eq!(doc.node_by_named_id("new"), Some(div));
+
+        doc.remove_attribute(div, "id");
+        assert_eq!(doc.node_by_named_id("new"), None, "a removed id stops resolving");
+
+        // A child change does not bring a stale id back, and the name is free again.
+        element_with_id(&mut doc, "span", div, None);
+        assert_eq!(doc.node_by_named_id("new"), None);
+        let other = element_with_id(&mut doc, "div", root, Some("old"));
+        assert_eq!(doc.node_by_named_id("old"), Some(other));
     }
 }

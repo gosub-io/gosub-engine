@@ -3963,10 +3963,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
         for idx in (0..self.open_elements.len()).rev() {
             let node_id = self.open_elements[idx];
-            let tag = self.document.tag_name(node_id).unwrap_or_default().to_owned();
-
-            if tag == tag_name {
-                self.generate_implied_end_tags(Some(&tag), false);
+            if self.document.tag_name(node_id).unwrap_or_default() == tag_name {
+                self.generate_implied_end_tags(Some(tag_name), false);
 
                 // It might be possible that the last item is not our node_id. Emit parse error if so
                 if current_node_id!(self) != node_id {
