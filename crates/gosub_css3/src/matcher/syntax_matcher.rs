@@ -268,7 +268,7 @@ fn match_component<'a>(
     let mut csv_max = 0;
     let mut matched_values = vec![];
     for multiplier in component.get_multipliers() {
-        if let SyntaxComponentMultiplier::CommaSeparatedRepeat(min, max) = multiplier {
+        if let SyntaxComponentMultiplier::CommaSeparatedRepeat(min, max) = *multiplier {
             comma_separated = true;
             csv_min = min;
             csv_max = max;
@@ -1377,22 +1377,15 @@ enum Fulfillment {
 /// Returns fulfillment enum given the cnt and the actual multiplier of the component
 fn multiplier_fulfilled(component: &SyntaxComponent, cnt: usize) -> Fulfillment {
     // Filter out the multipliers that are not relevant for this check
-    let binding = component.get_multipliers();
-    let filtered_multipliers: Vec<_> = binding
-        .iter()
-        .filter(|m| {
-            !matches!(
-                m,
-                SyntaxComponentMultiplier::AtLeastOneValue | SyntaxComponentMultiplier::CommaSeparatedRepeat(_, _)
-            )
-        })
-        .collect();
+    let primary = component.get_multipliers().iter().find(|m| {
+        !matches!(
+            m,
+            SyntaxComponentMultiplier::AtLeastOneValue | SyntaxComponentMultiplier::CommaSeparatedRepeat(_, _)
+        )
+    });
 
     // Make sure that whenever we do not find a (primary) multiplier, we use the default "Once".
-    match filtered_multipliers
-        .first()
-        .unwrap_or(&&SyntaxComponentMultiplier::Once)
-    {
+    match primary.unwrap_or(&SyntaxComponentMultiplier::Once) {
         SyntaxComponentMultiplier::Once => match cnt {
             0 => Fulfillment::NotYetFulfilled,
             1 => Fulfillment::Fulfilled,
