@@ -159,7 +159,10 @@ fn match_component_inner<'a>(
     mut shorthand_resolver: Option<ShorthandResolver>,
 ) -> MatchResult<'a> {
     let mut input = raw_input;
-    let mut repetitions: Vec<Vec<CssValue>> = vec![];
+    // Every repetition's values, one after another, and whether each repetition matched exactly
+    // one value - what `collapse_repetitions` needs to know.
+    let mut matched_values: Vec<CssValue> = vec![];
+    let mut one_value_each = true;
 
     // Loop through the input values and try to match them against the component. It's possible
     // that we need to loop multiple times in case we have a multiplier that allows this. ie: 'foo*' or 'foo{1,3}'
@@ -196,7 +199,14 @@ fn match_component_inner<'a>(
             // Every repetition's values are kept. This used to return the last repetition's
             // result alone once the multiplier was satisfied, so `margin: 1px 2px 3px 4px`
             // reported `4px` as what it matched.
-            repetitions.push(res.matched_values);
+            let mut values = res.matched_values;
+            one_value_each &= values.len() == 1;
+            if matched_values.is_empty() {
+                // Most components match once: keep the first repetition's Vec rather than copy it.
+                matched_values = values;
+            } else {
+                matched_values.append(&mut values);
+            }
 
             // Check if we fulfilled the multiplier for this component
             let mff = multiplier_fulfilled(component, multiplier_count);
@@ -216,7 +226,7 @@ fn match_component_inner<'a>(
                         return MatchResult {
                             remainder,
                             matched: true,
-                            matched_values: collapse_repetitions(component, repetitions),
+                            matched_values: collapse_repetitions(component, matched_values, one_value_each),
                         };
                     }
                 }
@@ -225,7 +235,7 @@ fn match_component_inner<'a>(
                     return MatchResult {
                         remainder,
                         matched: true,
-                        matched_values: collapse_repetitions(component, repetitions),
+                        matched_values: collapse_repetitions(component, matched_values, one_value_each),
                     };
                 }
                 Fulfillment::NotFulfilled => {
@@ -244,7 +254,7 @@ fn match_component_inner<'a>(
                 Fulfillment::FulfilledButMoreAllowed => MatchResult {
                     remainder: input,
                     matched: true,
-                    matched_values: collapse_repetitions(component, repetitions),
+                    matched_values: collapse_repetitions(component, matched_values, one_value_each),
                 },
                 Fulfillment::NotFulfilled => no_match(raw_input),
             };
@@ -1544,18 +1554,18 @@ fn matched_as(input: &[CssValue], value: CssValue) -> MatchResult<'_> {
 /// The matched values of a component that repeats `{1,2}` or `{1,4}`, in the shortest form
 /// that means the same (CSSOM "serialize a CSS value" for the box shorthands): `1px 1px` is
 /// `1px`, `1px 2px 1px 2px` is `1px 2px`, `1px 2px 3px 2px` is `1px 2px 3px`. Only when every
-/// repetition matched exactly one value; anything else is returned as it was.
-fn collapse_repetitions(component: &SyntaxComponent, reps: Vec<Vec<CssValue>>) -> Vec<CssValue> {
+/// repetition matched exactly one value (`one_value_each`, so `values` holds one per
+/// repetition); anything else is returned as it was.
+fn collapse_repetitions(component: &SyntaxComponent, mut values: Vec<CssValue>, one_value_each: bool) -> Vec<CssValue> {
     let box_like = component.get_multipliers().iter().any(|m| {
         matches!(
             m,
             SyntaxComponentMultiplier::Between(1, 2) | SyntaxComponentMultiplier::Between(1, 4)
         )
     });
-    if !box_like || reps.is_empty() || reps.iter().any(|r| r.len() != 1) {
-        return reps.into_iter().flatten().collect();
+    if !box_like || !one_value_each {
+        return values;
     }
-    let mut values: Vec<CssValue> = reps.into_iter().map(|mut r| r.remove(0)).collect();
     if values.len() == 4 && values[3] == values[1] {
         values.pop();
     }
@@ -1610,6 +1620,9 @@ mod tests {
         );
         assert_eq!(canonical("margin", "1px 1px"), "1px");
         assert_eq!(canonical("margin", "1px 2px 1px 2px"), "1px 2px");
+        assert_eq!(canonical("margin", "1px 2px 3px 2px"), "1px 2px 3px");
+        assert_eq!(canonical("margin", "1px 2px 3px 4px"), "1px 2px 3px 4px");
+        assert_eq!(canonical("padding", "0px 0px 0px 0px"), "0px");
         // Comma lists keep their commas.
         assert_eq!(canonical("animation-delay", "20s, 10s"), "20s, 10s");
     }
