@@ -817,7 +817,6 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                     parent_node.push(node_id);
                 }
             }
-            self.on_document_node_mutation_by_id(parent_id);
         }
         let Some(node) = self.arena.node_ref_mut(node_id) else {
             log::warn!("attach_node: node {node_id} not found in arena");
@@ -869,7 +868,6 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         if let Some(parent_id) = parent {
             if let Some(parent_node) = self.arena.node_ref_mut(parent_id) {
                 parent_node.remove(node_id);
-                self.on_document_node_mutation_by_id(parent_id);
             }
 
             if let Some(node) = self.arena.node_ref_mut(node_id) {
@@ -937,7 +935,6 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         if let Some(parent_id) = parent {
             if let Some(parent_node) = self.arena.node_ref_mut(parent_id) {
                 parent_node.remove(node_id);
-                self.on_document_node_mutation_by_id(parent_id);
             }
         }
         // Without this the node stays resolvable by `getElementById` after it is gone.
@@ -1316,5 +1313,20 @@ mod tests {
         // The id is free again for a replacement node.
         let replacement = element_with_id(&mut doc, "div", root, Some("gone"));
         assert_eq!(doc.node_by_named_id("gone"), Some(replacement));
+    }
+
+    #[test]
+    fn child_changes_leave_the_parent_id_alone() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let parent = element_with_id(&mut doc, "div", root, Some("parent"));
+
+        let a = element_with_id(&mut doc, "span", parent, None);
+        let b = element_with_id(&mut doc, "span", parent, Some("child"));
+        doc.detach_node(a);
+        doc.delete_node_by_id(b);
+
+        assert_eq!(doc.node_by_named_id("parent"), Some(parent));
+        assert_eq!(doc.node_by_named_id("child"), None);
     }
 }

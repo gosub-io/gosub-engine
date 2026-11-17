@@ -2273,6 +2273,9 @@ impl<'stream> Tokenizer<'stream> {
                 self.parse_error(ParserError::EndTagWithAttributes, self.get_location());
                 self.stream_next_n(1);
             }
+            Token::StartTag { attributes, .. } if attributes.is_empty() => {
+                *attributes = std::mem::take(&mut self.current_attrs);
+            }
             Token::StartTag { attributes, .. } => {
                 attributes.extend(std::mem::take(&mut self.current_attrs));
             }
