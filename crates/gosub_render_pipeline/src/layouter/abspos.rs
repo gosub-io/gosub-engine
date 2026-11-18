@@ -100,7 +100,14 @@ fn is_auto_size(size: LengthPercentageAuto) -> bool {
 /// Returns the boxes that also need *resizing*, keyed by DOM node - see [`RebasedInsets`]. The
 /// caller feeds these back through another layout pass, until a pass returns the map it was given:
 /// a box nested in a corrected one is only measured right once its ancestor has been.
-pub fn post_process_abspos(layout_tree: &mut LayoutTree, viewport: Dimension) -> HashMap<DomNodeId, RebasedInsets> {
+///
+/// `line_box` gives the padding box of the anonymous line box a box was laid out in, if it was in
+/// one. The layout tree has no node for a line box, but taffy measures from it all the same.
+pub fn post_process_abspos(
+    layout_tree: &mut LayoutTree,
+    viewport: Dimension,
+    line_box: &dyn Fn(&LayoutTree, LayoutElementId) -> Option<Rect>,
+) -> HashMap<DomNodeId, RebasedInsets> {
     let doc: Arc<dyn PipelineDocument> = Arc::clone(&layout_tree.render_tree.doc);
     let mut stretched: HashMap<DomNodeId, RebasedInsets> = HashMap::new();
 
@@ -152,7 +159,7 @@ pub fn post_process_abspos(layout_tree: &mut LayoutTree, viewport: Dimension) ->
         // does that, but against the immediate parent rather than the CSS containing block, so
         // record insets rebased onto the parent for the caller to replay. `parent_reference`
         // returns `None` at the root, where the two coincide and nothing needs rebasing.
-        if let Some(pb) = parent_reference(layout_tree, id) {
+        if let Some(pb) = parent_reference(layout_tree, id, line_box) {
             let mut rebased = RebasedInsets::default();
             if let (Some(l), Some(r)) = (left, right) {
                 // Only worth replaying when the parent is *not* the containing block. When it is -
@@ -196,7 +203,17 @@ fn spans_match(a_start: f64, a_len: f64, b_start: f64, b_len: f64) -> bool {
 }
 
 /// The box taffy measures an absolutely positioned child's insets from: its parent's padding box.
-fn parent_reference(layout_tree: &LayoutTree, id: LayoutElementId) -> Option<Rect> {
+/// For a box written inside a line - `<div>Search <span style="position:absolute">` - that is the
+/// line box, which can be shorter or narrower than the block around it: `height: 100%` came out
+/// as the line's height, and as 0 with no text on the line.
+fn parent_reference(
+    layout_tree: &LayoutTree,
+    id: LayoutElementId,
+    line_box: &dyn Fn(&LayoutTree, LayoutElementId) -> Option<Rect>,
+) -> Option<Rect> {
+    if let Some(line) = line_box(layout_tree, id) {
+        return Some(line);
+    }
     let parent = layout_tree.arena.get(&id)?.parent?;
     Some(layout_tree.arena.get(&parent)?.box_model.padding_box)
 }

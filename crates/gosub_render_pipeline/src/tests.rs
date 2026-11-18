@@ -5626,6 +5626,8 @@ mod rendertree_from_engine {
 }
 
 #[cfg(test)]
+mod abspos_insets;
+#[cfg(test)]
 mod collapsed_borders;
 #[cfg(test)]
 mod list_markers;

@@ -829,9 +829,28 @@ impl TaffyLayouter {
         // Last: an absolutely positioned box is measured from its containing block's *final*
         // position, so every ancestor - tables and floats included - must have settled first.
         let icb = viewport.unwrap_or(layout_tree.root_dimension);
-        let stretched = post_process_abspos(layout_tree, icb);
+        let stretched = post_process_abspos(layout_tree, icb, &|tree, id| self.line_box_of(tree, id));
 
         (placed, stretched)
+    }
+
+    /// The padding box, in page coordinates, of the line box `id` was laid out in: its taffy
+    /// parent, which is the anonymous line container or a glue box inside it. `None` for a box
+    /// that is not in a line. Taken from the box's own position, so it holds after the post-passes
+    /// have moved the box and its ancestors.
+    fn line_box_of(&self, layout_tree: &LayoutTree, id: LayoutElementId) -> Option<geo::Rect> {
+        if !self.anon_container_map.contains_key(&id) {
+            return None;
+        }
+        let node = *self.layout_taffy_mapping.get(&id)?;
+        let item = self.tree.layout(node).ok()?;
+        let line = self.tree.layout(self.tree.parent(node)?).ok()?;
+        let border_box = layout_tree.arena.get(&id)?.box_model.border_box;
+        let x = border_box.x - item.location.x as f64 + (line.border.left + line.padding.left) as f64;
+        let y = border_box.y - item.location.y as f64 + (line.border.top + line.padding.top) as f64;
+        let width = line.size.width - line.border.left - line.border.right - line.padding.left - line.padding.right;
+        let height = line.size.height - line.border.top - line.border.bottom - line.padding.top - line.padding.bottom;
+        Some(geo::Rect::new(x, y, width as f64, height as f64))
     }
 
     /// Run taffy over the subtree at `node`, measuring leaves through the shared font system.
