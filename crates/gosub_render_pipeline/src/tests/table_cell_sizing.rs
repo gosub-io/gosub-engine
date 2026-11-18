@@ -1,0 +1,68 @@
+//! Cell widths and what the boxes inside a cell resolve against (CSS 2 §17.5.2).
+
+use super::overflow_clip::lay_out;
+use crate::common::geo::Rect;
+use crate::layering::layer::LayerList;
+use crate::layouter::LayoutElementId;
+
+fn border_box(layers: &LayerList, id: LayoutElementId) -> Rect {
+    layers
+        .layout_tree
+        .get_node_by_id(id)
+        .expect("laid out")
+        .box_model
+        .border_box
+}
+
+/// GOV.UK's search button: a `width: 1%` cell beside a greedy one. The cell is never narrower
+/// than its content (CSS 2 §17.5.2.2), and the fixed-width child keeps its own 50px.
+#[test]
+fn fixed_width_child_of_a_percentage_cell_keeps_its_width() {
+    let (layers, [table, cell, child]) = lay_out(
+        r#"<html><body style="margin: 0">
+          <div style="width: 630px">
+            <div id="t" style="display: table; width: 100%">
+              <div style="display: table-cell"><input style="width: 100%; height: 50px; border: 0; box-sizing: border-box"></div>
+              <div id="c" style="display: table-cell; width: 1%">
+                <span id="s" style="display: inline-block; width: 50px; height: 50px; background: #d2e2f1"></span>
+              </div>
+            </div>
+          </div>
+        </body></html>"#,
+        ["t", "c", "s"],
+    );
+    let (table, cell, child) = (
+        border_box(&layers, table),
+        border_box(&layers, cell),
+        border_box(&layers, child),
+    );
+    assert_eq!(table.width, 630.0);
+    assert_eq!((child.width, child.height), (50.0, 50.0), "child {child:?}");
+    assert_eq!(cell.width, 50.0, "cell {cell:?}");
+    assert_eq!(cell.x + cell.width, 630.0, "cell {cell:?}");
+    assert_eq!(child.x, cell.x, "child {child:?} cell {cell:?}");
+}
+
+/// The same with GOV.UK's own styles on top: a `<button>` that hides its label with
+/// `overflow: hidden` and a large `text-indent`, in `position: relative` cells.
+#[test]
+fn hidden_label_button_in_a_percentage_cell_keeps_its_width() {
+    let (layers, [cell, button]) = lay_out(
+        r#"<html><body style="margin: 0">
+          <div style="width: 630px">
+            <div style="display: table; width: 100%">
+              <div style="display: table-cell; position: relative"><input style="width: 100%; height: 50px; border: 0; box-sizing: border-box"></div>
+              <div id="c" style="display: table-cell; width: 1%; position: relative">
+                <button id="b" style="width: 50px; height: 50px; border: 0; padding: 0; margin: 0; overflow: hidden; text-indent: -5000px; position: relative">Search</button>
+              </div>
+            </div>
+          </div>
+        </body></html>"#,
+        ["c", "b"],
+    );
+    let (cell, button) = (border_box(&layers, cell), border_box(&layers, button));
+    assert_eq!((button.width, button.height), (50.0, 50.0), "button {button:?}");
+    assert_eq!(cell.width, 50.0, "cell {cell:?}");
+    assert_eq!(cell.x + cell.width, 630.0, "cell {cell:?}");
+    assert_eq!(button.x, cell.x, "button {button:?} cell {cell:?}");
+}

@@ -1334,17 +1334,35 @@ impl TaffyLayouter {
             .get_node_by_id(cell_layout_id)
             .map(|el| Coordinate::new(el.box_model.border_box.x, el.box_model.border_box.y))?;
 
+        // Lattice has settled the cell's width; its own `width` is one of the inputs to that and
+        // has done its job. Left in the style, a percentage would resolve a second time, now
+        // against the cell itself, since the cell is the root here: `width: 1%` on a 50px cell
+        // made a 0.5px box and squeezed the content to nothing.
+        let original = self.tree.style(taffy_id).ok()?.clone();
+        let mut fixed = original.clone();
+        fixed.size.width = Dimension::length(border_box_width);
+        fixed.min_size.width = LengthPercentageAuto::auto();
+        fixed.max_size.width = LengthPercentageAuto::auto();
+        if let Err(e) = self.tree.set_style(taffy_id, fixed) {
+            log::warn!("lattice: cell re-layout failed for {:?}: {:?}", cell_layout_id, e);
+            return None;
+        }
+
         let size = Size {
             width: AvailableSpace::Definite(border_box_width),
             height: AvailableSpace::MaxContent,
         };
-        if let Err(e) = self.compute_taffy(taffy_id, size) {
+        let computed = self.compute_taffy(taffy_id, size);
+        if computed.is_ok() {
+            // The cell's lines wrap at its new width, so their rows - and the baselines shared
+            // along them - are not the ones the full layout aligned.
+            self.align_baselines(layout_tree, taffy_id, size);
+        }
+        let _ = self.tree.set_style(taffy_id, original);
+        if let Err(e) = computed {
             log::warn!("lattice: cell re-layout failed for {:?}: {:?}", cell_layout_id, e);
             return None;
         }
-        // The cell's lines wrap at its new width, so their rows - and the baselines shared
-        // along them - are not the ones the full layout aligned.
-        self.align_baselines(layout_tree, taffy_id, size);
 
         // The cell is the computation root, so its taffy location is meaningless
         // here; cancel it out so the subtree stays anchored at the cell's
