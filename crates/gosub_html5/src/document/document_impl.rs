@@ -759,15 +759,14 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     /// Register `node_id` under its `id` attribute in `registry`, dropping whatever it was
     /// registered under before. No registry, or an absent or invalid value, just unregisters.
     fn register_named_id(&mut self, node_id: NodeId, registry: Option<NodeId>) {
-        let Some(data) = self.arena.node_ref(node_id).and_then(NodeImpl::get_element_data) else {
-            return;
-        };
-        let id_value = data
-            .attributes
-            .get("id")
+        self.unregister_named_id(node_id);
+        let id_value = self
+            .arena
+            .node_ref(node_id)
+            .and_then(NodeImpl::get_element_data)
+            .and_then(|data| data.attributes.get("id"))
             .filter(|v| is_valid_id_attribute_value(v))
             .cloned();
-        self.unregister_named_id(node_id);
         let (Some(registry), Some(id_value)) = (registry, id_value) else {
             return;
         };
@@ -1649,5 +1648,17 @@ mod tests {
         touched.set_attribute(a, "id", "x");
         assert!(plain == touched);
         assert_eq!(touched.node_by_named_id("x"), Some(a));
+    }
+
+    #[test]
+    fn an_element_replaced_by_a_non_element_drops_its_id() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let div = element_with_id(&mut doc, "div", root, Some("x"));
+
+        let mut node = doc.node_by_id(div).expect("div is registered").clone();
+        node.data = NodeDataTypeInternal::Text(crate::node::data::text::TextData::with_value("t"));
+        doc.update_node(node);
+        assert_eq!(doc.node_by_named_id("x"), None);
     }
 }
