@@ -629,11 +629,13 @@ impl TableTree for PipelineTableTree<'_> {
                     + el.box_model.padding.right
             })
             .unwrap_or(0.0);
-        let is_cell = self.table_role(id) == TableRole::Cell;
-        if let Some(content_h) =
-            self.layouter
-                .relayout_cell(self.layout_tree, layout_id, (available_width + extras) as f32, is_cell)
-        {
+        let content_width = (self.table_role(id) == TableRole::Cell).then_some(available_width as f32);
+        if let Some(content_h) = self.layouter.relayout_cell(
+            self.layout_tree,
+            layout_id,
+            (available_width + extras) as f32,
+            content_width,
+        ) {
             self.relaid.insert(id);
             return f64::from(content_h);
         }

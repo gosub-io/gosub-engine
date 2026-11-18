@@ -137,3 +137,43 @@ fn collapsed_cell_child_fills_the_content_box() {
         "child {child:?} content {inner:?}"
     );
 }
+
+/// Pinning the width must leave the height alone: a content-box cell's `height` is still its
+/// content height, so a `height: 100%` child is that tall.
+#[test]
+fn pinned_width_keeps_a_content_box_height() {
+    let (layers, [cell, child]) = lay_out(
+        r#"<html><body style="margin: 0">
+          <table style="width: 200px; border-spacing: 0">
+            <tr><td id="c" style="height: 100px; padding: 10px"><div id="d" style="height: 100%"></div></td></tr>
+          </table>
+        </body></html>"#,
+        ["c", "d"],
+    );
+    let (inner, child) = (content_box(&layers, cell), border_box(&layers, child));
+    assert_eq!(child.height, 100.0, "child {child:?} content {inner:?}");
+}
+
+/// The same for a `border-box` cell: its padding and border stay inside the width lattice gave it.
+#[test]
+fn border_box_cell_child_fills_the_content_box() {
+    let (layers, [cell, child]) = lay_out(
+        r#"<html><body style="margin: 0">
+          <table style="width: 200px; border-spacing: 0">
+            <tr><td id="c" style="box-sizing: border-box; height: 100px; padding: 10px; border: 5px solid black"><div id="d" style="width: 100%; height: 100%"></div></td></tr>
+          </table>
+        </body></html>"#,
+        ["c", "d"],
+    );
+    let (cell, inner, child) = (
+        border_box(&layers, cell),
+        content_box(&layers, cell),
+        border_box(&layers, child),
+    );
+    assert_eq!(cell.width, 200.0, "cell {cell:?}");
+    assert_eq!(
+        (child.x, child.width, child.height),
+        (inner.x, inner.width, 70.0),
+        "child {child:?} content {inner:?}"
+    );
+}

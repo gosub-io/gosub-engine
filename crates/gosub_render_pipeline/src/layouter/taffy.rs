@@ -1324,13 +1324,14 @@ impl TaffyLayouter {
     /// content-box height at that width, or `None` when the cell is unknown or
     /// the compute fails.
     ///
-    /// Captions come through here too; `is_cell` is false for them and keeps their own `width`.
+    /// `content_width` is the content width lattice gave a cell. Captions come through here too
+    /// and pass `None`, which keeps their own `width`.
     pub(super) fn relayout_cell(
         &mut self,
         layout_tree: &mut LayoutTree,
         cell_layout_id: LayoutElementId,
         border_box_width: f32,
-        is_cell: bool,
+        content_width: Option<f32>,
     ) -> Option<f32> {
         let &taffy_id = self.layout_taffy_mapping.get(&cell_layout_id)?;
         let old_origin = layout_tree
@@ -1344,11 +1345,15 @@ impl TaffyLayouter {
         // lattice settles, and its percentage resolves correctly against the table width it is
         // handed here, so it stays.
         let original = self.tree.style(taffy_id).ok()?.clone();
-        if is_cell {
+        if let Some(content_width) = content_width {
             let mut fixed = original.clone();
-            // The width lattice hands over is a border box, whatever the cell's own box-sizing.
-            fixed.box_sizing = BoxSizing::BorderBox;
-            fixed.size.width = Dimension::length(border_box_width);
+            // In the cell's own box-sizing: switching it would also change what its `height`
+            // measures.
+            let width = match original.box_sizing {
+                BoxSizing::ContentBox => content_width,
+                BoxSizing::BorderBox => border_box_width,
+            };
+            fixed.size.width = Dimension::length(width);
             fixed.min_size.width = LengthPercentageAuto::auto();
             fixed.max_size.width = LengthPercentageAuto::auto();
             if let Err(e) = self.tree.set_style(taffy_id, fixed) {
@@ -1367,7 +1372,7 @@ impl TaffyLayouter {
             // along them - are not the ones the full layout aligned.
             self.align_baselines(layout_tree, taffy_id, size);
         }
-        if is_cell {
+        if content_width.is_some() {
             let _ = self.tree.set_style(taffy_id, original);
         }
         if let Err(e) = computed {
