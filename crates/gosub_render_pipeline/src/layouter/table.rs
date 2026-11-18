@@ -162,26 +162,39 @@ impl<'a> PipelineTableTree<'a> {
     }
 
     /// Convert pending relative positions to absolute `BoxModel`s in the arena.
-    /// Must be called after `compute_table_layout` returns.
-    pub fn apply_positions(&mut self, table_dom_id: DomNodeId, border_corrected: &mut HashSet<DomNodeId>) {
+    /// Must be called after `compute_table_layout` returns, with the `table_width` it returned:
+    /// the arena still holds the table's previous size.
+    pub fn apply_positions(
+        &mut self,
+        table_dom_id: DomNodeId,
+        table_width: f64,
+        border_corrected: &mut HashSet<DomNodeId>,
+    ) {
         // Under border-collapse the grid (incl. the perimeter border halves) starts at
         // the table's BORDER box origin - the table's own border joined the conflict
         // inside lattice and no longer insets the content. The box model read here is
         // still the taffy first-pass one, whose border/padding would inset wrongly.
         let collapse = borders_collapse(self.doc, table_dom_id);
-        let table_abs = self
+        let table_bm = self
             .dom_to_layout
             .get(&table_dom_id)
             .and_then(|id| self.layout_tree.arena.get(id))
-            .map(|e| {
-                let b = if collapse {
-                    e.box_model.border_box
-                } else {
-                    e.box_model.content_box
-                };
+            .map(|e| e.box_model);
+        let table_abs = table_bm
+            .map(|bm| {
+                let b = if collapse { bm.border_box } else { bm.content_box };
                 Coordinate::new(b.x, b.y)
             })
             .unwrap_or(Coordinate::ZERO);
+        // A caption sits in the table wrapper, as wide as the table's border box; the grid's
+        // parts in the grid. Under collapse lattice's width already is the border box.
+        let own_edges_x = table_bm.filter(|_| !collapse).map_or(0.0, |bm| {
+            bm.border.left + bm.border.right + bm.padding.left + bm.padding.right
+        });
+        let inset_basis = InsetBasis {
+            grid_width: table_width,
+            caption_width: table_width + own_edges_x,
+        };
 
         let pending = std::mem::take(&mut self.pending);
         apply_recursive(
@@ -189,6 +202,7 @@ impl<'a> PipelineTableTree<'a> {
             table_dom_id,
             table_abs,
             Coordinate::ZERO,
+            inset_basis,
             &pending,
             &self.collapsed_paint,
             &self.collapsed_slots,
@@ -226,6 +240,40 @@ impl<'a> PipelineTableTree<'a> {
     }
 }
 
+/// How far `position: relative` moves a table part from where the table put it: captions, cells,
+/// rows and row groups move, a row taking the cells that start in it along (css-position-3
+/// §3.4). `left` wins over `right` and `top` over `bottom`.
+///
+/// Percentages resolve against the containing block (CSS 2 §9.3.2): horizontally the grid's
+/// width, or for a caption the table wrapper's (CSS 2 §17.4). Vertically they behave as `auto`:
+/// neither the grid's height nor the wrapper's is definite for the parts inside.
+fn relative_shift(doc: &dyn PipelineDocument, id: DomNodeId, basis: InsetBasis) -> Coordinate {
+    let style = doc.computed_style(id);
+    if !style.has(Prop::Position) || style.box_group.position != Position::Relative {
+        return Coordinate::ZERO;
+    }
+    let width = if style.box_group.display == Display::TableCaption {
+        basis.caption_width
+    } else {
+        basis.grid_width
+    };
+    let side = |value, basis: Option<f64>| match (value, basis) {
+        (LengthPercentageAuto::Percent(_) | LengthPercentageAuto::Calc { .. }, None) => None,
+        (value, basis) => gosub_interface::used::length_auto(value, basis.unwrap_or(0.0)),
+    };
+    let inset = &style.inset;
+    let x = side(inset.inline_start, Some(width)).or_else(|| side(inset.inline_end, Some(width)).map(|r| -r));
+    let y = side(inset.block_start, None).or_else(|| side(inset.block_end, None).map(|b| -b));
+    Coordinate::new(x.unwrap_or(0.0), y.unwrap_or(0.0))
+}
+
+/// What the percentages of a table part's `position: relative` insets resolve against.
+#[derive(Clone, Copy)]
+struct InsetBasis {
+    grid_width: f64,
+    caption_width: f64,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_recursive(
     doc: &dyn PipelineDocument,
@@ -235,6 +283,7 @@ fn apply_recursive(
     // lattice-repositioned cell this is (new_cell_abs - old_cell_abs), plus
     // the cell's vertical-align shift when its subtree was re-anchored.
     offset: Coordinate,
+    inset_basis: InsetBasis,
     pending: &HashMap<DomNodeId, CellLayout>,
     collapsed_paint: &HashMap<DomNodeId, CollapsedCellBorders>,
     collapsed_slots: &HashMap<DomNodeId, Vec<CollapsedSlot>>,
@@ -271,9 +320,10 @@ fn apply_recursive(
                     stack.push((child_id, parent_abs, offset));
                 }
                 Some(cell_layout) => {
+                    let shift = relative_shift(doc, child_id, inset_basis);
                     let abs = Coordinate::new(
-                        parent_abs.x + cell_layout.position.x,
-                        parent_abs.y + cell_layout.position.y,
+                        parent_abs.x + cell_layout.position.x + shift.x,
+                        parent_abs.y + cell_layout.position.y + shift.y,
                     );
                     // Read old position before overwriting so we can compute the
                     // translation needed for non-pending children of this cell.
@@ -430,7 +480,7 @@ impl TableTree for PipelineTableTree<'_> {
             return CssLength::Px(side);
         }
         let style = self.doc.computed_style(id);
-        let (size, border, padding) = (&style.size, &style.border, &style.padding);
+        let (size, border, padding, margin) = (&style.size, &style.border, &style.padding, &style.margin);
         // A `calc()` mixing a length and a percentage is laid out as though it were not declared,
         // as it is by taffy (see `CssTaffyConverter::lpa`): the lengths read here are paddings,
         // unset at 0, and sizes, unset at `auto`.
@@ -459,6 +509,10 @@ impl TableTree for PipelineTableTree<'_> {
             CssProp::PaddingRight => length(padding.right),
             CssProp::PaddingBottom => length(padding.bottom),
             CssProp::PaddingLeft => length(padding.left),
+            CssProp::MarginTop => length_auto(margin.top),
+            CssProp::MarginRight => length_auto(margin.right),
+            CssProp::MarginBottom => length_auto(margin.bottom),
+            CssProp::MarginLeft => length_auto(margin.left),
             // border-spacing is inherited, so the computed value carries the cascade down to
             // the user-agent default (`table { border-spacing: 2px }`).
             CssProp::BorderSpacingX => CssLength::Px(f64::from(style.inherited.border_spacing_x)),
@@ -763,7 +817,8 @@ fn subtree_min_content_width(
 /// Taffy first pass. Correct positions are written back via `gosub_lattice`.
 /// Needs the layouter itself (not just the mapping) so cells can be re-laid-out
 /// at their final lattice widths via `relayout_cell`.
-pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut LayoutTree) {
+/// `viewport_width` is the initial containing block's width, which a root table fits in.
+pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut LayoutTree, viewport_width: Option<f64>) {
     // Clone the mapping so `layouter` can be borrowed mutably per table below.
     let dom_to_layout = layouter.dom_to_layout_mapping().clone();
     // Clone the doc Arc up front so we don't hold a borrow on layout_tree
@@ -820,6 +875,7 @@ pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut Layou
                 table_dom_id,
                 table_layout_id,
                 nested.contains(&table_dom_id),
+                viewport_width,
                 &mut border_corrected,
                 &mut flow_shifts,
             );
@@ -842,10 +898,24 @@ pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut Layou
         else {
             continue;
         };
+        let Some(table_width) = layout_tree
+            .arena
+            .get(&table_layout_id)
+            .map(|el| el.box_model.border_box.width)
+        else {
+            continue;
+        };
+        // The caption's band is its margin box: lattice keeps the margins inside the wrapper,
+        // resolved against its width. A `calc()` margin is not declared, as in `css_length`.
+        let margin = &doc.computed_style(caption).margin;
+        let margin_y = |side| match side {
+            LengthPercentageAuto::Calc { .. } => 0.0,
+            side => gosub_interface::used::length_auto(side, table_width).unwrap_or(0.0),
+        };
         let Some(band) = dom_to_layout
             .get(&caption)
             .and_then(|id| layout_tree.arena.get(id))
-            .map(|el| el.box_model.border_box.height)
+            .map(|el| el.box_model.border_box.height + margin_y(margin.top) + margin_y(margin.bottom))
         else {
             continue;
         };
@@ -938,13 +1008,15 @@ fn lay_out_one_table(
     table_dom_id: DomNodeId,
     table_layout_id: LayoutElementId,
     is_nested: bool,
+    viewport_width: Option<f64>,
     border_corrected: &mut HashSet<DomNodeId>,
     flow_shifts: &mut FlowShifts,
 ) {
     // Use the parent element's content width as available_width. For nested
     // tables the parent is a table cell whose box model was already updated
     // by the outer table's apply_positions call, giving us the correct width.
-    // Fall back to the table's own Taffy-computed width for root-level tables.
+    // A root element table fits in the initial containing block, the viewport. Otherwise fall
+    // back to the table's own Taffy-computed width.
     //
     // An absolutely-positioned table is the exception: its width is constrained by its
     // insets (`left`/`right`), which taffy has already resolved in the first pass - the
@@ -961,6 +1033,8 @@ fn lay_out_one_table(
     };
     let available_width = if table_is_abs {
         own_width()
+    } else if doc.html_node_id() == Some(table_dom_id) {
+        viewport_width.unwrap_or_else(own_width)
     } else {
         doc.parent(table_dom_id)
             .and_then(|p| dom_to_layout.get(&p))
@@ -975,7 +1049,7 @@ fn lay_out_one_table(
 
     match gosub_lattice::compute_table_layout(&mut tree, table_dom_id, available_width, None) {
         Ok((table_width, table_height)) => {
-            tree.apply_positions(table_dom_id, border_corrected);
+            tree.apply_positions(table_dom_id, table_width, border_corrected);
             // Write back both dimensions so deeply-nested tables can read the
             // correct width from this table's box model via their parent lookup.
             // Lattice returns the GRID extents (content box); the table's own border

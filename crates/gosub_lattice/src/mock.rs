@@ -150,6 +150,8 @@ pub struct MockTable {
     collapse: bool,
     /// Caption content height and whether it sits at the bottom.
     caption: Option<(f64, bool)>,
+    /// Margin on every side of the caption.
+    caption_margin: f64,
     /// One entry per `<col>` element: its explicit width, or `None` for auto.
     cols: Vec<Option<f64>>,
     /// The `<col>` elements sit directly in the table, with no `<colgroup>`.
@@ -202,6 +204,12 @@ impl MockTable {
     /// Add a caption with the given content height; `bottom` = `caption-side: bottom`.
     pub fn caption(mut self, content_height: f64, bottom: bool) -> Self {
         self.caption = Some((content_height, bottom));
+        self
+    }
+
+    /// Give the caption a margin on every side.
+    pub fn caption_margin(mut self, margin: f64) -> Self {
+        self.caption_margin = margin;
         self
     }
 
@@ -260,6 +268,7 @@ impl MockTable {
             let cap = tree.alloc(TableRole::Caption, Some("caption".into()), 1, 1, None, None, 0.0, 0.0);
             if let Some(node) = tree.nodes.get_mut(&cap) {
                 node.content_height = content_height;
+                node.margin = self.caption_margin;
             }
             tree.caption_bottom = bottom;
             tree.add_child(root, cap);
@@ -346,6 +355,7 @@ struct MockNode {
     valign: VerticalAlign,
     baseline: Option<f64>,
     border_box: bool,
+    margin: f64,
 }
 
 impl MockNode {
@@ -429,6 +439,7 @@ impl MockTree {
                 valign: VerticalAlign::Top,
                 baseline: None,
                 border_box: false,
+                margin: 0.0,
             },
         );
         id
@@ -571,6 +582,9 @@ impl TableTree for MockTree {
             CssProp::BorderLeftWidth => CssLength::Px(node.border_width(Side::Left)),
             CssProp::PaddingTop | CssProp::PaddingRight | CssProp::PaddingBottom | CssProp::PaddingLeft => {
                 CssLength::Px(node.padding)
+            }
+            CssProp::MarginTop | CssProp::MarginRight | CssProp::MarginBottom | CssProp::MarginLeft => {
+                CssLength::Px(node.margin)
             }
             CssProp::BorderSpacingX => CssLength::Px(self.border_spacing_x),
             CssProp::BorderSpacingY => CssLength::Px(self.border_spacing_y),

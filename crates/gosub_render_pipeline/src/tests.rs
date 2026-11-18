@@ -1149,6 +1149,185 @@ mod rendertree_from_engine {
         );
     }
 
+    /// A root element table shrinks to fit in the initial containing block, not in the width
+    /// the first pass gave it (WPT css-tables html-display-table).
+    #[test]
+    fn root_table_fits_in_the_viewport() {
+        let (layers, [html]) = crate::tests::overflow_clip::lay_out(
+            r#"<html id="root" style="display: table; border: 10px solid; border-spacing: 0; margin: auto">
+            <body style="margin: 0">
+              <div style="width: 200px; height: 300px; display: inline-block"></div><div
+                style="width: 80px; height: 300px; display: inline-block"></div>
+            </body></html>"#,
+            ["root"],
+        );
+        let root = layers
+            .layout_tree
+            .get_node_by_id(html)
+            .expect("laid out")
+            .box_model
+            .border_box;
+        assert_eq!((root.width, root.height), (300.0, 320.0), "both blocks on one line");
+    }
+
+    /// `position: relative` moves a caption, a row (with its cells) and a cell (with its content)
+    /// from where the table put them (css-position-3 §3.4, WPT css-tables caption-relative-positioning).
+    #[test]
+    fn relative_table_parts_move_by_their_insets() {
+        let page = |caption: &str, row: &str, cell: &str| {
+            format!(
+                r#"<html><body><table style="border-spacing: 0">
+                  <caption id="cap" style="height: 20px; {caption}"></caption>
+                  <tr id="row" style="{row}">
+                    <td id="a" style="width: 40px; height: 20px; padding: 0"></td>
+                    <td id="b" style="width: 40px; height: 20px; padding: 0; {cell}"><div id="in"></div></td>
+                  </tr>
+                </table></body></html>"#
+            )
+        };
+        let origins = |html: &str| {
+            let (layers, ids) = crate::tests::overflow_clip::lay_out(html, ["cap", "row", "a", "b", "in"]);
+            ids.map(|id| {
+                let b = layers
+                    .layout_tree
+                    .get_node_by_id(id)
+                    .expect("laid out")
+                    .box_model
+                    .border_box;
+                (b.x, b.y)
+            })
+        };
+        let still = origins(&page("", "", ""));
+        let moved = origins(&page(
+            "position: relative; left: -10px; top: 5px",
+            "position: relative; bottom: 3px",
+            "position: relative; right: -7px",
+        ));
+        let delta: Vec<_> = still.iter().zip(&moved).map(|(s, m)| (m.0 - s.0, m.1 - s.1)).collect();
+        assert_eq!(
+            delta,
+            [(-10.0, 5.0), (0.0, -3.0), (0.0, -3.0), (7.0, -3.0), (7.0, -3.0)]
+        );
+    }
+
+    /// A caption's percentage insets resolve against the table wrapper, as wide as the table's
+    /// border box (CSS 2 §17.4); a cell's against the grid.
+    #[test]
+    fn caption_percentages_resolve_against_the_wrapper() {
+        let page = |insets: &str| {
+            format!(
+                r#"<html><body style="margin: 0"><table style="border: 10px solid black; padding: 5px;
+                  border-spacing: 0; width: 100px; box-sizing: border-box">
+                  <caption id="cap" style="height: 10px; {insets}"></caption>
+                  <tr><td id="a" style="height: 10px; padding: 0; {insets}"></td></tr>
+                </table></body></html>"#
+            )
+        };
+        let xs = |html: &str| {
+            let (layers, ids) = crate::tests::overflow_clip::lay_out(html, ["cap", "a"]);
+            ids.map(|id| {
+                layers
+                    .layout_tree
+                    .get_node_by_id(id)
+                    .expect("laid out")
+                    .box_model
+                    .border_box
+                    .x
+            })
+        };
+        let [cap, cell] = xs(&page(""));
+        let [cap_moved, cell_moved] = xs(&page("position: relative; left: 50%"));
+        assert_eq!(cap_moved - cap, 50.0, "50% of the 100px wrapper");
+        assert_eq!(cell_moved - cell, 35.0, "50% of the 70px grid");
+    }
+
+    /// The table's own box excludes the caption's whole margin box, not just its border box:
+    /// the margins sit in the wrapper, between the caption and the grid (CSS 2 §17.4).
+    #[test]
+    fn table_box_excludes_the_caption_margins() {
+        for side in ["top", "bottom"] {
+            let html = format!(
+                r#"<html><body><table id="t" style="border-spacing: 0">
+                  <caption id="cap" style="height: 20px; margin: 5px; caption-side: {side}"></caption>
+                  <tr><td id="a" style="height: 10px; padding: 0"></td></tr>
+                </table></body></html>"#
+            );
+            let (layers, ids) = crate::tests::overflow_clip::lay_out(&html, ["t", "cap", "a"]);
+            let [table, cap, cell] = ids.map(|id| {
+                layers
+                    .layout_tree
+                    .get_node_by_id(id)
+                    .expect("laid out")
+                    .box_model
+                    .border_box
+            });
+            assert_eq!(
+                (table.y, table.height),
+                (cell.y, 10.0),
+                "{side}: the table box is the grid"
+            );
+            let gap = if side == "top" {
+                table.y - (cap.y + cap.height)
+            } else {
+                cap.y - (table.y + table.height)
+            };
+            assert_eq!(gap, 5.0, "{side}: one margin between caption and table");
+        }
+    }
+
+    /// A `calc()` caption margin is laid out as though it were not declared, in sizing and in
+    /// splitting the caption off the table box alike.
+    #[test]
+    fn calc_caption_margins_are_not_split_off() {
+        let html = r#"<html><body><table id="t" style="border-spacing: 0; width: 100px">
+              <caption style="height: 20px; margin-block: calc(5px + 5%)"></caption>
+              <tr><td id="a" style="height: 10px; padding: 0"></td></tr>
+            </table></body></html>"#;
+        let (layers, ids) = crate::tests::overflow_clip::lay_out(html, ["t", "a"]);
+        let [table, cell] = ids.map(|id| {
+            layers
+                .layout_tree
+                .get_node_by_id(id)
+                .expect("laid out")
+                .box_model
+                .border_box
+        });
+        assert_eq!((table.y, table.height), (cell.y, 10.0), "the table box is the grid");
+    }
+
+    /// Percentage insets on table parts: horizontally against the table's width; vertically they
+    /// behave as `auto`, even with the table's height specified: the grid's and the wrapper's
+    /// heights are not definite for the parts inside.
+    #[test]
+    fn relative_table_part_percentages() {
+        let page = |insets: &str| {
+            format!(
+                r#"<html><body style="margin: 0"><table style="border-spacing: 0; height: 300px">
+                  <caption id="cap" style="height: 20px; {insets}"></caption>
+                  <tr id="row" style="{insets}"><td id="a" style="width: 40px; padding: 0"></td>
+                    <td id="b" style="width: 40px; padding: 0; {insets}"></td></tr>
+                </table></body></html>"#
+            )
+        };
+        let origins = |html: &str| {
+            let (layers, ids) = crate::tests::overflow_clip::lay_out(html, ["cap", "row", "b"]);
+            ids.map(|id| {
+                let b = layers
+                    .layout_tree
+                    .get_node_by_id(id)
+                    .expect("laid out")
+                    .box_model
+                    .border_box;
+                (b.x, b.y)
+            })
+        };
+        let still = origins(&page(""));
+        let moved = origins(&page("position: relative; left: 10%; top: 10%"));
+        let delta: Vec<_> = still.iter().zip(&moved).map(|(s, m)| (m.0 - s.0, m.1 - s.1)).collect();
+        // 10% of the 80px table. The cell rides along with its row.
+        assert_eq!(delta, [(8.0, 0.0), (8.0, 0.0), (16.0, 0.0)]);
+    }
+
     /// CSS 2.1 §17.2.1: the anonymous table around cells inside an inline is an inline-table,
     /// so it stays on the line: "a bc d", not three lines (WPT table-anonymous-objects-167).
     #[test]

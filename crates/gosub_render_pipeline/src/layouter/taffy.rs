@@ -809,7 +809,7 @@ impl TaffyLayouter {
         let root_id = layout_tree.root_id;
         let root_width = layout_tree.root_dimension.width;
         self.populate_boxmodel(layout_tree, root_id, Coordinate::ZERO, root_width);
-        post_process_tables(self, layout_tree);
+        post_process_tables(self, layout_tree, viewport.map(|v| v.width));
         // After tables: a float inside a table cell must be placed against the cell's final
         // position, which lattice only fixes during the table pass.
         let placed = post_process_floats(layout_tree);
