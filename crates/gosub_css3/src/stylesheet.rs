@@ -777,7 +777,7 @@ pub struct CssSelector {
     parts: Vec<CssSelectorPart>,
     /// One entry per complex selector: its slice of `parts`, its specificity, and what it needs
     /// of the element's ancestors.
-    entries: Box<[SelectorEntry]>,
+    entries: SelectorEntries,
     /// Whether any entry asks anything of an ancestor, so that a rule can be matched without an
     /// ancestor filter being built at all.
     asks_about_ancestors: bool,
@@ -797,6 +797,25 @@ struct SelectorEntry {
     /// see [`crate::matcher::bloom`]. Nearly every one is empty, and an empty boxed slice owns
     /// nothing.
     ancestor_keys: Box<[u32]>,
+}
+
+/// A selector list's entries. Almost every list holds one complex selector, so that one is kept
+/// inline rather than costing an allocation per rule.
+#[derive(Debug, PartialEq, Clone)]
+enum SelectorEntries {
+    One(SelectorEntry),
+    Many(Box<[SelectorEntry]>),
+}
+
+impl std::ops::Deref for SelectorEntries {
+    type Target = [SelectorEntry];
+
+    fn deref(&self) -> &[SelectorEntry] {
+        match self {
+            Self::One(entry) => std::slice::from_ref(entry),
+            Self::Many(entries) => entries,
+        }
+    }
 }
 
 impl SelectorEntry {
@@ -837,21 +856,26 @@ impl CssSelector {
         let mut asks_about_ancestors = false;
         let ends = starts.iter().copied().chain(std::iter::once(parts.len()));
         let mut begin = 0;
-        let entries = ends
-            .map(|end| {
-                let complex = &parts[begin..end];
-                let keys = ancestor_keys(complex);
-                asks_about_ancestors |= !keys.is_empty();
-                let entry = SelectorEntry {
-                    start: u32::try_from(begin).unwrap_or(u32::MAX),
-                    len: u32::try_from(end - begin).unwrap_or(u32::MAX),
-                    specificity: Specificity::from(complex),
-                    ancestor_keys: keys,
-                };
-                begin = end;
-                entry
-            })
-            .collect();
+        let mut entries = ends.map(|end| {
+            let complex = &parts[begin..end];
+            let keys = ancestor_keys(complex);
+            asks_about_ancestors |= !keys.is_empty();
+            let entry = SelectorEntry {
+                start: u32::try_from(begin).unwrap_or(u32::MAX),
+                len: u32::try_from(end - begin).unwrap_or(u32::MAX),
+                specificity: Specificity::from(complex),
+                ancestor_keys: keys,
+            };
+            begin = end;
+            entry
+        });
+        let entries = if starts.is_empty() {
+            entries
+                .next()
+                .map_or_else(|| SelectorEntries::Many(Box::new([])), SelectorEntries::One)
+        } else {
+            SelectorEntries::Many(entries.collect())
+        };
         Self {
             parts,
             entries,
@@ -1400,8 +1424,10 @@ impl gosub_shared::memory::HeapSize for CssSelector {
         for part in &self.parts {
             part.heap_size(walk);
         }
-        walk.bytes(size_of_val(&*self.entries));
-        for entry in &self.entries {
+        if let SelectorEntries::Many(entries) = &self.entries {
+            walk.bytes(size_of_val(&**entries));
+        }
+        for entry in self.entries.iter() {
             walk.bytes(size_of_val(&*entry.ancestor_keys));
         }
     }
