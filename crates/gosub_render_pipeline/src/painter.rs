@@ -540,9 +540,9 @@ impl Painter {
         )
     }
 
-    /// An empty cell under `empty-cells: hide` draws no background and no borders, in the
-    /// separated-borders model only (css-tables-3 §5.2). It is empty when nothing in it is in flow
-    /// or floated; whitespace counts only where `white-space` keeps it.
+    /// An empty cell under `empty-cells: hide` is not rendered, as if it were `visibility:
+    /// hidden`, in the separated-borders model only (css-tables-3 §5.2, §5.3.2). It is empty when
+    /// nothing in it is in flow or floated; whitespace counts only where `white-space` keeps it.
     fn is_hidden_empty_cell(&self, dom_node_id: NodeId) -> bool {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         let style = doc.computed_style(dom_node_id);
@@ -562,6 +562,8 @@ impl Painter {
 
     fn generate_element_commands(&self, layout_element: &LayoutElementNode, dom_node_id: NodeId) -> Vec<PaintCommand> {
         let mut commands = Vec::new();
+        let hidden_cell =
+            matches!(layout_element.context, ElementContext::None) && self.is_hidden_empty_cell(dom_node_id);
 
         // A run of text has no box of its own to cast a shadow, the popup is not the select, and
         // the table's border overlay paints its cells' borders, not the table.
@@ -569,6 +571,7 @@ impl Painter {
             ElementContext::Text(_) | ElementContext::SelectPopup(_) | ElementContext::TableBorderOverlay(_) => {
                 (None, None)
             }
+            _ if hidden_cell => (None, None),
             _ => self.shadow_commands(layout_element, dom_node_id),
         };
         commands.extend(outer_shadows);
@@ -733,7 +736,7 @@ impl Painter {
             // Rows and row groups paint nothing themselves: their backgrounds go under the cells and,
             // under collapse, their borders join the cells' conflict resolution.
             ElementContext::None if self.is_table_track_group(dom_node_id) => {}
-            ElementContext::None if self.is_hidden_empty_cell(dom_node_id) => {}
+            ElementContext::None if hidden_cell => {}
             ElementContext::None => {
                 commands.extend(self.table_layer_commands(layout_element));
                 let border_box = layout_element.box_model.border_box;
@@ -791,10 +794,12 @@ impl Painter {
 
         // Text runs don't carry an outline; the owning element does. The popup shares the select's
         // node but isn't the select.
-        if !matches!(
-            layout_element.context,
-            ElementContext::Text(_) | ElementContext::SelectPopup(_)
-        ) {
+        if !hidden_cell
+            && !matches!(
+                layout_element.context,
+                ElementContext::Text(_) | ElementContext::SelectPopup(_)
+            )
+        {
             if let Some(cmd) = self.outline_command(layout_element, dom_node_id) {
                 commands.push(cmd);
             }
