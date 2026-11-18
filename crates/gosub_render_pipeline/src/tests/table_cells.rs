@@ -228,22 +228,23 @@ fn a_percentage_table_height_makes_the_cell_height_specified() {
 
 /// `empty-cells: hide` drops the background and borders of an empty cell in the separated
 /// borders model. Whitespace that collapses away and an absolutely positioned child leave a cell
-/// empty; under `border-collapse: collapse` the property does nothing.
+/// empty, an `&nbsp;` does not; under `border-collapse: collapse` the property does nothing.
 #[test]
 fn empty_cells_hide_paints_nothing_for_an_empty_cell() {
-    let (layers, [empty, spaces, positioned, filled, collapsed]) = lay_out(
+    let (layers, [empty, spaces, positioned, nbsp, filled, collapsed]) = lay_out(
         r#"<html><body>
           <table style="empty-cells: hide"><tr>
             <td id="empty" style="background: red; border: 2px solid red; width: 10px; height: 10px"></td>
             <td id="spaces" style="background: red; width: 10px; height: 10px">  </td>
             <td id="positioned" style="background: red; width: 10px; height: 10px"><span style="position: absolute"></span></td>
+            <td id="nbsp" style="background: green; width: 10px; height: 10px">&nbsp;</td>
             <td id="filled" style="background: green; width: 10px; height: 10px">x</td>
           </tr></table>
           <table style="empty-cells: hide; border-collapse: collapse"><tr>
             <td id="collapsed" style="background: green; width: 10px; height: 10px"></td>
           </tr></table>
         </body></html>"#,
-        ["empty", "spaces", "positioned", "filled", "collapsed"],
+        ["empty", "spaces", "positioned", "nbsp", "filled", "collapsed"],
     );
     let painter = Painter::new(Arc::clone(&layers), None);
     let paints_box = |id| {
@@ -255,6 +256,7 @@ fn empty_cells_hide_paints_nothing_for_an_empty_cell() {
     assert!(!paints_box(empty));
     assert!(!paints_box(spaces));
     assert!(!paints_box(positioned));
+    assert!(paints_box(nbsp));
     assert!(paints_box(filled));
     assert!(paints_box(collapsed));
 }
