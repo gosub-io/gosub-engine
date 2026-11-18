@@ -158,7 +158,44 @@ pub struct FontFace {
     /// The conditions around the rule, outermost first: `@media` blocks, an `@import`'s
     /// media list and the owning `<link>`/`<style>`'s `media` attribute. A face whose
     /// conditions fail is not part of the document's font set.
-    pub media: Option<Vec<Arc<MediaQueryList>>>,
+    pub media: Option<MediaConditions>,
+}
+
+/// The `@media` conditions around a rule, outermost first; all of them must match. One list is
+/// shared by everything in the block that set it, so a rule's copy is a refcount bump.
+pub type MediaConditions = Arc<[Arc<MediaQueryList>]>;
+
+/// Puts one condition in front of the lists it is applied to, outermost. Neighbours that shared
+/// a list share the new one too, rather than each getting a copy.
+struct PrependMedia<'a> {
+    media: &'a Arc<MediaQueryList>,
+    /// The last list replaced and what replaced it.
+    last: Option<(Option<MediaConditions>, MediaConditions)>,
+}
+
+impl<'a> PrependMedia<'a> {
+    fn new(media: &'a Arc<MediaQueryList>) -> Self {
+        Self { media, last: None }
+    }
+
+    fn apply(&mut self, conditions: &mut Option<MediaConditions>) {
+        if let Some((old, new)) = &self.last {
+            let same = match (old, &*conditions) {
+                (Some(old), Some(current)) => Arc::ptr_eq(old, current),
+                (None, None) => true,
+                _ => false,
+            };
+            if same {
+                *conditions = Some(Arc::clone(new));
+                return;
+            }
+        }
+        let new: MediaConditions = std::iter::once(Arc::clone(self.media))
+            .chain(conditions.iter().flat_map(|list| list.iter().cloned()))
+            .collect();
+        let old = conditions.replace(Arc::clone(&new));
+        self.last = Some((old, new));
+    }
 }
 
 impl FontFace {
@@ -189,7 +226,7 @@ pub struct PropertyRule {
     pub initial: Option<CssValue>,
     /// The `@media` blocks around the rule, outermost first. A registration whose conditions
     /// fail does not apply.
-    pub media: Option<Vec<Arc<MediaQueryList>>>,
+    pub media: Option<MediaConditions>,
     /// Whether the rule came from an `@import`ed sheet, which keeps the imported rules ahead
     /// of the sheet's own when several imports are spliced in.
     pub(crate) imported: bool,
@@ -389,28 +426,31 @@ impl CssStylesheet {
         // rules now live here, and the resize fingerprint is computed per sheet.
         self.uses_viewport_units |= uses_viewport_units;
         let count = rules.len();
+        // Outermost first: the import's condition gates everything inside it.
+        let mut prepend = media.map(PrependMedia::new);
         let rules = rules.into_iter().map(|mut rule| {
             rule.source = base.saturating_add(1).saturating_add(rule.source);
-            if let Some(media) = media {
-                // Outermost first: the import's condition gates everything inside it.
-                rule.media.get_or_insert_with(Vec::new).insert(0, Arc::clone(media));
+            if let Some(prepend) = &mut prepend {
+                prepend.apply(&mut rule.media);
             }
             rule
         });
         self.rules.splice(insert_at..insert_at, rules);
+        let mut prepend = media.map(PrependMedia::new);
         self.font_faces.extend(font_faces.into_iter().map(|mut face| {
-            if let Some(media) = media {
-                face.media.get_or_insert_with(Vec::new).insert(0, Arc::clone(media));
+            if let Some(prepend) = &mut prepend {
+                prepend.apply(&mut face.media);
             }
             face
         }));
         // Registrations go where the rules went: after the sheets imported before this one,
         // ahead of the importing sheet's own, and under the import's media condition.
         let at = self.property_rules.iter().take_while(|rule| rule.imported).count();
+        let mut prepend = media.map(PrependMedia::new);
         let property_rules = property_rules.into_iter().map(|mut rule| {
             rule.imported = true;
-            if let Some(media) = media {
-                rule.media.get_or_insert_with(Vec::new).insert(0, Arc::clone(media));
+            if let Some(prepend) = &mut prepend {
+                prepend.apply(&mut rule.media);
             }
             rule
         });
@@ -442,8 +482,9 @@ impl CssStylesheet {
         let rules = self.rules.iter_mut().map(|rule| &mut rule.media);
         let registrations = self.property_rules.iter_mut().map(|rule| &mut rule.media);
         let faces = self.font_faces.iter_mut().map(|face| &mut face.media);
+        let mut prepend = PrependMedia::new(&media);
         for conditions in rules.chain(registrations).chain(faces) {
-            conditions.get_or_insert_with(Vec::new).insert(0, Arc::clone(&media));
+            prepend.apply(conditions);
         }
     }
 
@@ -563,7 +604,7 @@ pub struct CssRule {
     /// the check costs a null test. Each list is shared by every rule in its block.
     ///
     /// Conditions are kept unevaluated so that a viewport change is a restyle, not a re-parse.
-    pub media: Option<Vec<Arc<MediaQueryList>>>,
+    pub media: Option<MediaConditions>,
     /// The cascade layer this rule sits in, as an index into its sheet's
     /// [`CssStylesheet::layers`]. `None` for a rule outside every layer, which for a normal
     /// declaration is the strongest place to be.
@@ -595,7 +636,7 @@ impl CssRule {
     pub fn new(
         selector: CssSelector,
         declarations: Vec<CssDeclaration>,
-        media: Option<Vec<Arc<MediaQueryList>>>,
+        media: Option<MediaConditions>,
         layer: Option<u32>,
     ) -> Self {
         Self {
@@ -1446,12 +1487,14 @@ impl gosub_shared::memory::HeapSize for CssRule {
         self.declarations.heap_size(walk);
         // `media` is one shared list per `@media` block, not one per rule.
         if let Some(media) = &self.media {
-            walk.bytes(media.capacity() * size_of::<std::sync::Arc<crate::media_query::MediaQueryList>>());
-            for query in media {
-                walk.shared_once(std::sync::Arc::as_ptr(query).cast::<u8>() as usize, |walk| {
-                    walk.bytes(size_of::<crate::media_query::MediaQueryList>() + 2 * size_of::<usize>());
-                });
-            }
+            walk.shared_once(Arc::as_ptr(media).cast::<u8>() as usize, |walk| {
+                walk.bytes(size_of_val(&**media) + 2 * size_of::<usize>());
+                for query in media.iter() {
+                    walk.shared_once(Arc::as_ptr(query).cast::<u8>() as usize, |walk| {
+                        walk.bytes(size_of::<MediaQueryList>() + 2 * size_of::<usize>());
+                    });
+                }
+            });
         }
     }
 }
@@ -2730,9 +2773,31 @@ mod test {
         assert!(sheet.rules.iter().all(|rule| !rule.media_matches(&screen)));
         assert!(sheet.rules.iter().all(|rule| rule.media_matches(&print)));
         // The sheet's own `@media` stays inside the attribute's condition, not instead of it.
-        assert_eq!(sheet.rules[1].media.as_ref().map(Vec::len), Some(2));
+        assert_eq!(sheet.rules[1].media.as_ref().map(|media| media.len()), Some(2));
         let registration = sheet.property_rules[0].media.as_ref().expect("gated too");
         assert!(!registration[0].matches(&screen));
+    }
+
+    #[test]
+    fn rules_in_one_media_block_share_their_conditions() {
+        use gosub_shared::config::ParserConfig;
+        let css = "a { color: red; } b { color: red; } \
+                   @media (min-width: 1px) { c { color: blue; } d { color: blue; } }";
+        let mut sheet = crate::Css3::parse_str(css, ParserConfig::default(), CssOrigin::Author, "test.css")
+            .expect("the sheet parses");
+        let shared = |sheet: &CssStylesheet, i: usize, j: usize| {
+            Arc::ptr_eq(
+                sheet.rules[i].media.as_ref().expect("conditional"),
+                sheet.rules[j].media.as_ref().expect("conditional"),
+            )
+        };
+        assert!(shared(&sheet, 2, 3));
+
+        sheet.set_owner_media("print");
+        assert!(shared(&sheet, 0, 1), "unconditional rules share the attribute's list");
+        assert!(shared(&sheet, 2, 3), "the block's rules still share theirs");
+        assert!(!shared(&sheet, 1, 2));
+        assert_eq!(sheet.rules[3].media.as_ref().map(|media| media.len()), Some(2));
     }
 
     #[test]

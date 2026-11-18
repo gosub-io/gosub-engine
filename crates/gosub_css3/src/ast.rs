@@ -4,6 +4,7 @@ use log::warn;
 use crate::media_query::MediaQueryList;
 use crate::node::{Node as CssNode, NodeType};
 use crate::stylesheet::note_dropped;
+use crate::stylesheet::MediaConditions;
 use crate::stylesheet::{
     AttributeSelector, Combinator, CssDeclaration, CssRule, CssSelector, CssSelectorPart, CssStylesheet, CssValue,
     FontFace, ImportRule, MatcherType, NthKind, NthSelector, PropertyRule,
@@ -598,7 +599,7 @@ fn collect_rule(
     line: u32,
     prelude: Option<Box<CssNode>>,
     block: Option<Box<CssNode>>,
-    media: &[Arc<MediaQueryList>],
+    media: Option<&MediaConditions>,
     layer: Option<u32>,
 ) -> Option<CssRule> {
     // The parser gives every style rule a selector list; a rule without one would match nothing.
@@ -628,7 +629,7 @@ fn collect_rule(
     // and the rule with them if nothing is left.
     let selector = parts.into_selector()?;
 
-    let mut rule = CssRule::new(selector, vec![], (!media.is_empty()).then(|| media.to_vec()), layer);
+    let mut rule = CssRule::new(selector, vec![], media.cloned(), layer);
     rule.line = line;
 
     if let Some(declaration) = block {
@@ -844,11 +845,8 @@ fn register_layer(layers: &mut Vec<String>, name: &str) -> u32 {
     u32::try_from(index).unwrap_or(u32::MAX)
 }
 
-/// Walk a stylesheet's top-level nodes, flattening at-rules into a single rule list.
-///
-/// `media` is the stack of `@media` conditions currently in scope, outermost first; every rule
 /// What converting a sheet's nodes accumulates, gathered so the walk carries one thing rather
-/// than six. The media stack and the current layer are not here: they are scoped to the branch
+/// than six. The media conditions and the current layer are not here: they are scoped to the branch
 /// being walked rather than to the sheet.
 struct SheetParts<'a> {
     pool: &'a mut ValuePool,
@@ -860,21 +858,19 @@ struct SheetParts<'a> {
     layers: &'a mut Vec<String>,
 }
 
-/// collected while it is non-empty records it and is evaluated against the live
+/// Walk a stylesheet's top-level nodes, flattening at-rules into a single rule list.
+///
+/// `media` is the `@media` conditions currently in scope, outermost first; every rule collected
+/// under them shares the list, and it is evaluated against the live
 /// [`MediaEnvironment`](crate::media_query::MediaEnvironment) at match time rather than here.
-fn collect_rules(
-    sheet: &mut SheetParts<'_>,
-    nodes: Vec<CssNode>,
-    media: &mut Vec<Arc<MediaQueryList>>,
-    layer: Option<u32>,
-) {
+fn collect_rules(sheet: &mut SheetParts<'_>, nodes: Vec<CssNode>, media: Option<&MediaConditions>, layer: Option<u32>) {
     for node in nodes {
         collect_node(sheet, node, media, layer);
     }
 }
 
 /// One node of [`collect_rules`]; called directly for a top-level node, which comes alone.
-fn collect_node(sheet: &mut SheetParts<'_>, node: CssNode, media: &mut Vec<Arc<MediaQueryList>>, layer: Option<u32>) {
+fn collect_node(sheet: &mut SheetParts<'_>, node: CssNode, media: Option<&MediaConditions>, layer: Option<u32>) {
     let line = line_of(&node.location);
     match node.node_type {
         NodeType::Rule { prelude, block } => {
@@ -891,9 +887,12 @@ fn collect_node(sheet: &mut SheetParts<'_>, node: CssNode, media: &mut Vec<Arc<M
                 // A missing or unparseable prelude yields an empty (always-matching) list,
                 // so the block's sheet.rules stay visible rather than disappearing.
                 let list = prelude.map(|node| MediaQueryList::from_ast(&node)).unwrap_or_default();
-                media.push(Arc::new(list));
-                collect_rules(sheet, children, media, layer);
-                media.pop();
+                let inner: MediaConditions = media
+                    .into_iter()
+                    .flat_map(|outer| outer.iter().cloned())
+                    .chain(std::iter::once(Arc::new(list)))
+                    .collect();
+                collect_rules(sheet, children, Some(&inner), layer);
             }
         }
         NodeType::AtRule {
@@ -1012,7 +1011,7 @@ fn collect_node(sheet: &mut SheetParts<'_>, node: CssNode, media: &mut Vec<Arc<M
 /// (css-properties-values-api-1 §3): the prelude is not one custom property name, `syntax` or
 /// `inherits` is missing or malformed, or a syntax other than `*` has no `initial-value`.
 /// Unknown descriptors are ignored, and a later descriptor replaces an earlier one.
-fn collect_property(prelude: Option<CssNode>, block: CssNode, media: &[Arc<MediaQueryList>]) -> Option<PropertyRule> {
+fn collect_property(prelude: Option<CssNode>, block: CssNode, media: Option<&MediaConditions>) -> Option<PropertyRule> {
     let NodeType::Container { children } = prelude?.node_type else {
         return None;
     };
@@ -1085,14 +1084,14 @@ fn collect_property(prelude: Option<CssNode>, block: CssNode, media: &[Arc<Media
         syntax,
         inherits: inherits?,
         initial,
-        media: (!media.is_empty()).then(|| media.to_vec()),
+        media: media.cloned(),
         imported: false,
     })
 }
 
 /// Build a [`FontFace`] from the declarations inside an `@font-face` block. Requires a
 /// `font-family` and at least one `src: url(...)`; returns `None` otherwise.
-fn collect_font_face(nodes: Vec<CssNode>, media: &[Arc<MediaQueryList>]) -> Option<FontFace> {
+fn collect_font_face(nodes: Vec<CssNode>, media: Option<&MediaConditions>) -> Option<FontFace> {
     let mut family: Option<String> = None;
     let mut sources: Vec<String> = Vec::new();
     let mut unicode_range: Option<String> = None;
@@ -1174,7 +1173,7 @@ fn collect_font_face(nodes: Vec<CssNode>, media: &[Arc<MediaQueryList>]) -> Opti
         family,
         sources,
         unicode_range,
-        media: (!media.is_empty()).then(|| media.to_vec()),
+        media: media.cloned(),
     })
 }
 
@@ -1274,9 +1273,8 @@ fn collect_src_entries(value: &CssValue, out: &mut Vec<SrcEntry>) {
 /// The streaming counterpart of [`convert_ast_to_stylesheet`]: the parser hands over each rule
 /// as it finishes it, the rule's nodes are converted here, and the caller drops them before the
 /// next rule is parsed. `rules` accumulates across calls, which is what keeps `@import`'s "only
-/// before any style rule" check honest, and so does `layers`. The media stack is per call
-/// because it is balanced within one top-level node - a nested `@media` pushes its condition and
-/// pops it again before the node is done.
+/// before any style rule" check honest, and so does `layers`. A top-level node starts outside
+/// every `@media`.
 pub(crate) fn convert_node_into(
     node: CssNode,
     sheet: &mut CssStylesheet,
@@ -1292,7 +1290,7 @@ pub(crate) fn convert_node_into(
         property_rules: &mut sheet.property_rules,
         layers,
     };
-    collect_node(&mut parts, node, &mut Vec::new(), None);
+    collect_node(&mut parts, node, None, None);
 }
 
 /// Whether any declaration in the sheet uses a viewport-relative unit; see
@@ -1323,7 +1321,7 @@ pub fn convert_ast_to_stylesheet(css_ast: CssNode, origin: CssOrigin, url: &str)
         property_rules: &mut sheet.property_rules,
         layers: &mut layers,
     };
-    collect_rules(&mut parts, children, &mut Vec::new(), None);
+    collect_rules(&mut parts, children, None, None);
     sheet.layers = layers;
     // Recorded once here rather than asked per resize: a sheet using `vw`/`vh` must be
     // restyled whenever the viewport changes, while one that does not can keep its cached

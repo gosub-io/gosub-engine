@@ -277,7 +277,7 @@ fn style_environment_fingerprint_impl(sheets: &[CssStylesheet]) -> u64 {
             let Some(conditions) = media else {
                 continue;
             };
-            for list in conditions {
+            for list in conditions.iter() {
                 // Hash each distinct condition once, in first-seen (rule) order, so the
                 // result is deterministic across runs.
                 if seen.insert(Arc::as_ptr(list) as usize) {
