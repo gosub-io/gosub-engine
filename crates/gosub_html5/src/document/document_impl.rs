@@ -201,6 +201,9 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn relocate_node(&mut self, node: NodeId, parent: NodeId) {
+        if self.would_cycle(node, parent) {
+            return;
+        }
         self.detach_node(node);
         self.attach_node(node, parent, None);
     }
@@ -874,7 +877,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     }
 
     pub fn attach_node(&mut self, node_id: NodeId, parent_id: NodeId, position: Option<usize>) {
-        if parent_id == node_id || self.has_node_id_recursive(node_id, parent_id) {
+        if self.would_cycle(node_id, parent_id) {
             return;
         }
         // Guarded here rather than in the `Document` methods that call it: this one is public
@@ -906,6 +909,33 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         }
         let registry = self.registry_of(node_id);
         self.refresh_named_ids(node_id, registry);
+    }
+
+    /// Whether `node_id` is a host-including inclusive ancestor of `parent_id` (DOM "pre-insert
+    /// validity"), so putting it under `parent_id` would make a cycle. Crosses from a shadow
+    /// root to its host: a host moved into its own shadow tree is a cycle as well.
+    fn would_cycle(&self, node_id: NodeId, parent_id: NodeId) -> bool {
+        if node_id == parent_id {
+            return true;
+        }
+        // A leaf without a shadow tree is nobody's ancestor. The parser attaches mostly those.
+        let is_leaf = self.arena.node_ref(node_id).is_some_and(|n| n.children.is_empty());
+        if is_leaf && self.shadow_root(node_id).is_none() {
+            return false;
+        }
+        let mut current = parent_id;
+        loop {
+            if current == node_id {
+                return true;
+            }
+            match self.arena.node_ref(current).and_then(NodeImpl::parent_id) {
+                Some(parent) => current = parent,
+                None => match self.shadow_host(current) {
+                    Some(host) => current = host,
+                    None => return false,
+                },
+            }
+        }
     }
 
     /// Whether a generic tree mutation must leave `node` alone because it is a shadow root.
@@ -966,7 +996,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         if !node.registered {
             return;
         }
-        if node.parent == Some(parent_id) {
+        if node.parent == Some(parent_id) || self.would_cycle(node_id, parent_id) {
             return;
         }
         self.detach_node(node_id);
@@ -1711,5 +1741,34 @@ mod tests {
         assert_eq!(doc.tree_root(inner_input), inner);
         assert_eq!(doc.node_by_named_id_in(inner, "d"), Some(inner_input));
         assert_eq!(doc.node_by_named_id("c"), None);
+    }
+
+    #[test]
+    fn a_host_cannot_move_into_its_own_shadow_tree() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let host = element_with_id(&mut doc, "div", root, None);
+        let shadow = shadow_root_of(&mut doc, host);
+        let inner = element_with_id(&mut doc, "div", shadow, None);
+
+        doc.attach_node(host, shadow, None);
+        doc.relocate_node(host, inner);
+        Document::relocate_node(&mut doc, host, inner);
+        assert_eq!(doc.parent(host), Some(root), "the host stays where it was");
+        assert!(doc.children(shadow) == [inner]);
+        assert!(doc.children(inner).is_empty());
+    }
+
+    #[test]
+    fn a_node_cannot_move_into_its_own_subtree() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let outer = element_with_id(&mut doc, "div", root, None);
+        let inner = element_with_id(&mut doc, "div", outer, None);
+
+        doc.relocate_node(outer, inner);
+        assert_eq!(doc.parent(outer), Some(root), "not left detached");
+        doc.attach_node(outer, outer, None);
+        assert!(doc.children(outer) == [inner]);
     }
 }
