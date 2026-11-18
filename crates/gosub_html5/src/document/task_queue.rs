@@ -114,10 +114,12 @@ impl DocumentTaskQueue {
                     }
 
                     // Duplicate ids are legal in the DOM: report it, but set the attribute.
-                    if let Some(existing_id) = doc.node_by_named_id(value).filter(|_| key == "id") {
-                        if existing_id != *element_id {
-                            errors.push(format!("ID attribute value '{value}' already exists in DOM"));
-                        }
+                    if key == "id"
+                        && doc
+                            .node_by_named_id(value)
+                            .is_some_and(|existing| existing != *element_id)
+                    {
+                        errors.push(format!("ID attribute value '{value}' already exists in DOM"));
                     }
 
                     if doc.node_type(*element_id) != NodeType::ElementNode {
