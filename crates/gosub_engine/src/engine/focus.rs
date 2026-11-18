@@ -92,11 +92,10 @@ pub fn click_target<C: RenderConfiguration>(doc: &EngineDocument<C>, leaf: NodeI
 }
 
 /// The control a `<label>` activates: its `for` target, else the first descendant control.
+/// A `for` that matches nothing in the label's tree labels nothing (HTML 4.10.4).
 fn label_control<C: RenderConfiguration>(doc: &EngineDocument<C>, label: NodeId) -> Option<NodeId> {
-    if let Some(target) = doc
-        .attribute(label, "for")
-        .and_then(|f| doc.node_by_named_id_in(doc.tree_root(label), f))
-    {
+    if let Some(f) = doc.attribute(label, "for") {
+        let target = doc.node_by_named_id_in(doc.tree_root(label), f)?;
         return (focusability(doc, target) != Focusability::No).then_some(target);
     }
     let mut stack: Vec<NodeId> = doc.children(label).iter().rev().copied().collect();
@@ -275,6 +274,17 @@ mod tests {
             r#"<label id="l" for="c">L</label><div><template shadowrootmode="open"><input id="c"></template></div>"#,
         );
         let label = doc.node_by_named_id("l").unwrap();
+        assert_eq!(click_target(&doc, label), None);
+    }
+
+    /// A `for` that misses does not fall back to a control inside the label.
+    #[test]
+    fn a_label_whose_for_misses_activates_nothing() {
+        let doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>(
+            r#"<input id="c"><div id="host"><template shadowrootmode="open"><label for="c">L <input type="checkbox"></label></template></div>"#,
+        );
+        let shadow = doc.shadow_root(doc.node_by_named_id("host").unwrap()).unwrap();
+        let label = doc.children(shadow)[0];
         assert_eq!(click_target(&doc, label), None);
     }
 }
