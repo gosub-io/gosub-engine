@@ -91,12 +91,23 @@ pub fn click_target<C: RenderConfiguration>(doc: &EngineDocument<C>, leaf: NodeI
     }
 }
 
+/// Labelable elements (HTML 4.10.2): the only ones a label's `for` can point at.
+fn is_labelable<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> bool {
+    match doc.tag_name(id) {
+        Some("input") => !doc
+            .attribute(id, "type")
+            .is_some_and(|t| t.eq_ignore_ascii_case("hidden")),
+        Some("button" | "meter" | "output" | "progress" | "select" | "textarea") => true,
+        _ => false,
+    }
+}
+
 /// The control a `<label>` activates: its `for` target, else the first descendant control.
 /// A `for` that matches nothing in the label's tree labels nothing (HTML 4.10.4).
 fn label_control<C: RenderConfiguration>(doc: &EngineDocument<C>, label: NodeId) -> Option<NodeId> {
     if let Some(f) = doc.attribute(label, "for") {
         let target = doc.node_by_named_id_in(doc.tree_root(label), f)?;
-        return (focusability(doc, target) != Focusability::No).then_some(target);
+        return (is_labelable(doc, target) && focusability(doc, target) != Focusability::No).then_some(target);
     }
     let mut stack: Vec<NodeId> = doc.children(label).iter().rev().copied().collect();
     while let Some(id) = stack.pop() {
@@ -272,6 +283,16 @@ mod tests {
     fn a_label_does_not_find_a_control_in_a_shadow_tree() {
         let doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>(
             r#"<label id="l" for="c">L</label><div><template shadowrootmode="open"><input id="c"></template></div>"#,
+        );
+        let label = doc.node_by_named_id("l").unwrap();
+        assert_eq!(click_target(&doc, label), None);
+    }
+
+    /// `for` pointing at a focusable element that is not labelable labels nothing.
+    #[test]
+    fn a_label_for_a_non_labelable_element_activates_nothing() {
+        let doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>(
+            r#"<label id="l" for="d">L</label><div id="d" tabindex="0"></div>"#,
         );
         let label = doc.node_by_named_id("l").unwrap();
         assert_eq!(click_target(&doc, label), None);
