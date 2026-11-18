@@ -13,6 +13,7 @@ use crate::node::{Node, NodeType};
 use crate::parser::block::BlockParseMode;
 use crate::tokenizer::TokenType;
 use crate::Css3;
+use compact_str::CompactString;
 use cow_utils::CowUtils;
 use gosub_shared::errors::{CssError, CssResult};
 
@@ -72,7 +73,7 @@ impl Css3<'_> {
                 children: vec![
                     Node::new(
                         NodeType::Ident {
-                            value: format!(":{name}"),
+                            value: compact_str::format_compact!(":{name}"),
                         },
                         loc,
                     ),
@@ -96,7 +97,7 @@ impl Css3<'_> {
         ))
     }
 
-    fn parse_at_rule_prelude(&mut self, name: String) -> CssResult<Option<Node>> {
+    fn parse_at_rule_prelude(&mut self, name: CompactString) -> CssResult<Option<Node>> {
         log::trace!("parse_at_rule_prelude");
 
         self.consume_whitespace_comments();
@@ -130,7 +131,7 @@ impl Css3<'_> {
         Ok(node)
     }
 
-    fn parse_at_rule_block(&mut self, name: String, is_declaration: bool) -> CssResult<Option<Node>> {
+    fn parse_at_rule_block(&mut self, name: CompactString, is_declaration: bool) -> CssResult<Option<Node>> {
         log::trace!("parse_at_rule_block");
 
         let t = self.tokenizer.consume();

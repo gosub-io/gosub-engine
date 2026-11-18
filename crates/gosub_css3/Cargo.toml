@@ -13,6 +13,7 @@ log = { workspace = true }
 parking_lot = { workspace = true }
 anyhow = { workspace = true, features = [] }
 colors-transform = "0.2.11"
+compact_str = "0.9.1"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 nom = { workspace = true }

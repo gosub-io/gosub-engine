@@ -373,7 +373,7 @@ fn convert_lang_ranges(arguments: Vec<CssNode>) -> CssResult<Vec<String>> {
     children
         .into_iter()
         .map(|child| match child.node_type {
-            NodeType::Ident { value } | NodeType::String { value } => Ok(value),
+            NodeType::Ident { value } | NodeType::String { value } => Ok(value.into()),
             _ => Err(CssError::new("invalid language range in :lang()")),
         })
         .collect()
@@ -439,8 +439,8 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut FlatSelectors) ->
     out.parts.reserve_exact(children.len() - commas);
     for node in children {
         let part = match node.node_type {
-            NodeType::Ident { value } => CssSelectorPart::Type(value),
-            NodeType::ClassSelector { value } => CssSelectorPart::Class(value),
+            NodeType::Ident { value } => CssSelectorPart::Type(value.into()),
+            NodeType::ClassSelector { value } => CssSelectorPart::Class(value.into()),
             NodeType::Combinator { value } => {
                 let combinator = match value.as_str() {
                     ">" => Combinator::Child,
@@ -454,7 +454,7 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut FlatSelectors) ->
 
                 CssSelectorPart::Combinator(combinator)
             }
-            NodeType::IdSelector { value } => CssSelectorPart::Id(value),
+            NodeType::IdSelector { value } => CssSelectorPart::Id(value.into()),
             NodeType::TypeSelector { value, .. } if value == "*" => CssSelectorPart::Universal,
             // CSS2 spelled the pseudo-*elements* with a single colon, and that is still
             // what most older stylesheets use (`.container:after` for the clearfix
@@ -508,10 +508,10 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut FlatSelectors) ->
                     Some(args) if value.eq_ignore_ascii_case("slotted") => {
                         CssSelectorPart::Slotted(convert_selector_list(vec![*args])?)
                     }
-                    _ => CssSelectorPart::PseudoElement(value),
+                    _ => CssSelectorPart::PseudoElement(value.into()),
                 }
             }
-            NodeType::TypeSelector { value, .. } => CssSelectorPart::Type(value),
+            NodeType::TypeSelector { value, .. } => CssSelectorPart::Type(value.into()),
             NodeType::AttributeSelector {
                 name,
                 value,
@@ -543,9 +543,9 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut FlatSelectors) ->
                 };
 
                 CssSelectorPart::Attribute(Box::new(AttributeSelector {
-                    name,
+                    name: name.into(),
                     matcher,
-                    value,
+                    value: value.into(),
                     case_insensitive: flags.eq_ignore_ascii_case("i"),
                 }))
             }
@@ -702,7 +702,7 @@ fn collect_rule(
             // stylesheet - the cascade and the CSSOM alike - sees the value they mean.
             let value = resolve_display_alias(&property, value);
 
-            let property: crate::stylesheet::PropertyName = property.into();
+            let property: crate::stylesheet::PropertyName = property.as_str().into();
             // A property with no definition is dropped by the expansion; said here, where the
             // line is known and every rule is seen, not only those an element uses.
             if !property.is_custom() && property.id().is_none() {
@@ -774,12 +774,12 @@ fn collect_import(prelude: &CssNode) -> Option<ImportRule> {
 
     for child in children {
         match &child.node_type {
-            NodeType::String { value } if url.is_none() => url = Some(value.clone()),
-            NodeType::Url { url: value } if url.is_none() => url = Some(value.clone()),
+            NodeType::String { value } if url.is_none() => url = Some(value.to_string()),
+            NodeType::Url { url: value } if url.is_none() => url = Some(value.to_string()),
             NodeType::Ident { value } if value.eq_ignore_ascii_case("layer") => layer = Some(None),
             NodeType::Function { name, arguments } if name.eq_ignore_ascii_case("layer") => {
                 let named = arguments.iter().find_map(|arg| match &arg.node_type {
-                    NodeType::Ident { value } => Some(value.clone()),
+                    NodeType::Ident { value } => Some(value.to_string()),
                     _ => None,
                 });
                 layer = Some(named);
@@ -807,7 +807,7 @@ fn layer_names(prelude: &CssNode) -> Vec<String> {
     layers
         .iter()
         .filter_map(|node| match &node.node_type {
-            NodeType::Ident { value } => Some(value.clone()),
+            NodeType::Ident { value } => Some(value.to_string()),
             _ => None,
         })
         .collect()
@@ -1080,7 +1080,7 @@ fn collect_property(prelude: Option<CssNode>, block: CssNode, media: Option<&Med
         return None;
     }
     Some(PropertyRule {
-        name: name.clone(),
+        name: name.to_string(),
         syntax,
         inherits: inherits?,
         initial,

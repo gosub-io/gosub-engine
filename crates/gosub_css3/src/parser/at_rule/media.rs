@@ -1,6 +1,7 @@
 use crate::node::{FeatureKind, Node, NodeType};
 use crate::tokenizer::TokenType;
 use crate::Css3;
+use compact_str::{CompactString, ToCompactString};
 use cow_utils::CowUtils;
 use gosub_shared::errors::{CssError, CssResult};
 
@@ -42,9 +43,12 @@ impl Css3<'_> {
             let la = self.tokenizer.lookahead(0);
             if la.is_delim('=') {
                 self.consume_any()?;
-                return Ok(Node::new(NodeType::operator(format!("{delim}=")), loc));
+                return Ok(Node::new(
+                    NodeType::operator(compact_str::format_compact!("{delim}=")),
+                    loc,
+                ));
             }
-            return Ok(Node::new(NodeType::operator(format!("{delim}")), loc));
+            return Ok(Node::new(NodeType::operator(delim.to_compact_string()), loc));
         }
 
         Err(CssError::with_location("Expected comparison operator", loc))
@@ -281,8 +285,8 @@ impl Css3<'_> {
 
         let loc = self.tokenizer.current_location();
 
-        let mut modifier = String::new();
-        let mut media_type = String::new();
+        let mut modifier = CompactString::default();
+        let mut media_type = CompactString::default();
         let mut condition = None;
 
         self.consume_whitespace_comments();

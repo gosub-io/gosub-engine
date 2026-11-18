@@ -1727,7 +1727,7 @@ impl CssValue {
     /// Converts a CSS AST node to a CSS value
     pub fn parse_ast_node(node: crate::node::Node) -> CssResult<CssValue> {
         match node.node_type {
-            crate::node::NodeType::Ident { value } => Ok(CssValue::String(value)),
+            crate::node::NodeType::Ident { value } => Ok(CssValue::String(value.into())),
             crate::node::NodeType::Number { value, kind } => {
                 if value == 0.0 {
                     // Zero is a special case since we need to do some pattern matching once in a while, and
@@ -1749,9 +1749,9 @@ impl CssValue {
             // spelling as written, so `width: 1PX` was rejected as an unknown unit.
             crate::node::NodeType::Dimension { value, mut unit } => {
                 unit.make_ascii_lowercase();
-                Ok(CssValue::Unit(value, unit))
+                Ok(CssValue::Unit(value, unit.into()))
             }
-            crate::node::NodeType::String { value } => Ok(CssValue::String(value)),
+            crate::node::NodeType::String { value } => Ok(CssValue::String(value.into())),
             crate::node::NodeType::Hash { mut value } => {
                 value.insert(0, '#');
                 Ok(CssValue::Color(RgbColor::from(value.as_str()).into()))
@@ -1759,7 +1759,7 @@ impl CssValue {
             // Keep the operator character (e.g. `/` in `16 / 9` or `font: 14px/1.5`)
             // as a string so it can match a `/` literal in a value grammar. Discarding
             // it (as `None`) makes `<ratio>` and other slash-delimited grammars unmatchable.
-            crate::node::NodeType::Operator { value, .. } => Ok(CssValue::Delim(value)),
+            crate::node::NodeType::Operator { value, .. } => Ok(CssValue::Delim(value.into())),
             // A `calc()` body is its arguments, and is simplified as far as it can be without
             // knowing the element: the arithmetic and the absolute lengths, which is why
             // `calc(1in + 1px)` is stored as `calc(97px)`. `em`, the viewport units and
@@ -1773,15 +1773,16 @@ impl CssValue {
                 }
                 Ok(reduce_function("calc".to_string(), body))
             }
-            crate::node::NodeType::Url { url } => {
-                Ok(CssValue::Function("url".to_string(), vec![CssValue::String(url)]))
-            }
+            crate::node::NodeType::Url { url } => Ok(CssValue::Function(
+                "url".to_string(),
+                vec![CssValue::String(url.into())],
+            )),
             crate::node::NodeType::Function { name, arguments } => {
                 let mut list = Vec::with_capacity(arguments.len());
                 for node in arguments {
                     list.push(CssValue::parse_ast_node(node)?);
                 }
-                Ok(reduce_function(name, list))
+                Ok(reduce_function(name.into(), list))
             }
 
             crate::node::NodeType::Comma => Ok(CssValue::Comma),

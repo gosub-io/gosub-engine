@@ -1,11 +1,12 @@
 use crate::node::{Node, NodeType};
 use crate::tokenizer::TokenType;
 use crate::Css3;
+use compact_str::CompactString;
 use gosub_shared::errors::CssError;
 use gosub_shared::errors::CssResult;
 
 impl Css3<'_> {
-    pub fn parse_property_name(&mut self) -> CssResult<String> {
+    pub fn parse_property_name(&mut self) -> CssResult<CompactString> {
         log::trace!("parse_property_name");
         let t = self.consume_any()?;
         match t.token_type {

@@ -1,3 +1,4 @@
+use compact_str::CompactString;
 use std::collections::VecDeque;
 use std::fmt;
 use std::fmt::Debug;
@@ -35,16 +36,16 @@ pub enum TokenType {
     /// A [`<at-keyword-token>`](<https://drafts.csswg.org/css-syntax/#at-keyword-token>-     diagram)
     ///
     /// The value does not include the `@` marker.
-    AtKeyword(String),
-    Ident(String),
-    Function(String),
+    AtKeyword(CompactString),
+    Ident(CompactString),
+    Function(CompactString),
     /// A `<unicode-range-token>`, stored as its raw textual form (e.g. `U+0000-00FF`, `U+4??`).
-    UnicodeRange(String),
-    Url(String),
-    BadUrl(String),
+    UnicodeRange(CompactString),
+    Url(CompactString),
+    BadUrl(CompactString),
     Dimension {
         value: Number,
-        unit: String,
+        unit: CompactString,
     },
     Percentage(Number),
     /// A [`<number-token>`](https://drafts.csswg.org/css-syntax/#number-token-diagram), with
@@ -53,11 +54,11 @@ pub enum TokenType {
     /// A [`<string-token>`](https://drafts.csswg.org/css-syntax/#string-token-diagram)
     ///
     /// The value does not include the quotes.
-    QuotedString(String),
+    QuotedString(CompactString),
     /// A `<bad-string-token>`
     ///
     /// This token always indicates a parse error.
-    BadString(String),
+    BadString(CompactString),
     /// A [`<whitespace-token>`](https://drafts.csswg.org/css-syntax/#whitespace-token-diagram)
     ///
     /// The token has no value; the first character of the run is kept for `Debug` and tests.
@@ -65,7 +66,7 @@ pub enum TokenType {
     /// A [`<hash-token>`](https://drafts.csswg.org/css-syntax/#hash-token-diagram) (with the type flag set to "unrestricted")
     ///
     /// The value does not include the `#` marker.
-    Hash(String),
+    Hash(CompactString),
     /// A `<delim-token>`
     Delim(char),
     /// A `<{-token>`
@@ -93,7 +94,7 @@ pub enum TokenType {
     /// A `<EOF-token>`
     Eof,
     /// A comment
-    Comment(String),
+    Comment(CompactString),
 }
 
 #[derive(Clone, PartialEq)]
@@ -129,11 +130,11 @@ impl Token {
         Token::new(TokenType::Delim(c), location)
     }
 
-    fn new_hash(value: impl Into<String>, location: Location) -> Token {
+    fn new_hash(value: impl Into<CompactString>, location: Location) -> Token {
         Token::new(TokenType::Hash(value.into()), location)
     }
 
-    fn new_atkeyword(keyword: impl Into<String>, location: Location) -> Token {
+    fn new_atkeyword(keyword: impl Into<CompactString>, location: Location) -> Token {
         Token::new(TokenType::AtKeyword(keyword.into()), location)
     }
 
@@ -152,7 +153,7 @@ impl Token {
         Token::new(TokenType::Percentage(value), location)
     }
 
-    fn new_dimension(value: Number, unit: impl Into<String>, location: Location) -> Token {
+    fn new_dimension(value: Number, unit: impl Into<CompactString>, location: Location) -> Token {
         Token::new(
             TokenType::Dimension {
                 value,
@@ -162,27 +163,27 @@ impl Token {
         )
     }
 
-    fn new_ident(value: impl Into<String>, location: Location) -> Token {
+    fn new_ident(value: impl Into<CompactString>, location: Location) -> Token {
         Token::new(TokenType::Ident(value.into()), location)
     }
 
-    fn new_function(value: impl Into<String>, location: Location) -> Token {
+    fn new_function(value: impl Into<CompactString>, location: Location) -> Token {
         Token::new(TokenType::Function(value.into()), location)
     }
 
-    fn new_quoted_string(value: impl Into<String>, location: Location) -> Token {
+    fn new_quoted_string(value: impl Into<CompactString>, location: Location) -> Token {
         Token::new(TokenType::QuotedString(value.into()), location)
     }
 
-    fn new_bad_string(value: impl Into<String>, location: Location) -> Token {
+    fn new_bad_string(value: impl Into<CompactString>, location: Location) -> Token {
         Token::new(TokenType::BadString(value.into()), location)
     }
 
-    fn new_url(value: impl Into<String>, location: Location) -> Token {
+    fn new_url(value: impl Into<CompactString>, location: Location) -> Token {
         Token::new(TokenType::Url(value.into()), location)
     }
 
-    fn new_bad_url(value: impl Into<String>, location: Location) -> Token {
+    fn new_bad_url(value: impl Into<CompactString>, location: Location) -> Token {
         Token::new(TokenType::BadUrl(value.into()), location)
     }
 }
@@ -228,8 +229,8 @@ impl fmt::Display for Token {
             | TokenType::Ident(val)
             | TokenType::Function(val)
             | TokenType::QuotedString(val)
-            | TokenType::BadString(val) => val,
-            TokenType::UnicodeRange(val) => val,
+            | TokenType::BadString(val)
+            | TokenType::UnicodeRange(val) => val.into_string(),
             TokenType::Delim(val) => val.to_string(),
             TokenType::Number(val, _) => val.to_string(),
             TokenType::Percentage(val) => format!("{val}%"),
@@ -509,21 +510,22 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// 4.3.2. [Consume comments](https://www.w3.org/TR/css-syntax-3/#consume-comment)
-    fn consume_comment(&mut self) -> String {
-        let mut comment = String::new();
+    ///
+    /// The text is skipped, not kept: a comment produces no token.
+    fn consume_comment(&mut self) {
         if self.look_ahead_eq("/*") {
             // consume '/*'
-            comment.push_str(&self.consume_chars(2));
+            self.next_char();
+            self.next_char();
 
             while !self.look_ahead_eq("*/") && !self.stream.eof() {
-                comment.push(self.next_char().into());
+                self.next_char();
             }
 
             // consume '*/'
-            comment.push_str(&self.consume_chars(2));
+            self.next_char();
+            self.next_char();
         }
-
-        comment
     }
 
     /// 4.3.3. [Consume a numeric token]()
@@ -561,7 +563,7 @@ impl<'stream> Tokenizer<'stream> {
     fn consume_unicode_range_token(&mut self) -> Token {
         let loc = self.current_location();
 
-        let mut value = String::new();
+        let mut value = CompactString::default();
         // Consume the `u`/`U` and the `+`.
         value.push(self.next_char().into());
         value.push(self.next_char().into());
@@ -610,9 +612,18 @@ impl<'stream> Tokenizer<'stream> {
 
         // consume string starting: (') or (") ...
         let ending = self.next_char();
-        let mut value = String::new();
+        // The bulk scan stops at non-ASCII anyway, so a non-ASCII terminator needs no byte.
+        let quote = match ending {
+            Ch(c) if c.is_ascii() => c as u8,
+            _ => 0,
+        };
+        let mut value = CompactString::default();
 
         loop {
+            // Most of a string is plain ASCII; take that in one go and leave the rest to the
+            // checks below.
+            value.push_str(self.stream.scan_ascii_while(|b| b != quote && b != b'\\' && b != b'\n'));
+
             // if eof => parser error => return the current string
             if self.current_char() == ending || self.stream.eof() {
                 // consume string ending
@@ -660,7 +671,7 @@ impl<'stream> Tokenizer<'stream> {
     ///
     /// Note: for the sake of simplicity, we exclude the number type mentioned in the algorithm.
     fn consume_number(&mut self) -> (Number, NumberKind) {
-        let mut value = String::new();
+        let mut value = CompactString::default();
         let mut kind = NumberKind::Integer;
         let lookahead = self.current_char();
 
@@ -726,7 +737,7 @@ impl<'stream> Tokenizer<'stream> {
     ///
     /// Returns either a `<url-token>` or a `<bad-url-token>`
     fn consume_url(&mut self) -> Token {
-        let mut url = String::new();
+        let mut url = CompactString::default();
 
         let loc = self.current_location();
 
@@ -790,7 +801,7 @@ impl<'stream> Tokenizer<'stream> {
         // consume '\'
         self.next_char();
 
-        let mut value = String::new();
+        let mut value = CompactString::default();
 
         let default_char = get_unicode_char(&UnicodeChar::ReplacementCharacter);
         // eof: parser error
@@ -833,19 +844,19 @@ impl<'stream> Tokenizer<'stream> {
     /// ensure the returned code points would constitute an <ident-token>.
     /// Caller should ensure that the stream starts with an ident sequence before calling this
     /// algorithm.
-    fn consume_ident(&mut self) -> String {
+    fn consume_ident(&mut self) -> CompactString {
         // Idents are the most common token in real-world CSS. Bulk-consume the plain
         // ASCII run straight off the stream (matches `is_ident_char` for ASCII), then
         // fall back to per-character handling for escapes and non-ASCII ident chars,
         // resuming the bulk scan after each one.
-        let mut value = String::new();
+        let mut value = CompactString::default();
 
         loop {
             let run = self
                 .stream
                 .scan_ascii_while(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
             if value.is_empty() {
-                value = run.to_string();
+                value = CompactString::from(run);
             } else {
                 value.push_str(run);
             }
@@ -882,8 +893,8 @@ impl<'stream> Tokenizer<'stream> {
         value
     }
 
-    fn consume_digits(&mut self) -> String {
-        let mut value = self.stream.scan_ascii_while(|b| b.is_ascii_digit()).to_string();
+    fn consume_digits(&mut self) -> CompactString {
+        let mut value = CompactString::from(self.stream.scan_ascii_while(|b| b.is_ascii_digit()));
 
         // The per-char path also accepted non-ASCII numerics (char::is_numeric); keep that.
         while matches!(self.current_char(), Ch(c) if c.is_numeric()) {
@@ -894,8 +905,8 @@ impl<'stream> Tokenizer<'stream> {
         value
     }
 
-    fn consume_chars(&mut self, mut len: usize) -> String {
-        let mut value = String::with_capacity(len);
+    fn consume_chars(&mut self, mut len: usize) -> CompactString {
+        let mut value = CompactString::with_capacity(len);
 
         while len > 0 {
             value.push(self.next_char().into());
@@ -1228,6 +1239,11 @@ mod test {
             ("#hash#", Token::new_quoted_string("hash", Location::default())),
             ("\"eof", Token::new_quoted_string("eof", Location::default())),
             ("\"\"", Token::new_quoted_string("", Location::default())),
+            // Out of the plain run for each escape, back into it after.
+            (
+                "'it\\'s \\62 ig\\\nger'",
+                Token::new_quoted_string("it's bigger", Location::default()),
+            ),
         ];
 
         for (raw_string, string_token) in string_tokens {

@@ -1,6 +1,7 @@
 use crate::node::{Node, NodeType};
 use crate::tokenizer::TokenType;
 use crate::Css3;
+use compact_str::{CompactString, ToCompactString};
 use gosub_shared::errors::{CssError, CssResult};
 
 impl Css3<'_> {
@@ -77,7 +78,7 @@ impl Css3<'_> {
                 // rather than as `calc( )` - the serialization suites check the difference.
                 // Grouping then survives as structure and needs no parenthesis token of its own.
                 TokenType::LParen => NodeType::Function {
-                    name: String::new(),
+                    name: CompactString::default(),
                     arguments: self.recurse(Self::parse_calc_tokens)?,
                 },
                 TokenType::Number(value, kind) => NodeType::Number { value, kind },
@@ -88,7 +89,7 @@ impl Css3<'_> {
                 TokenType::Ident(value) => NodeType::Ident { value },
                 TokenType::Comma => NodeType::Comma,
                 TokenType::Delim(c @ ('+' | '-' | '*' | '/')) => NodeType::Operator {
-                    value: c.to_string(),
+                    value: c.to_compact_string(),
                     space_before: space,
                     space_after: false,
                 },
