@@ -67,10 +67,11 @@ struct FocusState {
 
 impl<C: HasDocument> PartialEq for DocumentImpl<C> {
     /// Compare document content and serialization metadata, including the scripting state.
+    /// The id index is left out: it follows the arena, and its holder order depends on the order
+    /// ids were set in.
     fn eq(&self, other: &Self) -> bool {
         self.url == other.url
             && self.arena == other.arena
-            && self.named_id_elements == other.named_id_elements
             && self.doctype == other.doctype
             && self.quirks_mode == other.quirks_mode
             && self.scripting_enabled == other.scripting_enabled
@@ -1359,6 +1360,23 @@ mod tests {
         let b = element_with_id(&mut doc, "div", root, Some(" padded "));
         assert_eq!(doc.node_by_named_id(" padded "), Some(b));
         assert_eq!(doc.node_by_named_id("padded"), None, "no trimming");
+    }
+
+    #[test]
+    fn setting_an_id_again_keeps_documents_equal() {
+        let build = || {
+            let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+            let root = doc.root();
+            let a = element_with_id(&mut doc, "div", root, Some("shared"));
+            element_with_id(&mut doc, "div", root, Some("shared"));
+            (doc, a)
+        };
+        let (mut one, a) = build();
+        let (other, _) = build();
+
+        set_id(&mut one, a, Some("shared"));
+        assert_eq!(one.node_by_named_id("shared"), Some(a));
+        assert_eq!(one, other);
     }
 
     #[test]
