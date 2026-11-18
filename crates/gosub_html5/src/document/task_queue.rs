@@ -113,7 +113,7 @@ impl DocumentTaskQueue {
                         errors.push(format!("ID attribute value '{value}' did not pass validation"));
                     }
 
-                    if let Some(existing_id) = doc.node_by_named_id(value) {
+                    if let Some(existing_id) = doc.node_by_named_id(value).filter(|_| key == "id") {
                         if existing_id != *element_id {
                             errors.push(format!("ID attribute value '{value}' already exists in DOM"));
                             continue;
@@ -242,5 +242,20 @@ mod tests {
 
         assert_eq!(errors.len(), 1, "whitespace in an id is still an authoring error");
         assert_eq!(doc.node_by_named_id("a b"), Some(div));
+    }
+
+    #[test]
+    fn only_an_id_is_checked_against_existing_ids() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let mut queue = DocumentTaskQueue::new::<Config>(&doc);
+
+        let a = queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let b = queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        queue.insert_attribute("id", "foo", a, Location::default()).unwrap();
+        queue.insert_attribute("class", "foo", b, Location::default()).unwrap();
+        let errors = queue.flush::<Config>(&mut doc);
+
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(doc.attribute(b, "class"), Some("foo"));
     }
 }
