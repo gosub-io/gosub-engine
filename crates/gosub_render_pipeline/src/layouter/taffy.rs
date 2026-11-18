@@ -381,6 +381,7 @@ pub struct TaffyLayouter {
     /// rebased from their CSS containing block onto the parent taffy measures from. Empty on the
     /// first pass - a box's containing block is only known once the page has been laid out - and
     /// replayed on the second so taffy sizes those boxes itself. See [`RebasedInsets`].
+    /// After a layout it holds what is baked into the taffy tree, which `relayout` compares against.
     abspos_insets: HashMap<DomNodeId, RebasedInsets>,
     /// Items pushed down to share their line's baseline: the item's own CSS `margin-top`, and
     /// the shift added to it. Kept with the taffy tree, so a relayout of the same tree starts
@@ -663,7 +664,7 @@ impl CanLayout for TaffyLayouter {
         }
         layout_tree = final_tree;
         self.float_insets.clear();
-        self.abspos_insets.clear();
+        // `abspos_insets` stays: it is what the tree was built with, for `relayout` to check.
         translate_and_measure(&mut layout_tree);
         self.settle_flattened_inlines(&mut layout_tree);
         self.attach_select_popup(&mut layout_tree);
@@ -762,16 +763,20 @@ impl TaffyLayouter {
     /// intrinsic sizes - which in practice means a viewport resize. Everything taffy needs is
     /// already in the tree, so this skips the ~half of layout that goes into building it.
     /// See `BrowsingContext`'s `DamageLevel::Geometry`.
-    /// Floats and absolutely positioned boxes are re-placed against the new geometry, but the
-    /// two-pass feedback is discarded: this path deliberately does not rebuild the taffy tree, so
-    /// the rebased insets and float line-boxes baked into it on the last full layout are reused.
-    /// A change that invalidates those needs a full rebuild, which is what `DamageLevel::Layout`
-    /// and above ask for.
+    /// Floats and absolutely positioned boxes are re-placed against the new geometry. The float
+    /// line-boxes baked into the tree on the last full layout are reused. The rebased insets and
+    /// sizes of absolutely positioned boxes are checked: they are lengths taken of a containing
+    /// block, so when the new viewport resizes one the tree is built again with a full layout.
     pub fn relayout(&mut self, layout_tree: &mut LayoutTree, viewport: Option<geo::Dimension>) {
         // Line items' percentage heights can rest on the viewport's height, through a chain of
         // percentage heights up to the root: resolved again for the new one.
         self.resolve_line_percent_heights(viewport);
-        let _ = self.compute_and_populate(layout_tree, viewport);
+        let (_, stretched) = self.compute_and_populate(layout_tree, viewport);
+        if stretched != self.abspos_insets {
+            let render_tree = layout_tree.render_tree.clone();
+            *layout_tree = self.layout(render_tree, viewport, 1.0);
+            return;
+        }
         translate_and_measure(layout_tree);
         self.settle_flattened_inlines(layout_tree);
     }

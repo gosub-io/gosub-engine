@@ -5335,6 +5335,61 @@ mod rendertree_from_engine {
         );
     }
 
+    /// An absolutely positioned box whose percentage width was rebased onto its containing block
+    /// follows a resize that only recomputes geometry (`relayout`): the rebased length is of the
+    /// old width, so the tree has to be built again. In a line and below a static block alike.
+    #[test]
+    fn a_rebased_abspos_width_follows_a_relayout() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout as _;
+
+        let html = r#"<html><body style="margin: 0">
+          <div style="position: relative; padding: 0 20px">Foo <b>x</b>
+            <span id="line" style="position: absolute; top: 0; left: 0; height: 10px; width: 100%"></span>
+          </div>
+          <div style="position: relative; padding: 0 20px"><div>
+            <div id="block" style="position: absolute; top: 0; left: 0; height: 10px; width: 100%"></div>
+          </div></div>
+        </body></html>"#;
+        let rt = parse_to_rendertree(html);
+        let doc = rt.doc.clone();
+        let mut layouter = TaffyLayouter::new();
+        let mut tree = layouter.layout(
+            rt,
+            Some(Dimension {
+                width: 800.0,
+                height: 600.0,
+            }),
+            1.0,
+        );
+        let width = |tree: &crate::layouter::LayoutTree, id: &str| {
+            tree.arena
+                .values()
+                .find(|el| {
+                    doc.get_node_by_id(el.dom_node_id).is_some_and(|n| match n.node_type {
+                        crate::common::document::node::NodeType::Element(ref d) => {
+                            d.attributes.get("id").is_some_and(|v| v == id)
+                        }
+                        _ => false,
+                    })
+                })
+                .expect("in the layout tree")
+                .box_model
+                .border_box
+                .width
+        };
+        assert_eq!((width(&tree, "line"), width(&tree, "block")), (800.0, 800.0));
+        layouter.relayout(
+            &mut tree,
+            Some(Dimension {
+                width: 900.0,
+                height: 600.0,
+            }),
+        );
+        assert_eq!((width(&tree, "line"), width(&tree, "block")), (900.0, 900.0));
+    }
+
     /// A percentage height on an inline-level box resolves against the block it sits in, through
     /// the anonymous line box the layouter puts around it. Taken from WPT
     /// `max-height-applies-to-017` and `intrinsic-percent-replaced-021`, which an inline-block
