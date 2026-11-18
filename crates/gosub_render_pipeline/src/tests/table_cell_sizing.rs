@@ -66,3 +66,20 @@ fn hidden_label_button_in_a_percentage_cell_keeps_its_width() {
     assert_eq!(cell.x + cell.width, 630.0, "cell {cell:?}");
     assert_eq!(button.x, cell.x, "button {button:?} cell {cell:?}");
 }
+
+/// Captions are measured through the same re-layout as cells, but their own width is not
+/// lattice's to settle: a block child of a `width: 40px` caption is 40px wide.
+#[test]
+fn caption_width_still_limits_its_content() {
+    let (layers, [child]) = lay_out(
+        r#"<html><body style="margin: 0">
+          <table style="width: 200px; border-spacing: 0">
+            <caption style="width: 40px; padding: 0"><div id="d" style="width: 100%; height: 10px"></div></caption>
+            <tr><td style="padding: 0">x</td></tr>
+          </table>
+        </body></html>"#,
+        ["d"],
+    );
+    let child = border_box(&layers, child);
+    assert_eq!(child.width, 40.0, "child {child:?}");
+}
