@@ -28,11 +28,12 @@ use gosub_shared::types::ParseError;
 pub struct DocumentImpl<C: HasDocument> {
     pub url: Option<Url>,
     pub(crate) arena: NodeArena,
-    /// Elements in the document tree by `id`, every holder of a duplicate id included.
-    named_id_elements: HashMap<String, Vec<NodeId>>,
-    /// Reverse index of `named_id_elements`: the id each node is registered under.
+    /// Elements by `id`, per tree: keyed by the tree's root, the document or a shadow root.
+    /// Every holder of a duplicate id is included.
+    named_id_elements: HashMap<NodeId, HashMap<String, Vec<NodeId>>>,
+    /// Reverse index of `named_id_elements`: the tree and id each node is registered under.
     /// Kept in sync so unregistering a node does not require scanning the whole map.
-    named_ids_by_node: HashMap<NodeId, String>,
+    named_ids_by_node: HashMap<NodeId, (NodeId, String)>,
     pub doctype: DocumentType,
     pub quirks_mode: QuirksMode,
     /// The parser's scripting flag determines whether `noscript` text is serialized literally.
@@ -247,7 +248,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             }
         }
         if name == "id" {
-            self.refresh_named_id(id, None);
+            self.refresh_named_id(id);
         }
     }
 
@@ -258,7 +259,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             }
         }
         if name == "id" {
-            self.refresh_named_id(id, None);
+            self.refresh_named_id(id);
         }
     }
 
@@ -443,7 +444,15 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn node_by_named_id(&self, name_id: &str) -> Option<NodeId> {
-        self.first_named_id_holder(name_id)
+        self.first_named_id_holder(NodeId::root(), name_id)
+    }
+
+    fn tree_root(&self, id: NodeId) -> NodeId {
+        self.tree_root_of(id)
+    }
+
+    fn node_by_named_id_in(&self, root: NodeId, name_id: &str) -> Option<NodeId> {
+        self.first_named_id_holder(root, name_id)
     }
 
     fn node_count(&self) -> usize {
@@ -695,74 +704,90 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         }
     }
 
-    /// Whether `node_id` is in the document tree, i.e. its ancestors lead up to the document.
-    /// A shadow root has no parent, so nothing inside a shadow tree is.
-    fn is_in_document(&self, node_id: NodeId) -> bool {
+    /// The root of the tree `node_id` is in: follow parents until there are none. A shadow root
+    /// has no parent, so for a node inside a shadow tree that is the shadow root.
+    fn tree_root_of(&self, node_id: NodeId) -> NodeId {
         let mut current = node_id;
-        loop {
-            if current == NodeId::root() {
-                return true;
-            }
-            match self.arena.node_ref(current).and_then(NodeImpl::parent_id) {
-                Some(parent) => current = parent,
-                None => return false,
-            }
+        while let Some(parent) = self.arena.node_ref(current).and_then(NodeImpl::parent_id) {
+            current = parent;
         }
+        current
     }
 
-    /// Bring the named ids of `node_id` and everything below it in line with the tree.
-    /// `in_document` overrides the ancestor walk for callers that already know.
-    fn refresh_named_ids(&mut self, node_id: NodeId, in_document: Option<bool>) {
-        let has_children = self.arena.node_ref(node_id).is_some_and(|n| !n.children.is_empty());
-        if !has_children {
-            self.refresh_named_id(node_id, in_document);
-            return;
-        }
-        let in_document = in_document.unwrap_or_else(|| self.is_in_document(node_id));
+    /// Whether the tree rooted at `root` keeps its ids in the registry: the document tree and
+    /// shadow trees do, detached subtrees and template contents do not.
+    fn has_id_registry(&self, root: NodeId) -> bool {
+        root == NodeId::root()
+            || self
+                .arena
+                .node_ref(root)
+                .is_some_and(|n| n.get_shadow_root_data().is_some())
+    }
+
+    /// The registry `node_id`'s id belongs in: the root of its tree, if that tree has one.
+    fn registry_of(&self, node_id: NodeId) -> Option<NodeId> {
+        let root = self.tree_root_of(node_id);
+        self.has_id_registry(root).then_some(root)
+    }
+
+    /// Register `node_id` and everything below it in `registry`, or drop them when it is `None`.
+    /// Shadow trees below it are not walked: they keep their own registry.
+    fn refresh_named_ids(&mut self, node_id: NodeId, registry: Option<NodeId>) {
         let mut stack = vec![node_id];
         while let Some(id) = stack.pop() {
             if let Some(node) = self.arena.node_ref(id) {
                 stack.extend_from_slice(&node.children);
             }
-            self.refresh_named_id(id, Some(in_document));
+            self.register_named_id(id, registry);
         }
     }
 
-    /// Register `node_id` under its `id` attribute when it is in the document tree, and drop
-    /// it otherwise.
-    fn refresh_named_id(&mut self, node_id: NodeId, in_document: Option<bool>) {
+    /// Bring `node_id`'s registration in line with its `id` attribute, after that changed.
+    fn refresh_named_id(&mut self, node_id: NodeId) {
+        let has_id = self
+            .arena
+            .node_ref(node_id)
+            .and_then(NodeImpl::get_element_data)
+            .is_some_and(|data| data.attributes.contains_key("id"));
+        if !has_id && !self.named_ids_by_node.contains_key(&node_id) {
+            return;
+        }
+        let registry = self.registry_of(node_id);
+        self.register_named_id(node_id, registry);
+    }
+
+    /// Register `node_id` under its `id` attribute in `registry`, dropping whatever it was
+    /// registered under before. No registry, or an absent or invalid value, just unregisters.
+    fn register_named_id(&mut self, node_id: NodeId, registry: Option<NodeId>) {
         let Some(data) = self.arena.node_ref(node_id).and_then(NodeImpl::get_element_data) else {
             return;
         };
-        let id_attr = data.attributes.get("id");
-        if id_attr.is_none() && !self.named_ids_by_node.contains_key(&node_id) {
-            return;
-        }
-        let id_attr = id_attr
-            .filter(|_| in_document.unwrap_or_else(|| self.is_in_document(node_id)))
+        let id_value = data
+            .attributes
+            .get("id")
+            .filter(|v| is_valid_id_attribute_value(v))
             .cloned();
-        self.register_named_id(node_id, id_attr.as_deref());
-    }
-
-    /// Point `node_id` at `id_attr`, dropping whatever it was registered under before. An absent
-    /// or invalid value just unregisters.
-    fn register_named_id(&mut self, node_id: NodeId, id_attr: Option<&str>) {
         self.unregister_named_id(node_id);
-        let Some(id_value) = id_attr.filter(|v| is_valid_id_attribute_value(v)) else {
+        let (Some(registry), Some(id_value)) = (registry, id_value) else {
             return;
         };
         self.named_id_elements
-            .entry(id_value.to_string())
+            .entry(registry)
+            .or_default()
+            .entry(id_value.clone())
             .or_default()
             .push(node_id);
-        self.named_ids_by_node.insert(node_id, id_value.to_string());
+        self.named_ids_by_node.insert(node_id, (registry, id_value));
     }
 
     fn unregister_named_id(&mut self, node_id: NodeId) {
-        let Some(id_value) = self.named_ids_by_node.remove(&node_id) else {
+        let Some((registry, id_value)) = self.named_ids_by_node.remove(&node_id) else {
             return;
         };
-        if let Entry::Occupied(mut e) = self.named_id_elements.entry(id_value) {
+        let Some(ids) = self.named_id_elements.get_mut(&registry) else {
+            return;
+        };
+        if let Entry::Occupied(mut e) = ids.entry(id_value) {
             // From the end: a detached subtree unregisters its last-registered nodes first.
             if let Some(pos) = e.get().iter().rposition(|&n| n == node_id) {
                 e.get_mut().remove(pos);
@@ -771,31 +796,36 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                 e.remove();
             }
         }
+        if ids.is_empty() {
+            self.named_id_elements.remove(&registry);
+        }
     }
 
-    /// The first element in tree order with `id` `name_id`.
-    fn first_named_id_holder(&self, name_id: &str) -> Option<NodeId> {
-        match self.named_id_elements.get(name_id)?.as_slice() {
-            [only] => Some(*only),
-            // Duplicates: walk the document tree in order and stop at the first holder.
-            _ => {
-                let mut stack = vec![NodeId::root()];
-                while let Some(id) = stack.pop() {
-                    let Some(node) = self.arena.node_ref(id) else {
-                        continue;
-                    };
-                    let holds = node
-                        .get_element_data()
-                        .and_then(|data| data.attributes.get("id"))
-                        .is_some_and(|v| v == name_id);
-                    if holds {
-                        return Some(id);
-                    }
-                    stack.extend(node.children.iter().rev());
-                }
-                None
+    /// The first element in tree order with `id` `name_id`, in the tree below `root`.
+    fn first_named_id_holder(&self, root: NodeId, name_id: &str) -> Option<NodeId> {
+        if self.has_id_registry(root) {
+            if let [only] = self.named_id_elements.get(&root)?.get(name_id)?.as_slice() {
+                return Some(*only);
             }
+        } else if !is_valid_id_attribute_value(name_id) {
+            return None;
         }
+        // Duplicates, or a tree without a registry: walk it in order and stop at the first holder.
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            let Some(node) = self.arena.node_ref(id) else {
+                continue;
+            };
+            let holds = node
+                .get_element_data()
+                .and_then(|data| data.attributes.get("id"))
+                .is_some_and(|v| v == name_id);
+            if holds {
+                return Some(id);
+            }
+            stack.extend(node.children.iter().rev());
+        }
+        None
     }
 
     /// Fetch a node reference by id (internal - not in the Document trait)
@@ -809,7 +839,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
 
     /// Look up a node by its `id` attribute value, returning the node reference directly
     pub fn get_node_by_named_id(&self, name_id: &str) -> Option<&NodeImpl> {
-        self.node_by_id(self.first_named_id_holder(name_id)?)
+        self.node_by_id(self.first_named_id_holder(NodeId::root(), name_id)?)
     }
 
     /// Returns the root node reference, which every document built through
@@ -865,7 +895,8 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             return;
         };
         node.parent = Some(parent_id);
-        self.refresh_named_ids(node_id, None);
+        let registry = self.registry_of(node_id);
+        self.refresh_named_ids(node_id, registry);
     }
 
     /// Whether a generic tree mutation must leave `node` alone because it is a shadow root.
@@ -914,7 +945,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
 
             if let Some(node) = self.arena.node_ref_mut(node_id) {
                 node.set_parent(None);
-                self.refresh_named_ids(node_id, Some(false));
+                self.refresh_named_ids(node_id, None);
             }
         }
     }
@@ -940,7 +971,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         }
         let node_id = node.id();
         self.arena.update_node(node);
-        self.refresh_named_id(node_id, None);
+        self.refresh_named_id(node_id);
     }
 
     pub fn update_node_ref(&mut self, node: &NodeImpl) {
@@ -949,7 +980,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             return;
         }
         self.arena.update_node(node.clone());
-        self.refresh_named_id(node.id(), None);
+        self.refresh_named_id(node.id());
     }
 
     pub fn delete_node_by_id(&mut self, node_id: NodeId) {
@@ -970,6 +1001,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         // has no parent and appears in no `children` list - so leaving it behind would strand a
         // node whose only remaining reference points at a deleted host.
         if let Some(root) = self.shadow_root(node_id) {
+            self.refresh_named_ids(root, None);
             self.arena.delete_node(root);
         }
         let Some(parent) = self.arena.node_ref(node_id).map(NodeImpl::parent_id) else {
@@ -982,7 +1014,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         }
         // The node and everything below it leave the document tree, so `getElementById` must
         // stop finding them. The arena only drops this one slot.
-        self.refresh_named_ids(node_id, Some(false));
+        self.refresh_named_ids(node_id, None);
         self.clear_interaction_state(node_id);
         self.arena.delete_node(node_id);
     }
@@ -1494,5 +1526,113 @@ mod tests {
         element_with_id(&mut doc, "span", outer, Some("nest"));
         doc.set_attribute(outer, "id", "nest");
         assert_eq!(doc.node_by_named_id("nest"), Some(outer));
+    }
+
+    fn shadow_root_of(doc: &mut DocumentImpl<Config>, host: NodeId) -> NodeId {
+        doc.attach_shadow_root(host, ShadowRootInit::new(ShadowRootMode::Open), Location::default())
+            .expect("div can host a shadow root")
+    }
+
+    #[test]
+    fn ids_resolve_in_their_own_tree() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let outer = element_with_id(&mut doc, "div", root, Some("x"));
+        let host = element_with_id(&mut doc, "div", root, Some("host"));
+        let shadow = shadow_root_of(&mut doc, host);
+        let inner = element_with_id(&mut doc, "span", shadow, Some("x"));
+
+        assert_eq!(doc.tree_root(outer), root);
+        assert_eq!(doc.tree_root(inner), shadow);
+        assert_eq!(doc.node_by_named_id_in(root, "x"), Some(outer));
+        assert_eq!(doc.node_by_named_id_in(shadow, "x"), Some(inner));
+        assert_eq!(
+            doc.node_by_named_id_in(shadow, "host"),
+            None,
+            "the document's ids stay out"
+        );
+
+        doc.set_attribute(inner, "id", "y");
+        assert_eq!(doc.node_by_named_id_in(shadow, "x"), None);
+        assert_eq!(doc.node_by_named_id_in(shadow, "y"), Some(inner));
+        assert_eq!(doc.node_by_named_id("y"), None);
+    }
+
+    #[test]
+    fn a_nested_shadow_tree_has_its_own_ids() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let host = element_with_id(&mut doc, "div", root, None);
+        let outer = shadow_root_of(&mut doc, host);
+        let inner_host = element_with_id(&mut doc, "div", outer, Some("a"));
+        let inner = shadow_root_of(&mut doc, inner_host);
+        let b = element_with_id(&mut doc, "span", inner, Some("b"));
+
+        assert_eq!(doc.node_by_named_id_in(outer, "a"), Some(inner_host));
+        assert_eq!(doc.node_by_named_id_in(outer, "b"), None);
+        assert_eq!(doc.node_by_named_id_in(inner, "b"), Some(b));
+        assert_eq!(doc.node_by_named_id_in(inner, "a"), None);
+    }
+
+    #[test]
+    fn moving_a_host_keeps_its_shadow_ids() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let host = element_with_id(&mut doc, "div", root, None);
+        let shadow = shadow_root_of(&mut doc, host);
+        let inner = element_with_id(&mut doc, "span", shadow, Some("x"));
+
+        doc.detach_node(host);
+        assert_eq!(doc.node_by_named_id_in(shadow, "x"), Some(inner));
+        doc.attach_node(host, root, None);
+        assert_eq!(doc.node_by_named_id_in(shadow, "x"), Some(inner));
+    }
+
+    #[test]
+    fn a_shadow_tree_moved_out_and_back_is_registered_again() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let host = element_with_id(&mut doc, "div", root, None);
+        let shadow = shadow_root_of(&mut doc, host);
+        let parent = element_with_id(&mut doc, "div", shadow, None);
+        let child = element_with_id(&mut doc, "span", parent, Some("c"));
+
+        doc.detach_node(parent);
+        assert_eq!(doc.node_by_named_id_in(shadow, "c"), None);
+        doc.attach_node(parent, root, None);
+        assert_eq!(doc.node_by_named_id("c"), Some(child), "now in the document tree");
+        doc.detach_node(parent);
+        doc.attach_node(parent, shadow, None);
+        assert_eq!(doc.node_by_named_id_in(shadow, "c"), Some(child));
+        assert_eq!(doc.node_by_named_id("c"), None);
+    }
+
+    #[test]
+    fn deleting_the_host_drops_its_shadow_ids() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let host = element_with_id(&mut doc, "div", root, None);
+        let shadow = shadow_root_of(&mut doc, host);
+        let inner = element_with_id(&mut doc, "span", shadow, Some("x"));
+
+        doc.delete_node_by_id(host);
+        assert!(!doc.named_id_elements.contains_key(&shadow));
+        assert!(!doc.named_ids_by_node.contains_key(&inner));
+    }
+
+    #[test]
+    fn a_detached_subtree_is_searched_in_place() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let top = detached_element(&mut doc, "div", Some("top"));
+        let first = detached_element(&mut doc, "span", Some("dup"));
+        let second = detached_element(&mut doc, "span", Some("dup"));
+        doc.attach_node(first, top, None);
+        doc.attach_node(second, top, None);
+
+        assert_eq!(doc.tree_root(second), top);
+        assert_eq!(doc.node_by_named_id_in(top, "top"), Some(top));
+        assert_eq!(doc.node_by_named_id_in(top, "dup"), Some(first));
+        assert_eq!(doc.node_by_named_id_in(top, ""), None);
+        assert_eq!(doc.node_by_named_id("dup"), None);
     }
 }

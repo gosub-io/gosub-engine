@@ -22,7 +22,10 @@ pub struct Submission {
 
 /// The `<form>` a control belongs to: its `form` attribute's target, else the nearest ancestor.
 pub fn form_owner<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> Option<NodeId> {
-    if let Some(target) = doc.attribute(id, "form").and_then(|f| doc.node_by_named_id(f)) {
+    if let Some(target) = doc
+        .attribute(id, "form")
+        .and_then(|f| doc.node_by_named_id_in(doc.tree_root(id), f))
+    {
         if doc.tag_name(target) == Some("form") {
             return Some(target);
         }
@@ -236,6 +239,22 @@ mod tests {
             submission.referrer_policy,
             Some(gosub_sonar::ReferrerPolicy::NoReferrer)
         );
+    }
+
+    /// `form=` resolves in the control's own tree: inside a shadow tree, a form there with that
+    /// id, never the document's.
+    #[test]
+    fn form_attribute_resolves_in_the_shadow_tree() {
+        let doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>(
+            r#"<form id="f"></form><div id="host"><template shadowrootmode="open"><form id="f"></form><input id="i" form="f"><input id="j" form="g"></template></div>"#,
+        );
+        let shadow = doc.shadow_root(doc.node_by_named_id("host").unwrap()).unwrap();
+        let inner_form = doc.node_by_named_id_in(shadow, "f").unwrap();
+        assert_ne!(Some(inner_form), doc.node_by_named_id("f"));
+        let input = doc.node_by_named_id_in(shadow, "i").unwrap();
+        assert_eq!(form_owner(&doc, input), Some(inner_form));
+        let unmatched = doc.node_by_named_id_in(shadow, "j").unwrap();
+        assert_eq!(form_owner(&doc, unmatched), None);
     }
 
     /// Gemini input that is empty is still input: the query is there, empty, so the server

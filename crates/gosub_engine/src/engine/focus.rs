@@ -93,7 +93,10 @@ pub fn click_target<C: RenderConfiguration>(doc: &EngineDocument<C>, leaf: NodeI
 
 /// The control a `<label>` activates: its `for` target, else the first descendant control.
 fn label_control<C: RenderConfiguration>(doc: &EngineDocument<C>, label: NodeId) -> Option<NodeId> {
-    if let Some(target) = doc.attribute(label, "for").and_then(|f| doc.node_by_named_id(f)) {
+    if let Some(target) = doc
+        .attribute(label, "for")
+        .and_then(|f| doc.node_by_named_id_in(doc.tree_root(label), f))
+    {
         return (focusability(doc, target) != Focusability::No).then_some(target);
     }
     let mut stack: Vec<NodeId> = doc.children(label).iter().rev().copied().collect();
@@ -246,4 +249,32 @@ pub fn tab_order<C: RenderConfiguration>(doc: &EngineDocument<C>, rendered: Opti
     }
     positive.sort_by_key(|&(n, seq, _)| (n, seq));
     positive.into_iter().map(|(_, _, id)| id).chain(natural).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `for` resolves in the label's own tree: inside a shadow tree that is the shadow root.
+    #[test]
+    fn a_label_in_a_shadow_tree_finds_its_control() {
+        let doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>(
+            r#"<input id="c"><div id="host"><template shadowrootmode="open"><label for="c">L</label><input id="c"></template></div>"#,
+        );
+        let shadow = doc.shadow_root(doc.node_by_named_id("host").unwrap()).unwrap();
+        let label = doc.children(shadow)[0];
+        let inner = doc.node_by_named_id_in(shadow, "c").unwrap();
+        assert_ne!(Some(inner), doc.node_by_named_id("c"));
+        assert_eq!(click_target(&doc, label), Some(inner));
+    }
+
+    /// A label in the document does not reach into a shadow tree.
+    #[test]
+    fn a_label_does_not_find_a_control_in_a_shadow_tree() {
+        let doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>(
+            r#"<label id="l" for="c">L</label><div><template shadowrootmode="open"><input id="c"></template></div>"#,
+        );
+        let label = doc.node_by_named_id("l").unwrap();
+        assert_eq!(click_target(&doc, label), None);
+    }
 }
