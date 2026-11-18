@@ -172,7 +172,8 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     fn doctype(&self) -> DocumentType;
     fn set_doctype(&mut self, doctype: DocumentType);
 
-    /// Look up a node by its `id` attribute value
+    /// The first element in tree order with this `id`, among the elements in the document tree
+    /// (not detached, not inside a shadow tree).
     fn node_by_named_id(&self, name_id: &str) -> Option<NodeId>;
 
     fn node_count(&self) -> usize;
