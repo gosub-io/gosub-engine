@@ -113,10 +113,10 @@ impl DocumentTaskQueue {
                         errors.push(format!("ID attribute value '{value}' did not pass validation"));
                     }
 
+                    // Duplicate ids are legal in the DOM: report it, but set the attribute.
                     if let Some(existing_id) = doc.node_by_named_id(value).filter(|_| key == "id") {
                         if existing_id != *element_id {
                             errors.push(format!("ID attribute value '{value}' already exists in DOM"));
-                            continue;
                         }
                     }
 
@@ -257,5 +257,24 @@ mod tests {
 
         assert!(errors.is_empty(), "{errors:?}");
         assert_eq!(doc.attribute(b, "class"), Some("foo"));
+    }
+
+    #[test]
+    fn a_duplicate_id_is_reported_but_still_set() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let mut queue = DocumentTaskQueue::new::<Config>(&doc);
+
+        let a = queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let b = queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        queue.insert_attribute("id", "a b", a, Location::default()).unwrap();
+        queue.insert_attribute("id", "a b", b, Location::default()).unwrap();
+        let errors = queue.flush::<Config>(&mut doc);
+
+        assert_eq!(errors.len(), 3, "two whitespace ids and one duplicate: {errors:?}");
+        assert_eq!(doc.attribute(b, "id"), Some("a b"));
+        assert_eq!(doc.node_by_named_id("a b"), Some(a), "first in tree order");
+
+        doc.detach(a);
+        assert_eq!(doc.node_by_named_id("a b"), Some(b));
     }
 }
