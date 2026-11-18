@@ -1295,9 +1295,9 @@ mod rendertree_from_engine {
         assert_eq!((table.y, table.height), (cell.y, 10.0), "the table box is the grid");
     }
 
-    /// Percentage insets on table parts: horizontally against the table's width; vertically only
-    /// a caption has a definite height to resolve against, the table's specified one. A row's or
-    /// a cell's vertical percentage behaves as `auto` (matches Chromium).
+    /// Percentage insets on table parts: horizontally against the table's width; vertically they
+    /// behave as `auto`, even with the table's height specified: the grid's and the wrapper's
+    /// heights are not definite for the parts inside.
     #[test]
     fn relative_table_part_percentages() {
         let page = |insets: &str| {
@@ -1324,8 +1324,8 @@ mod rendertree_from_engine {
         let still = origins(&page(""));
         let moved = origins(&page("position: relative; left: 10%; top: 10%"));
         let delta: Vec<_> = still.iter().zip(&moved).map(|(s, m)| (m.0 - s.0, m.1 - s.1)).collect();
-        // 10% of the 80px table; the caption's 10% of 300px. The cell rides along with its row.
-        assert_eq!(delta, [(8.0, 30.0), (8.0, 0.0), (16.0, 0.0)]);
+        // 10% of the 80px table. The cell rides along with its row.
+        assert_eq!(delta, [(8.0, 0.0), (8.0, 0.0), (16.0, 0.0)]);
     }
 
     /// CSS 2.1 §17.2.1: the anonymous table around cells inside an inline is an inline-table,

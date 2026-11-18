@@ -194,11 +194,6 @@ impl<'a> PipelineTableTree<'a> {
         let inset_basis = InsetBasis {
             grid_width: table_width,
             caption_width: table_width + own_edges_x,
-            // A caption's vertical percentages need a definite height: the table's specified one.
-            caption_height: match self.doc.computed_style(table_dom_id).size.height {
-                LengthPercentageAuto::Px(px) => Some(f64::from(px)),
-                _ => None,
-            },
         };
 
         let pending = std::mem::take(&mut self.pending);
@@ -250,18 +245,17 @@ impl<'a> PipelineTableTree<'a> {
 /// §3.4). `left` wins over `right` and `top` over `bottom`.
 ///
 /// Percentages resolve against the containing block (CSS 2 §9.3.2): horizontally the grid's
-/// width, or for a caption the table wrapper's (CSS 2 §17.4). Vertically a percentage against an
-/// indefinite height behaves as `auto`, and the grid's height is never definite for its own
-/// parts; only a caption has one, when the table's height is specified.
+/// width, or for a caption the table wrapper's (CSS 2 §17.4). Vertically they behave as `auto`:
+/// neither the grid's height nor the wrapper's is definite for the parts inside.
 fn relative_shift(doc: &dyn PipelineDocument, id: DomNodeId, basis: InsetBasis) -> Coordinate {
     let style = doc.computed_style(id);
     if !style.has(Prop::Position) || style.box_group.position != Position::Relative {
         return Coordinate::ZERO;
     }
-    let (width, height) = if style.box_group.display == Display::TableCaption {
-        (basis.caption_width, basis.caption_height)
+    let width = if style.box_group.display == Display::TableCaption {
+        basis.caption_width
     } else {
-        (basis.grid_width, None)
+        basis.grid_width
     };
     let side = |value, basis: Option<f64>| match (value, basis) {
         (LengthPercentageAuto::Percent(_) | LengthPercentageAuto::Calc { .. }, None) => None,
@@ -269,7 +263,7 @@ fn relative_shift(doc: &dyn PipelineDocument, id: DomNodeId, basis: InsetBasis) 
     };
     let inset = &style.inset;
     let x = side(inset.inline_start, Some(width)).or_else(|| side(inset.inline_end, Some(width)).map(|r| -r));
-    let y = side(inset.block_start, height).or_else(|| side(inset.block_end, height).map(|b| -b));
+    let y = side(inset.block_start, None).or_else(|| side(inset.block_end, None).map(|b| -b));
     Coordinate::new(x.unwrap_or(0.0), y.unwrap_or(0.0))
 }
 
@@ -278,7 +272,6 @@ fn relative_shift(doc: &dyn PipelineDocument, id: DomNodeId, basis: InsetBasis) 
 struct InsetBasis {
     grid_width: f64,
     caption_width: f64,
-    caption_height: Option<f64>,
 }
 
 #[allow(clippy::too_many_arguments)]
