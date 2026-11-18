@@ -116,3 +116,19 @@ fn a_calc_size_is_resolved_against_the_containing_block() {
     let direct = border_box(&layers, direct);
     assert_eq!((direct.width, direct.height), (110.0, 16.0));
 }
+
+/// Opposing insets on an `auto` width span the containing block's padding box, which is wider than
+/// the line inside its padding.
+#[test]
+fn opposing_insets_in_a_line_reach_past_the_padding() {
+    let (layers, [cb, abspos]) = lay_out(
+        r#"<html><body style="margin: 0">
+          <div id="cb" style="position: relative; width: 100px; height: 40px; padding: 10px">Search
+            <span id="abspos" style="position: absolute; top: 0; bottom: 0; left: 0; right: 0"></span>
+          </div>
+        </body></html>"#,
+        ["cb", "abspos"],
+    );
+    let padding_box = layers.layout_tree.get_node_by_id(cb).unwrap().box_model.padding_box;
+    assert_eq!(border_box(&layers, abspos), padding_box);
+}

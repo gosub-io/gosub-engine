@@ -219,7 +219,11 @@ impl<'a> CssTaffyConverter<'a> {
         // (an abs-positioned wide table would overflow the viewport), so cap the BORDER box
         // at 100%. Flipping box-sizing is safe here: it only reinterprets non-auto sizes,
         // and every size except the cap itself is auto in this branch.
+        // With both `left` and `right` given the box does not shrink to fit: it spans the
+        // containing block between them. The cap would measure that against taffy's parent, which
+        // for a box in a line is the line box, and clip the stretch at the line's width.
         if ts.position == Position::Absolute
+            && (ts.inset.left.is_auto() || ts.inset.right.is_auto())
             && ts.size.width.is_auto()
             && ts.size.height.is_auto()
             && ts.max_size.width.is_auto()
