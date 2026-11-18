@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use super::overflow_clip::{lay_out, state};
+use super::overflow_clip::{lay_out, lay_out_with_layouter, state};
 use crate::common::geo::Rect;
 use crate::layering::layer::LayerList;
 use crate::layouter::LayoutElementId;
@@ -281,4 +281,19 @@ fn empty_cells_hide_paints_nothing_for_an_empty_cell() {
     assert!(paints_box(nbsp));
     assert!(paints_box(filled));
     assert!(paints_box(collapsed));
+}
+
+/// The cell's passes put back only the heights they set: a baseline shift made meanwhile stays
+/// on the item's margin.
+#[test]
+fn a_baseline_shift_outlives_the_cell_passes() {
+    let (layouter, _, _) = lay_out_with_layouter(
+        r#"<html><body>
+          <table style="height: 100px"><tr><td>
+            <span style="display: inline-block; height: 100%"></span><span style="display: inline-block; height: 50%">x</span>
+          </td></tr></table>
+        </body></html>"#,
+        [],
+    );
+    assert_eq!(layouter.stale_baseline_shifts(), []);
 }

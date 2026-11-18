@@ -21,7 +21,7 @@ use crate::common::geo::{Dimension, Rect};
 use crate::common::media::MediaStore;
 use crate::layering::layer::LayerList;
 use crate::layouter::taffy::TaffyLayouter;
-use crate::layouter::{CanLayout as _, LayoutElementId};
+use crate::layouter::{CanLayout as _, LayoutElementId, LayoutTree};
 use crate::painter::commands::PaintCommand;
 use crate::painter::Painter;
 use crate::rendertree_builder::tree::RenderTree;
@@ -37,6 +37,15 @@ impl ModuleConfiguration for Config {
 
 /// `html` laid out in an 800x600 viewport, as a layer list, with the layout element of each `id`.
 pub(super) fn lay_out<const N: usize>(html: &str, ids: [&str; N]) -> (Arc<LayerList>, [LayoutElementId; N]) {
+    let (_, tree, elements) = lay_out_with_layouter(html, ids);
+    (Arc::new(LayerList::new(Arc::new(tree))), elements)
+}
+
+/// As `lay_out`, keeping the layouter.
+pub(super) fn lay_out_with_layouter<const N: usize>(
+    html: &str,
+    ids: [&str; N],
+) -> (TaffyLayouter, LayoutTree, [LayoutElementId; N]) {
     let mut doc = html_compile::<Config>(html);
     doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
     let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
@@ -61,7 +70,7 @@ pub(super) fn lay_out<const N: usize>(html: &str, ids: [&str; N]) -> (Arc<LayerL
             .expect("the element is laid out")
             .id
     });
-    (Arc::new(LayerList::new(Arc::new(tree))), elements)
+    (layouter, tree, elements)
 }
 
 fn padding_box(layers: &LayerList, id: LayoutElementId) -> Rect {

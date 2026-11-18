@@ -1033,6 +1033,20 @@ impl TaffyLayouter {
         self.tree.set_style(item, style).is_ok()
     }
 
+    /// The items whose top margin is not the one their baseline shift says.
+    #[cfg(test)]
+    pub(crate) fn stale_baseline_shifts(&self) -> Vec<TaffyNodeId> {
+        self.baseline_shifts
+            .iter()
+            .filter(|(&item, &(css, shift))| {
+                self.tree.style(item).map_or(true, |style| {
+                    lpa_length(style.margin.top).is_none_or(|top| (top - (css + shift)).abs() >= 0.25)
+                })
+            })
+            .map(|(&item, _)| item)
+            .collect()
+    }
+
     /// Give `item` `shift` px of extra top margin. Returns whether that changed anything.
     fn shift_item(&mut self, item: TaffyNodeId, shift: f32) -> bool {
         let current = self.baseline_shifts.get(&item).copied();
@@ -1344,9 +1358,10 @@ impl TaffyLayouter {
         // `max-height` is undefined (§10.7), so neither caps what is measured here. For this
         // compute only: the first pass keeps them, and the table's first height with them.
         let style = self.tree.style(taffy_id).ok()?.clone();
-        let mut measured = style.clone();
+        let (cell_height, cell_max_height) = (style.size.height, style.max_size.height);
+        let mut measured = style;
         measured.size.height = match height {
-            CellHeight::Final { height, .. } if style.box_sizing == BoxSizing::ContentBox => {
+            CellHeight::Final { height, .. } if measured.box_sizing == BoxSizing::ContentBox => {
                 let bm = &layout_tree.get_node_by_id(cell_layout_id)?.box_model;
                 let edges = bm.border.top + bm.border.bottom + bm.padding.top + bm.padding.bottom;
                 Dimension::length((f64::from(height) - edges).max(0.0) as f32)
@@ -1356,13 +1371,10 @@ impl TaffyLayouter {
         };
         measured.max_size.height = LengthPercentageAuto::auto();
         self.tree.set_style(taffy_id, measured).ok()?;
-        let mut saved = self.set_percent_heights_under(layout_tree, cell_layout_id, taffy_id, height);
-        saved.push((taffy_id, style));
+        let saved = self.set_percent_heights_under(layout_tree, cell_layout_id, taffy_id, height);
         if let Err(e) = self.compute_taffy(taffy_id, size) {
             log::warn!("lattice: cell re-layout failed for {:?}: {:?}", cell_layout_id, e);
-            for (node, style) in saved {
-                let _ = self.tree.set_style(node, style);
-            }
+            self.restore_heights(taffy_id, cell_height, cell_max_height, saved);
             return None;
         }
         // The cell's lines wrap at its new width, so their rows - and the baselines shared
@@ -1380,9 +1392,7 @@ impl TaffyLayouter {
         let offset = Coordinate::new(old_origin.x - root_location.x, old_origin.y - root_location.y);
         self.populate_boxmodel(layout_tree, cell_layout_id, offset, border_box_width as f64);
 
-        for (node, style) in saved {
-            let _ = self.tree.set_style(node, style);
-        }
+        self.restore_heights(taffy_id, cell_height, cell_max_height, saved);
 
         if matches!(height, CellHeight::Measure { .. }) {
             let el = layout_tree.get_node_by_id(cell_layout_id)?;
@@ -1473,7 +1483,7 @@ impl TaffyLayouter {
     }
 
     /// Set the percentage heights under a cell for one `relayout_cell` compute, and return the
-    /// styles to put back. In flow and measured, they count as auto - as 0 for a scroller under a
+    /// heights to put back. In flow and measured, they count as auto - as 0 for a scroller under a
     /// cell whose height they will resolve against later (css-tables-3 §3.10.6). At the final
     /// height, a line item's is set from the cell's, which taffy cannot do through the line box,
     /// and where they do not resolve they stay auto. An absolutely positioned box's always
@@ -1484,7 +1494,7 @@ impl TaffyLayouter {
         cell_layout_id: LayoutElementId,
         cell: TaffyNodeId,
         height: CellHeight,
-    ) -> Vec<(TaffyNodeId, Style)> {
+    ) -> Vec<(TaffyNodeId, Dimension)> {
         let basis = match height {
             CellHeight::Final { .. } => self.definite_content_height(cell, None, 0),
             CellHeight::Measure { .. } => None,
@@ -1510,13 +1520,36 @@ impl TaffyLayouter {
                 // A block child's resolves against the cell's height in taffy.
                 (CellHeight::Final { .. }, _, _) => continue,
             };
-            let mut changed = style.clone();
+            let old = style.size.height;
+            let mut changed = style;
             changed.size.height = set;
             if self.tree.set_style(item.node, changed).is_ok() {
-                saved.push((item.node, style));
+                saved.push((item.node, old));
             }
         }
         saved
+    }
+
+    /// Put back the heights `relayout_cell` set for one compute. Only those: a baseline shift made
+    /// meanwhile stays.
+    fn restore_heights(
+        &mut self,
+        cell: TaffyNodeId,
+        height: Dimension,
+        max_height: LengthPercentageAuto,
+        saved: Vec<(TaffyNodeId, Dimension)>,
+    ) {
+        if let Ok(mut style) = self.tree.style(cell).cloned() {
+            style.size.height = height;
+            style.max_size.height = max_height;
+            let _ = self.tree.set_style(cell, style);
+        }
+        for (node, height) in saved {
+            if let Ok(mut style) = self.tree.style(node).cloned() {
+                style.size.height = height;
+                let _ = self.tree.set_style(node, style);
+            }
+        }
     }
 
     fn populate_boxmodel(
