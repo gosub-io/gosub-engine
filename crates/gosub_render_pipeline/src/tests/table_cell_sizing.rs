@@ -83,3 +83,57 @@ fn caption_width_still_limits_its_content() {
     let child = border_box(&layers, child);
     assert_eq!(child.width, 40.0, "child {child:?}");
 }
+
+fn content_box(layers: &LayerList, id: LayoutElementId) -> Rect {
+    layers
+        .layout_tree
+        .get_node_by_id(id)
+        .expect("laid out")
+        .box_model
+        .content_box
+}
+
+/// The cell's width from lattice is a border box; a content-box cell's padding and border sit
+/// inside it, so a `width: 100%` child fills the content box and no more.
+#[test]
+fn padded_cell_child_fills_the_content_box() {
+    let (layers, [cell, child]) = lay_out(
+        r#"<html><body style="margin: 0">
+          <table style="width: 200px; border-spacing: 0">
+            <tr><td id="c" style="padding: 10px; border: 5px solid black"><div id="d" style="width: 100%; height: 10px"></div></td></tr>
+          </table>
+        </body></html>"#,
+        ["c", "d"],
+    );
+    let (cell, inner, child) = (
+        border_box(&layers, cell),
+        content_box(&layers, cell),
+        border_box(&layers, child),
+    );
+    assert_eq!(cell.width, 200.0, "cell {cell:?}");
+    assert_eq!(inner.width, 170.0, "content {inner:?}");
+    assert_eq!(
+        (child.x, child.width),
+        (inner.x, inner.width),
+        "child {child:?} content {inner:?}"
+    );
+}
+
+/// Collapsed borders: the cell keeps half of each boundary, and its content is what is left.
+#[test]
+fn collapsed_cell_child_fills_the_content_box() {
+    let (layers, [cell, child]) = lay_out(
+        r#"<html><body style="margin: 0">
+          <table style="width: 200px; border-collapse: collapse">
+            <tr><td id="c" style="padding: 0; border: 10px solid black"><div id="d" style="width: 100%; height: 10px"></div></td></tr>
+          </table>
+        </body></html>"#,
+        ["c", "d"],
+    );
+    let (inner, child) = (content_box(&layers, cell), border_box(&layers, child));
+    assert_eq!(
+        (child.x, child.width),
+        (inner.x, inner.width),
+        "child {child:?} content {inner:?}"
+    );
+}

@@ -1346,6 +1346,8 @@ impl TaffyLayouter {
         let original = self.tree.style(taffy_id).ok()?.clone();
         if is_cell {
             let mut fixed = original.clone();
+            // The width lattice hands over is a border box, whatever the cell's own box-sizing.
+            fixed.box_sizing = BoxSizing::BorderBox;
             fixed.size.width = Dimension::length(border_box_width);
             fixed.min_size.width = LengthPercentageAuto::auto();
             fixed.max_size.width = LengthPercentageAuto::auto();
