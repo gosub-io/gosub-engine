@@ -545,8 +545,9 @@ pub(crate) fn note_dropped(list: &mut Vec<CssDropped>, dropped: CssDropped) {
 /// A CSS rule, which contains a list of selectors and a list of declarations
 #[derive(Debug, Clone)]
 pub struct CssRule {
-    /// Selectors that must match for the declarations to apply
-    pub selectors: Vec<CssSelector>,
+    /// The selector list that must match for the declarations to apply. One per rule: `a, b`
+    /// is one `CssSelector` holding two complex selectors.
+    pub selector: CssSelector,
     /// Actual declarations that will be applied if the selectors match.
     ///
     /// Private, because [`CssRule::expanded`] is built from them once and kept: a caller that
@@ -581,7 +582,7 @@ pub struct CssRule {
 /// whether two rules are the same rule.
 impl PartialEq for CssRule {
     fn eq(&self, other: &Self) -> bool {
-        self.selectors == other.selectors
+        self.selector == other.selector
             && self.declarations == other.declarations
             && self.media == other.media
             && self.layer == other.layer
@@ -592,13 +593,13 @@ impl CssRule {
     /// A rule as the parser builds it, with the declaration expansion still to be done.
     #[must_use]
     pub fn new(
-        selectors: Vec<CssSelector>,
+        selector: CssSelector,
         declarations: Vec<CssDeclaration>,
         media: Option<Vec<Arc<MediaQueryList>>>,
         layer: Option<u32>,
     ) -> Self {
         Self {
-            selectors,
+            selector,
             declarations,
             media,
             layer,
@@ -609,15 +610,15 @@ impl CssRule {
     }
 
     #[must_use]
-    pub fn selectors(&self) -> &Vec<CssSelector> {
-        &self.selectors
+    pub fn selector(&self) -> &CssSelector {
+        &self.selector
     }
 
-    /// Whether any selector of this rule places a condition on an ancestor of the element. A
-    /// rule that does not can be matched without an ancestor filter, which is what keeps a page
-    /// whose sheets are all single-compound selectors from building one at all.
+    /// Whether any selector in this rule's list places a condition on an ancestor of the
+    /// element. A rule that does not can be matched without an ancestor filter, which is what
+    /// keeps a page whose sheets are all single-compound selectors from building one at all.
     pub(crate) fn asks_about_ancestors(&self) -> bool {
-        self.selectors.iter().any(CssSelector::asks_about_ancestors)
+        self.selector.asks_about_ancestors()
     }
 
     #[must_use]
@@ -807,45 +808,53 @@ impl SelectorEntry {
 impl CssSelector {
     #[must_use]
     pub fn new(parts: Vec<Vec<CssSelectorPart>>) -> Self {
-        let mut entries: Vec<SelectorEntry> = Vec::with_capacity(parts.len());
-        let mut asks_about_ancestors = false;
-
         // A list of one is the overwhelming case - `a, b` is rare - and its parts are already a
         // `Vec`, so take it whole rather than moving every part into a new one and freeing the
-        // old. Building a selector is on the per-element path: an inline `style` attribute is
-        // parsed as a one-rule sheet, and copying part by part measured as 10% on the render
-        // tree of a page that sets styles inline.
-        let flat = if parts.len() == 1 {
-            let complex = parts.into_iter().next().unwrap_or_default();
-            let keys = ancestor_keys(&complex);
-            asks_about_ancestors = !keys.is_empty();
-            entries.push(SelectorEntry {
-                start: 0,
-                len: u32::try_from(complex.len()).unwrap_or(u32::MAX),
-                specificity: Specificity::from(complex.as_slice()),
-                ancestor_keys: keys,
-            });
-            complex
-        } else {
-            let mut flat: Vec<CssSelectorPart> = Vec::with_capacity(parts.iter().map(Vec::len).sum());
-            for complex in parts {
-                let keys = ancestor_keys(&complex);
-                asks_about_ancestors |= !keys.is_empty();
-                entries.push(SelectorEntry {
-                    start: u32::try_from(flat.len()).unwrap_or(u32::MAX),
-                    len: u32::try_from(complex.len()).unwrap_or(u32::MAX),
-                    specificity: Specificity::from(complex.as_slice()),
-                    ancestor_keys: keys,
-                });
-                flat.extend(complex);
+        // old.
+        if parts.len() == 1 {
+            return Self::from_flat(parts.into_iter().next().unwrap_or_default(), &[]);
+        }
+        let mut flat: Vec<CssSelectorPart> = Vec::with_capacity(parts.iter().map(Vec::len).sum());
+        let mut starts = Vec::with_capacity(parts.len().saturating_sub(1));
+        for (i, complex) in parts.into_iter().enumerate() {
+            if i > 0 {
+                starts.push(flat.len());
             }
-            flat
-        };
-        // Deliberately not shrunk: the parser's vector usually has spare capacity, and shrinking
-        // it would copy every part - exactly the cost this path exists to avoid.
+            flat.extend(complex);
+        }
+        Self::from_flat(flat, &starts)
+    }
+
+    /// Build from the parts of every complex selector laid end to end, `starts` saying where
+    /// each one after the first begins.
+    ///
+    /// `parts` is kept as it is given. Building a selector is on the per-element path: an inline
+    /// `style` attribute is parsed as a one-rule sheet, and copying part by part measured as 10%
+    /// on the render tree of a page that sets styles inline. Not shrunk either: the parser's
+    /// vector usually has spare capacity, and shrinking it would copy every part.
+    #[must_use]
+    pub fn from_flat(parts: Vec<CssSelectorPart>, starts: &[usize]) -> Self {
+        let mut asks_about_ancestors = false;
+        let ends = starts.iter().copied().chain(std::iter::once(parts.len()));
+        let mut begin = 0;
+        let entries = ends
+            .map(|end| {
+                let complex = &parts[begin..end];
+                let keys = ancestor_keys(complex);
+                asks_about_ancestors |= !keys.is_empty();
+                let entry = SelectorEntry {
+                    start: u32::try_from(begin).unwrap_or(u32::MAX),
+                    len: u32::try_from(end - begin).unwrap_or(u32::MAX),
+                    specificity: Specificity::from(complex),
+                    ancestor_keys: keys,
+                };
+                begin = end;
+                entry
+            })
+            .collect();
         Self {
-            parts: flat,
-            entries: entries.into(),
+            parts,
+            entries,
             asks_about_ancestors,
         }
     }
@@ -1407,7 +1416,7 @@ impl gosub_shared::memory::HeapSize for CssDeclaration {
 
 impl gosub_shared::memory::HeapSize for CssRule {
     fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
-        self.selectors.heap_size(walk);
+        self.selector.heap_size(walk);
         self.declarations.heap_size(walk);
         // `media` is one shared list per `@media` block, not one per rule.
         if let Some(media) = &self.media {
@@ -2412,7 +2421,7 @@ mod test {
     #[test]
     fn test_css_rule() {
         let rule = CssRule::new(
-            vec![CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]])],
+            CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]]),
             vec![CssDeclaration {
                 property: "color".into(),
                 value: CssValue::String("red".to_string()).into(),
@@ -2422,8 +2431,8 @@ mod test {
             None,
         );
 
-        assert_eq!(rule.selectors().len(), 1);
-        let part = rule.selectors().first().unwrap().complex_at(0).first().unwrap();
+        assert_eq!(rule.selector().complex_count(), 1);
+        let part = rule.selector().complex_at(0).first().unwrap();
 
         assert_eq!(part, &CssSelectorPart::Type("h1".to_string()));
         assert_eq!(rule.declarations().len(), 1);
@@ -2446,7 +2455,7 @@ mod test {
         };
 
         let mut rule = CssRule::new(
-            vec![CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]])],
+            CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]]),
             vec![declaration("color")],
             None,
             None,

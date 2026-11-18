@@ -233,7 +233,7 @@ mod tests {
         sheet
             .rules
             .iter()
-            .flat_map(|rule| rule.selectors().iter().map(|sel| format!("{sel:?}")))
+            .map(|rule| format!("{:?}", rule.selector()))
             .collect()
     }
 

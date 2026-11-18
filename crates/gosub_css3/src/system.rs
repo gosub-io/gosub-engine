@@ -418,18 +418,9 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
             let filter = rule
                 .asks_about_ancestors()
                 .then(|| &**ancestors.get_or_insert_with(|| ancestor_filter::<C>(doc, id, known)));
-            // A rule applies with the highest specificity among its matching selectors.
-            let best = rule
-                .selectors()
-                .iter()
-                .filter_map(
-                    |selector| match match_selector::<C>(doc, id, selector, pseudo, scope, filter) {
-                        (true, specificity) => Some(specificity),
-                        (false, _) => None,
-                    },
-                )
-                .max();
-            if let Some(specificity) = best {
+            // A rule applies with the highest specificity among the matching selectors in its list.
+            let (matches, specificity) = match_selector::<C>(doc, id, rule.selector(), pseudo, scope, filter);
+            if matches {
                 matched.push(MatchedRule {
                     sheet,
                     rule,
@@ -975,13 +966,11 @@ fn hover_fingerprints_impl(sheets: &[CssStylesheet]) -> HoverFingerprints {
 
     for sheet in sheets {
         for rule in &sheet.rules {
-            for selector in &rule.selectors {
-                for part_list in selector.complexes() {
-                    if !fingerprint_complex(part_list, &[], &mut fp) {
-                        // A `:hover` with nothing to narrow it - every node is sensitive.
-                        fp.has_universal = true;
-                        return fp;
-                    }
+            for part_list in rule.selector.complexes() {
+                if !fingerprint_complex(part_list, &[], &mut fp) {
+                    // A `:hover` with nothing to narrow it - every node is sensitive.
+                    fp.has_universal = true;
+                    return fp;
                 }
             }
         }

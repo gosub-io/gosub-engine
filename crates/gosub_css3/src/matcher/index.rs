@@ -83,23 +83,21 @@ impl SelectorIndex {
             ..Self::default()
         };
         for (rule_idx, rule) in rules.iter().enumerate() {
-            for selector in &rule.selectors {
-                for complex in selector.complexes() {
-                    let key = rightmost_key(complex);
-                    let mut has_pseudo = false;
-                    for part in complex {
-                        if let CssSelectorPart::PseudoElement(name) = part {
-                            has_pseudo = true;
-                            index
-                                .pseudo
-                                .entry(name.cow_to_lowercase().into_owned())
-                                .or_default()
-                                .insert(&key, rule_idx);
-                        }
+            for complex in rule.selector.complexes() {
+                let key = rightmost_key(complex);
+                let mut has_pseudo = false;
+                for part in complex {
+                    if let CssSelectorPart::PseudoElement(name) = part {
+                        has_pseudo = true;
+                        index
+                            .pseudo
+                            .entry(name.cow_to_lowercase().into_owned())
+                            .or_default()
+                            .insert(&key, rule_idx);
                     }
-                    if !has_pseudo {
-                        index.normal.insert(&key, rule_idx);
-                    }
+                }
+                if !has_pseudo {
+                    index.normal.insert(&key, rule_idx);
                 }
             }
         }
@@ -294,7 +292,7 @@ mod tests {
     use crate::stylesheet::{AttributeSelector, CssSelector, MatcherType};
 
     fn rule(selectors: Vec<Vec<CssSelectorPart>>) -> CssRule {
-        CssRule::new(vec![CssSelector::new(selectors)], vec![], None, None)
+        CssRule::new(CssSelector::new(selectors), vec![], None, None)
     }
 
     fn attribute(name: &str) -> CssSelectorPart {

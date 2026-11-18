@@ -202,11 +202,10 @@ fn supports_selector(selector: &str) -> bool {
     let Ok(sheet) = Css3::parse_str(&format!("{selector}{{color:red}}"), config, CssOrigin::Author, "") else {
         return false;
     };
-    sheet.rules.first().is_some_and(|rule| {
-        rule.selectors
-            .iter()
-            .any(|sel| sel.complexes().any(|part| !part.is_empty()))
-    })
+    sheet
+        .rules
+        .first()
+        .is_some_and(|rule| rule.selector.complexes().any(|part| !part.is_empty()))
 }
 
 /// Character scanner over a raw `@supports` prelude.

@@ -276,7 +276,7 @@ fn math_spacing_is_valid(node: &CssNode, in_math: bool) -> bool {
 /// Convert a functional pseudo-class's selector-list argument (as `:not()` takes) into one
 /// compound per comma-separated selector.
 fn convert_selector_list(arguments: Vec<CssNode>) -> CssResult<Vec<Vec<CssSelectorPart>>> {
-    let mut out: Vec<Vec<CssSelectorPart>> = vec![vec![]];
+    let mut out = FlatSelectors::default();
     for argument in arguments {
         let selectors = match argument.node_type {
             NodeType::SelectorList { selectors } => selectors,
@@ -290,14 +290,13 @@ fn convert_selector_list(arguments: Vec<CssNode>) -> CssResult<Vec<Vec<CssSelect
         // Each selector of the list is a complex selector of its own.
         for selector in selectors {
             if let NodeType::Selector { children } = selector.node_type {
-                out.push(vec![]);
+                out.next_complex();
                 convert_selector_children(children, &mut out)?;
             }
         }
     }
 
-    out.retain(|compound| !compound.is_empty());
-    Ok(out)
+    Ok(out.into_lists())
 }
 
 /// Converts the argument of an `:nth-*()` pseudo-class: `An+B` (or a bare integer), and for
@@ -379,15 +378,64 @@ fn convert_lang_ranges(arguments: Vec<CssNode>) -> CssResult<Vec<String>> {
         .collect()
 }
 
+/// Selector parts laid end to end, one complex selector after another, which is how
+/// `CssSelector` keeps them: building them that way spares a `Vec` per complex selector and the
+/// one holding them.
+#[derive(Default)]
+struct FlatSelectors {
+    parts: Vec<CssSelectorPart>,
+    /// Where each complex selector after the first begins in `parts`.
+    starts: Vec<usize>,
+}
+
+impl FlatSelectors {
+    /// Start the next complex selector. An empty one is not kept: a compound with no parts
+    /// matches every element vacuously, so the parts that follow go into it instead.
+    fn next_complex(&mut self) {
+        if self.parts.len() > self.starts.last().copied().unwrap_or(0) {
+            self.starts.push(self.parts.len());
+        }
+    }
+
+    /// Drop a trailing empty complex selector.
+    fn trim(&mut self) {
+        if self.starts.last() == Some(&self.parts.len()) {
+            self.starts.pop();
+        }
+    }
+
+    /// `None` when no complex selector has any parts.
+    fn into_selector(mut self) -> Option<CssSelector> {
+        self.trim();
+        (!self.parts.is_empty()).then(|| CssSelector::from_flat(self.parts, &self.starts))
+    }
+
+    fn into_lists(mut self) -> Vec<Vec<CssSelectorPart>> {
+        self.trim();
+        if self.parts.is_empty() {
+            return vec![];
+        }
+        let mut lists = Vec::with_capacity(self.starts.len() + 1);
+        for &start in self.starts.iter().rev() {
+            lists.push(self.parts.split_off(start));
+        }
+        lists.push(self.parts);
+        lists.reverse();
+        lists
+    }
+}
+
 /// Convert the children of one `Selector` AST node into selector parts, appending to the compound
 /// currently being built in `out`. A comma starts a new compound.
-fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelectorPart>>) -> CssResult<()> {
-    // One part per node, give or take the few that convert to none, so the list is sized here
-    // rather than doubled into place: `CssSelector` keeps this vector as it is given it, and the
-    // slots a doubling claimed would stay unused for as long as the sheet is loaded.
-    if let Some(current) = out.last_mut() {
-        current.reserve_exact(children.len());
-    }
+fn convert_selector_children(children: Vec<CssNode>, out: &mut FlatSelectors) -> CssResult<()> {
+    // One part per node but the commas, so the list is sized here rather than doubled into
+    // place: `CssSelector` keeps this vector as it is given it, and the slots a doubling claimed
+    // would stay unused for as long as the sheet is loaded.
+    let commas = children
+        .iter()
+        .filter(|node| matches!(node.node_type, NodeType::Comma))
+        .count();
+    out.parts.reserve_exact(children.len() - commas);
     for node in children {
         let part = match node.node_type {
             NodeType::Ident { value } => CssSelectorPart::Type(value),
@@ -501,7 +549,7 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelect
                 }))
             }
             NodeType::Comma => {
-                out.push(vec![]);
+                out.next_complex();
                 continue;
             }
             other => {
@@ -513,11 +561,7 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelect
                 ));
             }
         };
-        if let Some(x) = out.last_mut() {
-            x.push(part);
-        } else {
-            out.push(vec![part]); //unreachable, but still, we handle it
-        }
+        out.parts.push(part);
     }
 
     Ok(())
@@ -557,48 +601,35 @@ fn collect_rule(
     media: &[Arc<MediaQueryList>],
     layer: Option<u32>,
 ) -> Option<CssRule> {
-    // Sized rather than grown: a rule gets exactly one `CssSelector` - the whole selector list
-    // is one of them - and a `Vec` that grows by doubling claims four slots to hold it.
-    let mut rule = CssRule::new(
-        Vec::with_capacity(1),
-        vec![],
-        (!media.is_empty()).then(|| media.to_vec()),
-        layer,
-    );
-    rule.line = line;
+    // The parser gives every style rule a selector list; a rule without one would match nothing.
+    let NodeType::SelectorList { selectors } = prelude?.node_type else {
+        return None;
+    };
 
-    if let Some(node) = prelude {
-        let NodeType::SelectorList { selectors } = node.node_type else {
-            return None;
+    let mut parts = FlatSelectors::default();
+    for node in selectors {
+        let NodeType::Selector { children } = node.node_type else {
+            continue;
         };
 
-        let mut parts: Vec<Vec<CssSelectorPart>> = vec![vec![]];
-        for node in selectors {
-            let NodeType::Selector { children } = node.node_type else {
-                continue;
-            };
-
-            if let Err(err) = convert_selector_children(children, &mut parts) {
-                // One member of a selector list being invalid invalidates the whole list, and so
-                // this rule - but only this rule.
-                log::debug!("Rule dropped: {err}");
-                drop_here(dropped, CssDroppedKind::InvalidSelector, err.to_string(), line);
-                return None;
-            }
-        }
-
-        // A compound with no parts matches every element vacuously, so an empty prelude
-        // (e.g. `/*.a, .b*/{ ... }`, where the whole selector list is commented out) would
-        // apply its declarations to the entire document. Per CSS Syntax a style rule with an
-        // invalid or empty prelude is invalid and must be dropped, so drop the empty compounds
-        // and the rule with them if nothing is left.
-        parts.retain(|part| !part.is_empty());
-        if parts.is_empty() {
+        if let Err(err) = convert_selector_children(children, &mut parts) {
+            // One member of a selector list being invalid invalidates the whole list, and so
+            // this rule - but only this rule.
+            log::debug!("Rule dropped: {err}");
+            drop_here(dropped, CssDroppedKind::InvalidSelector, err.to_string(), line);
             return None;
         }
-
-        rule.selectors.push(CssSelector::new(parts));
     }
+
+    // A compound with no parts matches every element vacuously, so an empty prelude
+    // (e.g. `/*.a, .b*/{ ... }`, where the whole selector list is commented out) would
+    // apply its declarations to the entire document. Per CSS Syntax a style rule with an
+    // invalid or empty prelude is invalid and must be dropped, so drop the empty compounds
+    // and the rule with them if nothing is left.
+    let selector = parts.into_selector()?;
+
+    let mut rule = CssRule::new(selector, vec![], (!media.is_empty()).then(|| media.to_vec()), layer);
+    rule.line = line;
 
     if let Some(declaration) = block {
         let NodeType::Block { children } = declaration.node_type else {
@@ -1563,10 +1594,43 @@ mod tests {
 
         assert_eq!(stylesheet.rules.len(), 1);
         assert_eq!(
-            stylesheet.rules[0].selectors.first().unwrap().complex_count(),
+            stylesheet.rules[0].selector.complex_count(),
             3,
             "dropping empty compounds must not drop real ones"
         );
+        let selector = &stylesheet.rules[0].selector;
+        assert_eq!(selector.complex_at(0), [CssSelectorPart::Type("h3".into())]);
+        assert_eq!(selector.complex_at(1), [CssSelectorPart::Type("h4".into())]);
+        assert_eq!(
+            selector.complex_at(2),
+            [
+                CssSelectorPart::Class("foo".into()),
+                CssSelectorPart::Combinator(Combinator::Child),
+                CssSelectorPart::Class("bar".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn flat_selectors_keep_no_empty_complex() {
+        let mut flat = FlatSelectors::default();
+        flat.next_complex();
+        flat.parts.push(CssSelectorPart::Class("a".into()));
+        flat.next_complex();
+        flat.next_complex();
+        flat.parts.push(CssSelectorPart::Class("b".into()));
+        flat.next_complex();
+        assert_eq!(
+            flat.into_lists(),
+            [
+                vec![CssSelectorPart::Class("a".into())],
+                vec![CssSelectorPart::Class("b".into())]
+            ]
+        );
+
+        let mut flat = FlatSelectors::default();
+        flat.next_complex();
+        assert!(flat.into_selector().is_none());
     }
 
     #[test]
@@ -1581,7 +1645,7 @@ mod tests {
         )
         .unwrap();
 
-        let parts: Vec<_> = stylesheet.rules[0].selectors[0].complex_at(0).to_vec();
+        let parts: Vec<_> = stylesheet.rules[0].selector.complex_at(0).to_vec();
         assert!(
             parts
                 .iter()
@@ -1589,7 +1653,7 @@ mod tests {
             "`:after` must become a pseudo-element, got {parts:?}"
         );
 
-        let parts: Vec<_> = stylesheet.rules[1].selectors[0].complex_at(0).to_vec();
+        let parts: Vec<_> = stylesheet.rules[1].selector.complex_at(0).to_vec();
         assert!(
             parts
                 .iter()
@@ -1723,7 +1787,7 @@ mod tests {
         )
         .unwrap();
 
-        let parts = stylesheet.rules[0].selectors[0].complex_at(0);
+        let parts = stylesheet.rules[0].selector.complex_at(0);
         let Some(CssSelectorPart::Not(inner)) = parts.last() else {
             panic!("expected a Not part, got {parts:?}");
         };
@@ -1741,7 +1805,7 @@ mod tests {
         )
         .unwrap();
 
-        let parts = stylesheet.rules[0].selectors[0].complex_at(0);
+        let parts = stylesheet.rules[0].selector.complex_at(0);
         let Some(CssSelectorPart::Not(inner)) = parts.last() else {
             panic!("expected a Not part, got {parts:?}");
         };
@@ -1759,7 +1823,7 @@ mod tests {
         )
         .unwrap();
 
-        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selectors[0].complex_at(0));
+        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selector.complex_at(0));
         assert_eq!(spec(0), Specificity::new(1, 0, 1), "an id argument counts as an id");
         assert_eq!(spec(1), Specificity::new(0, 1, 1), "a class argument counts as a class");
         assert_eq!(spec(2), Specificity::new(0, 0, 2), "a type argument counts as a type");
@@ -1779,7 +1843,7 @@ mod tests {
         )
         .unwrap();
 
-        let nth = |i: usize| match stylesheet.rules[i].selectors[0].complex_at(0).last() {
+        let nth = |i: usize| match stylesheet.rules[i].selector.complex_at(0).last() {
             Some(CssSelectorPart::Nth(nth)) => (**nth).clone(),
             other => panic!("expected an Nth part, got {other:?}"),
         };
@@ -1809,7 +1873,7 @@ mod tests {
         assert_eq!((nth(8).a, nth(8).b), (i32::MAX, 1), "a coefficient past i32 clamps");
         assert_eq!((nth(9).a, nth(9).b), (0, i32::MIN), "and so does a bare integer");
 
-        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selectors[0].complex_at(0));
+        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selector.complex_at(0));
         assert_eq!(spec(0), Specificity::new(0, 1, 1), "a pseudo-class");
         assert_eq!(spec(4), Specificity::new(1, 1, 1), "plus the most specific of S");
     }
@@ -1861,7 +1925,7 @@ mod tests {
         )
         .unwrap();
 
-        let list = |i: usize| match stylesheet.rules[i].selectors[0].complex_at(0).last() {
+        let list = |i: usize| match stylesheet.rules[i].selector.complex_at(0).last() {
             Some(CssSelectorPart::Is(list) | CssSelectorPart::Where(list)) => list.clone(),
             other => panic!("expected an Is or Where part, got {other:?}"),
         };
@@ -1912,11 +1976,11 @@ mod tests {
         )
         .unwrap();
 
-        let list = |i: usize| match stylesheet.rules[i].selectors[0].complex_at(0).last() {
+        let list = |i: usize| match stylesheet.rules[i].selector.complex_at(0).last() {
             Some(CssSelectorPart::Is(list) | CssSelectorPart::Where(list)) => list.clone(),
             other => panic!("expected an Is or Where part, got {other:?}"),
         };
-        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selectors[0].complex_at(0));
+        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selector.complex_at(0));
         let ok = vec![vec![CssSelectorPart::Class("ok".into())]];
 
         assert_eq!(list(0), ok, "an unknown pseudo-class");
@@ -1943,7 +2007,7 @@ mod tests {
         )
         .unwrap();
 
-        let last = |i: usize| stylesheet.rules[i].selectors[0].complex_at(0).last().cloned();
+        let last = |i: usize| stylesheet.rules[i].selector.complex_at(0).last().cloned();
         let Some(CssSelectorPart::Is(inner)) = last(0) else {
             panic!("expected an Is part, got {:?}", last(0));
         };
@@ -1963,7 +2027,7 @@ mod tests {
             ":matches() is the old name of :is()"
         );
 
-        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selectors[0].complex_at(0));
+        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selector.complex_at(0));
         assert_eq!(
             spec(0),
             Specificity::new(0, 1, 1),
@@ -1983,7 +2047,7 @@ mod tests {
         )
         .unwrap();
 
-        let has = |i: usize| match stylesheet.rules[i].selectors[0].complex_at(0).last() {
+        let has = |i: usize| match stylesheet.rules[i].selector.complex_at(0).last() {
             Some(CssSelectorPart::Has(list)) => list.clone(),
             other => panic!("expected a Has part, got {other:?}"),
         };
@@ -2011,7 +2075,7 @@ mod tests {
             "no written combinator means descendant"
         );
         assert_eq!(
-            Specificity::from(stylesheet.rules[3].selectors[0].complex_at(0)),
+            Specificity::from(stylesheet.rules[3].selector.complex_at(0)),
             Specificity::new(1, 0, 1),
             ":has() counts its most specific argument"
         );
@@ -2027,7 +2091,7 @@ mod tests {
         )
         .unwrap();
 
-        let last = |i: usize| stylesheet.rules[i].selectors[0].complex_at(0).last().cloned();
+        let last = |i: usize| stylesheet.rules[i].selector.complex_at(0).last().cloned();
         assert_eq!(last(0), Some(CssSelectorPart::Lang(vec!["en".into()])));
         assert_eq!(
             last(1),
@@ -2035,7 +2099,7 @@ mod tests {
             "a comma-separated list, idents and strings"
         );
         assert_eq!(
-            Specificity::from(stylesheet.rules[0].selectors[0].complex_at(0)),
+            Specificity::from(stylesheet.rules[0].selector.complex_at(0)),
             Specificity::new(0, 1, 1),
             "a pseudo-class"
         );
@@ -2131,15 +2195,15 @@ mod tests {
 
         assert_eq!(stylesheet.rules.len(), 3);
         assert_eq!(
-            stylesheet.rules[0].selectors[0].complex_at(0)[0],
+            stylesheet.rules[0].selector.complex_at(0)[0],
             CssSelectorPart::Type("h1".into())
         );
         assert_eq!(
-            stylesheet.rules[1].selectors[0].complex_at(0)[0],
+            stylesheet.rules[1].selector.complex_at(0)[0],
             CssSelectorPart::Type("h2".into())
         );
         assert_eq!(
-            stylesheet.rules[2].selectors[0].complex_at(0)[0],
+            stylesheet.rules[2].selector.complex_at(0)[0],
             CssSelectorPart::Type("h3".into())
         );
     }
@@ -2434,7 +2498,7 @@ mod tests {
 
         assert_eq!(sheet.rules.len(), 1, "only the satisfied block contributes rules");
         assert_eq!(
-            sheet.rules[0].selectors[0].complex_at(0)[0],
+            sheet.rules[0].selector.complex_at(0)[0],
             CssSelectorPart::Type("h1".into())
         );
     }

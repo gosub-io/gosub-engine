@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Result};
-use gosub_css3::stylesheet::{CssSelector, CssSelectorPart, CssStylesheet};
+use gosub_css3::stylesheet::{CssSelectorPart, CssStylesheet};
 use gosub_css3::tokenizer::{TokenType, Tokenizer};
 use gosub_css3::Css3;
 use gosub_interface::css3::CssOrigin;
@@ -188,31 +188,29 @@ fn print_stylesheet(sheet: &CssStylesheet) {
     println!("[Stylesheet ({} rules)]", sheet.rules.len());
     for rule in &sheet.rules {
         println!("  [Rule]");
-        let selector_count: usize = rule.selectors.iter().map(CssSelector::complex_count).sum();
+        let selector_count = rule.selector.complex_count();
         println!("    [SelectorList ({selector_count})]");
-        for selector in &rule.selectors {
-            for parts in selector.complexes() {
-                println!("      [Selector]");
-                for part in parts {
-                    match part {
-                        CssSelectorPart::Type(t) => println!("        [Type] {t}"),
-                        CssSelectorPart::Class(c) => println!("        [Class] .{c}"),
-                        CssSelectorPart::Id(i) => println!("        [Id] #{i}"),
-                        CssSelectorPart::Universal => println!("        [Universal] *"),
-                        CssSelectorPart::PseudoClass(p) => println!("        [PseudoClass] :{p}"),
-                        CssSelectorPart::PseudoElement(p) => println!("        [PseudoElement] ::{p}"),
-                        CssSelectorPart::Combinator(c) => println!("        [Combinator] {c:?}"),
-                        CssSelectorPart::Attribute(a) => println!("        [Attribute] [{}]", a.name),
-                        CssSelectorPart::Not(inner) => println!("        [Not] :not({inner:?})"),
-                        CssSelectorPart::Nth(nth) => println!("        [Nth] {nth}"),
-                        CssSelectorPart::Lang(ranges) => println!("        [Lang] :lang({ranges:?})"),
-                        CssSelectorPart::Is(inner) => println!("        [Is] :is({inner:?})"),
-                        CssSelectorPart::Where(inner) => println!("        [Where] :where({inner:?})"),
-                        CssSelectorPart::Has(inner) => println!("        [Has] :has({inner:?})"),
-                        CssSelectorPart::Host(None) => println!("        [Host] :host"),
-                        CssSelectorPart::Host(Some(inner)) => println!("        [Host] :host({inner:?})"),
-                        CssSelectorPart::Slotted(inner) => println!("        [Slotted] ::slotted({inner:?})"),
-                    }
+        for parts in rule.selector.complexes() {
+            println!("      [Selector]");
+            for part in parts {
+                match part {
+                    CssSelectorPart::Type(t) => println!("        [Type] {t}"),
+                    CssSelectorPart::Class(c) => println!("        [Class] .{c}"),
+                    CssSelectorPart::Id(i) => println!("        [Id] #{i}"),
+                    CssSelectorPart::Universal => println!("        [Universal] *"),
+                    CssSelectorPart::PseudoClass(p) => println!("        [PseudoClass] :{p}"),
+                    CssSelectorPart::PseudoElement(p) => println!("        [PseudoElement] ::{p}"),
+                    CssSelectorPart::Combinator(c) => println!("        [Combinator] {c:?}"),
+                    CssSelectorPart::Attribute(a) => println!("        [Attribute] [{}]", a.name),
+                    CssSelectorPart::Not(inner) => println!("        [Not] :not({inner:?})"),
+                    CssSelectorPart::Nth(nth) => println!("        [Nth] {nth}"),
+                    CssSelectorPart::Lang(ranges) => println!("        [Lang] :lang({ranges:?})"),
+                    CssSelectorPart::Is(inner) => println!("        [Is] :is({inner:?})"),
+                    CssSelectorPart::Where(inner) => println!("        [Where] :where({inner:?})"),
+                    CssSelectorPart::Has(inner) => println!("        [Has] :has({inner:?})"),
+                    CssSelectorPart::Host(None) => println!("        [Host] :host"),
+                    CssSelectorPart::Host(Some(inner)) => println!("        [Host] :host({inner:?})"),
+                    CssSelectorPart::Slotted(inner) => println!("        [Slotted] ::slotted({inner:?})"),
                 }
             }
         }
