@@ -696,12 +696,13 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     }
 
     /// Whether `node_id` is in the document tree, i.e. its ancestors lead up to the document.
-    /// A shadow root has no parent, so nothing inside a shadow tree is.
+    /// A shadow root has no parent, so nothing inside a shadow tree is. Neither is anything
+    /// left below a deleted document root.
     fn is_in_document(&self, node_id: NodeId) -> bool {
         let mut current = node_id;
         loop {
             if current == NodeId::root() {
-                return true;
+                return self.arena.node_ref(current).is_some();
             }
             match self.arena.node_ref(current).and_then(NodeImpl::parent_id) {
                 Some(parent) => current = parent,
@@ -1360,6 +1361,17 @@ mod tests {
         let b = element_with_id(&mut doc, "div", root, Some(" padded "));
         assert_eq!(doc.node_by_named_id(" padded "), Some(b));
         assert_eq!(doc.node_by_named_id("padded"), None, "no trimming");
+    }
+
+    #[test]
+    fn nothing_below_a_deleted_root_gets_an_id() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let child = element(&mut doc, "div", root);
+
+        doc.delete_node_by_id(root);
+        set_id(&mut doc, child, Some("new"));
+        assert_eq!(doc.node_by_named_id("new"), None);
     }
 
     #[test]
