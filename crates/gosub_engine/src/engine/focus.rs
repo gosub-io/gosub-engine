@@ -93,6 +93,9 @@ pub fn click_target<C: RenderConfiguration>(doc: &EngineDocument<C>, leaf: NodeI
 
 /// Labelable elements (HTML 4.10.2): the only ones a label's `for` can point at.
 fn is_labelable<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> bool {
+    if doc.namespace(id) != Some(gosub_html5::node::HTML_NAMESPACE) {
+        return false;
+    }
     match doc.tag_name(id) {
         Some("input") => !doc
             .attribute(id, "type")
@@ -295,6 +298,18 @@ mod tests {
             r#"<label id="l" for="d">L</label><div id="d" tabindex="0"></div>"#,
         );
         let label = doc.node_by_named_id("l").unwrap();
+        assert_eq!(click_target(&doc, label), None);
+    }
+
+    /// A foreign element with a labelable name is not labelable.
+    #[test]
+    fn a_label_for_an_svg_element_activates_nothing() {
+        let doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>(
+            r#"<label id="l" for="o">L</label><svg><output id="o" tabindex="0"></output></svg>"#,
+        );
+        let label = doc.node_by_named_id("l").unwrap();
+        let output = doc.node_by_named_id("o").unwrap();
+        assert_ne!(doc.namespace(output), Some(gosub_html5::node::HTML_NAMESPACE));
         assert_eq!(click_target(&doc, label), None);
     }
 
