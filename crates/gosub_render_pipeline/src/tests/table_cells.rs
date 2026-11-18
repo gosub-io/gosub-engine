@@ -208,6 +208,28 @@ fn an_absolutely_positioned_child_does_not_count_when_a_cell_is_aligned() {
     );
 }
 
+/// An absolutely positioned child's percentage height resolves against the cell's final height
+/// even where the cell's height does not count as specified; an in-flow one still behaves as auto.
+#[test]
+fn an_absolutely_positioned_percentage_height_resolves_against_the_cell() {
+    let (layers, [cell, positioned, flow]) = lay_out(
+        r#"<html><body>
+          <table style="border-spacing: 0"><tr>
+            <td id="cell" style="position: relative; padding: 0">
+              <div style="height: 100px"></div>
+              <div id="positioned" style="position: absolute; top: 0; width: 10px; height: 100%"></div>
+              <div id="flow" style="height: 100%"><div style="height: 10px"></div></div>
+            </td>
+            <td style="padding: 0"><div style="height: 150px"></div></td>
+          </tr></table>
+        </body></html>"#,
+        ["cell", "positioned", "flow"],
+    );
+    assert_eq!(border_box(&layers, cell).height, 150.0);
+    assert_eq!(border_box(&layers, positioned).height, 150.0);
+    assert_eq!(border_box(&layers, flow).height, 10.0);
+}
+
 /// A percentage table height counts as specified even where it behaves as auto (§3.10.6), so a
 /// percentage child resolves against the cell's height from the first pass.
 #[test]

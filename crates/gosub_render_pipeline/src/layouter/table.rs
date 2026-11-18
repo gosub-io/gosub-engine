@@ -606,19 +606,22 @@ impl TableTree for PipelineTableTree<'_> {
             .unwrap_or(0.0)
     }
 
-    /// Only a cell whose percentage heights resolve, with something under it that has one, is
-    /// laid out again (css-tables-3 §3.10.6).
+    /// Only a cell with a percentage height under it that resolves is laid out again: in flow,
+    /// when its own `height` or its table's counts as specified (css-tables-3 §3.10.6), and
+    /// absolutely positioned, always.
     fn layout_cell_at_height(&mut self, id: DomNodeId, inner_width: f64, inner_height: f64) -> Option<f64> {
-        if !self.relaid.contains(&id) || !self.percent_heights_resolve(id) {
+        if !self.relaid.contains(&id) {
             return None;
         }
+        let &layout_id = self.dom_to_layout.get(&id)?;
+        let specified = self.percent_heights_resolve(id);
         let percent = |value: LengthPercentageAuto| matches!(value, LengthPercentageAuto::Percent(_));
         let has_percent_child = self.doc.children(id).into_iter().any(|child| {
             let style = self.doc.computed_style(child);
             percent(style.size.height) || percent(style.size.min_height) || percent(style.size.max_height)
         });
-        let &layout_id = self.dom_to_layout.get(&id)?;
-        if !has_percent_child && !self.layouter.has_percent_heights_under(self.layout_tree, layout_id) {
+        let (in_flow, out_of_flow) = self.layouter.percent_heights_under_cell(self.layout_tree, layout_id);
+        if !(specified && (has_percent_child || in_flow)) && !out_of_flow {
             return None;
         }
 
@@ -630,7 +633,10 @@ impl TableTree for PipelineTableTree<'_> {
                 self.layout_tree,
                 layout_id,
                 width as f32,
-                CellHeight::Final(height as f32),
+                CellHeight::Final {
+                    height: height as f32,
+                    specified,
+                },
             )
             .map(f64::from)
     }
