@@ -999,6 +999,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         // node whose only remaining reference points at a deleted host.
         if let Some(root) = self.shadow_root(node_id) {
             self.refresh_named_ids(root, None);
+            self.orphan_children(root);
             self.arena.delete_node(root);
         }
         let Some(parent) = self.arena.node_ref(node_id).map(NodeImpl::parent_id) else {
@@ -1013,7 +1014,23 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         // stop finding them. The arena only drops this one slot.
         self.refresh_named_ids(node_id, None);
         self.clear_interaction_state(node_id);
+        self.orphan_children(node_id);
         self.arena.delete_node(node_id);
+    }
+
+    /// Clear the parent link of `node_id`'s children before its slot goes. The arena keeps them,
+    /// and a parent link to a deleted slot would make that slot their tree root.
+    fn orphan_children(&mut self, node_id: NodeId) {
+        let children = self
+            .arena
+            .node_ref(node_id)
+            .map(|n| n.children.clone())
+            .unwrap_or_default();
+        for child in children {
+            if let Some(node) = self.arena.node_ref_mut(child) {
+                node.set_parent(None);
+            }
+        }
     }
 
     /// Drop every piece of user-interaction state that names `node_id`. `NodeArena` never reuses
@@ -1660,5 +1677,27 @@ mod tests {
         node.data = NodeDataTypeInternal::Text(crate::node::data::text::TextData::with_value("t"));
         doc.update_node(node);
         assert_eq!(doc.node_by_named_id("x"), None);
+    }
+
+    #[test]
+    fn a_subtree_left_by_a_delete_is_its_own_tree() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let parent = element_with_id(&mut doc, "div", root, None);
+        let kept = element_with_id(&mut doc, "div", parent, None);
+        let input = element_with_id(&mut doc, "input", kept, Some("c"));
+
+        let host = element_with_id(&mut doc, "div", root, None);
+        let shadow = shadow_root_of(&mut doc, host);
+        let inner = element_with_id(&mut doc, "div", shadow, None);
+        let inner_input = element_with_id(&mut doc, "input", inner, Some("d"));
+
+        doc.delete_node_by_id(parent);
+        doc.delete_node_by_id(host);
+        assert_eq!(doc.tree_root(input), kept);
+        assert_eq!(doc.node_by_named_id_in(kept, "c"), Some(input));
+        assert_eq!(doc.tree_root(inner_input), inner);
+        assert_eq!(doc.node_by_named_id_in(inner, "d"), Some(inner_input));
+        assert_eq!(doc.node_by_named_id("c"), None);
     }
 }
