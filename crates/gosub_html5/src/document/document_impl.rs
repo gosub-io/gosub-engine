@@ -3,7 +3,7 @@ use gosub_interface::css3::CssSystem;
 use gosub_interface::document::{ControlEditState, Document, DocumentType, OpenSelect, PendingStylesheet};
 use gosub_shared::attributes::Attributes;
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use url::Url;
@@ -29,8 +29,8 @@ pub struct DocumentImpl<C: HasDocument> {
     pub url: Option<Url>,
     pub(crate) arena: NodeArena,
     /// Elements by `id`, per tree: keyed by the tree's root, the document or a shadow root.
-    /// Every holder of a duplicate id is included.
-    named_id_elements: HashMap<NodeId, HashMap<String, Vec<NodeId>>>,
+    /// Every holder of a duplicate id is included; lookups find the first by walking the tree.
+    named_id_elements: HashMap<NodeId, HashMap<String, HashSet<NodeId>>>,
     /// Reverse index of `named_id_elements`: the tree and id each node is registered under.
     /// Kept in sync so unregistering a node does not require scanning the whole map.
     named_ids_by_node: HashMap<NodeId, (NodeId, String)>,
@@ -776,7 +776,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             .or_default()
             .entry(id_value.clone())
             .or_default()
-            .push(node_id);
+            .insert(node_id);
         self.named_ids_by_node.insert(node_id, (registry, id_value));
     }
 
@@ -788,10 +788,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             return;
         };
         if let Entry::Occupied(mut e) = ids.entry(id_value) {
-            // From the end: a detached subtree unregisters its last-registered nodes first.
-            if let Some(pos) = e.get().iter().rposition(|&n| n == node_id) {
-                e.get_mut().remove(pos);
-            }
+            e.get_mut().remove(&node_id);
             if e.get().is_empty() {
                 e.remove();
             }
@@ -804,8 +801,9 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     /// The first element in tree order with `id` `name_id`, in the tree below `root`.
     fn first_named_id_holder(&self, root: NodeId, name_id: &str) -> Option<NodeId> {
         if self.has_id_registry(root) {
-            if let [only] = self.named_id_elements.get(&root)?.get(name_id)?.as_slice() {
-                return Some(*only);
+            let holders = self.named_id_elements.get(&root)?.get(name_id)?;
+            if holders.len() == 1 {
+                return holders.iter().next().copied();
             }
         } else if !is_valid_id_attribute_value(name_id) {
             return None;
@@ -1634,5 +1632,22 @@ mod tests {
         assert_eq!(doc.node_by_named_id_in(top, "dup"), Some(first));
         assert_eq!(doc.node_by_named_id_in(top, ""), None);
         assert_eq!(doc.node_by_named_id("dup"), None);
+    }
+
+    #[test]
+    fn re_adding_a_duplicate_id_keeps_documents_equal() {
+        let build = || {
+            let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+            let root = doc.root();
+            let a = element_with_id(&mut doc, "div", root, Some("x"));
+            element_with_id(&mut doc, "div", root, Some("x"));
+            (doc, a)
+        };
+        let (plain, _) = build();
+        let (mut touched, a) = build();
+        touched.set_attribute(a, "id", "y");
+        touched.set_attribute(a, "id", "x");
+        assert!(plain == touched);
+        assert_eq!(touched.node_by_named_id("x"), Some(a));
     }
 }
