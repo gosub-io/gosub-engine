@@ -107,9 +107,10 @@ impl DocumentTaskQueue {
                 DocumentTask::InsertAttribute {
                     key, value, element_id, ..
                 } => {
+                    // An authoring error only: the attribute is still set, and a non-empty id
+                    // is still found by getElementById.
                     if key == "id" && !is_valid_id_attribute_value(value) {
                         errors.push(format!("ID attribute value '{value}' did not pass validation"));
-                        continue;
                     }
 
                     if let Some(existing_id) = doc.node_by_named_id(value) {
@@ -208,5 +209,38 @@ impl DocumentTaskQueue {
             next_node_id,
             tasks: Vec::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::document::builder::DocumentBuilderImpl;
+    use crate::document::document_impl::DocumentImpl;
+    use crate::node::HTML_NAMESPACE;
+    use crate::parser::Html5Parser;
+    use gosub_css3::system::Css3System;
+    use gosub_interface::config::ModuleConfiguration;
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct Config;
+
+    impl ModuleConfiguration for Config {
+        type CssSystem = Css3System;
+        type Document = DocumentImpl<Self>;
+        type HtmlParser = Html5Parser<'static, Self>;
+    }
+
+    #[test]
+    fn an_id_with_whitespace_is_reported_but_still_set() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let mut queue = DocumentTaskQueue::new::<Config>(&doc);
+
+        let div = queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        queue.insert_attribute("id", "a b", div, Location::default()).unwrap();
+        let errors = queue.flush::<Config>(&mut doc);
+
+        assert_eq!(errors.len(), 1, "whitespace in an id is still an authoring error");
+        assert_eq!(doc.node_by_named_id("a b"), Some(div));
     }
 }

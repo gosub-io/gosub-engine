@@ -9,7 +9,6 @@ use std::fmt::{Display, Formatter};
 use url::Url;
 
 use crate::document::presentation_hints;
-use crate::document::task_queue::is_valid_id_attribute_value;
 use crate::node::arena::NodeArena;
 use crate::node::data::comment::CommentData;
 use crate::node::data::doctype::DocTypeData;
@@ -745,10 +744,11 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     }
 
     /// Point `node_id` at `id_attr`, dropping whatever it was registered under before. An absent
-    /// or invalid value just unregisters.
+    /// or empty value just unregisters. Any other value is the element's ID as written, whitespace
+    /// included (<https://dom.spec.whatwg.org/#concept-id>).
     fn register_named_id(&mut self, node_id: NodeId, id_attr: Option<&str>) {
         self.unregister_named_id(node_id);
-        let Some(id_value) = id_attr.filter(|v| is_valid_id_attribute_value(v)) else {
+        let Some(id_value) = id_attr.filter(|v| !v.is_empty()) else {
             return;
         };
         self.named_id_elements
@@ -1333,18 +1333,32 @@ mod tests {
     }
 
     #[test]
-    fn an_invalid_or_removed_id_unregisters_the_node() {
+    fn an_empty_or_removed_id_unregisters_the_node() {
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
         let root = doc.root();
 
         let a = element_with_id(&mut doc, "div", root, Some("keep"));
-        set_id(&mut doc, a, Some("has space")); // whitespace is not a valid id
+        set_id(&mut doc, a, Some(""));
         assert_eq!(doc.node_by_named_id("keep"), None);
-        assert_eq!(doc.node_by_named_id("has space"), None);
+        assert_eq!(doc.node_by_named_id(""), None);
 
         let b = element_with_id(&mut doc, "div", root, Some("gone"));
         set_id(&mut doc, b, None);
         assert_eq!(doc.node_by_named_id("gone"), None);
+    }
+
+    #[test]
+    fn an_id_with_whitespace_is_found_as_written() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+
+        let a = element_with_id(&mut doc, "div", root, Some("has space"));
+        assert_eq!(doc.node_by_named_id("has space"), Some(a));
+        assert_eq!(doc.node_by_named_id("has"), None);
+
+        let b = element_with_id(&mut doc, "div", root, Some(" padded "));
+        assert_eq!(doc.node_by_named_id(" padded "), Some(b));
+        assert_eq!(doc.node_by_named_id("padded"), None, "no trimming");
     }
 
     #[test]

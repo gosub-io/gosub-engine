@@ -4893,8 +4893,10 @@ mod test {
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
         let _ = Parser::parse_document(&mut stream, &mut doc, None);
 
-        // Any invalid id's are not stored in the document, and thus not searchable
-        assert!(doc.get_node_by_named_id("my id").is_none());
+        // Whitespace makes an id non-conforming but it is still the element's id. An empty id
+        // is no id at all.
+        assert!(doc.get_node_by_named_id("my id").is_some());
+        assert!(doc.get_node_by_named_id("my").is_none());
         assert!(doc.get_node_by_named_id("").is_none());
     }
 
