@@ -82,12 +82,16 @@ impl RebasedInsets {
     }
 }
 
-/// Whether a size depends on its basis, so taffy resolving it against the wrong box gets it wrong.
-fn is_relative_size(size: LengthPercentageAuto) -> bool {
-    matches!(
-        size,
-        LengthPercentageAuto::Percent(_) | LengthPercentageAuto::Calc { .. }
-    )
+/// Whether taffy gets `size` wrong when it measures from `parent` rather than from `cb`, the
+/// containing block, on one axis (given as start and length). A percentage it gets right only when
+/// the two boxes span the same range. A `calc()` it never sees at all: the converter has no taffy
+/// form for one and hands it `auto`, so it is resolved here wherever the box sits.
+fn size_needs_replay(size: LengthPercentageAuto, parent: (f64, f64), cb: (f64, f64)) -> bool {
+    match size {
+        LengthPercentageAuto::Calc { .. } => true,
+        LengthPercentageAuto::Percent(_) => !spans_match(parent.0, parent.1, cb.0, cb.1),
+        _ => false,
+    }
 }
 
 /// Whether an axis is `auto`-sized, so that opposing insets should stretch the box.
@@ -178,10 +182,10 @@ pub fn post_process_abspos(
             }
             // A percentage size is of the containing block as well. Taffy takes it of the parent,
             // which for a box written inside a line is the line box, whose height is its content.
-            if is_relative_size(style.size.width) && !spans_match(pb.x, pb.width, cb.x, cb.width) {
+            if size_needs_replay(style.size.width, (pb.x, pb.width), (cb.x, cb.width)) {
                 rebased.width = inset(style.size.width, cb.width).map(|w| w as f32);
             }
-            if is_relative_size(style.size.height) && !spans_match(pb.y, pb.height, cb.y, cb.height) {
+            if size_needs_replay(style.size.height, (pb.y, pb.height), (cb.y, cb.height)) {
                 rebased.height = inset(style.size.height, cb.height).map(|h| h as f32);
             }
             if !rebased.is_empty() {

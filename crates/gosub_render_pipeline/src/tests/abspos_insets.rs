@@ -91,3 +91,28 @@ fn a_padded_parent_does_not_hide_the_narrower_line() {
     let padding_box = layers.layout_tree.get_node_by_id(cb).unwrap().box_model.padding_box;
     assert_eq!(border_box(&layers, abspos), padding_box);
 }
+
+/// Taffy has no `calc()`: the size is resolved against the containing block wherever the box sits,
+/// also where the line, or the parent, spans the containing block exactly.
+#[test]
+fn a_calc_size_is_resolved_against_the_containing_block() {
+    let (layers, [in_line, direct]) = lay_out(
+        r#"<html><body style="margin: 0">
+          <div style="position: relative; width: 200px; height: 40px">
+            <div style="padding: 0 10px; margin: 0 -10px">Foo
+              <span id="in-line" style="position: absolute; top: 0; left: 0; height: 10px;
+                width: calc(50% + 10px)"></span>
+            </div>
+          </div>
+          <div style="position: relative; width: 200px; height: 40px">
+            <div id="direct" style="position: absolute; top: 0; left: 0; width: calc(50% + 10px);
+              height: calc(50% - 4px)"></div>
+          </div>
+        </body></html>"#,
+        ["in-line", "direct"],
+    );
+    let in_line = border_box(&layers, in_line);
+    assert_eq!((in_line.width, in_line.height), (110.0, 10.0));
+    let direct = border_box(&layers, direct);
+    assert_eq!((direct.width, direct.height), (110.0, 16.0));
+}
