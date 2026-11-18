@@ -742,14 +742,20 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         }
     }
 
+    /// Whether `node_id` has an `id` attribute or is registered under one. When neither holds,
+    /// refreshing it changes nothing and the ancestor walk can be skipped.
+    fn has_named_id_state(&self, node_id: NodeId) -> bool {
+        self.named_ids_by_node.contains_key(&node_id)
+            || self
+                .arena
+                .node_ref(node_id)
+                .and_then(NodeImpl::get_element_data)
+                .is_some_and(|data| data.attributes.contains_key("id"))
+    }
+
     /// Bring `node_id`'s registration in line with its `id` attribute, after that changed.
     fn refresh_named_id(&mut self, node_id: NodeId) {
-        let has_id = self
-            .arena
-            .node_ref(node_id)
-            .and_then(NodeImpl::get_element_data)
-            .is_some_and(|data| data.attributes.contains_key("id"));
-        if !has_id && !self.named_ids_by_node.contains_key(&node_id) {
+        if !self.has_named_id_state(node_id) {
             return;
         }
         let registry = self.registry_of(node_id);
@@ -892,6 +898,12 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             return;
         };
         node.parent = Some(parent_id);
+        let is_leaf = node.children.is_empty();
+        if is_leaf {
+            // Most attaches are the parser adding a leaf: skip the ancestor walk when it has no id.
+            self.refresh_named_id(node_id);
+            return;
+        }
         let registry = self.registry_of(node_id);
         self.refresh_named_ids(node_id, registry);
     }
