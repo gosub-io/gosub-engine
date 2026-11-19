@@ -76,6 +76,8 @@ async-trait = "0.1.89"
 allsorts = "0.17"
 # Bounded WOFF2 inflate ahead of allsorts, which reads the Brotli stream to its end.
 brotli-decompressor = "6"
+# WOFF1 table inflate, bounded by each table's origLength.
+flate2 = "1"
 # Download bodies are spooled to a temp file while the embedder decides (see net::router).
 tempfile = { workspace = true }
 

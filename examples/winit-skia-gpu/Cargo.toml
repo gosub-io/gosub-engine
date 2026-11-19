@@ -13,7 +13,6 @@ gosub_config = { path = "../../crates/gosub_config" }
 gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline" }
 gosub_renderer_skia = { path = "../../crates/gosub_renderer_skia" }
 winit = { workspace = true }
-softbuffer = { workspace = true }
 skia-safe = { workspace = true, features = ["gl"] }
 glutin = "0.32"
 glutin-winit = "0.5"

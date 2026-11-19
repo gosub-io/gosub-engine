@@ -300,8 +300,9 @@ pub fn toggle_kind<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) 
     }
 }
 
-/// A checkbox flips; a radio becomes checked and the rest of its group (same `name` within the
-/// nearest `<form>`, or the document) is unchecked. Returns the `(node, checked)` changes.
+/// A checkbox flips; a radio becomes checked and the rest of its group is unchecked: the radios
+/// in the same tree with the same form owner (or none) and the same `name` (HTML 4.10.5.1.15).
+/// Returns the `(node, checked)` changes.
 pub fn toggle<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> Vec<(NodeId, bool)> {
     match toggle_kind(doc, id) {
         None => Vec::new(),
@@ -314,13 +315,14 @@ pub fn toggle<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> Ve
             let Some(name) = doc.attribute(id, "name").filter(|n| !n.is_empty()) else {
                 return changes;
             };
-            let scope = crate::engine::form::form_owner(doc, id).unwrap_or_else(|| doc.root());
-            let mut stack: Vec<NodeId> = doc.children(scope).iter().rev().copied().collect();
+            let owner = crate::engine::form::form_owner(doc, id);
+            let mut stack = vec![doc.tree_root(id)];
             while let Some(n) = stack.pop() {
                 if n != id
                     && toggle_kind(doc, n) == Some(true)
                     && doc.attribute(n, "name") == Some(name)
                     && doc.is_checked(n)
+                    && crate::engine::form::form_owner(doc, n) == owner
                 {
                     changes.push((n, false));
                 }
@@ -603,6 +605,62 @@ pub fn select_options<C: RenderConfiguration>(doc: &EngineDocument<C>, select: N
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn radio_changes(html: &str, id: &str) -> Vec<(String, bool)> {
+        let doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>(html);
+        let host = doc.node_by_named_id("host");
+        let shadow = host.and_then(|h| doc.shadow_root(h));
+        let target = doc
+            .node_by_named_id(id)
+            .or_else(|| shadow.and_then(|s| doc.node_by_named_id_in(s, id)))
+            .unwrap();
+        toggle(&doc, target)
+            .into_iter()
+            .map(|(n, c)| (doc.attribute(n, "id").unwrap_or_default().to_string(), c))
+            .collect()
+    }
+
+    #[test]
+    fn a_radio_group_follows_the_form_owner() {
+        // `b` sits outside the form but belongs to it through `form=`.
+        let html = r#"<form id="f"><input type="radio" name="r" id="a"><input type="radio" name="r" id="c" form="g" checked></form><input type="radio" name="r" id="b" form="f" checked><form id="g"></form>"#;
+        assert_eq!(
+            radio_changes(html, "a"),
+            [("a".to_string(), true), ("b".to_string(), false)]
+        );
+    }
+
+    #[test]
+    fn a_radio_group_includes_the_tree_root() {
+        use gosub_shared::attributes::Attributes;
+        use gosub_shared::byte_stream::Location;
+        let mut doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>("");
+        let radio = |doc: &mut EngineDocument<crate::html::DefaultRenderConfig>, checked: bool| {
+            let mut attributes = Attributes::new();
+            attributes.insert("type".to_string(), "radio".to_string());
+            attributes.insert("name".to_string(), "r".to_string());
+            if checked {
+                attributes.insert("checked".to_string(), String::new());
+            }
+            doc.create_element(
+                "input",
+                Some(gosub_html5::node::HTML_NAMESPACE),
+                attributes,
+                Location::default(),
+            )
+        };
+        // A detached tree whose root is itself a checked radio.
+        let root = radio(&mut doc, true);
+        let child = radio(&mut doc, false);
+        doc.attach(child, root, None);
+        assert_eq!(toggle(&doc, child), [(child, true), (root, false)]);
+    }
+
+    #[test]
+    fn a_radio_group_stays_in_its_tree() {
+        let html = r#"<input type="radio" name="r" id="doc" checked><div id="host"><template shadowrootmode="open"><form><input type="radio" name="r" id="in" form="missing"></form></template></div>"#;
+        assert_eq!(radio_changes(html, "in"), [("in".to_string(), true)]);
+    }
 
     fn st(v: &str, caret: usize) -> ControlEditState {
         ControlEditState::new(v.to_string(), caret)

@@ -19,6 +19,9 @@ ignore = [
     # maintained alternative (harfrust) requires resvg/usvg to migrate first. Nothing we
     # control depends on it directly.
     "RUSTSEC-2026-0206", # rustybuzz unmaintained
+    # `chrono` is unmaintained but only pulled in by our own gosub-sonar. No safe upgrade is
+    # available; the way out is sonar moving to `jiff` or `time`.
+    "RUSTSEC-2026-0543", # chrono unmaintained
     # `quick-xml` 0.39 DoS advisories. Not exploitable here; nothing hands it untrusted
     # input. Two paths lead to it:
     # - `wayland-scanner`, a build-time proc-macro under winit's Wayland backend, which
@@ -30,6 +33,10 @@ ignore = [
     # updates its wayland-scanner dependency.
     "RUSTSEC-2026-0194", # quick-xml quadratic duplicate-attribute check (no untrusted input)
     "RUSTSEC-2026-0195", # quick-xml unbounded namespace allocation (no untrusted input)
+    # `chrono` is unmaintained and no release fixes that. gosub-sonar depends on it, and the
+    # engine uses it only for cookie dates (engine/cookies/cookie_jar.rs). Moving to `time` or
+    # `jiff` needs both repos; until then there is no build without it.
+    "RUSTSEC-2026-0543", # chrono unmaintained
 ]
 
 [licenses]

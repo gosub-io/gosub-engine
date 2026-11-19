@@ -176,6 +176,15 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     /// (not detached, not inside a shadow tree or a template's contents).
     fn node_by_named_id(&self, name_id: &str) -> Option<NodeId>;
 
+    /// The root of the tree `id` is in: the document, a shadow root, or the top of a subtree that
+    /// is not attached anywhere.
+    fn tree_root(&self, id: NodeId) -> NodeId;
+
+    /// The first element in tree order with this `id` in the tree below `root`, usually a
+    /// [`Self::tree_root`]. Ids resolve in the tree of the element that names them (`label for`,
+    /// `form=`), and `ShadowRoot.getElementById` is this with the shadow root.
+    fn node_by_named_id_in(&self, root: NodeId, name_id: &str) -> Option<NodeId>;
+
     /// Whether an element in the document tree other than `node` has this `id`.
     fn named_id_held_by_other(&self, name_id: &str, node: NodeId) -> bool;
 
