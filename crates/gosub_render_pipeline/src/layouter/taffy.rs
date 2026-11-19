@@ -38,6 +38,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use taffy::prelude::*;
 use taffy::NodeId as TaffyNodeId;
+use taffy::ResolveOrZero;
 
 /// Whether a text node is nothing but the whitespace CSS collapses.
 ///
@@ -1323,28 +1324,68 @@ impl TaffyLayouter {
     /// cell itself afterwards via `apply_positions`). Returns the cell's
     /// content-box height at that width, or `None` when the cell is unknown or
     /// the compute fails.
+    ///
+    /// Captions come through here too, with `is_cell` false, and keep their own `width`.
     pub(super) fn relayout_cell(
         &mut self,
         layout_tree: &mut LayoutTree,
         cell_layout_id: LayoutElementId,
         border_box_width: f32,
+        is_cell: bool,
     ) -> Option<f32> {
         let &taffy_id = self.layout_taffy_mapping.get(&cell_layout_id)?;
         let old_origin = layout_tree
             .get_node_by_id(cell_layout_id)
             .map(|el| Coordinate::new(el.box_model.border_box.x, el.box_model.border_box.y))?;
 
+        // Lattice has settled the cell's width; its own `width` is one of the inputs to that and
+        // has done its job. Left in the style, a percentage would resolve a second time, now
+        // against the cell itself, since the cell is the root here: `width: 1%` on a 50px cell
+        // made a 0.5px box and squeezed the content to nothing. A caption's width is not one
+        // lattice settles, and its percentage resolves correctly against the table width it is
+        // handed here, so it stays.
+        let original = self.tree.style(taffy_id).ok()?.clone();
+        if is_cell {
+            let mut fixed = original.clone();
+            // In the cell's own box-sizing: switching it would also change what its `height`
+            // measures. Taffy resolves the root's percentage padding against `border_box_width`,
+            // so the edges come off that the same way; lattice's content width counts percentage
+            // padding as zero.
+            let width = match original.box_sizing {
+                BoxSizing::ContentBox => {
+                    let basis = Some(border_box_width);
+                    let edges = original.padding.resolve_or_zero(basis, |_, b| b)
+                        + original.border.resolve_or_zero(basis, |_, b| b);
+                    (border_box_width - edges.horizontal_axis_sum()).max(0.0)
+                }
+                BoxSizing::BorderBox => border_box_width,
+            };
+            fixed.size.width = Dimension::length(width);
+            fixed.min_size.width = LengthPercentageAuto::auto();
+            fixed.max_size.width = LengthPercentageAuto::auto();
+            if let Err(e) = self.tree.set_style(taffy_id, fixed) {
+                log::warn!("lattice: cell re-layout failed for {:?}: {:?}", cell_layout_id, e);
+                return None;
+            }
+        }
+
         let size = Size {
             width: AvailableSpace::Definite(border_box_width),
             height: AvailableSpace::MaxContent,
         };
-        if let Err(e) = self.compute_taffy(taffy_id, size) {
+        let computed = self.compute_taffy(taffy_id, size);
+        if computed.is_ok() {
+            // The cell's lines wrap at its new width, so their rows - and the baselines shared
+            // along them - are not the ones the full layout aligned.
+            self.align_baselines(layout_tree, taffy_id, size);
+        }
+        if is_cell {
+            let _ = self.tree.set_style(taffy_id, original);
+        }
+        if let Err(e) = computed {
             log::warn!("lattice: cell re-layout failed for {:?}: {:?}", cell_layout_id, e);
             return None;
         }
-        // The cell's lines wrap at its new width, so their rows - and the baselines shared
-        // along them - are not the ones the full layout aligned.
-        self.align_baselines(layout_tree, taffy_id, size);
 
         // The cell is the computation root, so its taffy location is meaningless
         // here; cancel it out so the subtree stays anchored at the cell's

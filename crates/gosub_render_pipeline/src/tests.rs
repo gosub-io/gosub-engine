@@ -5638,4 +5638,6 @@ mod shadow_dom;
 #[cfg(test)]
 mod table_backgrounds;
 #[cfg(test)]
+mod table_cell_sizing;
+#[cfg(test)]
 mod text_wrapping;
