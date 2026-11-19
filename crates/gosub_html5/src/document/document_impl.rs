@@ -317,12 +317,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         if let NodeDataTypeInternal::Element(ref mut e) = node.data {
             e.set_template_contents(fragment);
         }
-        // The children may have just become template contents, or stopped being them.
-        let children = node.children.clone();
-        let registry = self.registry_of(id).filter(|_| !self.holds_template_contents(id));
-        for child in children {
-            self.refresh_named_ids(child, registry);
-        }
+        self.refresh_template_children(id);
     }
 
     // ── shadow trees ───────────────────────────────────────────────────────
@@ -752,6 +747,22 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             .is_some_and(|data| data.template_contents == Some(node_id))
     }
 
+    /// Bring the ids below `node_id` in line after its children became template contents, or
+    /// stopped being them.
+    fn refresh_template_children(&mut self, node_id: NodeId) {
+        let children = self
+            .arena
+            .node_ref(node_id)
+            .map(|n| n.children.clone())
+            .unwrap_or_default();
+        let registry = self
+            .registry_of(node_id)
+            .filter(|_| !self.holds_template_contents(node_id));
+        for child in children {
+            self.refresh_named_ids(child, registry);
+        }
+    }
+
     /// The registry `node_id`'s id belongs in: the root of its tree, if that tree has one.
     fn registry_of(&self, node_id: NodeId) -> Option<NodeId> {
         let mut current = node_id;
@@ -1088,7 +1099,11 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             return;
         }
         let node_id = node.id();
+        let held_contents = self.holds_template_contents(node_id);
         self.arena.update_node(node);
+        if self.holds_template_contents(node_id) != held_contents {
+            self.refresh_template_children(node_id);
+        }
         self.refresh_named_id(node_id);
     }
 
@@ -1097,7 +1112,11 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             log::warn!("Node is not registered to the arena");
             return;
         }
+        let held_contents = self.holds_template_contents(node.id());
         self.arena.update_node(node.clone());
+        if self.holds_template_contents(node.id()) != held_contents {
+            self.refresh_template_children(node.id());
+        }
         self.refresh_named_id(node.id());
     }
 
@@ -1555,6 +1574,32 @@ mod tests {
         doc.set_template_contents(tpl, fragment);
         assert_eq!(doc.node_by_named_id("inside"), Some(child));
         assert!(doc.node_by_named_id("deeper").is_some());
+    }
+
+    #[test]
+    fn updating_a_node_into_a_template_drops_its_children_ids() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let tpl = element_with_id(&mut doc, "template", root, Some("tpl"));
+        let child = element_with_id(&mut doc, "div", tpl, Some("inside"));
+
+        let mut node = doc.node_by_id(tpl).expect("template").clone();
+        node.get_element_data_mut().expect("element").set_template_contents(tpl);
+        doc.update_node(node);
+        assert_eq!(doc.node_by_named_id("inside"), None);
+        assert_eq!(doc.node_by_named_id("tpl"), Some(tpl), "the template keeps its own id");
+
+        let mut node = doc.node_by_id(tpl).expect("template").clone();
+        let fragment = detached_element(&mut doc, "div", None);
+        node.get_element_data_mut()
+            .expect("element")
+            .set_template_contents(fragment);
+        doc.update_node_ref(&node);
+        assert_eq!(
+            doc.node_by_named_id("inside"),
+            Some(child),
+            "and back out through update_node_ref"
+        );
     }
 
     #[test]
