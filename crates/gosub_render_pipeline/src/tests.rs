@@ -5336,8 +5336,9 @@ mod rendertree_from_engine {
     }
 
     /// A replaced box keeps its intrinsic size between opposing insets: with `width: auto` the
-    /// insets are over-constrained and the end one is ignored (CSS 2 §10.3.8, §10.6.5). Stretching
-    /// is for non-replaced boxes, and the semi-replaced `<input>`.
+    /// insets are over-constrained and the end one is ignored (CSS 2 §10.3.8, §10.6.5) - unless
+    /// the margins on that axis are `auto`, which then split what is left and center the box.
+    /// Stretching is for non-replaced boxes, and the semi-replaced `<input>`.
     #[test]
     fn a_replaced_box_keeps_its_size_between_opposing_insets() {
         use crate::common::geo::Dimension;
@@ -5368,6 +5369,34 @@ mod rendertree_from_engine {
               <div style="position: relative; width: 400px; height: 100px">
                 <input id="input" style="position: absolute; left: 0; right: 0; top: 0">
               </div>
+              <div style="position: relative; width: 400px; height: 100px">
+                <img id="centered" src="{src}" style="position: absolute; left: 0; right: 0; top: 0;
+                  margin: 0 auto">
+              </div>
+              <div style="position: relative; width: 400px; height: 100px">
+                <img id="centered-sized" src="{src}" style="position: absolute; left: 0; right: 0; top: 0;
+                  height: 20px; margin: 0 auto">
+              </div>
+              <div style="position: relative; width: 400px; height: 100px">
+                <img id="middle" src="{src}" style="position: absolute; left: 0; top: 0; bottom: 0;
+                  margin: auto 0">
+              </div>
+              <div style="position: relative; width: 400px; height: 100px">
+                <img id="pushed" src="{src}" style="position: absolute; left: 0; right: 10px; top: 0;
+                  margin-left: auto">
+              </div>
+              <div style="position: relative; width: 200px; height: 100px">
+                <div style="width: 400px">
+                  <img id="sized" src="{src}" style="position: absolute; left: 0; right: 0; top: 0;
+                    width: 100px; margin: 0 auto">
+                </div>
+              </div>
+              <div style="position: relative; width: 400px; height: 100px">
+                <div style="width: 200px">
+                  <img id="percent" src="{src}" style="position: absolute; left: 0; right: 0; top: 0;
+                    margin-left: auto; margin-right: 10%">
+                </div>
+              </div>
             </body></html>"#
         );
 
@@ -5375,7 +5404,18 @@ mod rendertree_from_engine {
         doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
         let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
         let root = adapter.doc.root();
-        let ids = ["wide", "narrow", "input"].map(|id| find_node_by_id_attr(&adapter.doc, root, id).expect(id));
+        let ids = [
+            "wide",
+            "narrow",
+            "input",
+            "centered",
+            "centered-sized",
+            "middle",
+            "pushed",
+            "sized",
+            "percent",
+        ]
+        .map(|id| find_node_by_id_attr(&adapter.doc, root, id).expect(id));
         let mut render_tree = RenderTree::new(Arc::new(adapter));
         render_tree.parse().expect("render tree");
         let store = Arc::new(MediaStore::new());
@@ -5383,7 +5423,7 @@ mod rendertree_from_engine {
         let mut layouter =
             TaffyLayouter::with_font_system_and_media_store(Arc::new(Mutex::new(ParleyFontSystem::new())), store);
         let layout_tree = layouter.layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
-        let [wide, narrow, input] = ids.map(|dom| {
+        let [wide, narrow, input, centered, centered_sized, middle, pushed, sized, percent] = ids.map(|dom| {
             let b = layout_tree
                 .arena
                 .values()
@@ -5391,12 +5431,22 @@ mod rendertree_from_engine {
                 .expect("laid out")
                 .box_model
                 .border_box;
-            (b.x, b.width, b.height)
+            (b.x, b.y, b.width, b.height)
         });
         // `left` wins over `right`; the size is the image's own.
-        assert_eq!(wide, (-25.0, 100.0, 20.0));
-        assert_eq!(narrow, (0.0, 100.0, 20.0));
-        assert_eq!((input.0, input.1), (0.0, 400.0));
+        assert_eq!(wide, (-25.0, 0.0, 100.0, 20.0));
+        assert_eq!(narrow, (0.0, 100.0, 100.0, 20.0));
+        assert_eq!((input.0, input.2), (0.0, 400.0));
+        // `auto` margins take up what the image leaves: 150px either side, 40px above and below.
+        assert_eq!(centered, (150.0, 300.0, 100.0, 20.0));
+        assert_eq!(centered_sized, (150.0, 400.0, 100.0, 20.0));
+        assert_eq!(middle, (0.0, 540.0, 100.0, 20.0));
+        // One `auto` margin takes all of it.
+        assert_eq!(pushed, (290.0, 600.0, 100.0, 20.0));
+        // Centered in the containing block, not in the wider parent taffy measured from.
+        assert_eq!(sized, (50.0, 700.0, 100.0, 20.0));
+        // A percentage margin is of the containing block too: 10% of 400px.
+        assert_eq!(percent, (260.0, 800.0, 100.0, 20.0));
     }
 
     /// An absolutely positioned box whose percentage width was rebased onto its containing block

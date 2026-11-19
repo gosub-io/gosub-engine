@@ -204,6 +204,52 @@ pub fn post_process_abspos(
             (None, Some(b)) => cb.y + cb.height - b - margin_box.height,
             (None, None) => margin_box.y,
         };
+        // A replaced box between both insets keeps its own size, and `auto` margins take what it
+        // leaves between them: an equal share each, never a negative one on the left (CSS 2
+        // §10.3.8, §10.6.5). Taffy saw no end inset for an `auto` size (see the converter) and
+        // gave such margins 0, and for a set size shared them out within the parent, which is
+        // also what it took percentage margins of. So the margins are worked out here, of the
+        // containing block (§8.3), and the box moved by the difference with what taffy used.
+        let (x, y) = if is_replaced(&*doc, dom_id) {
+            let border = el.box_model.border_box;
+            let margin = &style.margin;
+            // `None` for `auto`; a percentage is of the containing block's width on both axes.
+            let declared = |side| inset(side, cb.width);
+            // One axis: the declared start and end margins, the start margin taffy used, the size
+            // and the room between the insets.
+            let correction = |margins: (Option<f64>, Option<f64>), used: f64, size: f64, room: f64, floor: f64| {
+                let free = room - size - margins.0.unwrap_or(0.0) - margins.1.unwrap_or(0.0);
+                let start = match margins {
+                    (None, None) => (free / 2.0).max(floor),
+                    (None, Some(_)) => free,
+                    (Some(start), _) => start,
+                };
+                start - used
+            };
+            let dx = match (left, right) {
+                (Some(l), Some(r)) => correction(
+                    (declared(margin.left), declared(margin.right)),
+                    border.x - margin_box.x,
+                    border.width,
+                    cb.width - l - r,
+                    0.0,
+                ),
+                _ => 0.0,
+            };
+            let dy = match (top, bottom) {
+                (Some(t), Some(b)) => correction(
+                    (declared(margin.top), declared(margin.bottom)),
+                    border.y - margin_box.y,
+                    border.height,
+                    cb.height - t - b,
+                    f64::NEG_INFINITY,
+                ),
+                _ => 0.0,
+            };
+            (x + dx, y + dy)
+        } else {
+            (x, y)
+        };
 
         // Both insets on an axis with an `auto` size means "stretch between them". Taffy already
         // does that, but against the immediate parent rather than the CSS containing block, so
