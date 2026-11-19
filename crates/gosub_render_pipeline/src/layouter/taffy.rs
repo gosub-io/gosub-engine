@@ -7,7 +7,7 @@ use crate::common::geo;
 use crate::common::geo::Coordinate;
 use crate::common::media::MediaStore;
 use crate::common::media::{Media, MediaId, MediaInitiator, MediaRequest, MediaType};
-use crate::layouter::abspos::{post_process_abspos, RebasedInsets};
+use crate::layouter::abspos::{post_process_abspos, sizes_match, RebasedInsets};
 use crate::layouter::box_model::Edges;
 use crate::layouter::control_icons;
 use crate::layouter::css_taffy_converter::CssTaffyConverter;
@@ -382,6 +382,7 @@ pub struct TaffyLayouter {
     /// rebased from their CSS containing block onto the parent taffy measures from. Empty on the
     /// first pass - a box's containing block is only known once the page has been laid out - and
     /// replayed on the second so taffy sizes those boxes itself. See [`RebasedInsets`].
+    /// After a layout it holds what is baked into the taffy tree, which `relayout` compares against.
     abspos_insets: HashMap<DomNodeId, RebasedInsets>,
     /// Items pushed down to share their line's baseline: the item's own CSS `margin-top`, and
     /// the shift added to it. Kept with the taffy tree, so a relayout of the same tree starts
@@ -627,44 +628,44 @@ impl CanLayout for TaffyLayouter {
         // Two things are only knowable once the page has been laid out once: where a float landed
         // (text has to be wrapped around it) and which containing block an absolutely positioned
         // box actually belongs to (a box stretching between opposing insets has to be sized
-        // against it). Both are collected on the first pass and replayed on a second. A page that
+        // against it). Both are collected on the first pass and replayed on later ones. A page that
         // needs neither - most of them - pays for one pass.
         self.float_insets.clear();
         self.abspos_insets.clear();
-        let (mut layout_tree, placed, stretched) = self.layout_pass(render_tree, root_id, viewport);
+        let (mut layout_tree, mut placed, mut stretched) = self.layout_pass(render_tree, root_id, viewport);
 
-        // Float bands are resolved in document order from this one baseline layout rather than by
-        // laying the page out over and over until the answer stops moving - which it did not: see
-        // `resolve_bands_in_document_order`. Floats take two passes, always; only nested absolutely
-        // positioned boxes take more (see below).
-        let insets = resolve_bands_in_document_order(&layout_tree, &placed);
-        if insets.is_empty() && stretched.is_empty() {
-            translate_and_measure(&mut layout_tree);
-            self.settle_flattened_inlines(&mut layout_tree);
-            self.attach_select_popup(&mut layout_tree);
-            dump_layout_to_json(&layout_tree);
-            return layout_tree;
-        }
-
-        self.float_insets = insets;
-        self.abspos_insets = stretched;
-        let (mut final_tree, _, mut restretched) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
-        // An absolutely positioned box is measured against its containing block as the pass
-        // before laid it out. When that block is itself a corrected absolutely positioned box,
+        // Absolutely positioned boxes first. A box is measured against its containing block as the
+        // pass before laid it out; when that block is itself a corrected absolutely positioned box,
         // the correction moves it, and the box inside needs measuring again: one more pass per
         // level of such nesting, until the corrections stop changing. Bounded, so a page whose
         // corrections never settle still gets a layout.
-        let mut passes = 2;
-        while restretched != self.abspos_insets && passes < MAX_LAYOUT_PASSES {
-            self.abspos_insets = restretched;
-            let (tree, _, again) = self.layout_pass(final_tree.render_tree, root_id, viewport);
-            final_tree = tree;
-            restretched = again;
+        let mut passes = 1;
+        while stretched != self.abspos_insets && passes < MAX_LAYOUT_PASSES {
+            self.abspos_insets = stretched;
+            (layout_tree, placed, stretched) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
             passes += 1;
         }
-        layout_tree = final_tree;
+
+        // Then the float bands, resolved in document order from one baseline layout rather than by
+        // laying the page out over and over until the answer stops moving - which it did not: see
+        // `resolve_bands_in_document_order`. The baseline is the layout above, where every box has
+        // its final width: bands taken before a correction narrowed a box ran text through its
+        // floats.
+        let insets = resolve_bands_in_document_order(&layout_tree, &placed);
+        if !insets.is_empty() {
+            self.float_insets = insets;
+            (layout_tree, _, stretched) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
+            passes += 1;
+            // Shortened lines can move a box written in one, so it is measured again, against the
+            // same bands.
+            while stretched != self.abspos_insets && passes < MAX_LAYOUT_PASSES {
+                self.abspos_insets = stretched;
+                (layout_tree, _, stretched) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
+                passes += 1;
+            }
+        }
         self.float_insets.clear();
-        self.abspos_insets.clear();
+        // `abspos_insets` stays: it is what the tree was built with, for `relayout` to check.
         translate_and_measure(&mut layout_tree);
         self.settle_flattened_inlines(&mut layout_tree);
         self.attach_select_popup(&mut layout_tree);
@@ -763,16 +764,21 @@ impl TaffyLayouter {
     /// intrinsic sizes - which in practice means a viewport resize. Everything taffy needs is
     /// already in the tree, so this skips the ~half of layout that goes into building it.
     /// See `BrowsingContext`'s `DamageLevel::Geometry`.
-    /// Floats and absolutely positioned boxes are re-placed against the new geometry, but the
-    /// two-pass feedback is discarded: this path deliberately does not rebuild the taffy tree, so
-    /// the rebased insets and float line-boxes baked into it on the last full layout are reused.
-    /// A change that invalidates those needs a full rebuild, which is what `DamageLevel::Layout`
-    /// and above ask for.
+    /// Floats and absolutely positioned boxes are re-placed against the new geometry. The float
+    /// line-boxes baked into the tree on the last full layout are reused. The rebased insets and
+    /// sizes of absolutely positioned boxes are checked: they are lengths taken of a containing
+    /// block, so when the new viewport changes the size they give a box the tree is built again
+    /// with a full layout.
     pub fn relayout(&mut self, layout_tree: &mut LayoutTree, viewport: Option<geo::Dimension>) {
         // Line items' percentage heights can rest on the viewport's height, through a chain of
         // percentage heights up to the root: resolved again for the new one.
         self.resolve_line_percent_heights(viewport);
-        let _ = self.compute_and_populate(layout_tree, viewport);
+        let (_, stretched) = self.compute_and_populate(layout_tree, viewport);
+        if !sizes_match(&self.abspos_insets, &stretched) {
+            let render_tree = layout_tree.render_tree.clone();
+            *layout_tree = self.layout(render_tree, viewport, 1.0);
+            return;
+        }
         translate_and_measure(layout_tree);
         self.settle_flattened_inlines(layout_tree);
     }
@@ -830,9 +836,28 @@ impl TaffyLayouter {
         // Last: an absolutely positioned box is measured from its containing block's *final*
         // position, so every ancestor - tables and floats included - must have settled first.
         let icb = viewport.unwrap_or(layout_tree.root_dimension);
-        let stretched = post_process_abspos(layout_tree, icb);
+        let stretched = post_process_abspos(layout_tree, icb, &|tree, id| self.line_box_of(tree, id));
 
         (placed, stretched)
+    }
+
+    /// The padding box, in page coordinates, of the line box `id` was laid out in: its taffy
+    /// parent, which is the anonymous line container or a glue box inside it. `None` for a box
+    /// that is not in a line. Taken from the box's own position, so it holds after the post-passes
+    /// have moved the box and its ancestors.
+    fn line_box_of(&self, layout_tree: &LayoutTree, id: LayoutElementId) -> Option<geo::Rect> {
+        if !self.anon_container_map.contains_key(&id) {
+            return None;
+        }
+        let node = *self.layout_taffy_mapping.get(&id)?;
+        let item = self.tree.layout(node).ok()?;
+        let line = self.tree.layout(self.tree.parent(node)?).ok()?;
+        let border_box = layout_tree.arena.get(&id)?.box_model.border_box;
+        let x = border_box.x - item.location.x as f64 + (line.border.left + line.padding.left) as f64;
+        let y = border_box.y - item.location.y as f64 + (line.border.top + line.padding.top) as f64;
+        let width = line.size.width - line.border.left - line.border.right - line.padding.left - line.padding.right;
+        let height = line.size.height - line.border.top - line.border.bottom - line.padding.top - line.padding.bottom;
+        Some(geo::Rect::new(x, y, width as f64, height as f64))
     }
 
     /// Run taffy over the subtree at `node`, measuring leaves through the shared font system.

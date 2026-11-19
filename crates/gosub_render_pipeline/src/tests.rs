@@ -5335,6 +5335,227 @@ mod rendertree_from_engine {
         );
     }
 
+    /// A replaced box keeps its intrinsic size between opposing insets: with `width: auto` the
+    /// insets are over-constrained and the end one is ignored (CSS 2 §10.3.8, §10.6.5) - unless
+    /// the margins on that axis are `auto`, which then split what is left and center the box.
+    /// Stretching is for non-replaced boxes, and the semi-replaced `<input>`.
+    #[test]
+    fn a_replaced_box_keeps_its_size_between_opposing_insets() {
+        use crate::common::geo::Dimension;
+        use crate::common::MediaStore;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+        use base64::Engine;
+        use gosub_fontmanager::ParleyFontSystem;
+        use image::ImageEncoder;
+        use parking_lot::Mutex;
+
+        let mut bytes = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut bytes)
+            .write_image(&[255; 100 * 20 * 4], 100, 20, image::ExtendedColorType::Rgba8)
+            .expect("encode");
+        let src = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        );
+        let html = format!(
+            r#"<html><body style="margin: 0">
+              <div style="position: relative; width: 100px; height: 100px">
+                <img id="wide" src="{src}" style="position: absolute; left: -25px; right: -25px; top: 0">
+              </div>
+              <div style="position: relative; width: 400px; height: 100px">
+                <img id="narrow" src="{src}" style="position: absolute; left: 0; right: 0; top: 0; bottom: 0">
+              </div>
+              <div style="position: relative; width: 400px; height: 100px">
+                <input id="input" style="position: absolute; left: 0; right: 0; top: 0">
+              </div>
+              <div style="position: relative; width: 400px; height: 100px">
+                <img id="centered" src="{src}" style="position: absolute; left: 0; right: 0; top: 0;
+                  margin: 0 auto">
+              </div>
+              <div style="position: relative; width: 400px; height: 100px">
+                <img id="centered-sized" src="{src}" style="position: absolute; left: 0; right: 0; top: 0;
+                  height: 20px; margin: 0 auto">
+              </div>
+              <div style="position: relative; width: 400px; height: 100px">
+                <img id="middle" src="{src}" style="position: absolute; left: 0; top: 0; bottom: 0;
+                  margin: auto 0">
+              </div>
+              <div style="position: relative; width: 400px; height: 100px">
+                <img id="pushed" src="{src}" style="position: absolute; left: 0; right: 10px; top: 0;
+                  margin-left: auto">
+              </div>
+              <div style="position: relative; width: 200px; height: 100px">
+                <div style="width: 400px">
+                  <img id="sized" src="{src}" style="position: absolute; left: 0; right: 0; top: 0;
+                    width: 100px; margin: 0 auto">
+                </div>
+              </div>
+              <div style="position: relative; width: 400px; height: 100px">
+                <div style="width: 200px">
+                  <img id="percent" src="{src}" style="position: absolute; left: 0; right: 0; top: 0;
+                    margin-left: auto; margin-right: 10%">
+                </div>
+              </div>
+            </body></html>"#
+        );
+
+        let mut doc = html_compile::<Config>(&html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let ids = [
+            "wide",
+            "narrow",
+            "input",
+            "centered",
+            "centered-sized",
+            "middle",
+            "pushed",
+            "sized",
+            "percent",
+        ]
+        .map(|id| find_node_by_id_attr(&adapter.doc, root, id).expect(id));
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let store = Arc::new(MediaStore::new());
+        store.set_synchronous_fetch(true);
+        let mut layouter =
+            TaffyLayouter::with_font_system_and_media_store(Arc::new(Mutex::new(ParleyFontSystem::new())), store);
+        let layout_tree = layouter.layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+        let [wide, narrow, input, centered, centered_sized, middle, pushed, sized, percent] = ids.map(|dom| {
+            let b = layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == dom)
+                .expect("laid out")
+                .box_model
+                .border_box;
+            (b.x, b.y, b.width, b.height)
+        });
+        // `left` wins over `right`; the size is the image's own.
+        assert_eq!(wide, (-25.0, 0.0, 100.0, 20.0));
+        assert_eq!(narrow, (0.0, 100.0, 100.0, 20.0));
+        assert_eq!((input.0, input.2), (0.0, 400.0));
+        // `auto` margins take up what the image leaves: 150px either side, 40px above and below.
+        assert_eq!(centered, (150.0, 300.0, 100.0, 20.0));
+        assert_eq!(centered_sized, (150.0, 400.0, 100.0, 20.0));
+        assert_eq!(middle, (0.0, 540.0, 100.0, 20.0));
+        // One `auto` margin takes all of it.
+        assert_eq!(pushed, (290.0, 600.0, 100.0, 20.0));
+        // Centered in the containing block, not in the wider parent taffy measured from.
+        assert_eq!(sized, (50.0, 700.0, 100.0, 20.0));
+        // A percentage margin is of the containing block too: 10% of 400px.
+        assert_eq!(percent, (260.0, 800.0, 100.0, 20.0));
+    }
+
+    /// An absolutely positioned box whose percentage width was rebased onto its containing block
+    /// follows a resize that only recomputes geometry (`relayout`): the rebased length is of the
+    /// old width, so the tree has to be built again. In a line and below a static block alike.
+    #[test]
+    fn a_rebased_abspos_width_follows_a_relayout() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout as _;
+
+        let html = r#"<html><body style="margin: 0">
+          <div style="position: relative; padding: 0 20px">Foo <b>x</b>
+            <span id="line" style="position: absolute; top: 0; left: 0; height: 10px; width: 100%"></span>
+          </div>
+          <div style="position: relative; padding: 0 20px"><div>
+            <div id="block" style="position: absolute; top: 0; left: 0; height: 10px; width: 100%"></div>
+          </div></div>
+        </body></html>"#;
+        let rt = parse_to_rendertree(html);
+        let doc = rt.doc.clone();
+        let mut layouter = TaffyLayouter::new();
+        let mut tree = layouter.layout(
+            rt,
+            Some(Dimension {
+                width: 800.0,
+                height: 600.0,
+            }),
+            1.0,
+        );
+        let width = |tree: &crate::layouter::LayoutTree, id: &str| {
+            tree.arena
+                .values()
+                .find(|el| {
+                    doc.get_node_by_id(el.dom_node_id).is_some_and(|n| match n.node_type {
+                        crate::common::document::node::NodeType::Element(ref d) => {
+                            d.attributes.get("id").is_some_and(|v| v == id)
+                        }
+                        _ => false,
+                    })
+                })
+                .expect("in the layout tree")
+                .box_model
+                .border_box
+                .width
+        };
+        assert_eq!((width(&tree, "line"), width(&tree, "block")), (800.0, 800.0));
+        layouter.relayout(
+            &mut tree,
+            Some(Dimension {
+                width: 900.0,
+                height: 600.0,
+            }),
+        );
+        assert_eq!((width(&tree, "line"), width(&tree, "block")), (900.0, 900.0));
+    }
+
+    /// A resize that moves a rebased box without resizing it keeps the tree, and the box still
+    /// lands where its insets put it at the new size.
+    #[test]
+    fn a_rebased_abspos_box_that_only_moves_follows_a_relayout() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout as _;
+
+        let html = r#"<html style="height: 100%"><body style="margin: 0; height: 100%">
+          <div style="position: relative; height: 100%">
+            <span id="c" style="position: absolute; left: 0; width: 10px; top: 50%; bottom: calc(50% - 30px)"></span>
+          </div>
+        </body></html>"#;
+        let rt = parse_to_rendertree(html);
+        let doc = rt.doc.clone();
+        let mut layouter = TaffyLayouter::new();
+        let mut tree = layouter.layout(
+            rt,
+            Some(Dimension {
+                width: 800.0,
+                height: 600.0,
+            }),
+            1.0,
+        );
+        let top_and_height = |tree: &crate::layouter::LayoutTree| {
+            let b = tree
+                .arena
+                .values()
+                .find(|el| {
+                    doc.get_node_by_id(el.dom_node_id).is_some_and(|n| match n.node_type {
+                        crate::common::document::node::NodeType::Element(ref d) => {
+                            d.attributes.get("id").is_some_and(|v| v == "c")
+                        }
+                        _ => false,
+                    })
+                })
+                .expect("#c in the layout tree")
+                .box_model
+                .border_box;
+            (b.y, b.height)
+        };
+        assert_eq!(top_and_height(&tree), (300.0, 30.0));
+        layouter.relayout(
+            &mut tree,
+            Some(Dimension {
+                width: 800.0,
+                height: 700.0,
+            }),
+        );
+        assert_eq!(top_and_height(&tree), (350.0, 30.0));
+    }
+
     /// A percentage height on an inline-level box resolves against the block it sits in, through
     /// the anonymous line box the layouter puts around it. Taken from WPT
     /// `max-height-applies-to-017` and `intrinsic-percent-replaced-021`, which an inline-block
@@ -5625,6 +5846,8 @@ mod rendertree_from_engine {
     }
 }
 
+#[cfg(test)]
+mod abspos_insets;
 #[cfg(test)]
 mod collapsed_borders;
 #[cfg(test)]
