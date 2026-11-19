@@ -291,7 +291,7 @@ fn try_parse_hex(value: &str) -> Option<RgbColor> {
     // 3 hex digits (RGB)
     if value.len() == 4 {
         let hex_size = 1;
-        let number_array = convert_from_hex_str_to_vec_of_ints(value, hex_size);
+        let number_array = hex_components(value, hex_size);
 
         let r = number_array[R];
         let g = number_array[G];
@@ -307,7 +307,7 @@ fn try_parse_hex(value: &str) -> Option<RgbColor> {
     // 4 hex digits (RGBA)
     if value.len() == 5 {
         let hex_size = 1;
-        let number_array = convert_from_hex_str_to_vec_of_ints(value, hex_size);
+        let number_array = hex_components(value, hex_size);
 
         let r = number_array[R];
         let g = number_array[G];
@@ -325,7 +325,7 @@ fn try_parse_hex(value: &str) -> Option<RgbColor> {
     // 6 hex digits (RRGGBB)
     if value.len() == 7 {
         let hex_size = 2;
-        let number_array = convert_from_hex_str_to_vec_of_ints(value, hex_size);
+        let number_array = hex_components(value, hex_size);
         let r = number_array[R];
         let g = number_array[G];
         let b = number_array[B];
@@ -336,7 +336,7 @@ fn try_parse_hex(value: &str) -> Option<RgbColor> {
     // 8 hex digits (RRGGBBAA)
     if value.len() == 9 {
         let hex_size = 2;
-        let number_array = convert_from_hex_str_to_vec_of_ints(value, hex_size);
+        let number_array = hex_components(value, hex_size);
 
         let r = number_array[R];
         let g = number_array[G];
@@ -349,39 +349,16 @@ fn try_parse_hex(value: &str) -> Option<RgbColor> {
     None
 }
 
-fn convert_from_hex_str_to_vec_of_ints(hex_value: &str, hex_size: usize) -> Vec<i32> {
-    const HEX_RADIX: u32 = 16;
-    const LINES_TO_SKIP: usize = 1;
-    // Get the individual chars from the hex then convert from hex -> decimal
-    match hex_size {
-        // if each hex char is only 1 char long
-        1 => {
-            hex_value
-                .chars()
-                .skip(LINES_TO_SKIP) // Skip the # at the front
-                .map(|char| i32::from_str_radix(char.to_string().as_str(), HEX_RADIX).unwrap_or(0)) // is_hex() above guarantees digits
-                .collect::<Vec<i32>>()
-        }
-        // if each hex char is 2 char long
-        2 => {
-            // If we're doing a hex value without an `a` value
-            let size_without_a = 7;
-
-            let hex_vec = if hex_value.len() == size_without_a {
-                vec![&hex_value[1..3], &hex_value[3..5], &hex_value[5..7]]
-            } else {
-                vec![&hex_value[1..3], &hex_value[3..5], &hex_value[5..7], &hex_value[7..9]]
-            };
-
-            hex_vec
-                .iter()
-                .map(|str| i32::from_str_radix(str, HEX_RADIX).unwrap_or(0))
-                .collect::<Vec<i32>>()
-        }
-        _ => {
-            vec![]
-        }
+/// The components of a hex colour, one per `hex_size` digits after the `#`.
+fn hex_components(hex_value: &str, hex_size: usize) -> [i32; 4] {
+    let mut components = [0; 4];
+    for (component, digits) in components.iter_mut().zip(hex_value.as_bytes()[1..].chunks(hex_size)) {
+        // is_hex() above guarantees digits
+        *component = digits
+            .iter()
+            .fold(0, |n, &digit| n * 16 + (digit as char).to_digit(16).unwrap_or(0) as i32);
     }
+    components
 }
 
 /// Convert an HWB colour to sRGB (css-color-4 §7.2).
@@ -947,7 +924,7 @@ fn alpha_suffix(alpha: Option<f64>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::colors::{convert_from_hex_str_to_vec_of_ints, is_hex};
+    use crate::colors::{hex_components, is_hex};
 
     #[test]
     fn test_is_hex_good() {
@@ -997,10 +974,9 @@ mod tests {
         // Given a valid hex str of length 3
         let hex_str = "#c5f";
         // When we convert to its individual parts
-        let conversion = convert_from_hex_str_to_vec_of_ints(hex_str, 1);
-        // Then we should get an expected Vec
-        let expected_vec = vec![12, 5, 15];
-        assert_eq!(expected_vec, conversion);
+        let conversion = hex_components(hex_str, 1);
+        // Then we should get the components, with no alpha digit left at 0
+        assert_eq!([12, 5, 15, 0], conversion);
     }
 
     #[test]
@@ -1008,10 +984,9 @@ mod tests {
         // Given a valid hex str of length 4
         let hex_str = "#abcd";
         // When we convert to its individual parts
-        let conversion = convert_from_hex_str_to_vec_of_ints(hex_str, 1);
-        // Then we should get an expected Vec
-        let expected_vec = vec![10, 11, 12, 13];
-        assert_eq!(expected_vec, conversion);
+        let conversion = hex_components(hex_str, 1);
+        // Then we should get the components
+        assert_eq!([10, 11, 12, 13], conversion);
     }
 
     #[test]
