@@ -317,6 +317,12 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         if let NodeDataTypeInternal::Element(ref mut e) = node.data {
             e.set_template_contents(fragment);
         }
+        // The children may have just become template contents, or stopped being them.
+        let children = node.children.clone();
+        let registry = self.registry_of(id).filter(|_| !self.holds_template_contents(id));
+        for child in children {
+            self.refresh_named_ids(child, registry);
+        }
     }
 
     // ── shadow trees ───────────────────────────────────────────────────────
@@ -1528,6 +1534,27 @@ mod tests {
         doc.set_template_contents(node, node);
         doc.attach_node(node, parent, None);
         node
+    }
+
+    #[test]
+    fn setting_template_contents_on_an_attached_element_drops_its_children_ids() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let tpl = element_with_id(&mut doc, "template", root, Some("tpl"));
+        let child = element_with_id(&mut doc, "div", tpl, Some("inside"));
+        element_with_id(&mut doc, "span", child, Some("deeper"));
+        assert_eq!(doc.node_by_named_id("inside"), Some(child));
+
+        doc.set_template_contents(tpl, tpl);
+        assert_eq!(doc.node_by_named_id("inside"), None);
+        assert_eq!(doc.node_by_named_id("deeper"), None);
+        assert_eq!(doc.node_by_named_id("tpl"), Some(tpl), "the template keeps its own id");
+
+        // Pointing the contents elsewhere makes the children ordinary again.
+        let fragment = detached_element(&mut doc, "div", None);
+        doc.set_template_contents(tpl, fragment);
+        assert_eq!(doc.node_by_named_id("inside"), Some(child));
+        assert!(doc.node_by_named_id("deeper").is_some());
     }
 
     #[test]
