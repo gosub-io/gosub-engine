@@ -143,8 +143,6 @@ fn id_held_elsewhere<C: HasDocument>(doc: &C::Document, element_id: NodeId, valu
     let mut top = element_id;
     let mut stack = loop {
         match doc.parent(top) {
-            // Deleting a node leaves its children pointing at it: they head their own tree.
-            Some(parent) if !doc.children(parent).contains(&top) => break vec![top],
             Some(parent) if holds_contents(parent) => break doc.children(parent).to_vec(),
             Some(parent) => top = parent,
             None if top == NodeId::root() => return doc.named_id_held_by_other(value, element_id),
