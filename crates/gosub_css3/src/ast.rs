@@ -643,7 +643,7 @@ fn collect_rule(
             let at = line_of(&declaration.location);
             let NodeType::Declaration {
                 property,
-                value,
+                mut value,
                 important,
             } = declaration.node_type
             else {
@@ -673,34 +673,52 @@ fn collect_rule(
                 continue;
             }
 
-            // Convert the nodes into CSS Values. A component value that does not convert makes
-            // the declaration invalid (css-syntax-3 §9), so it is dropped whole: keeping the
-            // tokens that did convert would leave `margin: 1px <unconvertible>` behind as
-            // `margin: 1px`, which is not what the author wrote. A single component value, the
-            // common case, is converted on its own rather than through a list of one.
-            let converted = match <[CssNode; 1]>::try_from(value) {
-                Ok([node]) => CssValue::parse_ast_node(node),
-                Err(nodes) => {
-                    let mut values = Vec::with_capacity(nodes.len());
-                    nodes
-                        .into_iter()
-                        .try_for_each(|node| CssValue::parse_ast_node(node).map(|value| values.push(value)))
-                        .map(|()| CssValue::List(values))
-                }
+            // A value already pooled is found from its nodes, so a repeat builds nothing. A lone
+            // prefixed `display` keyword is looked up as the keyword it aliases.
+            let alias = match value.as_slice() {
+                [node] if property.eq_ignore_ascii_case("display") => match &node.node_type {
+                    NodeType::Ident { value } | NodeType::String { value } => display_alias(value),
+                    _ => None,
+                },
+                _ => None,
             };
-            let value = match converted {
-                Ok(value) => value,
-                Err(err) => {
-                    log::debug!("Declaration dropped, {property}: {err}");
-                    drop_here(dropped, CssDroppedKind::InvalidValue, property, at);
-                    continue;
-                }
-            };
+            let value = match pool.find(&mut value, alias) {
+                Some(pooled) => pooled,
+                None => {
+                    // Convert the nodes into CSS Values. A component value that does not convert
+                    // makes the declaration invalid (css-syntax-3 §9), so it is dropped whole:
+                    // keeping the tokens that did convert would leave `margin: 1px <unconvertible>`
+                    // behind as `margin: 1px`, which is not what the author wrote. A single
+                    // component value, the common case, is converted on its own rather than through
+                    // a list of one.
+                    let converted = match <[CssNode; 1]>::try_from(value) {
+                        Ok([node]) => CssValue::parse_ast_node(node),
+                        Err(nodes) => {
+                            let mut values = Vec::with_capacity(nodes.len());
+                            nodes
+                                .into_iter()
+                                .try_for_each(|node| CssValue::parse_ast_node(node).map(|value| values.push(value)))
+                                .map(|()| CssValue::List(values))
+                        }
+                    };
+                    let value = match converted {
+                        Ok(value) => value,
+                        Err(err) => {
+                            log::debug!("Declaration dropped, {property}: {err}");
+                            drop_here(dropped, CssDroppedKind::InvalidValue, property, at);
+                            continue;
+                        }
+                    };
 
-            // The four prefixed `display` keywords the Compatibility Standard requires are
-            // the standard values they alias. Resolved here so that every reader of a
-            // stylesheet - the cascade and the CSSOM alike - sees the value they mean.
-            let value = resolve_display_alias(&property, value);
+                    // The four prefixed `display` keywords the Compatibility Standard requires are
+                    // the standard values they alias. Resolved here so that every reader of a
+                    // stylesheet - the cascade and the CSSOM alike - sees the value they mean.
+                    let value = resolve_display_alias(&property, value);
+                    // One allocation per *distinct* value in the sheet, shared from here on by
+                    // every rule that writes it and every element those rules match.
+                    pool.intern(value)
+                }
+            };
 
             let property: crate::stylesheet::PropertyName = property.as_str().into();
             // A property with no definition is dropped by the expansion; said here, where the
@@ -712,9 +730,7 @@ fn collect_rule(
                 // Resolved to an id here, once, rather than by name on every rule expansion
                 // and every element a pending declaration reaches.
                 property,
-                // One allocation per *distinct* value in the sheet, shared from here on by
-                // every rule that writes it and every element those rules match.
-                value: pool.intern(value),
+                value,
                 important,
             });
         }
@@ -749,13 +765,18 @@ pub(crate) fn resolve_display_alias(property: &str, value: CssValue) -> CssValue
     let CssValue::String(keyword) = &value else {
         return value;
     };
-    match DISPLAY_ALIASES
-        .iter()
-        .find(|(alias, _)| keyword.eq_ignore_ascii_case(alias))
-    {
-        Some((_, standard)) => CssValue::String((*standard).to_string()),
+    match display_alias(keyword) {
+        Some(standard) => CssValue::String(standard.to_string()),
         None => value,
     }
+}
+
+/// The standard `display` keyword a prefixed one aliases.
+pub(crate) fn display_alias(keyword: &str) -> Option<&'static str> {
+    DISPLAY_ALIASES
+        .iter()
+        .find(|(alias, _)| keyword.eq_ignore_ascii_case(alias))
+        .map(|(_, standard)| *standard)
 }
 
 /// Build an [`ImportRule`] from an `@import` prelude ([`NodeType::ImportList`]).
@@ -1354,6 +1375,27 @@ mod tests {
         assert_eq!(value_of(1), CssValue::String("flex".into()));
         assert_eq!(value_of(2), CssValue::String("-webkit-grab".into()));
         assert_eq!(value_of(3), CssValue::String("-webkit-spin".into()));
+    }
+
+    /// A prefixed `display` keyword is found in the pool as the keyword it aliases, not as the
+    /// same spelling written for another property.
+    #[test]
+    fn a_display_alias_is_not_the_same_keyword_elsewhere() {
+        use crate::stylesheet::CssValue;
+        let sheet = crate::Css3::parse_str(
+            "a { animation-name: -webkit-box } b { display: -webkit-box } c { display: flex }",
+            gosub_shared::config::ParserConfig {
+                ignore_errors: true,
+                ..Default::default()
+            },
+            gosub_interface::css3::CssOrigin::Author,
+            "",
+        )
+        .expect("parses");
+        let value_of = |rule: usize| Arc::clone(&sheet.rules[rule].declarations()[0].value);
+        assert_eq!(*value_of(0), CssValue::String("-webkit-box".into()));
+        assert_eq!(*value_of(1), CssValue::String("flex".into()));
+        assert!(Arc::ptr_eq(&value_of(1), &value_of(2)));
     }
     use super::*;
     use crate::media_query::MediaEnvironment;

@@ -1725,23 +1725,34 @@ impl CssValue {
     }
 
     /// Converts a CSS AST node to a CSS value
+    /// A number token's value.
+    pub(crate) fn number(value: f64, kind: NumberKind) -> CssValue {
+        if value == 0.0 {
+            // Zero is a special case since we need to do some pattern matching once in a while, and
+            // this is not possible (anymore) with floating point 0.0 it seems.
+            //
+            // It keeps no type flag, so `z-index: 0.0` is accepted where the spelling says
+            // it should not be. Every `<length>`, `<time>` and `<angle>` arm recognises a
+            // bare zero through this variant, so giving it a flag is a wider change than
+            // the one case it would fix.
+            CssValue::Zero
+        } else {
+            CssValue::Number(value, kind)
+        }
+    }
+
+    /// A hash token's value, `value` without its `#`.
+    pub(crate) fn hash_color(value: &str) -> CssValue {
+        let mut hex = compact_str::CompactString::with_capacity(value.len() + 1);
+        hex.push('#');
+        hex.push_str(value);
+        CssValue::Color(RgbColor::from(hex.as_str()).into())
+    }
+
     pub fn parse_ast_node(node: crate::node::Node) -> CssResult<CssValue> {
         match node.node_type {
             crate::node::NodeType::Ident { value } => Ok(CssValue::String(value.into())),
-            crate::node::NodeType::Number { value, kind } => {
-                if value == 0.0 {
-                    // Zero is a special case since we need to do some pattern matching once in a while, and
-                    // this is not possible (anymore) with floating point 0.0 it seems.
-                    //
-                    // It keeps no type flag, so `z-index: 0.0` is accepted where the spelling says
-                    // it should not be. Every `<length>`, `<time>` and `<angle>` arm recognises a
-                    // bare zero through this variant, so giving it a flag is a wider change than
-                    // the one case it would fix.
-                    Ok(CssValue::Zero)
-                } else {
-                    Ok(CssValue::Number(value, kind))
-                }
-            }
+            crate::node::NodeType::Number { value, kind } => Ok(CssValue::number(value, kind)),
             crate::node::NodeType::Percentage { value } => Ok(CssValue::Percentage(value)),
             // A unit identifier is ASCII case-insensitive, so it is folded here rather than at
             // every point that reads one. Both the syntax matcher (which looks a unit up in a
@@ -1752,10 +1763,7 @@ impl CssValue {
                 Ok(CssValue::Unit(value, unit.into()))
             }
             crate::node::NodeType::String { value } => Ok(CssValue::String(value.into())),
-            crate::node::NodeType::Hash { mut value } => {
-                value.insert(0, '#');
-                Ok(CssValue::Color(RgbColor::from(value.as_str()).into()))
-            }
+            crate::node::NodeType::Hash { value } => Ok(CssValue::hash_color(&value)),
             // Keep the operator character (e.g. `/` in `16 / 9` or `font: 14px/1.5`)
             // as a string so it can match a `/` literal in a value grammar. Discarding
             // it (as `None`) makes `<ratio>` and other slash-delimited grammars unmatchable.
