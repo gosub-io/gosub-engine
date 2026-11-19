@@ -21,10 +21,13 @@ pub struct Submission {
 }
 
 /// The `<form>` a control belongs to: its `form` attribute's target, else the nearest ancestor.
+/// A connected control with a `form` attribute that names no form has no owner (HTML 4.10.17.3,
+/// "reset the form owner").
 pub fn form_owner<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> Option<NodeId> {
-    if let Some(target) = doc.attribute(id, "form").and_then(|f| doc.node_by_named_id(f)) {
-        if doc.tag_name(target) == Some("form") {
-            return Some(target);
+    if let Some(f) = doc.attribute(id, "form") {
+        if is_connected(doc, id) {
+            let target = doc.node_by_named_id_in(doc.tree_root(id), f)?;
+            return (doc.tag_name(target) == Some("form")).then_some(target);
         }
     }
     let mut cur = doc.parent(id)?;
@@ -34,6 +37,15 @@ pub fn form_owner<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -
         }
         cur = doc.parent(cur)?;
     }
+}
+
+/// Whether `id`'s shadow-including root is the document: up through each shadow root's host.
+fn is_connected<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> bool {
+    let mut root = doc.tree_root(id);
+    while let Some(host) = doc.shadow_host(root) {
+        root = doc.tree_root(host);
+    }
+    root == doc.root()
 }
 
 fn input_type<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> String {
@@ -236,6 +248,34 @@ mod tests {
             submission.referrer_policy,
             Some(gosub_sonar::ReferrerPolicy::NoReferrer)
         );
+    }
+
+    /// `form=` resolves in the control's own tree: inside a shadow tree, a form there with that
+    /// id, never the document's.
+    #[test]
+    fn form_attribute_resolves_in_the_shadow_tree() {
+        let doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>(
+            r#"<form id="f"></form><form id="g"></form><div id="host"><template shadowrootmode="open"><form id="f"></form><input id="i" form="f"><input id="j" form="g"></template></div>"#,
+        );
+        let shadow = doc.shadow_root(doc.node_by_named_id("host").unwrap()).unwrap();
+        let inner_form = doc.node_by_named_id_in(shadow, "f").unwrap();
+        assert_ne!(Some(inner_form), doc.node_by_named_id("f"));
+        let input = doc.node_by_named_id_in(shadow, "i").unwrap();
+        assert_eq!(form_owner(&doc, input), Some(inner_form));
+        let unmatched = doc.node_by_named_id_in(shadow, "j").unwrap();
+        assert_eq!(form_owner(&doc, unmatched), None);
+    }
+
+    /// A connected control whose `form` names no form has no owner, even inside a form.
+    #[test]
+    fn a_form_attribute_that_misses_does_not_fall_back_to_the_ancestor() {
+        let doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>(
+            r#"<form id="a"><input id="miss" form="nope"><input id="div" form="d"><input id="plain"></form><div id="d"></div>"#,
+        );
+        let form = doc.node_by_named_id("a").unwrap();
+        assert_eq!(form_owner(&doc, doc.node_by_named_id("miss").unwrap()), None);
+        assert_eq!(form_owner(&doc, doc.node_by_named_id("div").unwrap()), None);
+        assert_eq!(form_owner(&doc, doc.node_by_named_id("plain").unwrap()), Some(form));
     }
 
     /// Gemini input that is empty is still input: the query is there, empty, so the server
