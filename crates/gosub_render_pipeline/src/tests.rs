@@ -5454,6 +5454,58 @@ mod rendertree_from_engine {
         assert_eq!((width(&tree, "line"), width(&tree, "block")), (900.0, 900.0));
     }
 
+    /// A resize that moves a rebased box without resizing it keeps the tree, and the box still
+    /// lands where its insets put it at the new size.
+    #[test]
+    fn a_rebased_abspos_box_that_only_moves_follows_a_relayout() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout as _;
+
+        let html = r#"<html style="height: 100%"><body style="margin: 0; height: 100%">
+          <div style="position: relative; height: 100%">
+            <span id="c" style="position: absolute; left: 0; width: 10px; top: 50%; bottom: calc(50% - 30px)"></span>
+          </div>
+        </body></html>"#;
+        let rt = parse_to_rendertree(html);
+        let doc = rt.doc.clone();
+        let mut layouter = TaffyLayouter::new();
+        let mut tree = layouter.layout(
+            rt,
+            Some(Dimension {
+                width: 800.0,
+                height: 600.0,
+            }),
+            1.0,
+        );
+        let top_and_height = |tree: &crate::layouter::LayoutTree| {
+            let b = tree
+                .arena
+                .values()
+                .find(|el| {
+                    doc.get_node_by_id(el.dom_node_id).is_some_and(|n| match n.node_type {
+                        crate::common::document::node::NodeType::Element(ref d) => {
+                            d.attributes.get("id").is_some_and(|v| v == "c")
+                        }
+                        _ => false,
+                    })
+                })
+                .expect("#c in the layout tree")
+                .box_model
+                .border_box;
+            (b.y, b.height)
+        };
+        assert_eq!(top_and_height(&tree), (300.0, 30.0));
+        layouter.relayout(
+            &mut tree,
+            Some(Dimension {
+                width: 800.0,
+                height: 700.0,
+            }),
+        );
+        assert_eq!(top_and_height(&tree), (350.0, 30.0));
+    }
+
     /// A percentage height on an inline-level box resolves against the block it sits in, through
     /// the anonymous line box the layouter puts around it. Taken from WPT
     /// `max-height-applies-to-017` and `intrinsic-percent-replaced-021`, which an inline-block

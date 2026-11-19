@@ -80,6 +80,30 @@ impl RebasedInsets {
             && self.width.is_none()
             && self.height.is_none()
     }
+
+    /// Whether taffy, given `self`, sizes the box as it would given `other`. The pass places the
+    /// box itself, so a pair of insets only decides the size, between them: two pairs with the
+    /// same sum stretch it alike.
+    fn sizes_like(&self, other: &Self) -> bool {
+        let close = |a: Option<f32>, b: Option<f32>| match (a, b) {
+            (Some(a), Some(b)) => (a - b).abs() < 0.01,
+            (a, b) => a.is_none() && b.is_none(),
+        };
+        let span = |start: Option<f32>, end: Option<f32>| start.zip(end).map(|(start, end)| start + end);
+        close(span(self.left, self.right), span(other.left, other.right))
+            && close(span(self.top, self.bottom), span(other.top, other.bottom))
+            && close(self.width, other.width)
+            && close(self.height, other.height)
+    }
+}
+
+/// Whether a taffy tree built with the rebased values in `baked` sizes every box as `current` asks.
+/// A resize that only moves boxes - `top: 50%` with a fixed height - keeps the tree.
+pub fn sizes_match(baked: &HashMap<DomNodeId, RebasedInsets>, current: &HashMap<DomNodeId, RebasedInsets>) -> bool {
+    baked.len() == current.len()
+        && current
+            .iter()
+            .all(|(id, now)| baked.get(id).is_some_and(|then| then.sizes_like(now)))
 }
 
 /// Whether taffy gets `size` wrong when it measures from `parent` rather than from `cb`, the
@@ -298,6 +322,28 @@ mod tests {
         // Guards the arithmetic the pass relies on; the containing-block walk itself needs a
         // layout tree and is covered by the rendering repros.
         assert_eq!(Rect::new(10.0, 20.0, 200.0, 100.0).width, 200.0);
+    }
+
+    #[test]
+    fn rebased_insets_size_alike_by_their_sum() {
+        let pair = |left, right| RebasedInsets {
+            left: Some(left),
+            right: Some(right),
+            ..RebasedInsets::default()
+        };
+        let id = DomNodeId::from(7usize);
+        let map = |insets| HashMap::from([(id, insets)]);
+        // Moved, same size: the pass places the box, taffy only needs the sum.
+        assert!(sizes_match(&map(pair(10.0, 20.0)), &map(pair(25.0, 5.0))));
+        assert!(!sizes_match(&map(pair(10.0, 20.0)), &map(pair(10.0, 30.0))));
+        let width = |w| RebasedInsets {
+            width: Some(w),
+            ..RebasedInsets::default()
+        };
+        assert!(!sizes_match(&map(width(100.0)), &map(width(110.0))));
+        // A box that gained or lost its replay changes what taffy has to be told.
+        assert!(!sizes_match(&HashMap::new(), &map(width(100.0))));
+        assert!(!sizes_match(&map(width(100.0)), &HashMap::new()));
     }
 
     #[test]

@@ -7,7 +7,7 @@ use crate::common::geo;
 use crate::common::geo::Coordinate;
 use crate::common::media::MediaStore;
 use crate::common::media::{Media, MediaId, MediaInitiator, MediaRequest, MediaType};
-use crate::layouter::abspos::{post_process_abspos, RebasedInsets};
+use crate::layouter::abspos::{post_process_abspos, sizes_match, RebasedInsets};
 use crate::layouter::box_model::Edges;
 use crate::layouter::control_icons;
 use crate::layouter::css_taffy_converter::CssTaffyConverter;
@@ -766,13 +766,14 @@ impl TaffyLayouter {
     /// Floats and absolutely positioned boxes are re-placed against the new geometry. The float
     /// line-boxes baked into the tree on the last full layout are reused. The rebased insets and
     /// sizes of absolutely positioned boxes are checked: they are lengths taken of a containing
-    /// block, so when the new viewport resizes one the tree is built again with a full layout.
+    /// block, so when the new viewport changes the size they give a box the tree is built again
+    /// with a full layout.
     pub fn relayout(&mut self, layout_tree: &mut LayoutTree, viewport: Option<geo::Dimension>) {
         // Line items' percentage heights can rest on the viewport's height, through a chain of
         // percentage heights up to the root: resolved again for the new one.
         self.resolve_line_percent_heights(viewport);
         let (_, stretched) = self.compute_and_populate(layout_tree, viewport);
-        if stretched != self.abspos_insets {
+        if !sizes_match(&self.abspos_insets, &stretched) {
             let render_tree = layout_tree.render_tree.clone();
             *layout_tree = self.layout(render_tree, viewport, 1.0);
             return;
