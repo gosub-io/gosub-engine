@@ -316,7 +316,7 @@ pub fn toggle<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> Ve
                 return changes;
             };
             let owner = crate::engine::form::form_owner(doc, id);
-            let mut stack: Vec<NodeId> = doc.children(doc.tree_root(id)).iter().rev().copied().collect();
+            let mut stack = vec![doc.tree_root(id)];
             while let Some(n) = stack.pop() {
                 if n != id
                     && toggle_kind(doc, n) == Some(true)
@@ -628,6 +628,32 @@ mod tests {
             radio_changes(html, "a"),
             [("a".to_string(), true), ("b".to_string(), false)]
         );
+    }
+
+    #[test]
+    fn a_radio_group_includes_the_tree_root() {
+        use gosub_shared::attributes::Attributes;
+        use gosub_shared::byte_stream::Location;
+        let mut doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>("");
+        let radio = |doc: &mut EngineDocument<crate::html::DefaultRenderConfig>, checked: bool| {
+            let mut attributes = Attributes::new();
+            attributes.insert("type".to_string(), "radio".to_string());
+            attributes.insert("name".to_string(), "r".to_string());
+            if checked {
+                attributes.insert("checked".to_string(), String::new());
+            }
+            doc.create_element(
+                "input",
+                Some(gosub_html5::node::HTML_NAMESPACE),
+                attributes,
+                Location::default(),
+            )
+        };
+        // A detached tree whose root is itself a checked radio.
+        let root = radio(&mut doc, true);
+        let child = radio(&mut doc, false);
+        doc.attach(child, root, None);
+        assert_eq!(toggle(&doc, child), [(child, true), (root, false)]);
     }
 
     #[test]
