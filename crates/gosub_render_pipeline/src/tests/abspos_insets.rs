@@ -169,3 +169,36 @@ fn a_calc_inset_still_stretches_the_box() {
         assert_eq!((b.x, b.width), (20.0, 180.0));
     }
 }
+
+/// Text wraps around a float inside a box the abspos pass narrowed: the float bands are taken
+/// from the layout with the box at its final width, not from the first pass.
+#[test]
+fn text_wraps_around_a_float_in_a_narrowed_box() {
+    let (layers, [float, paragraph]) = lay_out(
+        r#"<html><body style="margin: 0">
+          <div style="position: relative; width: 200px; height: 300px">
+            <div style="position: absolute; top: 0; left: 0; right: 0; width: calc(50% + 10px)">
+              <div id="float" style="float: right; width: 40px; height: 40px"></div>
+              <p id="paragraph" style="margin: 0">aa bb cc dd ee ff gg hh ii jj kk ll mm nn oo pp</p>
+            </div>
+          </div>
+        </body></html>"#,
+        ["float", "paragraph"],
+    );
+    let float = border_box(&layers, float);
+    assert_eq!((float.x, float.width), (70.0, 40.0));
+    let mut stack = vec![paragraph];
+    while let Some(id) = stack.pop() {
+        let el = layers.layout_tree.get_node_by_id(id).expect("laid out");
+        stack.extend(el.children.iter().copied());
+        if !matches!(el.context, crate::layouter::ElementContext::Text(_)) {
+            continue;
+        }
+        let text = el.box_model.border_box;
+        let beside = text.y < float.y + float.height && text.y + text.height > float.y;
+        assert!(
+            !beside || text.x + text.width <= float.x,
+            "{text:?} runs into the float {float:?}"
+        );
+    }
+}

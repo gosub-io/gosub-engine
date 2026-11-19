@@ -627,42 +627,42 @@ impl CanLayout for TaffyLayouter {
         // Two things are only knowable once the page has been laid out once: where a float landed
         // (text has to be wrapped around it) and which containing block an absolutely positioned
         // box actually belongs to (a box stretching between opposing insets has to be sized
-        // against it). Both are collected on the first pass and replayed on a second. A page that
+        // against it). Both are collected on the first pass and replayed on later ones. A page that
         // needs neither - most of them - pays for one pass.
         self.float_insets.clear();
         self.abspos_insets.clear();
-        let (mut layout_tree, placed, stretched) = self.layout_pass(render_tree, root_id, viewport);
+        let (mut layout_tree, mut placed, mut stretched) = self.layout_pass(render_tree, root_id, viewport);
 
-        // Float bands are resolved in document order from this one baseline layout rather than by
-        // laying the page out over and over until the answer stops moving - which it did not: see
-        // `resolve_bands_in_document_order`. Floats take two passes, always; only nested absolutely
-        // positioned boxes take more (see below).
-        let insets = resolve_bands_in_document_order(&layout_tree, &placed);
-        if insets.is_empty() && stretched.is_empty() {
-            translate_and_measure(&mut layout_tree);
-            self.settle_flattened_inlines(&mut layout_tree);
-            self.attach_select_popup(&mut layout_tree);
-            dump_layout_to_json(&layout_tree);
-            return layout_tree;
-        }
-
-        self.float_insets = insets;
-        self.abspos_insets = stretched;
-        let (mut final_tree, _, mut restretched) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
-        // An absolutely positioned box is measured against its containing block as the pass
-        // before laid it out. When that block is itself a corrected absolutely positioned box,
+        // Absolutely positioned boxes first. A box is measured against its containing block as the
+        // pass before laid it out; when that block is itself a corrected absolutely positioned box,
         // the correction moves it, and the box inside needs measuring again: one more pass per
         // level of such nesting, until the corrections stop changing. Bounded, so a page whose
         // corrections never settle still gets a layout.
-        let mut passes = 2;
-        while restretched != self.abspos_insets && passes < MAX_LAYOUT_PASSES {
-            self.abspos_insets = restretched;
-            let (tree, _, again) = self.layout_pass(final_tree.render_tree, root_id, viewport);
-            final_tree = tree;
-            restretched = again;
+        let mut passes = 1;
+        while stretched != self.abspos_insets && passes < MAX_LAYOUT_PASSES {
+            self.abspos_insets = stretched;
+            (layout_tree, placed, stretched) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
             passes += 1;
         }
-        layout_tree = final_tree;
+
+        // Then the float bands, resolved in document order from one baseline layout rather than by
+        // laying the page out over and over until the answer stops moving - which it did not: see
+        // `resolve_bands_in_document_order`. The baseline is the layout above, where every box has
+        // its final width: bands taken before a correction narrowed a box ran text through its
+        // floats.
+        let insets = resolve_bands_in_document_order(&layout_tree, &placed);
+        if !insets.is_empty() {
+            self.float_insets = insets;
+            (layout_tree, _, stretched) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
+            passes += 1;
+            // Shortened lines can move a box written in one, so it is measured again, against the
+            // same bands.
+            while stretched != self.abspos_insets && passes < MAX_LAYOUT_PASSES {
+                self.abspos_insets = stretched;
+                (layout_tree, _, stretched) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
+                passes += 1;
+            }
+        }
         self.float_insets.clear();
         // `abspos_insets` stays: it is what the tree was built with, for `relayout` to check.
         translate_and_measure(&mut layout_tree);
