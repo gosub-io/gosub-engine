@@ -132,3 +132,18 @@ fn opposing_insets_in_a_line_reach_past_the_padding() {
     let padding_box = layers.layout_tree.get_node_by_id(cb).unwrap().box_model.padding_box;
     assert_eq!(border_box(&layers, abspos), padding_box);
 }
+
+/// A `calc()` width is a width: the box keeps `content-box`, so its padding goes on top.
+#[test]
+fn a_calc_width_keeps_its_box_sizing() {
+    let (layers, [abspos]) = lay_out(
+        r#"<html><body style="margin: 0">
+          <div style="position: relative; width: 200px; height: 40px">
+            <div id="abspos" style="position: absolute; top: 0; left: 0; width: calc(50% + 10px);
+              padding: 0 10px"></div>
+          </div>
+        </body></html>"#,
+        ["abspos"],
+    );
+    assert_eq!(border_box(&layers, abspos).width, 130.0);
+}

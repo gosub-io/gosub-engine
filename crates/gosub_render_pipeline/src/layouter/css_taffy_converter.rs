@@ -222,12 +222,15 @@ impl<'a> CssTaffyConverter<'a> {
         // With both `left` and `right` given the box does not shrink to fit: it spans the
         // containing block between them. The cap would measure that against taffy's parent, which
         // for a box in a line is the line box, and clip the stretch at the line's width.
+        // The sizes are read from the cascade, not from `ts`: a `calc()` reaches taffy as `auto`
+        // too, but it is a size, and the flip to border-box would take its padding out of it.
+        let size = &self.style.size;
         if ts.position == Position::Absolute
             && (ts.inset.left.is_auto() || ts.inset.right.is_auto())
-            && ts.size.width.is_auto()
-            && ts.size.height.is_auto()
-            && ts.max_size.width.is_auto()
-            && ts.min_size.width.is_auto()
+            && self.is_auto(Prop::Width, size.width)
+            && self.is_auto(Prop::Height, size.height)
+            && self.is_auto(Prop::MaxWidth, size.max_width)
+            && self.is_auto(Prop::MinWidth, size.min_width)
         {
             ts.box_sizing = BoxSizing::BorderBox;
             ts.max_size.width = LengthPercentageAuto::percent(1.0);
@@ -308,6 +311,11 @@ impl<'a> CssTaffyConverter<'a> {
 
     /// A declared `<length-percentage> | auto` as taffy's own, or the caller's default when the
     /// element declared none.
+    /// Whether the cascade leaves `prop` at `auto`, declared or not.
+    fn is_auto(&self, prop: Prop, value: CssLengthPercentageAuto) -> bool {
+        !self.style.has(prop) || matches!(value, CssLengthPercentageAuto::Auto)
+    }
+
     fn lpa(&self, prop: Prop, value: CssLengthPercentageAuto, default: LengthPercentageAuto) -> LengthPercentageAuto {
         if !self.style.has(prop) {
             return default;
