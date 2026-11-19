@@ -119,6 +119,23 @@ fn padded_cell_child_fills_the_content_box() {
     );
 }
 
+/// Percentage padding on a content-box cell: what is left between the paddings is the
+/// child's, and it does not run past the cell's right edge.
+#[test]
+fn percentage_padding_cell_child_stays_inside_the_cell() {
+    let (layers, [cell, child]) = lay_out(
+        r#"<html><body style="margin: 0">
+          <table style="width: 100px; table-layout: fixed; border-spacing: 0">
+            <tr><td id="c" style="padding: 0 50% 0 10%; border: 0"><div id="d" style="width: 100%; height: 10px"></div></td></tr>
+          </table>
+        </body></html>"#,
+        ["c", "d"],
+    );
+    let (cell, child) = (border_box(&layers, cell), border_box(&layers, child));
+    assert_eq!(cell.width, 100.0, "cell {cell:?}");
+    assert_eq!((child.x, child.width), (10.0, 40.0), "child {child:?}");
+}
+
 /// Collapsed borders: the cell keeps half of each boundary, and its content is what is left.
 #[test]
 fn collapsed_cell_child_fills_the_content_box() {

@@ -38,6 +38,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use taffy::prelude::*;
 use taffy::NodeId as TaffyNodeId;
+use taffy::ResolveOrZero;
 
 /// Whether a text node is nothing but the whitespace CSS collapses.
 ///
@@ -1324,14 +1325,13 @@ impl TaffyLayouter {
     /// content-box height at that width, or `None` when the cell is unknown or
     /// the compute fails.
     ///
-    /// `content_width` is the content width lattice gave a cell. Captions come through here too
-    /// and pass `None`, which keeps their own `width`.
+    /// Captions come through here too, with `is_cell` false, and keep their own `width`.
     pub(super) fn relayout_cell(
         &mut self,
         layout_tree: &mut LayoutTree,
         cell_layout_id: LayoutElementId,
         border_box_width: f32,
-        content_width: Option<f32>,
+        is_cell: bool,
     ) -> Option<f32> {
         let &taffy_id = self.layout_taffy_mapping.get(&cell_layout_id)?;
         let old_origin = layout_tree
@@ -1345,12 +1345,19 @@ impl TaffyLayouter {
         // lattice settles, and its percentage resolves correctly against the table width it is
         // handed here, so it stays.
         let original = self.tree.style(taffy_id).ok()?.clone();
-        if let Some(content_width) = content_width {
+        if is_cell {
             let mut fixed = original.clone();
             // In the cell's own box-sizing: switching it would also change what its `height`
-            // measures.
+            // measures. Taffy resolves the root's percentage padding against `border_box_width`,
+            // so the edges come off that the same way; lattice's content width counts percentage
+            // padding as zero.
             let width = match original.box_sizing {
-                BoxSizing::ContentBox => content_width,
+                BoxSizing::ContentBox => {
+                    let basis = Some(border_box_width);
+                    let edges = original.padding.resolve_or_zero(basis, |_, b| b)
+                        + original.border.resolve_or_zero(basis, |_, b| b);
+                    (border_box_width - edges.horizontal_axis_sum()).max(0.0)
+                }
                 BoxSizing::BorderBox => border_box_width,
             };
             fixed.size.width = Dimension::length(width);
@@ -1372,7 +1379,7 @@ impl TaffyLayouter {
             // along them - are not the ones the full layout aligned.
             self.align_baselines(layout_tree, taffy_id, size);
         }
-        if content_width.is_some() {
+        if is_cell {
             let _ = self.tree.set_style(taffy_id, original);
         }
         if let Err(e) = computed {
