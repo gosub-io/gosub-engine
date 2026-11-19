@@ -185,8 +185,9 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     /// `form=`), and `ShadowRoot.getElementById` is this with the shadow root.
     fn node_by_named_id_in(&self, root: NodeId, name_id: &str) -> Option<NodeId>;
 
-    /// Whether an element in the document tree other than `node` has this `id`.
-    fn named_id_held_by_other(&self, name_id: &str, node: NodeId) -> bool;
+    /// Whether an element other than `node` has this `id` in the tree below `root`, which is the
+    /// document or a shadow root. Answered from the id index: other roots never hold anything.
+    fn named_id_held_by_other(&self, root: NodeId, name_id: &str, node: NodeId) -> bool;
 
     fn node_count(&self) -> usize;
     fn peek_next_id(&self) -> NodeId;

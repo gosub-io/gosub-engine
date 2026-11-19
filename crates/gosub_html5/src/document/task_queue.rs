@@ -134,8 +134,8 @@ impl DocumentTaskQueue {
 }
 
 /// Whether another element in the same tree as `element_id` has `id` `value`. The tree is the
-/// document, a shadow tree, a detached subtree or the contents of a template. The document's id
-/// index covers the document tree only, so the other trees are walked.
+/// document, a shadow tree, a detached subtree or the contents of a template. The document and
+/// shadow trees are answered from the id index; the other trees have none and are walked.
 fn id_held_elsewhere<C: HasDocument>(doc: &C::Document, element_id: NodeId, value: &str) -> bool {
     // An ordinary template keeps its contents as its own children.
     let holds_contents = |id: NodeId| doc.template_contents(id) == Some(id);
@@ -145,7 +145,9 @@ fn id_held_elsewhere<C: HasDocument>(doc: &C::Document, element_id: NodeId, valu
         match doc.parent(top) {
             Some(parent) if holds_contents(parent) => break doc.children(parent).to_vec(),
             Some(parent) => top = parent,
-            None if top == NodeId::root() => return doc.named_id_held_by_other(value, element_id),
+            None if top == NodeId::root() || doc.shadow_host(top).is_some() => {
+                return doc.named_id_held_by_other(top, value, element_id)
+            }
             None => break vec![top],
         }
     };

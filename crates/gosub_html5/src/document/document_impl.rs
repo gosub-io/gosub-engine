@@ -461,9 +461,9 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         self.first_named_id_holder(root, name_id)
     }
 
-    fn named_id_held_by_other(&self, name_id: &str, node: NodeId) -> bool {
+    fn named_id_held_by_other(&self, root: NodeId, name_id: &str, node: NodeId) -> bool {
         self.named_id_elements
-            .get(&NodeId::root())
+            .get(&root)
             .and_then(|ids| ids.get(name_id))
             .is_some_and(|holders| holders.iter().any(|&n| n != node))
     }
