@@ -863,6 +863,7 @@ FILE html/dom/elements/global-attributes/document-dir.html
 FILE html/dom/elements/global-attributes/id-attribute.html
 PASS html/dom/elements/global-attributes/id-attribute.html :: User agents must associate the element with an id value for purposes of getElementById.
 PASS html/dom/elements/global-attributes/id-attribute.html :: Association is exact and therefore case-sensitive for getElementById.
+PASS html/dom/elements/global-attributes/id-attribute.html :: Spaces are allowed in an id and still make an association for getElementByID.
 PASS html/dom/elements/global-attributes/id-attribute.html :: Non-ASCII is allowed in an id and still make an association for getElementById.
 PASS html/dom/elements/global-attributes/id-attribute.html :: The id IDL attribute must reflect the id content attribute, for getting.
 PASS html/dom/elements/global-attributes/id-attribute.html :: The id IDL attribute must reflect the id content attribute, for setting via IDL attribute.

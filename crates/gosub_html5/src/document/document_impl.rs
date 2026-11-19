@@ -9,7 +9,6 @@ use std::fmt::{Display, Formatter};
 use url::Url;
 
 use crate::document::presentation_hints;
-use crate::document::task_queue::is_valid_id_attribute_value;
 use crate::node::arena::NodeArena;
 use crate::node::data::comment::CommentData;
 use crate::node::data::doctype::DocTypeData;
@@ -22,6 +21,9 @@ use gosub_interface::node::{is_valid_shadow_host_name, NodeType, QuirksMode, Sha
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
 use gosub_shared::types::ParseError;
+
+/// Up to this many elements sharing an id, the first is found by comparing their positions.
+const PAIRWISE_HOLDER_LIMIT: usize = 8;
 
 /// Defines a document
 #[derive(Debug)]
@@ -69,10 +71,10 @@ struct FocusState {
 
 impl<C: HasDocument> PartialEq for DocumentImpl<C> {
     /// Compare document content and serialization metadata, including the scripting state.
+    /// The id index is left out: it follows the arena.
     fn eq(&self, other: &Self) -> bool {
         self.url == other.url
             && self.arena == other.arena
-            && self.named_id_elements == other.named_id_elements
             && self.doctype == other.doctype
             && self.quirks_mode == other.quirks_mode
             && self.scripting_enabled == other.scripting_enabled
@@ -315,6 +317,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         if let NodeDataTypeInternal::Element(ref mut e) = node.data {
             e.set_template_contents(fragment);
         }
+        self.refresh_template_children(id);
     }
 
     // ── shadow trees ───────────────────────────────────────────────────────
@@ -456,6 +459,13 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
 
     fn node_by_named_id_in(&self, root: NodeId, name_id: &str) -> Option<NodeId> {
         self.first_named_id_holder(root, name_id)
+    }
+
+    fn named_id_held_by_other(&self, root: NodeId, name_id: &str, node: NodeId) -> bool {
+        self.named_id_elements
+            .get(&root)
+            .and_then(|ids| ids.get(name_id))
+            .is_some_and(|holders| holders.iter().any(|&n| n != node))
     }
 
     fn node_count(&self) -> usize {
@@ -718,7 +728,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     }
 
     /// Whether the tree rooted at `root` keeps its ids in the registry: the document tree and
-    /// shadow trees do, detached subtrees and template contents do not.
+    /// shadow trees do, detached subtrees do not.
     fn has_id_registry(&self, root: NodeId) -> bool {
         root == NodeId::root()
             || self
@@ -727,19 +737,53 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                 .is_some_and(|n| n.get_shadow_root_data().is_some())
     }
 
+    /// Whether the children of `node_id` are template contents. An ordinary `<template>` keeps
+    /// its contents as its own children (see the parser), where the spec has a separate
+    /// document fragment: those children are in no tree with a registry.
+    fn holds_template_contents(&self, node_id: NodeId) -> bool {
+        self.arena
+            .node_ref(node_id)
+            .and_then(NodeImpl::get_element_data)
+            .is_some_and(|data| data.template_contents == Some(node_id))
+    }
+
+    /// Bring the ids below `node_id` in line after its children became template contents, or
+    /// stopped being them.
+    fn refresh_template_children(&mut self, node_id: NodeId) {
+        let children = self
+            .arena
+            .node_ref(node_id)
+            .map(|n| n.children.clone())
+            .unwrap_or_default();
+        let registry = self
+            .registry_of(node_id)
+            .filter(|_| !self.holds_template_contents(node_id));
+        for child in children {
+            self.refresh_named_ids(child, registry);
+        }
+    }
+
     /// The registry `node_id`'s id belongs in: the root of its tree, if that tree has one.
     fn registry_of(&self, node_id: NodeId) -> Option<NodeId> {
-        let root = self.tree_root_of(node_id);
-        self.has_id_registry(root).then_some(root)
+        let mut current = node_id;
+        while let Some(parent) = self.arena.node_ref(current).and_then(NodeImpl::parent_id) {
+            if self.holds_template_contents(parent) {
+                return None;
+            }
+            current = parent;
+        }
+        self.has_id_registry(current).then_some(current)
     }
 
     /// Register `node_id` and everything below it in `registry`, or drop them when it is `None`.
-    /// Shadow trees below it are not walked: they keep their own registry.
+    /// Template contents are dropped either way. Shadow trees below it are not walked: they keep
+    /// their own registry.
     fn refresh_named_ids(&mut self, node_id: NodeId, registry: Option<NodeId>) {
-        let mut stack = vec![node_id];
-        while let Some(id) = stack.pop() {
+        let mut stack = vec![(node_id, registry)];
+        while let Some((id, registry)) = stack.pop() {
+            let below = registry.filter(|_| !self.holds_template_contents(id));
             if let Some(node) = self.arena.node_ref(id) {
-                stack.extend_from_slice(&node.children);
+                stack.extend(node.children.iter().map(|&child| (child, below)));
             }
             self.register_named_id(id, registry);
         }
@@ -766,7 +810,9 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     }
 
     /// Register `node_id` under its `id` attribute in `registry`, dropping whatever it was
-    /// registered under before. No registry, or an absent or invalid value, just unregisters.
+    /// registered under before. No registry, or an absent or empty value, just unregisters. Any
+    /// other value is the element's ID as written, whitespace included
+    /// (<https://dom.spec.whatwg.org/#concept-id>).
     fn register_named_id(&mut self, node_id: NodeId, registry: Option<NodeId>) {
         self.unregister_named_id(node_id);
         let id_value = self
@@ -774,7 +820,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             .node_ref(node_id)
             .and_then(NodeImpl::get_element_data)
             .and_then(|data| data.attributes.get("id"))
-            .filter(|v| is_valid_id_attribute_value(v))
+            .filter(|v| !v.is_empty())
             .cloned();
         let (Some(registry), Some(id_value)) = (registry, id_value) else {
             return;
@@ -810,13 +856,17 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     fn first_named_id_holder(&self, root: NodeId, name_id: &str) -> Option<NodeId> {
         if self.has_id_registry(root) {
             let holders = self.named_id_elements.get(&root)?.get(name_id)?;
-            if holders.len() == 1 {
-                return holders.iter().next().copied();
+            if holders.len() <= PAIRWISE_HOLDER_LIMIT {
+                return holders
+                    .iter()
+                    .copied()
+                    .reduce(|first, other| if self.precedes(other, first) { other } else { first });
             }
-        } else if !is_valid_id_attribute_value(name_id) {
+        } else if name_id.is_empty() {
             return None;
         }
-        // Duplicates, or a tree without a registry: walk it in order and stop at the first holder.
+        // Many holders, where comparing pairs would rescan the same siblings, or a tree without a
+        // registry: walk it in order and stop at the first holder.
         let mut stack = vec![root];
         while let Some(id) = stack.pop() {
             let Some(node) = self.arena.node_ref(id) else {
@@ -829,9 +879,44 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             if holds {
                 return Some(id);
             }
-            stack.extend(node.children.iter().rev());
+            if !self.holds_template_contents(id) {
+                stack.extend(node.children.iter().rev());
+            }
         }
         None
+    }
+
+    /// Whether `a` comes before `b` in tree order. Both must be in the document tree.
+    fn precedes(&self, a: NodeId, b: NodeId) -> bool {
+        let path_a = self.path_from_root(a);
+        let path_b = self.path_from_root(b);
+        let common = path_a.iter().zip(&path_b).take_while(|(x, y)| x == y).count();
+        let parent = common.checked_sub(1).map(|i| path_a[i]);
+        match (path_a.get(common), path_b.get(common)) {
+            // Siblings below the last shared ancestor: the earlier child comes first.
+            (Some(&child_a), Some(&child_b)) => {
+                parent
+                    .and_then(|p| self.arena.node_ref(p))
+                    .and_then(|n| n.children.iter().find(|&&c| c == child_a || c == child_b))
+                    == Some(&child_a)
+            }
+            // `a` is an ancestor of `b`.
+            (None, Some(_)) => true,
+            // The same node, or `b` is an ancestor of `a`.
+            _ => false,
+        }
+    }
+
+    /// `node_id` and its ancestors, the root first.
+    fn path_from_root(&self, node_id: NodeId) -> Vec<NodeId> {
+        let mut path = vec![node_id];
+        let mut current = node_id;
+        while let Some(parent) = self.arena.node_ref(current).and_then(NodeImpl::parent_id) {
+            path.push(parent);
+            current = parent;
+        }
+        path.reverse();
+        path
     }
 
     /// Fetch a node reference by id (internal - not in the Document trait)
@@ -1014,7 +1099,11 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             return;
         }
         let node_id = node.id();
+        let held_contents = self.holds_template_contents(node_id);
         self.arena.update_node(node);
+        if self.holds_template_contents(node_id) != held_contents {
+            self.refresh_template_children(node_id);
+        }
         self.refresh_named_id(node_id);
     }
 
@@ -1023,7 +1112,11 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             log::warn!("Node is not registered to the arena");
             return;
         }
+        let held_contents = self.holds_template_contents(node.id());
         self.arena.update_node(node.clone());
+        if self.holds_template_contents(node.id()) != held_contents {
+            self.refresh_template_children(node.id());
+        }
         self.refresh_named_id(node.id());
     }
 
@@ -1426,18 +1519,143 @@ mod tests {
     }
 
     #[test]
-    fn an_invalid_or_removed_id_unregisters_the_node() {
+    fn an_empty_or_removed_id_unregisters_the_node() {
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
         let root = doc.root();
 
         let a = element_with_id(&mut doc, "div", root, Some("keep"));
-        set_id(&mut doc, a, Some("has space")); // whitespace is not a valid id
+        set_id(&mut doc, a, Some(""));
         assert_eq!(doc.node_by_named_id("keep"), None);
-        assert_eq!(doc.node_by_named_id("has space"), None);
+        assert_eq!(doc.node_by_named_id(""), None);
 
         let b = element_with_id(&mut doc, "div", root, Some("gone"));
         set_id(&mut doc, b, None);
         assert_eq!(doc.node_by_named_id("gone"), None);
+    }
+
+    #[test]
+    fn an_id_with_whitespace_is_found_as_written() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+
+        let a = element_with_id(&mut doc, "div", root, Some("has space"));
+        assert_eq!(doc.node_by_named_id("has space"), Some(a));
+        assert_eq!(doc.node_by_named_id("has"), None);
+
+        let b = element_with_id(&mut doc, "div", root, Some(" padded "));
+        assert_eq!(doc.node_by_named_id(" padded "), Some(b));
+        assert_eq!(doc.node_by_named_id("padded"), None, "no trimming");
+    }
+
+    /// A `<template>` the way the parser builds one: it holds its own contents.
+    fn template(doc: &mut DocumentImpl<Config>, parent: NodeId) -> NodeId {
+        let node = detached_element(doc, "template", None);
+        doc.set_template_contents(node, node);
+        doc.attach_node(node, parent, None);
+        node
+    }
+
+    #[test]
+    fn setting_template_contents_on_an_attached_element_drops_its_children_ids() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let tpl = element_with_id(&mut doc, "template", root, Some("tpl"));
+        let child = element_with_id(&mut doc, "div", tpl, Some("inside"));
+        element_with_id(&mut doc, "span", child, Some("deeper"));
+        assert_eq!(doc.node_by_named_id("inside"), Some(child));
+
+        doc.set_template_contents(tpl, tpl);
+        assert_eq!(doc.node_by_named_id("inside"), None);
+        assert_eq!(doc.node_by_named_id("deeper"), None);
+        assert_eq!(doc.node_by_named_id("tpl"), Some(tpl), "the template keeps its own id");
+
+        // Pointing the contents elsewhere makes the children ordinary again.
+        let fragment = detached_element(&mut doc, "div", None);
+        doc.set_template_contents(tpl, fragment);
+        assert_eq!(doc.node_by_named_id("inside"), Some(child));
+        assert!(doc.node_by_named_id("deeper").is_some());
+    }
+
+    #[test]
+    fn updating_a_node_into_a_template_drops_its_children_ids() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let tpl = element_with_id(&mut doc, "template", root, Some("tpl"));
+        let child = element_with_id(&mut doc, "div", tpl, Some("inside"));
+
+        let mut node = doc.node_by_id(tpl).expect("template").clone();
+        node.get_element_data_mut().expect("element").set_template_contents(tpl);
+        doc.update_node(node);
+        assert_eq!(doc.node_by_named_id("inside"), None);
+        assert_eq!(doc.node_by_named_id("tpl"), Some(tpl), "the template keeps its own id");
+
+        let mut node = doc.node_by_id(tpl).expect("template").clone();
+        let fragment = detached_element(&mut doc, "div", None);
+        node.get_element_data_mut()
+            .expect("element")
+            .set_template_contents(fragment);
+        doc.update_node_ref(&node);
+        assert_eq!(
+            doc.node_by_named_id("inside"),
+            Some(child),
+            "and back out through update_node_ref"
+        );
+    }
+
+    #[test]
+    fn moving_a_node_out_of_template_contents_makes_its_id_findable() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let tpl = template(&mut doc, root);
+        let span = element_with_id(&mut doc, "span", tpl, Some("moved"));
+        assert_eq!(doc.node_by_named_id("moved"), None);
+
+        doc.relocate_node(span, root);
+        assert_eq!(doc.node_by_named_id("moved"), Some(span));
+
+        doc.relocate_node(span, tpl);
+        assert_eq!(doc.node_by_named_id("moved"), None, "and back into the template");
+    }
+
+    #[test]
+    fn attaching_a_subtree_leaves_its_template_contents_out() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let wrapper = detached_element(&mut doc, "div", Some("wrapper"));
+        let tpl = template(&mut doc, wrapper);
+        element_with_id(&mut doc, "span", tpl, Some("inside"));
+
+        doc.attach_node(wrapper, root, None);
+        assert_eq!(doc.node_by_named_id("wrapper"), Some(wrapper));
+        assert_eq!(doc.node_by_named_id("inside"), None);
+    }
+
+    #[test]
+    fn nothing_below_a_deleted_root_gets_an_id() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let child = element(&mut doc, "div", root);
+
+        doc.delete_node_by_id(root);
+        set_id(&mut doc, child, Some("new"));
+        assert_eq!(doc.node_by_named_id("new"), None);
+    }
+
+    #[test]
+    fn setting_an_id_again_keeps_documents_equal() {
+        let build = || {
+            let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+            let root = doc.root();
+            let a = element_with_id(&mut doc, "div", root, Some("shared"));
+            element_with_id(&mut doc, "div", root, Some("shared"));
+            (doc, a)
+        };
+        let (mut one, a) = build();
+        let (other, _) = build();
+
+        set_id(&mut one, a, Some("shared"));
+        assert_eq!(one.node_by_named_id("shared"), Some(a));
+        assert_eq!(one, other);
     }
 
     #[test]
@@ -1587,6 +1805,54 @@ mod tests {
         element_with_id(&mut doc, "span", outer, Some("nest"));
         doc.set_attribute(outer, "id", "nest");
         assert_eq!(doc.node_by_named_id("nest"), Some(outer));
+    }
+
+    #[test]
+    fn a_duplicate_id_resolves_by_position_at_any_depth() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let first_branch = element_with_id(&mut doc, "div", root, None);
+        let second_branch = element_with_id(&mut doc, "div", root, None);
+        let shallow = element_with_id(&mut doc, "p", second_branch, Some("dup"));
+        let mid = element_with_id(&mut doc, "div", first_branch, None);
+        let deep = element_with_id(&mut doc, "span", mid, Some("dup"));
+        assert_eq!(
+            doc.node_by_named_id("dup"),
+            Some(deep),
+            "an earlier branch wins over depth"
+        );
+
+        doc.detach_node(second_branch);
+        doc.attach_node(second_branch, root, Some(0));
+        assert_eq!(
+            doc.node_by_named_id("dup"),
+            Some(shallow),
+            "after moving its branch first"
+        );
+    }
+
+    #[test]
+    fn many_holders_of_one_id_resolve_to_the_first() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let parent = element_with_id(&mut doc, "div", root, None);
+        // Each new holder goes in front, so the last one created is first in tree order.
+        let mut front = None;
+        for _ in 0..50 {
+            let e = detached_element(&mut doc, "p", Some("many"));
+            doc.attach_node(e, parent, Some(0));
+            front = Some(e);
+        }
+        assert_eq!(doc.node_by_named_id("many"), front);
+
+        let front = front.expect("holder");
+        doc.delete_node_by_id(front);
+        let next = doc.node_by_id(parent).expect("parent").children[0];
+        assert_eq!(doc.node_by_named_id("many"), Some(next), "after deleting the first");
+
+        // An ancestor of every holder takes over.
+        doc.set_attribute(parent, "id", "many");
+        assert_eq!(doc.node_by_named_id("many"), Some(parent));
     }
 
     fn shadow_root_of(doc: &mut DocumentImpl<Config>, host: NodeId) -> NodeId {
@@ -1811,5 +2077,26 @@ mod tests {
         assert_eq!(doc.parent(x), Some(a));
         assert!(doc.children(a) == [x]);
         assert_eq!(doc.node_by_named_id("x"), Some(x));
+    }
+
+    #[test]
+    fn a_shadow_tree_keeps_ids_as_written_and_leaves_template_contents_out() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let host = element_with_id(&mut doc, "div", root, None);
+        let shadow = shadow_root_of(&mut doc, host);
+
+        let spaced = element_with_id(&mut doc, "span", shadow, Some("has space"));
+        assert_eq!(doc.node_by_named_id_in(shadow, "has space"), Some(spaced));
+
+        let tpl = template(&mut doc, shadow);
+        element_with_id(&mut doc, "span", tpl, Some("inside"));
+        assert_eq!(doc.node_by_named_id_in(shadow, "inside"), None);
+
+        let later = element_with_id(&mut doc, "p", shadow, Some("dup"));
+        let earlier = detached_element(&mut doc, "p", Some("dup"));
+        doc.attach_node(earlier, shadow, Some(0));
+        assert_eq!(doc.node_by_named_id_in(shadow, "dup"), Some(earlier));
+        assert_ne!(later, earlier);
     }
 }
