@@ -2006,4 +2006,25 @@ mod tests {
         assert!(doc.children(a) == [x]);
         assert_eq!(doc.node_by_named_id("x"), Some(x));
     }
+
+    #[test]
+    fn a_shadow_tree_keeps_ids_as_written_and_leaves_template_contents_out() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let host = element_with_id(&mut doc, "div", root, None);
+        let shadow = shadow_root_of(&mut doc, host);
+
+        let spaced = element_with_id(&mut doc, "span", shadow, Some("has space"));
+        assert_eq!(doc.node_by_named_id_in(shadow, "has space"), Some(spaced));
+
+        let tpl = template(&mut doc, shadow);
+        element_with_id(&mut doc, "span", tpl, Some("inside"));
+        assert_eq!(doc.node_by_named_id_in(shadow, "inside"), None);
+
+        let later = element_with_id(&mut doc, "p", shadow, Some("dup"));
+        let earlier = detached_element(&mut doc, "p", Some("dup"));
+        doc.attach_node(earlier, shadow, Some(0));
+        assert_eq!(doc.node_by_named_id_in(shadow, "dup"), Some(earlier));
+        assert_ne!(later, earlier);
+    }
 }
