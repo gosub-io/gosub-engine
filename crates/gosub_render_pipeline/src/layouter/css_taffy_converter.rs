@@ -214,19 +214,47 @@ impl<'a> CssTaffyConverter<'a> {
             }
         }
 
+        // Insets are read from the cascade, since a `calc()` reaches taffy as `auto`, and only for a
+        // box positioned in CSS, since a float is modelled as absolute above but ignores them.
+        let (size, inset) = (&self.style.size, &self.style.inset);
+        let positioned = self.get_position(Position::Relative) == Position::Absolute;
+        let replaced = crate::layouter::abspos::is_replaced(self.doc, self.node_id);
+        let both = |start: Prop, start_value, end: Prop, end_value| {
+            !self.is_auto(start, start_value) && !self.is_auto(end, end_value)
+        };
+        let insets_x = positioned
+            && both(
+                Prop::InsetInlineStart,
+                inset.inline_start,
+                Prop::InsetInlineEnd,
+                inset.inline_end,
+            );
+        let insets_y = positioned
+            && both(
+                Prop::InsetBlockStart,
+                inset.block_start,
+                Prop::InsetBlockEnd,
+                inset.block_end,
+            );
+
+        // A replaced box with an `auto` size keeps its own: the end inset is over-constrained and
+        // ignored (CSS 2 §10.3.8, §10.6.5), and taffy would stretch the box between the two.
+        if replaced && insets_x && self.is_auto(Prop::Width, size.width) {
+            ts.inset.right = LengthPercentageAuto::auto();
+        }
+        if replaced && insets_y && self.is_auto(Prop::Height, size.height) {
+            ts.inset.bottom = LengthPercentageAuto::auto();
+        }
+
         // CSS 2 §10.3.7: an absolutely-positioned box with `width: auto` shrinks to fit but
         // never beyond its containing block. Taffy sizes such children to raw fit-content
         // (an abs-positioned wide table would overflow the viewport), so cap the BORDER box
         // at 100%. Flipping box-sizing is safe here: it only reinterprets non-auto sizes,
         // and every size except the cap itself is auto in this branch.
         // Not for a box stretched between `left` and `right`: it does not shrink to fit, and the
-        // cap, taken of taffy's parent, clipped it at the line box. Sizes and insets are read from
-        // the cascade, since a `calc()` reaches taffy as `auto`; insets only for a box positioned
-        // in CSS, since a float is modelled as absolute above but ignores them.
-        let (size, inset) = (&self.style.size, &self.style.inset);
-        let stretches_x = self.get_position(Position::Relative) == Position::Absolute
-            && !self.is_auto(Prop::InsetInlineStart, inset.inline_start)
-            && !self.is_auto(Prop::InsetInlineEnd, inset.inline_end);
+        // cap, taken of taffy's parent, clipped it at the line box. The sizes are read from the
+        // cascade too: a `calc()` size is a size.
+        let stretches_x = insets_x && !replaced;
         if ts.position == Position::Absolute
             && !stretches_x
             && self.is_auto(Prop::Width, size.width)

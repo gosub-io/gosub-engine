@@ -12,7 +12,7 @@
 //! parents-before-children so an absolutely positioned box nested inside another is measured
 //! against the corrected outer one.
 
-use crate::common::document::node::NodeId as DomNodeId;
+use crate::common::document::node::{NodeId as DomNodeId, NodeType};
 use crate::common::document::pipeline_doc::PipelineDocument;
 use crate::common::geo::{Dimension, Rect};
 use crate::layouter::{LayoutElementId, LayoutTree};
@@ -92,6 +92,16 @@ fn size_needs_replay(size: LengthPercentageAuto, parent: (f64, f64), cb: (f64, f
         LengthPercentageAuto::Percent(_) => !spans_match(parent.0, parent.1, cb.0, cb.1),
         _ => false,
     }
+}
+
+/// Whether `id` is a replaced element: an `auto` size is then its own, and opposing insets do not
+/// stretch it - the end one is ignored (CSS 2 §10.3.8, §10.6.5). Not a form control: an `<input>`
+/// stretches like a block.
+pub(crate) fn is_replaced(doc: &dyn PipelineDocument, id: DomNodeId) -> bool {
+    doc.get_node_by_id(id).is_some_and(|node| {
+        matches!(&node.node_type, NodeType::Element(data)
+            if ["img", "svg", "video"].iter().any(|tag| data.tag_name.eq_ignore_ascii_case(tag)))
+    })
 }
 
 /// Whether taffy gets the stretch between two opposing insets wrong when it measures from
@@ -181,17 +191,23 @@ pub fn post_process_abspos(
                 (style.inset.inline_start, style.inset.inline_end),
                 (style.inset.block_start, style.inset.block_end),
             );
+            let stretches = !is_replaced(&*doc, dom_id);
             if let (Some(l), Some(r)) = (left, right) {
                 // Only worth replaying when the parent is *not* the containing block. When it is -
                 // the common `position: relative` parent holding its own absolute child - taffy
                 // already measured from the right box and a second pass would buy nothing.
-                if is_auto_size(style.size.width) && insets_need_replay(inset_x, (pb.x, pb.width), (cb.x, cb.width)) {
+                if stretches
+                    && is_auto_size(style.size.width)
+                    && insets_need_replay(inset_x, (pb.x, pb.width), (cb.x, cb.width))
+                {
                     rebased.left = Some((cb.x + l - pb.x) as f32);
                     rebased.right = Some(((pb.x + pb.width) - (cb.x + cb.width - r)) as f32);
                 }
             }
             if let (Some(t), Some(b)) = (top, bottom) {
-                if is_auto_size(style.size.height) && insets_need_replay(inset_y, (pb.y, pb.height), (cb.y, cb.height))
+                if stretches
+                    && is_auto_size(style.size.height)
+                    && insets_need_replay(inset_y, (pb.y, pb.height), (cb.y, cb.height))
                 {
                     rebased.top = Some((cb.y + t - pb.y) as f32);
                     rebased.bottom = Some(((pb.y + pb.height) - (cb.y + cb.height - b)) as f32);

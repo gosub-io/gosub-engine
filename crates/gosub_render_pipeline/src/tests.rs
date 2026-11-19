@@ -5335,6 +5335,70 @@ mod rendertree_from_engine {
         );
     }
 
+    /// A replaced box keeps its intrinsic size between opposing insets: with `width: auto` the
+    /// insets are over-constrained and the end one is ignored (CSS 2 §10.3.8, §10.6.5). Stretching
+    /// is for non-replaced boxes, and the semi-replaced `<input>`.
+    #[test]
+    fn a_replaced_box_keeps_its_size_between_opposing_insets() {
+        use crate::common::geo::Dimension;
+        use crate::common::MediaStore;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+        use base64::Engine;
+        use gosub_fontmanager::ParleyFontSystem;
+        use image::ImageEncoder;
+        use parking_lot::Mutex;
+
+        let mut bytes = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut bytes)
+            .write_image(&[255; 100 * 20 * 4], 100, 20, image::ExtendedColorType::Rgba8)
+            .expect("encode");
+        let src = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        );
+        let html = format!(
+            r#"<html><body style="margin: 0">
+              <div style="position: relative; width: 100px; height: 100px">
+                <img id="wide" src="{src}" style="position: absolute; left: -25px; right: -25px; top: 0">
+              </div>
+              <div style="position: relative; width: 400px; height: 100px">
+                <img id="narrow" src="{src}" style="position: absolute; left: 0; right: 0; top: 0; bottom: 0">
+              </div>
+              <div style="position: relative; width: 400px; height: 100px">
+                <input id="input" style="position: absolute; left: 0; right: 0; top: 0">
+              </div>
+            </body></html>"#
+        );
+
+        let mut doc = html_compile::<Config>(&html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let ids = ["wide", "narrow", "input"].map(|id| find_node_by_id_attr(&adapter.doc, root, id).expect(id));
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let store = Arc::new(MediaStore::new());
+        store.set_synchronous_fetch(true);
+        let mut layouter =
+            TaffyLayouter::with_font_system_and_media_store(Arc::new(Mutex::new(ParleyFontSystem::new())), store);
+        let layout_tree = layouter.layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+        let [wide, narrow, input] = ids.map(|dom| {
+            let b = layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == dom)
+                .expect("laid out")
+                .box_model
+                .border_box;
+            (b.x, b.width, b.height)
+        });
+        // `left` wins over `right`; the size is the image's own.
+        assert_eq!(wide, (-25.0, 100.0, 20.0));
+        assert_eq!(narrow, (0.0, 100.0, 20.0));
+        assert_eq!((input.0, input.1), (0.0, 400.0));
+    }
+
     /// An absolutely positioned box whose percentage width was rebased onto its containing block
     /// follows a resize that only recomputes geometry (`relayout`): the rebased length is of the
     /// old width, so the tree has to be built again. In a line and below a static block alike.
