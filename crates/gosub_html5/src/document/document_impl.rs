@@ -3,7 +3,7 @@ use gosub_interface::css3::CssSystem;
 use gosub_interface::document::{ControlEditState, Document, DocumentType, OpenSelect, PendingStylesheet};
 use gosub_shared::attributes::Attributes;
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use url::Url;
@@ -22,13 +22,16 @@ use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
 use gosub_shared::types::ParseError;
 
+/// Up to this many elements sharing an id, the first is found by comparing their positions.
+const PAIRWISE_HOLDER_LIMIT: usize = 8;
+
 /// Defines a document
 #[derive(Debug)]
 pub struct DocumentImpl<C: HasDocument> {
     pub url: Option<Url>,
     pub(crate) arena: NodeArena,
     /// Elements in the document tree by `id`, every holder of a duplicate id included.
-    named_id_elements: HashMap<String, Vec<NodeId>>,
+    named_id_elements: HashMap<String, HashSet<NodeId>>,
     /// Reverse index of `named_id_elements`: the id each node is registered under.
     /// Kept in sync so unregistering a node does not require scanning the whole map.
     named_ids_by_node: HashMap<NodeId, String>,
@@ -774,7 +777,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         self.named_id_elements
             .entry(id_value.to_string())
             .or_default()
-            .push(node_id);
+            .insert(node_id);
         self.named_ids_by_node.insert(node_id, id_value.to_string());
     }
 
@@ -783,10 +786,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             return;
         };
         if let Entry::Occupied(mut e) = self.named_id_elements.entry(id_value) {
-            // From the end: a detached subtree unregisters its last-registered nodes first.
-            if let Some(pos) = e.get().iter().rposition(|&n| n == node_id) {
-                e.get_mut().remove(pos);
-            }
+            e.get_mut().remove(&node_id);
             if e.get().is_empty() {
                 e.remove();
             }
@@ -795,29 +795,64 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
 
     /// The first element in tree order with `id` `name_id`.
     fn first_named_id_holder(&self, name_id: &str) -> Option<NodeId> {
-        match self.named_id_elements.get(name_id)?.as_slice() {
-            [only] => Some(*only),
-            // Duplicates: walk the document tree in order and stop at the first holder.
-            _ => {
-                let mut stack = vec![NodeId::root()];
-                while let Some(id) = stack.pop() {
-                    let Some(node) = self.arena.node_ref(id) else {
-                        continue;
-                    };
-                    let holds = node
-                        .get_element_data()
-                        .and_then(|data| data.attributes.get("id"))
-                        .is_some_and(|v| v == name_id);
-                    if holds {
-                        return Some(id);
-                    }
-                    if !self.holds_template_contents(id) {
-                        stack.extend(node.children.iter().rev());
-                    }
-                }
-                None
+        let holders = self.named_id_elements.get(name_id)?;
+        if holders.len() <= PAIRWISE_HOLDER_LIMIT {
+            return holders
+                .iter()
+                .copied()
+                .reduce(|first, other| if self.precedes(other, first) { other } else { first });
+        }
+        // Many holders: comparing pairs would rescan the same siblings, one walk is cheaper.
+        let mut stack = vec![NodeId::root()];
+        while let Some(id) = stack.pop() {
+            let Some(node) = self.arena.node_ref(id) else {
+                continue;
+            };
+            let holds = node
+                .get_element_data()
+                .and_then(|data| data.attributes.get("id"))
+                .is_some_and(|v| v == name_id);
+            if holds {
+                return Some(id);
+            }
+            if !self.holds_template_contents(id) {
+                stack.extend(node.children.iter().rev());
             }
         }
+        None
+    }
+
+    /// Whether `a` comes before `b` in tree order. Both must be in the document tree.
+    fn precedes(&self, a: NodeId, b: NodeId) -> bool {
+        let path_a = self.path_from_root(a);
+        let path_b = self.path_from_root(b);
+        let common = path_a.iter().zip(&path_b).take_while(|(x, y)| x == y).count();
+        let parent = common.checked_sub(1).map(|i| path_a[i]);
+        match (path_a.get(common), path_b.get(common)) {
+            // Siblings below the last shared ancestor: the earlier child comes first.
+            (Some(&child_a), Some(&child_b)) => {
+                parent
+                    .and_then(|p| self.arena.node_ref(p))
+                    .and_then(|n| n.children.iter().find(|&&c| c == child_a || c == child_b))
+                    == Some(&child_a)
+            }
+            // `a` is an ancestor of `b`.
+            (None, Some(_)) => true,
+            // The same node, or `b` is an ancestor of `a`.
+            _ => false,
+        }
+    }
+
+    /// `node_id` and its ancestors, the root first.
+    fn path_from_root(&self, node_id: NodeId) -> Vec<NodeId> {
+        let mut path = vec![node_id];
+        let mut current = node_id;
+        while let Some(parent) = self.arena.node_ref(current).and_then(NodeImpl::parent_id) {
+            path.push(parent);
+            current = parent;
+        }
+        path.reverse();
+        path
     }
 
     /// Fetch a node reference by id (internal - not in the Document trait)
@@ -1594,5 +1629,53 @@ mod tests {
         element_with_id(&mut doc, "span", outer, Some("nest"));
         doc.set_attribute(outer, "id", "nest");
         assert_eq!(doc.node_by_named_id("nest"), Some(outer));
+    }
+
+    #[test]
+    fn a_duplicate_id_resolves_by_position_at_any_depth() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let first_branch = element_with_id(&mut doc, "div", root, None);
+        let second_branch = element_with_id(&mut doc, "div", root, None);
+        let shallow = element_with_id(&mut doc, "p", second_branch, Some("dup"));
+        let mid = element_with_id(&mut doc, "div", first_branch, None);
+        let deep = element_with_id(&mut doc, "span", mid, Some("dup"));
+        assert_eq!(
+            doc.node_by_named_id("dup"),
+            Some(deep),
+            "an earlier branch wins over depth"
+        );
+
+        doc.detach_node(second_branch);
+        doc.attach_node(second_branch, root, Some(0));
+        assert_eq!(
+            doc.node_by_named_id("dup"),
+            Some(shallow),
+            "after moving its branch first"
+        );
+    }
+
+    #[test]
+    fn many_holders_of_one_id_resolve_to_the_first() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let parent = element_with_id(&mut doc, "div", root, None);
+        // Each new holder goes in front, so the last one created is first in tree order.
+        let mut front = None;
+        for _ in 0..50 {
+            let e = detached_element(&mut doc, "p", Some("many"));
+            doc.attach_node(e, parent, Some(0));
+            front = Some(e);
+        }
+        assert_eq!(doc.node_by_named_id("many"), front);
+
+        let front = front.expect("holder");
+        doc.delete_node_by_id(front);
+        let next = doc.node_by_id(parent).expect("parent").children[0];
+        assert_eq!(doc.node_by_named_id("many"), Some(next), "after deleting the first");
+
+        // An ancestor of every holder takes over.
+        doc.set_attribute(parent, "id", "many");
+        assert_eq!(doc.node_by_named_id("many"), Some(parent));
     }
 }
