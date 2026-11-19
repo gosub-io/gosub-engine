@@ -173,8 +173,11 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     fn set_doctype(&mut self, doctype: DocumentType);
 
     /// The first element in tree order with this `id`, among the elements in the document tree
-    /// (not detached, not inside a shadow tree).
+    /// (not detached, not inside a shadow tree or a template's contents).
     fn node_by_named_id(&self, name_id: &str) -> Option<NodeId>;
+
+    /// Whether an element in the document tree other than `node` has this `id`.
+    fn named_id_held_by_other(&self, name_id: &str, node: NodeId) -> bool;
 
     fn node_count(&self) -> usize;
     fn peek_next_id(&self) -> NodeId;

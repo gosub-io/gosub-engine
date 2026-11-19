@@ -446,6 +446,12 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         self.first_named_id_holder(name_id)
     }
 
+    fn named_id_held_by_other(&self, name_id: &str, node: NodeId) -> bool {
+        self.named_id_elements
+            .get(name_id)
+            .is_some_and(|holders| holders.iter().any(|&n| n != node))
+    }
+
     fn node_count(&self) -> usize {
         self.arena.node_count()
     }
