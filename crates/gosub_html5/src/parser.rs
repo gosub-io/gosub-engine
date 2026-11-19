@@ -4917,6 +4917,38 @@ mod test {
         assert_eq!(div.get_element_data().unwrap().name(), "div");
     }
 
+    #[test]
+    fn ids_inside_a_template_are_not_found() {
+        let mut stream = ByteStream::from_str(
+            "<template id=\"t\"><span id=\"inside\"></span><div><p id=\"deep\"></p></div></template>",
+            Encoding::UTF8,
+        );
+
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let _ = Parser::parse_document(&mut stream, &mut doc, None);
+
+        assert!(
+            doc.get_node_by_named_id("t").is_some(),
+            "the template itself is in the tree"
+        );
+        assert!(doc.get_node_by_named_id("inside").is_none());
+        assert!(doc.get_node_by_named_id("deep").is_none());
+    }
+
+    #[test]
+    fn a_duplicate_id_skips_template_contents() {
+        let mut stream = ByteStream::from_str(
+            "<template><span id=\"dup\"></span></template><div id=\"dup\"></div><p id=\"dup\"></p>",
+            Encoding::UTF8,
+        );
+
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let _ = Parser::parse_document(&mut stream, &mut doc, None);
+
+        let found = doc.get_node_by_named_id("dup").unwrap();
+        assert_eq!(found.get_element_data().unwrap().name(), "div");
+    }
+
     /// Answers with a fixed stylesheet and records what it was asked for.
     #[derive(Debug, Default)]
     struct RecordingSheets {

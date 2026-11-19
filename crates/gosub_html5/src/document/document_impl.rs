@@ -697,7 +697,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
 
     /// Whether `node_id` is in the document tree, i.e. its ancestors lead up to the document.
     /// A shadow root has no parent, so nothing inside a shadow tree is. Neither is anything
-    /// left below a deleted document root.
+    /// left below a deleted document root, nor the contents of a template.
     fn is_in_document(&self, node_id: NodeId) -> bool {
         let mut current = node_id;
         loop {
@@ -705,10 +705,21 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                 return self.arena.node_ref(current).is_some();
             }
             match self.arena.node_ref(current).and_then(NodeImpl::parent_id) {
+                Some(parent) if self.holds_template_contents(parent) => return false,
                 Some(parent) => current = parent,
                 None => return false,
             }
         }
+    }
+
+    /// Whether the children of `node_id` are template contents. An ordinary `<template>` keeps
+    /// its contents as its own children (see the parser), where the spec has a separate
+    /// document fragment: those children are not in the document tree.
+    fn holds_template_contents(&self, node_id: NodeId) -> bool {
+        self.arena
+            .node_ref(node_id)
+            .and_then(NodeImpl::get_element_data)
+            .is_some_and(|data| data.template_contents == Some(node_id))
     }
 
     /// Bring the named ids of `node_id` and everything below it in line with the tree.
@@ -720,10 +731,11 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             return;
         }
         let in_document = in_document.unwrap_or_else(|| self.is_in_document(node_id));
-        let mut stack = vec![node_id];
-        while let Some(id) = stack.pop() {
+        let mut stack = vec![(node_id, in_document)];
+        while let Some((id, in_document)) = stack.pop() {
+            let children_in_document = in_document && !self.holds_template_contents(id);
             if let Some(node) = self.arena.node_ref(id) {
-                stack.extend_from_slice(&node.children);
+                stack.extend(node.children.iter().map(|&child| (child, children_in_document)));
             }
             self.refresh_named_id(id, Some(in_document));
         }
@@ -793,7 +805,9 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                     if holds {
                         return Some(id);
                     }
-                    stack.extend(node.children.iter().rev());
+                    if !self.holds_template_contents(id) {
+                        stack.extend(node.children.iter().rev());
+                    }
                 }
                 None
             }
@@ -1361,6 +1375,42 @@ mod tests {
         let b = element_with_id(&mut doc, "div", root, Some(" padded "));
         assert_eq!(doc.node_by_named_id(" padded "), Some(b));
         assert_eq!(doc.node_by_named_id("padded"), None, "no trimming");
+    }
+
+    /// A `<template>` the way the parser builds one: it holds its own contents.
+    fn template(doc: &mut DocumentImpl<Config>, parent: NodeId) -> NodeId {
+        let node = detached_element(doc, "template", None);
+        doc.set_template_contents(node, node);
+        doc.attach_node(node, parent, None);
+        node
+    }
+
+    #[test]
+    fn moving_a_node_out_of_template_contents_makes_its_id_findable() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let tpl = template(&mut doc, root);
+        let span = element_with_id(&mut doc, "span", tpl, Some("moved"));
+        assert_eq!(doc.node_by_named_id("moved"), None);
+
+        doc.relocate_node(span, root);
+        assert_eq!(doc.node_by_named_id("moved"), Some(span));
+
+        doc.relocate_node(span, tpl);
+        assert_eq!(doc.node_by_named_id("moved"), None, "and back into the template");
+    }
+
+    #[test]
+    fn attaching_a_subtree_leaves_its_template_contents_out() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let wrapper = detached_element(&mut doc, "div", Some("wrapper"));
+        let tpl = template(&mut doc, wrapper);
+        element_with_id(&mut doc, "span", tpl, Some("inside"));
+
+        doc.attach_node(wrapper, root, None);
+        assert_eq!(doc.node_by_named_id("wrapper"), Some(wrapper));
+        assert_eq!(doc.node_by_named_id("inside"), None);
     }
 
     #[test]
