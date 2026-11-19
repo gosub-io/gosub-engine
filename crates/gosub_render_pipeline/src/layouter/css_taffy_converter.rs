@@ -219,14 +219,16 @@ impl<'a> CssTaffyConverter<'a> {
         // (an abs-positioned wide table would overflow the viewport), so cap the BORDER box
         // at 100%. Flipping box-sizing is safe here: it only reinterprets non-auto sizes,
         // and every size except the cap itself is auto in this branch.
-        // With both `left` and `right` given the box does not shrink to fit: it spans the
-        // containing block between them. The cap would measure that against taffy's parent, which
-        // for a box in a line is the line box, and clip the stretch at the line's width.
-        // The sizes are read from the cascade, not from `ts`: a `calc()` reaches taffy as `auto`
-        // too, but it is a size, and the flip to border-box would take its padding out of it.
-        let size = &self.style.size;
+        // Not for a box stretched between `left` and `right`: it does not shrink to fit, and the
+        // cap, taken of taffy's parent, clipped it at the line box. Sizes and insets are read from
+        // the cascade, since a `calc()` reaches taffy as `auto`; insets only for a box positioned
+        // in CSS, since a float is modelled as absolute above but ignores them.
+        let (size, inset) = (&self.style.size, &self.style.inset);
+        let stretches_x = self.get_position(Position::Relative) == Position::Absolute
+            && !self.is_auto(Prop::InsetInlineStart, inset.inline_start)
+            && !self.is_auto(Prop::InsetInlineEnd, inset.inline_end);
         if ts.position == Position::Absolute
-            && (ts.inset.left.is_auto() || ts.inset.right.is_auto())
+            && !stretches_x
             && self.is_auto(Prop::Width, size.width)
             && self.is_auto(Prop::Height, size.height)
             && self.is_auto(Prop::MaxWidth, size.max_width)
@@ -309,13 +311,13 @@ impl<'a> CssTaffyConverter<'a> {
         }
     }
 
-    /// A declared `<length-percentage> | auto` as taffy's own, or the caller's default when the
-    /// element declared none.
     /// Whether the cascade leaves `prop` at `auto`, declared or not.
     fn is_auto(&self, prop: Prop, value: CssLengthPercentageAuto) -> bool {
         !self.style.has(prop) || matches!(value, CssLengthPercentageAuto::Auto)
     }
 
+    /// A declared `<length-percentage> | auto` as taffy's own, or the caller's default when the
+    /// element declared none.
     fn lpa(&self, prop: Prop, value: CssLengthPercentageAuto, default: LengthPercentageAuto) -> LengthPercentageAuto {
         if !self.style.has(prop) {
             return default;

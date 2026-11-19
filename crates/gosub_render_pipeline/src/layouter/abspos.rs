@@ -94,6 +94,18 @@ fn size_needs_replay(size: LengthPercentageAuto, parent: (f64, f64), cb: (f64, f
     }
 }
 
+/// Whether taffy gets the stretch between two opposing insets wrong when it measures from
+/// `parent` rather than from `cb`. Same as for a size: a span that differs, or a `calc()` inset,
+/// which taffy gets as `auto` - it then sees one inset and does not stretch at all.
+fn insets_need_replay(
+    insets: (LengthPercentageAuto, LengthPercentageAuto),
+    parent: (f64, f64),
+    cb: (f64, f64),
+) -> bool {
+    let is_calc = |side| matches!(side, LengthPercentageAuto::Calc { .. });
+    is_calc(insets.0) || is_calc(insets.1) || !spans_match(parent.0, parent.1, cb.0, cb.1)
+}
+
 /// Whether an axis is `auto`-sized, so that opposing insets should stretch the box.
 fn is_auto_size(size: LengthPercentageAuto) -> bool {
     size.is_auto()
@@ -165,17 +177,22 @@ pub fn post_process_abspos(
         // returns `None` at the root, where the two coincide and nothing needs rebasing.
         if let Some(pb) = parent_reference(layout_tree, id, line_box) {
             let mut rebased = RebasedInsets::default();
+            let (inset_x, inset_y) = (
+                (style.inset.inline_start, style.inset.inline_end),
+                (style.inset.block_start, style.inset.block_end),
+            );
             if let (Some(l), Some(r)) = (left, right) {
                 // Only worth replaying when the parent is *not* the containing block. When it is -
                 // the common `position: relative` parent holding its own absolute child - taffy
                 // already measured from the right box and a second pass would buy nothing.
-                if is_auto_size(style.size.width) && !spans_match(pb.x, pb.width, cb.x, cb.width) {
+                if is_auto_size(style.size.width) && insets_need_replay(inset_x, (pb.x, pb.width), (cb.x, cb.width)) {
                     rebased.left = Some((cb.x + l - pb.x) as f32);
                     rebased.right = Some(((pb.x + pb.width) - (cb.x + cb.width - r)) as f32);
                 }
             }
             if let (Some(t), Some(b)) = (top, bottom) {
-                if is_auto_size(style.size.height) && !spans_match(pb.y, pb.height, cb.y, cb.height) {
+                if is_auto_size(style.size.height) && insets_need_replay(inset_y, (pb.y, pb.height), (cb.y, cb.height))
+                {
                     rebased.top = Some((cb.y + t - pb.y) as f32);
                     rebased.bottom = Some(((pb.y + pb.height) - (cb.y + cb.height - b)) as f32);
                 }

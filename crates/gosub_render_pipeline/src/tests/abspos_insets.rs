@@ -147,3 +147,25 @@ fn a_calc_width_keeps_its_box_sizing() {
     );
     assert_eq!(border_box(&layers, abspos).width, 130.0);
 }
+
+/// Taffy has no `calc()` inset either: it sees `auto` there and does not stretch the box at all.
+#[test]
+fn a_calc_inset_still_stretches_the_box() {
+    let (layers, [in_line, block]) = lay_out(
+        r#"<html><body style="margin: 0">
+          <div style="position: relative; width: 200px; height: 40px">
+            <span id="in-line" style="position: absolute; top: 0; left: calc(5% + 10px); right: 0;
+              height: 10px"></span>
+          </div>
+          <div style="position: relative; width: 200px; height: 40px">
+            <div id="block" style="position: absolute; top: 0; left: calc(5% + 10px); right: 0;
+              height: 10px"></div>
+          </div>
+        </body></html>"#,
+        ["in-line", "block"],
+    );
+    for id in [in_line, block] {
+        let b = border_box(&layers, id);
+        assert_eq!((b.x, b.width), (20.0, 180.0));
+    }
+}
