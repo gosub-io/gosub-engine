@@ -886,6 +886,9 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         if self.refuses_tree_mutation("attach_node", node_id) {
             return;
         }
+        // Insertion removes the node from where it was, or it ends up in two child lists and
+        // the parent walk in `would_cycle` no longer sees every ancestor.
+        self.detach_node(node_id);
         if let Some(parent_node) = self.arena.node_ref_mut(parent_id) {
             match position {
                 Some(position) if position <= parent_node.children().len() => {
@@ -914,8 +917,10 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     /// Whether `node_id` is a host-including inclusive ancestor of `parent_id` (DOM "pre-insert
     /// validity"), so putting it under `parent_id` would make a cycle. Crosses from a shadow
     /// root to its host: a host moved into its own shadow tree is a cycle as well.
+    ///
+    /// Also true when `parent_id` is gone, so callers refuse the move before they detach.
     fn would_cycle(&self, node_id: NodeId, parent_id: NodeId) -> bool {
-        if node_id == parent_id {
+        if node_id == parent_id || self.arena.node_ref(parent_id).is_none() {
             return true;
         }
         // A leaf without a shadow tree is nobody's ancestor. The parser attaches mostly those.
@@ -1770,5 +1775,41 @@ mod tests {
         assert_eq!(doc.parent(outer), Some(root), "not left detached");
         doc.attach_node(outer, outer, None);
         assert!(doc.children(outer) == [inner]);
+    }
+
+    #[test]
+    fn attaching_an_attached_node_moves_it() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let a = element_with_id(&mut doc, "div", root, None);
+        let b = element_with_id(&mut doc, "div", root, None);
+        let x = element_with_id(&mut doc, "div", a, None);
+
+        doc.attach_node(x, b, None);
+        assert!(doc.children(a).is_empty(), "x left its old parent");
+        assert!(doc.children(b) == [x]);
+        assert_eq!(doc.parent(x), Some(b));
+
+        // With x in both child lists this closed a cycle a -> x -> a.
+        doc.attach_node(a, x, None);
+        assert_eq!(doc.parent(a), Some(x));
+        assert!(doc.children(root) == [b]);
+    }
+
+    #[test]
+    fn a_move_to_a_deleted_parent_leaves_the_tree_alone() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let a = element_with_id(&mut doc, "div", root, None);
+        let x = element_with_id(&mut doc, "div", a, Some("x"));
+        let gone = element_with_id(&mut doc, "div", root, None);
+        doc.delete_node_by_id(gone);
+
+        doc.attach_node(x, gone, None);
+        doc.relocate_node(x, gone);
+        Document::relocate_node(&mut doc, x, gone);
+        assert_eq!(doc.parent(x), Some(a));
+        assert!(doc.children(a) == [x]);
+        assert_eq!(doc.node_by_named_id("x"), Some(x));
     }
 }
