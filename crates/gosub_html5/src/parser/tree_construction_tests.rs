@@ -17,11 +17,6 @@ impl ModuleConfiguration for Config {
     type HtmlParser = Html5Parser<'static, Self>;
 }
 
-const DISABLED_CASES: &[&str] = &[
-    // tests18.dat
-    "<!doctype html><template><plaintext>a</template>b",
-];
-
 // See tests/data/html5lib-tests/tree-construction/ for other test files.
 #[test_case("tests1.dat")]
 #[test_case("tests2.dat")]
@@ -84,11 +79,6 @@ fn tree_construction(filename: &str) {
     let mut harness = Harness::new();
 
     for test in fixture_file.tests {
-        // skip disabled tests
-        if DISABLED_CASES.contains(&test.document_as_str()) {
-            continue;
-        }
-
         // for each test, run it with and without scripting enabled based on the test file
         for &scripting_enabled in test.script_modes() {
             let result = harness
