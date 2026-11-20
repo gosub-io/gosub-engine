@@ -7,8 +7,8 @@ use crate::grid::{build_section_grid, PlacedCell, SectionGrid};
 use crate::model::{build_model, RowGroup};
 use crate::sizing::columns::{column_specs, compute_column_widths};
 use crate::sizing::rows::{
-    compute_row_heights, distribute_table_height, effective_border, read_border, read_padding, read_padding_against,
-    SectionRows,
+    compute_row_heights, distribute_table_height, effective_border, read_border, read_margin_against, read_padding,
+    read_padding_against, SectionRows,
 };
 use crate::types::{
     BorderCollapse, CellLayer, CellLayout, CollapsedBorders, CssLength, CssProp, EmptySlotPaint, TableSizing,
@@ -176,10 +176,11 @@ pub fn compute_table_layout<T: TableTree>(
         (HashMap::new(), HashMap::new(), HashMap::new())
     };
 
-    // CAPMIN: the caption's minimum border-box width. CSS 2 §17.5.2 floors the used
+    // CAPMIN: the caption's minimum outer width. CSS 2 §17.5.2 floors the used
     // table width at it in both layout modes (an empty table with a 100px caption is
     // still 100px wide). Intrinsics are border-box; a specified width is content-box,
-    // so it gains the caption's own border and padding.
+    // so it gains the caption's own border and padding. Percentage margins count as
+    // zero here: the width they resolve against is the one being worked out.
     let capmin = match model.caption {
         Some(cap) => {
             let intrinsic_min = tree.cell_intrinsic_widths(cap).0;
@@ -187,7 +188,7 @@ pub fn compute_table_layout<T: TableTree>(
                 CssLength::Px(w) => w + read_border(tree, cap).horizontal() + read_padding(tree, cap).horizontal(),
                 _ => 0.0,
             };
-            intrinsic_min.max(specified)
+            intrinsic_min.max(specified) + read_margin_against(tree, cap, 0.0).horizontal()
         }
         None => 0.0,
     };
@@ -379,25 +380,30 @@ pub fn compute_table_layout<T: TableTree>(
         _ => 0.0,
     };
 
-    // Caption: measured like a cell spanning the full table width; placed
-    // above (default) or below the grid per `caption-side`.
+    // Caption: measured like a cell spanning the full table width less its margins; placed
+    // above (default) or below the grid per `caption-side`. Its margins stay inside the
+    // table wrapper box (CSS 2 §17.4), so `caption_height` is the margin-box height.
     let caption_bottom = model
         .caption
         .map(|cap| matches!(tree.css_length(cap, CssProp::CaptionSide), CssLength::Px(v) if v == 1.0))
         .unwrap_or(false);
+    let caption_outer_width = table_width + caption_edges.left + caption_edges.right;
+    let caption_margin = model.caption.map_or(BOX_EDGES_ZERO, |cap| {
+        read_margin_against(tree, cap, caption_outer_width)
+    });
     let caption_height = match model.caption {
         Some(cap) => {
             let border = read_border(tree, cap);
             let padding = read_padding(tree, cap);
             let inner_w =
-                (table_width + caption_edges.left + caption_edges.right - border.horizontal() - padding.horizontal())
+                (caption_outer_width - caption_margin.horizontal() - border.horizontal() - padding.horizontal())
                     .max(0.0);
             let content_h = tree.layout_cell(cap, inner_w);
             let explicit_h = match tree.css_length(cap, CssProp::Height) {
                 CssLength::Px(px) => px,
                 _ => 0.0,
             };
-            content_h.max(explicit_h) + border.vertical() + padding.vertical()
+            content_h.max(explicit_h) + border.vertical() + padding.vertical() + caption_margin.vertical()
         }
         None => 0.0,
     };
@@ -421,7 +427,10 @@ pub fn compute_table_layout<T: TableTree>(
     // flat stack of rows: one gutter above the first row, one between any two adjacent
     // rows (also across group boundaries), one below the last. Groups therefore carry
     // only the (n_rows - 1) *internal* gutters; the shared boundary gutters live here.
-    let mut group_y = if caption_bottom { 0.0 } else { caption_height } + spacing_y + perimeter.top;
+    // Without rows there is nothing to put a gutter around, and a group without rows adds
+    // none of its own.
+    let top_gutter = if has_rows { spacing_y } else { 0.0 };
+    let mut group_y = if caption_bottom { 0.0 } else { caption_height } + top_gutter + perimeter.top;
     let grid_top = group_y;
     let mut grid_bottom = grid_top;
 
@@ -478,8 +487,10 @@ pub fn compute_table_layout<T: TableTree>(
                 &mut cell_layers,
             );
 
-            grid_bottom = group_y + group_height;
-            group_y += group_height + spacing_y;
+            if grid.n_rows > 0 {
+                grid_bottom = group_y + group_height;
+                group_y += group_height + spacing_y;
+            }
         }
     }
 
@@ -521,8 +532,11 @@ pub fn compute_table_layout<T: TableTree>(
         tree.set_layout(
             cap,
             CellLayout {
-                position: Point::new(-caption_edges.left, y),
-                size: Size::new(table_width + caption_edges.left + caption_edges.right, caption_height),
+                position: Point::new(-caption_edges.left + caption_margin.left, y + caption_margin.top),
+                size: Size::new(
+                    (caption_outer_width - caption_margin.horizontal()).max(0.0),
+                    caption_height - caption_margin.vertical(),
+                ),
                 border,
                 padding,
                 content_offset_y: 0.0,

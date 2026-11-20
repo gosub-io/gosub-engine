@@ -215,6 +215,8 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     current_script_blocks: bool,
     /// Pending table character tokens
     pending_table_character_tokens: String,
+    /// Location of the first pending table character token
+    pending_table_character_location: Location,
     /// Acknowledge self-closing tags
     ack_self_closing: bool,
     /// List of active formatting elements or markers
@@ -283,6 +285,23 @@ enum Delegate {
     None,
     UnexpectedHtmlTag,
     HtmlContent,
+}
+
+/// Returns the location just past `text`, when `text` starts at `location`. Token text is
+/// decoded, so after a character reference or a CRLF in `text` the result no longer matches
+/// the source exactly.
+fn location_after(location: Location, text: &str) -> Location {
+    let mut location = location;
+    for ch in text.chars() {
+        if ch == '\n' {
+            location.line += 1;
+            location.column = 1;
+        } else {
+            location.column += 1;
+        }
+        location.offset += ch.len_utf8();
+    }
+    location
 }
 
 /// Extracts the encoding declared by a `<meta charset="…">` or
@@ -364,6 +383,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             current_script_blocks: false,
             blocked_on_css_us: Cell::new(0),
             pending_table_character_tokens: String::new(),
+            pending_table_character_location: Location::default(),
             ack_self_closing: false,
             active_formatting_elements: vec![],
             is_fragment_case: false,
@@ -408,6 +428,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             current_script_blocks: false,
             blocked_on_css_us: Cell::new(0),
             pending_table_character_tokens: String::new(),
+            pending_table_character_location: Location::default(),
             ack_self_closing: false,
             active_formatting_elements: vec![],
             is_fragment_case: false,
@@ -456,7 +477,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         let html_id = parser
             .document
             .create_element("html", Some(HTML_NAMESPACE), Attributes::new(), start_location);
-        parser.document.attach(html_id, parser.document.root(), None);
+        let root = parser.document.root();
+        parser.attach_node(html_id, root, None);
 
         // 7.
         parser.open_elements.push(html_id);
@@ -484,18 +506,18 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         parser.reset_insertion_mode();
 
         // 11. Set the parser's form element pointer to the nearest node to the context element that is a form element (going straight up the ancestor chain, and including the element itself, if it is a form element), if any. (If there is no such form element, the form element pointer keeps its initial value, null.)
-        let context_tag = parser.document.tag_name(context_node_id).unwrap_or_default().to_owned();
-        let mut cur_id = context_node_id;
-        loop {
-            if context_tag == "form" {
-                parser.form_element = Some(cur_id);
+        let mut cur_id = Some(context_node_id);
+        while let Some(id) = cur_id {
+            if parser.document.tag_name(id) == Some("form") && parser.document.namespace(id) == Some(HTML_NAMESPACE) {
+                parser.form_element = Some(id);
                 break;
             }
-
-            match parser.document.parent(cur_id) {
-                None => break,
-                Some(parent_id) => cur_id = parent_id,
-            }
+            // Template contents are a fragment of their own in the spec, so the chain ends there.
+            // Here they are the template's children, which `parent` would walk straight out of.
+            cur_id = parser
+                .document
+                .parent(id)
+                .filter(|&parent| parser.document.template_contents(parent) != Some(parent));
         }
 
         // 13. / 14.
@@ -584,16 +606,17 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         let mut delegate = Delegate::None;
 
         match &current_token {
-            Token::Text { text: value, .. } if current_token.is_mixed() => {
-                let tokens = self.split_mixed_token(value);
+            Token::Text { text: value, location } if current_token.is_mixed() => {
+                let tokens = self.split_mixed_token(value, *location);
                 self.tokenizer.insert_tokens_at_queue_start(tokens);
                 return;
             }
-            Token::Text { .. } if current_token.is_null() => {
+            Token::Text { text: value, .. } if current_token.is_null() => {
                 self.parse_error("null character not allowed in foreign content");
+                // A run of NULs arrives as one token; each NUL gets its own replacement
                 self.insert_text_element(&Token::Text {
-                    text: CHAR_REPLACEMENT.to_string(),
-                    location: self.tokenizer.get_location(),
+                    text: CHAR_REPLACEMENT.to_string().repeat(value.chars().count()),
+                    location: loc,
                 });
             }
             Token::Text { .. } if current_token.is_empty_or_white() => {
@@ -786,10 +809,11 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     /// Process a token in HTML content
     fn process_html_content(&mut self) {
         if self.ignore_lf {
-            if let Token::Text { text: value, .. } = &mut self.current_token {
+            if let Token::Text { text: value, location } = &mut self.current_token {
                 if value.starts_with('\n') {
                     // We don't need to skip 1 char, but we can skip 1 byte, as we just checked for \n
                     value.remove(0);
+                    *location = location_after(*location, "\n");
                 }
             }
             self.ignore_lf = false;
@@ -809,8 +833,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 let mut anything_else = false;
 
                 match &current_token {
-                    Token::Text { text: value, .. } if current_token.is_mixed() => {
-                        let tokens = self.split_mixed_token(value);
+                    Token::Text { text: value, location } if current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value, *location);
                         self.tokenizer.insert_tokens_at_queue_start(tokens);
                         return;
                     }
@@ -887,8 +911,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     Token::Comment { .. } => {
                         self.insert_comment_element(&current_token, Some(NodeId::root()));
                     }
-                    Token::Text { text: value, .. } if current_token.is_mixed() => {
-                        let tokens = self.split_mixed_token(value);
+                    Token::Text { text: value, location } if current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value, *location);
                         self.tokenizer.insert_tokens_at_queue_start(tokens);
                         return;
                     }
@@ -930,8 +954,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 let mut anything_else = false;
 
                 match &current_token {
-                    Token::Text { text: value, .. } if current_token.is_mixed() => {
-                        let tokens = self.split_mixed_token(value);
+                    Token::Text { text: value, location } if current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value, *location);
                         self.tokenizer.insert_tokens_at_queue_start(tokens);
                         return;
                     }
@@ -997,8 +1021,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                         self.check_last_element("head");
                         self.insertion_mode = InsertionMode::InHead;
                     }
-                    Token::Text { text: value, .. } if current_token.is_mixed() => {
-                        let tokens = self.split_mixed_token(value);
+                    Token::Text { text: value, location } if current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value, *location);
                         self.tokenizer.insert_tokens_at_queue_start(tokens);
                         return;
                     }
@@ -1047,8 +1071,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 let mut anything_else = false;
 
                 match &current_token {
-                    Token::Text { text: value, .. } if current_token.is_mixed() => {
-                        let tokens = self.split_mixed_token(value);
+                    Token::Text { text: value, location } if current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value, *location);
                         self.tokenizer.insert_tokens_at_queue_start(tokens);
                         return;
                     }
@@ -1223,15 +1247,18 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             InsertionMode::InTable => self.handle_in_table(&mut current_token),
             InsertionMode::InTableText => {
                 match &current_token {
-                    Token::Text { text: value, .. } if current_token.is_mixed() => {
-                        let tokens = self.split_mixed_token(value);
+                    Token::Text { text: value, location } if current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value, *location);
                         self.tokenizer.insert_tokens_at_queue_start(tokens);
                     }
                     Token::Text { .. } if current_token.is_null() => {
                         self.parse_error("null character not allowed in in table text insertion mode");
                         // ignore token
                     }
-                    Token::Text { text: value, .. } => {
+                    Token::Text { text: value, location } => {
+                        if self.pending_table_character_tokens.is_empty() {
+                            self.pending_table_character_location = *location;
+                        }
                         self.pending_table_character_tokens.push_str(value);
                     }
                     _ => {
@@ -1251,7 +1278,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                             let tmp = current_token.clone();
                             self.foster_parenting = true;
 
-                            let tokens = self.split_mixed_token(&pending_chars);
+                            let tokens = self.split_mixed_token(&pending_chars, self.pending_table_character_location);
                             for mut token in tokens {
                                 self.current_token = token.clone();
                                 self.handle_in_body(&mut token);
@@ -1262,7 +1289,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                         } else {
                             self.insert_text_element(&Token::Text {
                                 text: pending_chars,
-                                location: self.tokenizer.get_location(),
+                                location: self.pending_table_character_location,
                             });
                         }
 
@@ -1334,8 +1361,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             }
             InsertionMode::InColumnGroup => {
                 match &current_token {
-                    Token::Text { text: value, .. } if current_token.is_mixed() => {
-                        let tokens = self.split_mixed_token(value);
+                    Token::Text { text: value, location } if current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value, *location);
                         self.tokenizer.insert_tokens_at_queue_start(tokens);
                     }
                     Token::Text { .. } if current_token.is_empty_or_white() => {
@@ -1671,8 +1698,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             InsertionMode::InTemplate => self.handle_in_template(&mut current_token),
             InsertionMode::AfterBody => {
                 match &current_token {
-                    Token::Text { text: value, .. } if current_token.is_mixed() => {
-                        let tokens = self.split_mixed_token(value);
+                    Token::Text { text: value, location } if current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value, *location);
                         self.tokenizer.insert_tokens_at_queue_start(tokens);
                     }
                     Token::Text { .. } if current_token.is_empty_or_white() => {
@@ -1710,8 +1737,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             }
             InsertionMode::InFrameset => {
                 match &current_token {
-                    Token::Text { text: value, .. } if current_token.is_mixed() => {
-                        let tokens = self.split_mixed_token(value);
+                    Token::Text { text: value, location } if current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value, *location);
                         self.tokenizer.insert_tokens_at_queue_start(tokens);
                     }
                     Token::Text { .. } if current_token.is_empty_or_white() => {
@@ -1770,8 +1797,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             }
             InsertionMode::AfterFrameset => {
                 match &current_token {
-                    Token::Text { text: value, .. } if current_token.is_mixed() => {
-                        let tokens = self.split_mixed_token(value);
+                    Token::Text { text: value, location } if current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value, *location);
                         self.tokenizer.insert_tokens_at_queue_start(tokens);
                     }
                     Token::Text { .. } if current_token.is_empty_or_white() => {
@@ -1809,8 +1836,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 Token::DocType { .. } => {
                     self.handle_in_body(&mut current_token);
                 }
-                Token::Text { text: value, .. } if current_token.is_mixed() => {
-                    let tokens = self.split_mixed_token(value);
+                Token::Text { text: value, location } if current_token.is_mixed() => {
+                    let tokens = self.split_mixed_token(value, *location);
                     self.tokenizer.insert_tokens_at_queue_start(tokens);
                 }
                 Token::Text { .. } if current_token.is_empty_or_white() => {
@@ -1836,8 +1863,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     Token::DocType { .. } => {
                         self.handle_in_body(&mut current_token);
                     }
-                    Token::Text { text: value, .. } if current_token.is_mixed() => {
-                        let tokens = self.split_mixed_token(value);
+                    Token::Text { text: value, location } if current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value, *location);
                         self.tokenizer.insert_tokens_at_queue_start(tokens);
                     }
                     Token::Text { .. } if current_token.is_empty_or_white() => {
@@ -2330,8 +2357,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     /// Handle insertion mode "`in_body`"
     fn handle_in_body(&mut self, token: &mut Token) {
         match &*token {
-            Token::Text { text: value, .. } if token.is_mixed_null() => {
-                let tokens = self.split_mixed_token_null(value);
+            Token::Text { text: value, location } if token.is_mixed_null() => {
+                let tokens = self.split_mixed_token_null(value, *location);
                 self.tokenizer.insert_tokens_at_queue_start(tokens);
             }
             Token::Text { .. } if token.is_null() => {
@@ -3140,8 +3167,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         let mut anything_else = false;
 
         match &*token {
-            Token::Text { text: value, .. } if token.is_mixed() => {
-                let tokens = self.split_mixed_token(value);
+            Token::Text { text: value, location } if token.is_mixed() => {
+                let tokens = self.split_mixed_token(value, *location);
                 self.tokenizer.insert_tokens_at_queue_start(tokens);
                 return;
             }
@@ -3554,8 +3581,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     /// Handle insertion mode "`in_select`"
     fn handle_in_select(&mut self, token: &mut Token) {
         match &*token {
-            Token::Text { text: value, .. } if token.is_mixed() => {
-                let tokens = self.split_mixed_token(value);
+            Token::Text { text: value, location } if token.is_mixed() => {
+                let tokens = self.split_mixed_token(value, *location);
                 self.tokenizer.insert_tokens_at_queue_start(tokens);
             }
             Token::Text { .. } if token.is_null() => {
@@ -3963,10 +3990,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
         for idx in (0..self.open_elements.len()).rev() {
             let node_id = self.open_elements[idx];
-            let tag = self.document.tag_name(node_id).unwrap_or_default().to_owned();
-
-            if tag == tag_name {
-                self.generate_implied_end_tags(Some(&tag), false);
+            if self.document.tag_name(node_id).unwrap_or_default() == tag_name {
+                self.generate_implied_end_tags(Some(tag_name), false);
 
                 // It might be possible that the last item is not our node_id. Emit parse error if so
                 if current_node_id!(self) != node_id {
@@ -4211,8 +4236,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     /// The idea is that large blobs of javascript for instance will not be split into separate
     /// tokens, but still be seen and parsed as a single `TextToken`.
     ///
-    fn split_mixed_token(&self, text: &str) -> Vec<Token> {
-        self.split_token_by_group(text, |ch| {
+    fn split_mixed_token(&self, text: &str, location: Location) -> Vec<Token> {
+        self.split_token_by_group(text, location, |ch| {
             if ch == '\0' {
                 '0'
             } else if ch.is_ascii_whitespace() {
@@ -4224,29 +4249,33 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     }
 
     /// This will split tokens into \0 groups and non-\0 groups.
-    fn split_mixed_token_null(&self, text: &str) -> Vec<Token> {
-        self.split_token_by_group(text, |ch| if ch == '\0' { '0' } else { 'r' })
+    fn split_mixed_token_null(&self, text: &str, location: Location) -> Vec<Token> {
+        self.split_token_by_group(text, location, |ch| if ch == '\0' { '0' } else { 'r' })
     }
 
     /// Splits `text` into consecutive runs of characters that map to the same group, emitting
     /// one `Token::Text` per run. `group_of` classifies each character into a group key; a
     /// change in key starts a new token. This lets callers pick which distinctions matter
     /// (e.g. whitespace vs null vs regular) without re-splitting large blobs unnecessarily.
-    fn split_token_by_group(&self, text: &str, group_of: impl Fn(char) -> char) -> Vec<Token> {
+    /// `location` is where `text` starts; each token gets the location of its first character.
+    fn split_token_by_group(&self, text: &str, location: Location, group_of: impl Fn(char) -> char) -> Vec<Token> {
         let mut tokens = vec![];
         let mut last_group = 'x';
 
         let mut found = String::new();
+        let mut location = location;
 
         for ch in text.chars() {
             let group = group_of(ch);
 
             if last_group != group && !found.is_empty() {
+                let next_location = location_after(location, &found);
                 tokens.push(Token::Text {
                     text: found.clone(),
-                    location: self.tokenizer.get_location(),
+                    location,
                 });
                 found.clear();
+                location = next_location;
             }
 
             found.push(ch);
@@ -4256,7 +4285,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         if !found.is_empty() {
             tokens.push(Token::Text {
                 text: found.clone(),
-                location: self.tokenizer.get_location(),
+                location,
             });
         }
 
@@ -4600,7 +4629,7 @@ mod test {
                 $self
                     .document
                     .create_element($name, Some(HTML_NAMESPACE), Attributes::new(), Location::default());
-            $self.document.attach(node_id, NodeId::root(), None);
+            $self.document.attach(node_id, NodeId::root(), None).unwrap();
             $self.open_elements.push(node_id);
         }};
     }
@@ -4619,6 +4648,39 @@ mod test {
         assert!(!parser.is_in_scope("p", HTML_NAMESPACE, Scope::Button));
         assert!(parser.is_in_scope("p", HTML_NAMESPACE, Scope::ListItem));
         assert!(!parser.is_in_scope("p", HTML_NAMESPACE, Scope::Select));
+    }
+
+    #[test]
+    fn split_mixed_token_locations() {
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
+        let mut document = DocumentBuilderImpl::new_document::<Config>(None);
+        let parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+
+        let locations = |tokens: Vec<Token>| {
+            tokens
+                .iter()
+                .map(|t| {
+                    let l = t.get_location();
+                    (t.to_string(), l.line, l.column, l.offset)
+                })
+                .collect::<Vec<_>>()
+        };
+        let piece = |text: &str, line, column, offset| (text.to_string(), line, column, offset);
+
+        assert_eq!(
+            locations(parser.split_mixed_token(" \u{e9}\n\0x", Location::new(3, 5, 20))),
+            vec![
+                piece(" ", 3, 5, 20),
+                piece("\u{e9}", 3, 6, 21),
+                piece("\n", 3, 7, 23),
+                piece("\0", 4, 1, 24),
+                piece("x", 4, 2, 25),
+            ]
+        );
+        assert_eq!(
+            locations(parser.split_mixed_token_null("ab\0\0c", Location::new(1, 4, 3))),
+            vec![piece("ab", 1, 4, 3), piece("\0\0", 1, 6, 5), piece("c", 1, 8, 7)]
+        );
     }
 
     #[test]
@@ -4854,9 +4916,7 @@ mod test {
         assert!(element.classlist().contains("two"));
         assert!(element.classlist().contains("three"));
 
-        assert!(element.classlist().is_active("one"));
-        assert!(element.classlist().is_active("two"));
-        assert!(element.classlist().is_active("three"));
+        assert_eq!(element.classlist().as_vec(), ["one", "two", "three"]);
     }
 
     #[test]
@@ -4879,9 +4939,7 @@ mod test {
         assert!(element.classlist().contains("two"));
         assert!(element.classlist().contains("three"));
 
-        assert!(element.classlist().is_active("one"));
-        assert!(element.classlist().is_active("two"));
-        assert!(element.classlist().is_active("three"));
+        assert_eq!(element.classlist().as_vec(), ["one", "two", "three"]);
     }
 
     #[test]
@@ -4895,8 +4953,10 @@ mod test {
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
         let _ = Parser::parse_document(&mut stream, &mut doc, None);
 
-        // Any invalid id's are not stored in the document, and thus not searchable
-        assert!(doc.get_node_by_named_id("my id").is_none());
+        // Whitespace makes an id non-conforming but it is still the element's id. An empty id
+        // is no id at all.
+        assert!(doc.get_node_by_named_id("my id").is_some());
+        assert!(doc.get_node_by_named_id("my").is_none());
         assert!(doc.get_node_by_named_id("").is_none());
     }
 
@@ -4915,6 +4975,38 @@ mod test {
         let div = doc.get_node_by_named_id("myid").unwrap();
         assert_eq!(div.id, NodeId::from(4usize));
         assert_eq!(div.get_element_data().unwrap().name(), "div");
+    }
+
+    #[test]
+    fn ids_inside_a_template_are_not_found() {
+        let mut stream = ByteStream::from_str(
+            "<template id=\"t\"><span id=\"inside\"></span><div><p id=\"deep\"></p></div></template>",
+            Encoding::UTF8,
+        );
+
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let _ = Parser::parse_document(&mut stream, &mut doc, None);
+
+        assert!(
+            doc.get_node_by_named_id("t").is_some(),
+            "the template itself is in the tree"
+        );
+        assert!(doc.get_node_by_named_id("inside").is_none());
+        assert!(doc.get_node_by_named_id("deep").is_none());
+    }
+
+    #[test]
+    fn a_duplicate_id_skips_template_contents() {
+        let mut stream = ByteStream::from_str(
+            "<template><span id=\"dup\"></span></template><div id=\"dup\"></div><p id=\"dup\"></p>",
+            Encoding::UTF8,
+        );
+
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let _ = Parser::parse_document(&mut stream, &mut doc, None);
+
+        let found = doc.get_node_by_named_id("dup").unwrap();
+        assert_eq!(found.get_element_data().unwrap().name(), "div");
     }
 
     /// Answers with a fixed stylesheet and records what it was asked for.
@@ -5161,5 +5253,167 @@ mod foreign_content_tests {
         let body = find(&doc, NodeId::root(), "body").unwrap();
         let last = *doc.children(body).last().unwrap();
         assert_eq!(doc.text_value(last), Some("after"));
+    }
+
+    /// Text of the direct text children of `id`, joined.
+    fn text_of(doc: &DocumentImpl<Config>, id: NodeId) -> String {
+        doc.children(id).iter().filter_map(|&c| doc.text_value(c)).collect()
+    }
+
+    /// Every NUL in foreign content becomes its own U+FFFD, not one per run.
+    #[test]
+    fn each_null_in_foreign_content_becomes_a_replacement_character() {
+        let cases = [
+            ("<svg>a\0b", "svg", "a\u{FFFD}b"),
+            ("<svg>a\0\0b", "svg", "a\u{FFFD}\u{FFFD}b"),
+            ("<svg>a\0\0\0b", "svg", "a\u{FFFD}\u{FFFD}\u{FFFD}b"),
+            ("<svg>\0\0a", "svg", "\u{FFFD}\u{FFFD}a"),
+            ("<svg>a\0\0", "svg", "a\u{FFFD}\u{FFFD}"),
+            ("<svg>\0\0", "svg", "\u{FFFD}\u{FFFD}"),
+            ("<svg>\0\0 \0\0", "svg", "\u{FFFD}\u{FFFD} \u{FFFD}\u{FFFD}"),
+            ("<svg> \0\0 a", "svg", " \u{FFFD}\u{FFFD} a"),
+            ("<svg><![CDATA[a\0\0b]]>", "svg", "a\u{FFFD}\u{FFFD}b"),
+            ("<math>a\0\0b", "math", "a\u{FFFD}\u{FFFD}b"),
+            ("<math>\0\0 \0", "math", "\u{FFFD}\u{FFFD} \u{FFFD}"),
+            ("<svg><g>a\0\0b</g>", "g", "a\u{FFFD}\u{FFFD}b"),
+        ];
+        for (input, tag, expected) in cases {
+            let doc = crate::html_compile::<Config>(input);
+            let id = find(&doc, NodeId::root(), tag).unwrap();
+            assert_eq!(text_of(&doc, id), expected, "input {input:?}");
+        }
+    }
+
+    /// Text in an integration point is HTML content, where the in body rules drop NULs.
+    #[test]
+    fn nulls_in_integration_points_are_dropped() {
+        let cases = [
+            ("<math><mi>a\0\0b", "mi", "ab"),
+            ("<math><mi>\0", "mi", ""),
+            ("<svg><foreignObject>a\0\0b", "foreignObject", "ab"),
+            ("<svg><desc>a\0\0\0b", "desc", "ab"),
+        ];
+        for (input, tag, expected) in cases {
+            let doc = crate::html_compile::<Config>(input);
+            let id = find(&doc, NodeId::root(), tag).unwrap();
+            assert_eq!(text_of(&doc, id), expected, "input {input:?}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod text_location_tests {
+    use crate::document::document_impl::DocumentImpl;
+    use crate::parser::Html5Parser;
+    use gosub_css3::system::Css3System;
+    use gosub_interface::config::ModuleConfiguration;
+    use gosub_interface::document::Document;
+    use gosub_shared::byte_stream::{ByteStream, Encoding};
+    use gosub_shared::node::NodeId;
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct Config;
+    impl ModuleConfiguration for Config {
+        type CssSystem = Css3System;
+        type Document = DocumentImpl<Self>;
+        type HtmlParser = Html5Parser<'static, Self>;
+    }
+
+    /// First node, depth first, whose text or comment value is `value`.
+    fn find_value(doc: &DocumentImpl<Config>, id: NodeId, value: &str) -> Option<NodeId> {
+        if doc.text_value(id) == Some(value) || doc.comment_value(id) == Some(value) {
+            return Some(id);
+        }
+        doc.children(id).iter().find_map(|&c| find_value(doc, c, value))
+    }
+
+    /// Line and column of the text or comment node holding `value`.
+    fn location_of(html: &str, value: &str) -> (usize, usize) {
+        let doc = crate::html_compile::<Config>(html);
+        let id = find_value(&doc, NodeId::root(), value).unwrap();
+        let location = doc.node_by_id(id).unwrap().location();
+        (location.line, location.column)
+    }
+
+    /// Line and column of every parse error with this message.
+    fn errors_at(html: &str, message: &str) -> Vec<(usize, usize)> {
+        let mut stream = ByteStream::from_str(html, Encoding::UTF8);
+        let mut doc = crate::document::builder::DocumentBuilderImpl::new_document::<Config>(None);
+        let errors = Html5Parser::<Config>::parse_document(&mut stream, &mut doc, None).unwrap();
+        errors
+            .iter()
+            .filter(|e| e.message == message)
+            .map(|e| (e.location.line, e.location.column))
+            .collect()
+    }
+
+    #[test]
+    fn text_in_body() {
+        assert_eq!(location_of("<p>hello<b>x", "hello"), (1, 4));
+        assert_eq!(location_of("<p>hello<b>x", "x"), (1, 12));
+        assert_eq!(location_of("<p>a\n  bc</p>", "a\n  bc"), (1, 4));
+    }
+
+    #[test]
+    fn text_in_rcdata_rawtext_script_and_plaintext() {
+        assert_eq!(location_of("<title>ab</title>", "ab"), (1, 8));
+        assert_eq!(location_of("<textarea>ab</textarea>", "ab"), (1, 11));
+        assert_eq!(location_of("<style>x</style>", "x"), (1, 8));
+        assert_eq!(location_of("<script>x</script>", "x"), (1, 9));
+        assert_eq!(location_of("<xmp>x</xmp>", "x"), (1, 6));
+        assert_eq!(location_of("<plaintext>x</p>", "x</p>"), (1, 12));
+    }
+
+    #[test]
+    fn text_in_cdata_section() {
+        assert_eq!(location_of("<svg><![CDATA[x]]></svg>", "x"), (1, 15));
+    }
+
+    #[test]
+    fn leading_newline_dropped_after_pre_and_textarea() {
+        assert_eq!(location_of("<pre>\nfoo</pre>", "foo"), (2, 1));
+        assert_eq!(location_of("<pre>foo</pre>", "foo"), (1, 6));
+        assert_eq!(location_of("<textarea>\nab</textarea>", "ab"), (2, 1));
+    }
+
+    #[test]
+    fn split_text_pieces_start_at_their_first_character() {
+        // The whitespace before "x" is dropped, "x" itself goes into the body.
+        assert_eq!(location_of("<html>  x", "x"), (1, 9));
+        assert_eq!(location_of("<html>\n\n  x", "x"), (3, 3));
+        assert_eq!(location_of("<html> \u{e9}\u{e9} x", "\u{e9}\u{e9} x"), (1, 8));
+    }
+
+    #[test]
+    fn null_in_body_text() {
+        assert_eq!(location_of("<body>a\0b", "ab"), (1, 7));
+        assert_eq!(
+            errors_at("<body>a\0b", "null character not allowed in in body insertion mode"),
+            vec![(1, 8)]
+        );
+        assert_eq!(
+            errors_at("<body>a\n\0b", "null character not allowed in in body insertion mode"),
+            vec![(2, 1)]
+        );
+    }
+
+    #[test]
+    fn null_in_foreign_content() {
+        assert_eq!(location_of("<svg>\0</svg>", "\u{fffd}"), (1, 6));
+    }
+
+    #[test]
+    fn pending_table_text() {
+        // Fostered out of the table
+        assert_eq!(location_of("<table>  x</table>", "  x"), (1, 8));
+        // Whitespace only, stays in the table
+        assert_eq!(location_of("<table>\n  <tr>", "\n  "), (1, 8));
+    }
+
+    #[test]
+    fn comment_nodes() {
+        assert_eq!(location_of("<p>a<!--c-->", "c"), (1, 5));
+        assert_eq!(location_of("<p>a<!c>", "c"), (1, 5));
+        assert_eq!(location_of("<p>a\n<?c>", "?c"), (2, 1));
     }
 }

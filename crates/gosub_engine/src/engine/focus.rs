@@ -91,10 +91,26 @@ pub fn click_target<C: RenderConfiguration>(doc: &EngineDocument<C>, leaf: NodeI
     }
 }
 
+/// Labelable elements (HTML 4.10.2): the only ones a label's `for` can point at.
+fn is_labelable<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> bool {
+    if doc.namespace(id) != Some(gosub_html5::node::HTML_NAMESPACE) {
+        return false;
+    }
+    match doc.tag_name(id) {
+        Some("input") => !doc
+            .attribute(id, "type")
+            .is_some_and(|t| t.eq_ignore_ascii_case("hidden")),
+        Some("button" | "meter" | "output" | "progress" | "select" | "textarea") => true,
+        _ => false,
+    }
+}
+
 /// The control a `<label>` activates: its `for` target, else the first descendant control.
+/// A `for` that matches nothing in the label's tree labels nothing (HTML 4.10.4).
 fn label_control<C: RenderConfiguration>(doc: &EngineDocument<C>, label: NodeId) -> Option<NodeId> {
-    if let Some(target) = doc.attribute(label, "for").and_then(|f| doc.node_by_named_id(f)) {
-        return (focusability(doc, target) != Focusability::No).then_some(target);
+    if let Some(f) = doc.attribute(label, "for") {
+        let target = doc.node_by_named_id_in(doc.tree_root(label), f)?;
+        return (is_labelable(doc, target) && focusability(doc, target) != Focusability::No).then_some(target);
     }
     let mut stack: Vec<NodeId> = doc.children(label).iter().rev().copied().collect();
     while let Some(id) = stack.pop() {
@@ -246,4 +262,65 @@ pub fn tab_order<C: RenderConfiguration>(doc: &EngineDocument<C>, rendered: Opti
     }
     positive.sort_by_key(|&(n, seq, _)| (n, seq));
     positive.into_iter().map(|(_, _, id)| id).chain(natural).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `for` resolves in the label's own tree: inside a shadow tree that is the shadow root.
+    #[test]
+    fn a_label_in_a_shadow_tree_finds_its_control() {
+        let doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>(
+            r#"<input id="c"><div id="host"><template shadowrootmode="open"><label for="c">L</label><input id="c"></template></div>"#,
+        );
+        let shadow = doc.shadow_root(doc.node_by_named_id("host").unwrap()).unwrap();
+        let label = doc.children(shadow)[0];
+        let inner = doc.node_by_named_id_in(shadow, "c").unwrap();
+        assert_ne!(Some(inner), doc.node_by_named_id("c"));
+        assert_eq!(click_target(&doc, label), Some(inner));
+    }
+
+    /// A label in the document does not reach into a shadow tree.
+    #[test]
+    fn a_label_does_not_find_a_control_in_a_shadow_tree() {
+        let doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>(
+            r#"<label id="l" for="c">L</label><div><template shadowrootmode="open"><input id="c"></template></div>"#,
+        );
+        let label = doc.node_by_named_id("l").unwrap();
+        assert_eq!(click_target(&doc, label), None);
+    }
+
+    /// `for` pointing at a focusable element that is not labelable labels nothing.
+    #[test]
+    fn a_label_for_a_non_labelable_element_activates_nothing() {
+        let doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>(
+            r#"<label id="l" for="d">L</label><div id="d" tabindex="0"></div>"#,
+        );
+        let label = doc.node_by_named_id("l").unwrap();
+        assert_eq!(click_target(&doc, label), None);
+    }
+
+    /// A foreign element with a labelable name is not labelable.
+    #[test]
+    fn a_label_for_an_svg_element_activates_nothing() {
+        let doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>(
+            r#"<label id="l" for="o">L</label><svg><output id="o" tabindex="0"></output></svg>"#,
+        );
+        let label = doc.node_by_named_id("l").unwrap();
+        let output = doc.node_by_named_id("o").unwrap();
+        assert_ne!(doc.namespace(output), Some(gosub_html5::node::HTML_NAMESPACE));
+        assert_eq!(click_target(&doc, label), None);
+    }
+
+    /// A `for` that misses does not fall back to a control inside the label.
+    #[test]
+    fn a_label_whose_for_misses_activates_nothing() {
+        let doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>(
+            r#"<input id="c"><div id="host"><template shadowrootmode="open"><label for="c">L <input type="checkbox"></label></template></div>"#,
+        );
+        let shadow = doc.shadow_root(doc.node_by_named_id("host").unwrap()).unwrap();
+        let label = doc.children(shadow)[0];
+        assert_eq!(click_target(&doc, label), None);
+    }
 }

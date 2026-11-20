@@ -214,8 +214,8 @@ impl Painter {
         let visible = doc.computed_style(dom_node_id).is_visible();
 
         // An ancestor's `overflow`, and its own or an ancestor's `clip`/`clip-path`, clip the element's
-        // own paint; the debug overlays stay whole.
-        let clip = self.layer_list.clip(element_id);
+        // own paint; the debug overlays stay whole. The clip snaps as the boxes it cuts do.
+        let clip = self.layer_list.clip(element_id).map(snap_to_pixels);
         let clipped = |own: Vec<PaintCommand>| match clip {
             None => own,
             Some(_) if own.is_empty() => own,
@@ -445,7 +445,7 @@ impl Painter {
         layout_element: &LayoutElementNode,
         dom_node_id: NodeId,
     ) -> Vec<PaintCommand> {
-        match self.background_media_at(bg, layout_element.box_model.border_box, dom_node_id) {
+        match self.background_media_at(bg, snap_to_pixels(layout_element.box_model.border_box), dom_node_id) {
             // Collapsed cells get their border from the TableBorderOverlay.
             PaintCommand::Rectangle(r) if layout_element.collapsed_borders.is_none() => {
                 vec![PaintCommand::rectangle(
@@ -479,15 +479,16 @@ impl Painter {
     /// front. A colour fills the cell; images are laid out over the part's box and show only inside
     /// the cell (css-tables-3 §5.3.2).
     fn table_layer_commands(&self, cell: &LayoutElementNode) -> Vec<PaintCommand> {
-        let cell_box = cell.box_model.border_box;
+        let unsnapped = cell.box_model.border_box;
+        let cell_box = snap_to_pixels(unsnapped);
         let mut commands = Vec::new();
         for layer in &cell.table_layers {
-            let area = Rect::new(
-                cell_box.x + layer.rect.x,
-                cell_box.y + layer.rect.y,
+            let area = snap_to_pixels(Rect::new(
+                unsnapped.x + layer.rect.x,
+                unsnapped.y + layer.rect.y,
                 layer.rect.width,
                 layer.rect.height,
-            );
+            ));
             let (brush, mut overlays) =
                 self.background_fill(layer.dom_node_id, (area.width as f32, area.height as f32));
             // A lone gradient comes back as the base brush, in place of the colour; here the
@@ -629,7 +630,7 @@ impl Painter {
                 }
             }
             ElementContext::Svg(svg_ctx) => {
-                let border_box = layout_element.box_model.border_box;
+                let border_box = snap_to_pixels(layout_element.box_model.border_box);
                 commands.extend(inset_shadows.take());
                 commands.push(PaintCommand::svg(svg_ctx.media_id, Rectangle::new(border_box)));
                 // The SVG painter doesn't draw the element's CSS border/radius, so emit it as a
@@ -641,7 +642,7 @@ impl Painter {
                 }
             }
             ElementContext::Image(image_ctx) => {
-                let border_box = layout_element.box_model.border_box;
+                let border_box = snap_to_pixels(layout_element.box_model.border_box);
                 let blend = self.mix_blend_mode(dom_node_id);
 
                 // CSS paints background-color behind the (possibly transparent) replaced content,
@@ -668,7 +669,7 @@ impl Painter {
                 if !image_ctx.placeholder && fit != ObjectFit::Fill {
                     let natural = (image_ctx.dimension.width as f32, image_ctx.dimension.height as f32);
                     let position = style.box_group.object_position;
-                    let content_box = layout_element.box_model.content_box;
+                    let content_box = snap_to_pixels(layout_element.box_model.content_box);
                     if let Some(tiling) = object_fit_placement(natural, content_box, fit, position) {
                         // The rectangle is the whole content box, rounded by its inner radii; the
                         // image is one non-repeating tile in it, and backends paint a tile only
@@ -745,7 +746,7 @@ impl Painter {
             ElementContext::None if hidden_cell => {}
             ElementContext::None => {
                 commands.extend(self.table_layer_commands(layout_element));
-                let border_box = layout_element.box_model.border_box;
+                let border_box = snap_to_pixels(layout_element.box_model.border_box);
                 let (brush, overlay_layers) =
                     self.background_fill(dom_node_id, (border_box.width as f32, border_box.height as f32));
                 let r = Rectangle::new(border_box)
@@ -829,7 +830,7 @@ impl Painter {
             return (None, None);
         }
 
-        let bb = layout_element.box_model.border_box;
+        let bb = snap_to_pixels(layout_element.box_model.border_box);
         let border = &style.border;
         let radii = used::border_radii(border, bb.width, bb.height);
         let border_box = RoundedRect::new(bb, radii.map(|(x, y)| Radius::new_double(x, y)));
@@ -901,7 +902,7 @@ impl Painter {
         // A negative offset pulls the ring inside the border box.
         let grow = offset + width;
 
-        let bb = layout_element.box_model.border_box;
+        let bb = snap_to_pixels(layout_element.box_model.border_box);
         let ring = Rect::new(bb.x - grow, bb.y - grow, bb.width + grow * 2.0, bb.height + grow * 2.0);
         if ring.width <= 0.0 || ring.height <= 0.0 {
             return None;
@@ -1062,7 +1063,7 @@ impl Painter {
         layout_element: &LayoutElementNode,
         dom_node_id: NodeId,
     ) -> Vec<PaintCommand> {
-        let border_box = layout_element.box_model.border_box;
+        let border_box = snap_to_pixels(layout_element.box_model.border_box);
         let content_box = layout_element.box_model.content_box;
         let blend = self.mix_blend_mode(dom_node_id);
         let mut commands = Vec::new();
@@ -1953,6 +1954,32 @@ mod collapsed_snap_tests {
         assert_eq!(snap_collapsed(10.0, 1.4, 1.0), 11.0);
         assert_eq!(snap_collapsed(10.0, -1.4, 2.0), 8.5);
         assert_eq!(snap_collapsed(10.0, 1.4, 2.0), 11.0);
+    }
+}
+
+/// `r` with its edges on the device pixel grid, as browsers paint a box: two boxes that share a
+/// fractional edge then meet on one pixel, and what is behind them does not show through.
+fn snap_to_pixels(r: Rect) -> Rect {
+    let dpr = f64::from(DEVICE_PIXEL_RATIO.load(Ordering::Relaxed).max(1));
+    let snap = |v: f64| (v * dpr).round() / dpr;
+    let (x, y) = (snap(r.x), snap(r.y));
+    Rect::new(x, y, snap(r.x + r.width) - x, snap(r.y + r.height) - y)
+}
+
+#[cfg(test)]
+mod snap_tests {
+    use super::snap_to_pixels;
+    use crate::common::geo::Rect;
+
+    /// Each edge rounds on its own, so boxes that share an edge still share it.
+    #[test]
+    fn edges_round_to_whole_pixels() {
+        let a = snap_to_pixels(Rect::new(8.0, 0.0, 3.6, 20.0));
+        let b = snap_to_pixels(Rect::new(11.6, 0.0, 3.6, 20.0));
+        assert_eq!((a.x, a.width), (8.0, 4.0));
+        assert_eq!((b.x, b.width), (12.0, 3.0));
+        assert_eq!(snap_to_pixels(Rect::new(8.0, 27.0, 100.2, 100.0)).width, 100.0);
+        assert_eq!(snap_to_pixels(Rect::new(8.0, 27.0, 100.8, 100.0)).width, 101.0);
     }
 }
 

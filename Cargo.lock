@@ -932,13 +932,13 @@ dependencies = [
 
 [[package]]
 name = "brotli"
-version = "9.0.0"
+version = "9.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8b851b75c23ca7873623d612fe49bd1989aeb03d08fb9432187eb253d3d4c6b"
+checksum = "627b7cfb0578f0eafce087a90fcd40add1231900b69e4d4de2d456260a4f5d81"
 dependencies = [
  "alloc-no-stdlib 3.0.0",
  "alloc-stdlib 0.3.0",
- "brotli-decompressor 6.0.1",
+ "brotli-decompressor 6.3.1",
 ]
 
 [[package]]
@@ -953,9 +953,9 @@ dependencies = [
 
 [[package]]
 name = "brotli-decompressor"
-version = "6.0.1"
+version = "6.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "941cd9bd4ddab83cb46fa5a2d428f1c857b24ac78cb876cf7beb710840934bd7"
+checksum = "75c74c9c51b9140663e196b5fb88bc94c334d7a497c8311cb759d8557874747f"
 dependencies = [
  "alloc-no-stdlib 3.0.0",
  "alloc-stdlib 0.3.0",
@@ -1013,9 +1013,9 @@ checksum = "8f1fe948ff07f4bd06c30984e69f5b4899c516a3ef74f34df92a2df2ab535495"
 
 [[package]]
 name = "bytes"
-version = "1.12.0"
+version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ae3f5d315924270530207e2a68396c3cc547f6dca3fbdca317cfb1a51edb593"
+checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "cairo-rs"
@@ -2268,8 +2268,6 @@ dependencies = [
  "simple_logger",
  "tokio",
  "tracing",
- "tracing-log",
- "tracing-subscriber",
  "url",
  "uuid",
  "vello",
@@ -2415,7 +2413,6 @@ dependencies = [
  "raw-window-handle",
  "simple_logger",
  "skia-safe",
- "softbuffer",
  "tokio",
  "url",
  "uuid",
@@ -3291,10 +3288,8 @@ dependencies = [
  "gosub_config",
  "gosub_css3",
  "gosub_engine",
- "gosub_fontmanager",
  "gosub_html5",
  "gosub_interface",
- "gosub_jsapi",
  "gosub_render_pipeline",
  "gosub_renderer_vello",
  "gosub_shared",
@@ -3382,13 +3377,14 @@ dependencies = [
  "async-trait",
  "base64 0.23.1",
  "bitflags 2.13.2",
- "brotli 9.0.0",
- "brotli-decompressor 6.0.1",
+ "brotli 9.1.1",
+ "brotli-decompressor 6.3.1",
  "bytes",
  "chrono",
  "cow-utils",
  "dashmap 7.0.0-rc2",
  "encoding_rs",
+ "flate2",
  "futures",
  "futures-util",
  "gosub-sonar",
@@ -3464,6 +3460,7 @@ dependencies = [
  "gosub_css3",
  "gosub_interface",
  "gosub_shared",
+ "indexmap",
  "lazy_static",
  "log",
  "nom 8.0.0",
@@ -4670,9 +4667,9 @@ dependencies = [
 
 [[package]]
 name = "libz-sys"
-version = "1.1.31"
+version = "1.1.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff20308ecabd635a2dc1dd5834a86c462cca20efba1d5d3ddab1f8aea3455cb2"
+checksum = "fee3f59f4321dab0c78d828942e7aa09d0bd8ad6e78a501977e6bf3d02938045"
 dependencies = [
  "cc",
  "libc",
@@ -4791,9 +4788,9 @@ dependencies = [
 
 [[package]]
 name = "mime"
-version = "0.3.17"
+version = "0.3.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
+checksum = "d5848f5a9e8117cf94f2f90faac24a87ff81600ff8628c1e3deaab572e76bfa1"
 
 [[package]]
 name = "mimetype-detector"
@@ -9604,9 +9601,9 @@ dependencies = [
 
 [[package]]
 name = "zeroize"
-version = "1.8.2"
+version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b97154e67e32c85465826e8bcc1c59429aaaf107c1e4a9e53c8d8ccd5eff88d0"
+checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
 
 [[package]]
 name = "zerotrie"

@@ -563,13 +563,13 @@ const MAX_WEB_FONT_SIZE: u64 = 30 * 1024 * 1024;
 
 /// Unwrap a downloaded web-font payload into raw SFNT bytes the font backends can decode.
 ///
-/// WOFF2 (magic `wOF2`) is a Brotli-compressed wrapper around an OpenType/TrueType font,
-/// with the `glyf`/`loca` tables stored in a transformed form. Skia and fontconfig don't
-/// decode it (e.g. Google Fonts serves WOFF2 to modern UAs like ours), so we decompress it
-/// to a flat SFNT here. Bare SFNT (`OTTO`/`true`/`ttcf`/`0x00010000`) and anything we don't
-/// recognise are returned unchanged - including WOFF1, which the backends already handle.
-/// On a decode error we log and return the original bytes so the subsequent `register_font`
-/// surfaces a single, consistent failure path.
+/// WOFF (magic `wOFF`) wraps an OpenType/TrueType font in per-table zlib, and WOFF2 (magic
+/// `wOF2`) in one Brotli stream with the `glyf`/`loca` tables transformed. Pango's HarfBuzz and
+/// the fontdb/skrifa backends decode neither, so both are unpacked to a flat SFNT here. Bare
+/// SFNT (`OTTO`/`true`/`ttcf`/`0x00010000`) and anything we don't recognise are returned
+/// unchanged. On a WOFF2 decode error we log and return the original bytes so the subsequent
+/// `register_font` surfaces a single, consistent failure path; a WOFF that does not unpack is
+/// dropped, as its table inflate is where a bomb would show.
 ///
 /// A WOFF or WOFF2 font that unpacks past [`MAX_WEB_FONT_SIZE`] is a decompression bomb, not
 /// a font: it returns `None` and the face is skipped, so neither we nor a backend inflates it.
@@ -581,7 +581,13 @@ fn decode_web_font(bytes: Vec<u8>, font_url: &Url) -> Option<Vec<u8>> {
             log::warn!("Rejected WOFF web font from {font_url}: {e}");
             return None;
         }
-        return Some(bytes);
+        return match woff_to_sfnt(&bytes) {
+            Ok(sfnt) => Some(sfnt),
+            Err(e) => {
+                log::warn!("Failed to decode WOFF web font from {font_url}: {e}");
+                None
+            }
+        };
     }
     if bytes.len() < 4 || &bytes[0..4] != WOFF2_MAGIC {
         return Some(bytes);
@@ -620,9 +626,8 @@ fn check_sfnt_size(len: usize, cap: u64) -> Result<(), String> {
     Ok(())
 }
 
-/// Check that a WOFF1 font unpacks to at most `cap` bytes. The backends (FreeType) size each
-/// table's zlib inflate by its `origLength` and the whole font by `totalSfntSize`, so bounding
-/// those header fields bounds what they allocate and inflate.
+/// Check that a WOFF1 font unpacks to at most `cap` bytes. [`woff_to_sfnt`] inflates each table
+/// to no more than its `origLength`, so bounding those header fields bounds what it allocates.
 fn check_woff_size(bytes: &[u8], cap: u64) -> Result<(), String> {
     const HEADER_LEN: usize = 44;
     const ENTRY_LEN: usize = 20;
@@ -717,14 +722,81 @@ fn woff2_to_sfnt(bytes: &[u8]) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("reconstruct: {e:?}"))?
         .into_tables();
 
-    Ok(assemble_sfnt(sfnt_version, tables))
+    assemble_sfnt(sfnt_version, tables)
+}
+
+/// Unpack a WOFF1 font to a flat SFNT. Per WOFF 1.0 §5 a table is zlib-compressed when
+/// `compLength < origLength`, stored when they are equal, and the font is invalid otherwise,
+/// as it is when a table does not inflate to exactly `origLength`. The inflate stops one byte
+/// past `origLength`, so a table cannot unpack to more than its header says.
+fn woff_to_sfnt(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    use std::io::Read as _;
+
+    const HEADER_LEN: usize = 44;
+    const ENTRY_LEN: usize = 20;
+    let u32_at = |at: usize| {
+        bytes
+            .get(at..at + 4)
+            .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+            .ok_or("truncated header")
+    };
+
+    let flavor = u32_at(4)?;
+    let num_tables = bytes
+        .get(12..14)
+        .map(|b| u16::from_be_bytes([b[0], b[1]]))
+        .ok_or("truncated header")?;
+    let mut tables = std::collections::HashMap::new();
+    for i in 0..usize::from(num_tables) {
+        let entry = HEADER_LEN + i * ENTRY_LEN;
+        let tag = u32_at(entry)?;
+        let offset = u32_at(entry + 4)? as usize;
+        let comp_length = u32_at(entry + 8)? as usize;
+        let orig_length = u32_at(entry + 12)? as usize;
+        let data = offset
+            .checked_add(comp_length)
+            .and_then(|end| bytes.get(offset..end))
+            .ok_or_else(|| format!("table {tag:#010x} runs past the end of the font"))?;
+        let table = match comp_length.cmp(&orig_length) {
+            std::cmp::Ordering::Equal => data.to_vec(),
+            std::cmp::Ordering::Less => {
+                let mut table = Vec::with_capacity(orig_length);
+                flate2::read::ZlibDecoder::new(data)
+                    .take(orig_length as u64 + 1)
+                    .read_to_end(&mut table)
+                    .map_err(|e| format!("table {tag:#010x}: {e}"))?;
+                if table.len() != orig_length {
+                    return Err(format!(
+                        "table {tag:#010x} inflates to {} bytes, not {orig_length}",
+                        table.len()
+                    ));
+                }
+                table
+            }
+            std::cmp::Ordering::Greater => {
+                return Err(format!("table {tag:#010x} is longer compressed than unpacked"));
+            }
+        };
+        tables.insert(tag, table.into_boxed_slice());
+    }
+    assemble_sfnt(flavor, tables)
 }
 
 /// Pack a set of font tables into an SFNT byte buffer per the OpenType spec: a 12-byte offset
 /// table, a 16-byte directory entry per table (sorted by tag), then each table's data padded to
 /// a 4-byte boundary. Per-table checksums are computed; the `head` table's `checkSumAdjustment`
 /// is left as-is (font backends parse without validating it).
-fn assemble_sfnt(sfnt_version: u32, tables: std::collections::HashMap<u32, Box<[u8]>>) -> Vec<u8> {
+///
+/// `searchRange` is a `u16` holding 16 x the largest power of two <= the table count, so a font
+/// of 4096 tables or more cannot be written; no real font comes near that.
+fn assemble_sfnt(sfnt_version: u32, tables: std::collections::HashMap<u32, Box<[u8]>>) -> Result<Vec<u8>, String> {
+    const MAX_TABLES: usize = 4095;
+    if tables.len() > MAX_TABLES {
+        return Err(format!(
+            "{} tables, over the {MAX_TABLES} an SFNT can hold",
+            tables.len()
+        ));
+    }
     let mut entries: Vec<(u32, Box<[u8]>)> = tables.into_iter().collect();
     entries.sort_by_key(|(tag, _)| *tag);
     let num_tables = entries.len() as u16;
@@ -760,7 +832,7 @@ fn assemble_sfnt(sfnt_version: u32, tables: std::collections::HashMap<u32, Box<[
     out.extend_from_slice(&range_shift.to_be_bytes());
     out.extend_from_slice(&directory);
     out.extend_from_slice(&data);
-    out
+    Ok(out)
 }
 
 /// SFNT table checksum: the sum of the table's contents read as big-endian `u32`s, with the
@@ -859,22 +931,43 @@ mod tests {
         font
     }
 
-    /// A one-table WOFF1 font header and directory; the table data itself is never read.
-    fn woff_font(total_sfnt_size: u32, orig_length: u32) -> Vec<u8> {
+    /// A WOFF1 font of `tables`: each one's tag, the bytes stored for it and its `origLength`.
+    fn woff(total_sfnt_size: u32, tables: &[(&[u8; 4], Vec<u8>, u32)]) -> Vec<u8> {
+        let mut directory = Vec::new();
+        let mut data = Vec::new();
+        let mut offset = 44 + 20 * tables.len();
+        for (tag, stored, orig_length) in tables {
+            directory.extend_from_slice(*tag);
+            directory.extend_from_slice(&(offset as u32).to_be_bytes());
+            directory.extend_from_slice(&(stored.len() as u32).to_be_bytes()); // compLength
+            directory.extend_from_slice(&orig_length.to_be_bytes());
+            directory.extend_from_slice(&0u32.to_be_bytes()); // origChecksum
+            data.extend_from_slice(stored);
+            offset += stored.len();
+        }
         let mut font = Vec::new();
         font.extend_from_slice(b"wOFF");
         font.extend_from_slice(&0x0001_0000u32.to_be_bytes());
-        font.extend_from_slice(&64u32.to_be_bytes()); // length
-        font.extend_from_slice(&1u16.to_be_bytes()); // numTables
+        font.extend_from_slice(&(offset as u32).to_be_bytes()); // length
+        font.extend_from_slice(&(tables.len() as u16).to_be_bytes()); // numTables
         font.extend_from_slice(&0u16.to_be_bytes()); // reserved
         font.extend_from_slice(&total_sfnt_size.to_be_bytes());
         font.extend_from_slice(&[0; 24]); // versions, metadata and private blocks
-        font.extend_from_slice(b"cmap");
-        font.extend_from_slice(&64u32.to_be_bytes()); // offset
-        font.extend_from_slice(&8u32.to_be_bytes()); // compLength
-        font.extend_from_slice(&orig_length.to_be_bytes());
-        font.extend_from_slice(&0u32.to_be_bytes()); // origChecksum
+        font.extend_from_slice(&directory);
+        font.extend_from_slice(&data);
         font
+    }
+
+    /// A one-table WOFF1 font: 8 stored bytes claiming to unpack to `orig_length`.
+    fn woff_font(total_sfnt_size: u32, orig_length: u32) -> Vec<u8> {
+        woff(total_sfnt_size, &[(b"cmap", vec![0; 8], orig_length)])
+    }
+
+    fn zlib(data: &[u8]) -> Vec<u8> {
+        use std::io::Write as _;
+        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
     }
 
     /// A WOFF2 whose header admits to unpacking past the cap is refused before any inflate,
@@ -901,8 +994,7 @@ mod tests {
         assert!(check_woff2_size(&font, 64 * 1024).is_ok());
     }
 
-    /// WOFF1 is passed through to the backends, so only its header bounds what they inflate:
-    /// an over-cap `totalSfntSize` or table `origLength` drops the face.
+    /// An over-cap `totalSfntSize` or table `origLength` drops a WOFF1 face before any inflate.
     #[test]
     fn woff_over_cap_header_is_rejected() {
         let cap = MAX_WEB_FONT_SIZE as u32;
@@ -913,8 +1005,66 @@ mod tests {
 
         let url = url::Url::parse("https://example.test/font.woff").unwrap();
         assert!(decode_web_font(woff_font(cap + 1, 16), &url).is_none());
-        let ok = woff_font(64, 16);
-        assert_eq!(decode_web_font(ok.clone(), &url), Some(ok));
+    }
+
+    /// A WOFF1 font comes out as the SFNT it wraps, stored and compressed tables alike, since
+    /// not every font system reads WOFF itself.
+    #[test]
+    fn woff_unpacks_to_sfnt() {
+        let cmap = b"stored table".to_vec();
+        let glyf = vec![7u8; 300];
+        let font = woff(
+            512,
+            &[
+                (b"cmap", cmap.clone(), cmap.len() as u32),
+                (b"glyf", zlib(&glyf), glyf.len() as u32),
+            ],
+        );
+        let url = url::Url::parse("https://example.test/font.woff").unwrap();
+        let sfnt = decode_web_font(font, &url).expect("a valid WOFF");
+
+        use allsorts::binary::read::ReadScope;
+        use allsorts::font_data::FontData;
+        use allsorts::tables::FontTableProvider;
+        let font = ReadScope::new(&sfnt).read::<FontData<'_>>().expect("parse SFNT");
+        assert!(matches!(font, FontData::OpenType(_)), "not a plain SFNT");
+        let provider = font.table_provider(0).expect("table provider");
+        assert_eq!(provider.read_table_data(allsorts::tag::CMAP).unwrap().as_ref(), cmap);
+        assert_eq!(provider.read_table_data(allsorts::tag::GLYF).unwrap().as_ref(), glyf);
+    }
+
+    /// A table that inflates past the `origLength` its header claims is a bomb the header check
+    /// cannot see: the inflate stops just past it and the face is dropped. So is a table that
+    /// claims to be longer compressed than unpacked.
+    #[test]
+    fn woff_tables_that_break_their_lengths_are_rejected() {
+        let bomb = woff(1024, &[(b"cmap", zlib(&[0; 64 * 1024]), 1024)]);
+        assert!(check_woff_size(&bomb, MAX_WEB_FONT_SIZE).is_ok());
+        let err = woff_to_sfnt(&bomb).unwrap_err();
+        assert!(err.contains("inflates to 1025 bytes"), "{err}");
+
+        let url = url::Url::parse("https://example.test/font.woff").unwrap();
+        assert!(decode_web_font(bomb, &url).is_none());
+        let err = woff_to_sfnt(&woff_font(64, 4)).unwrap_err();
+        assert!(err.contains("longer compressed"), "{err}");
+    }
+
+    /// A font of 4096 tables passes every size check but cannot be written as an SFNT: its
+    /// `searchRange` does not fit a `u16`. It is dropped rather than overflowing the header.
+    #[test]
+    fn woff_with_too_many_tables_is_rejected() {
+        let tags: Vec<[u8; 4]> = (0..4096u32).map(u32::to_be_bytes).collect();
+        let tables: Vec<_> = tags.iter().map(|tag| (tag, vec![0; 4], 4)).collect();
+        let font = woff(4096 * 4, &tables);
+        assert!(check_woff_size(&font, MAX_WEB_FONT_SIZE).is_ok());
+
+        let err = woff_to_sfnt(&font).unwrap_err();
+        assert!(err.contains("4096 tables"), "{err}");
+        let url = url::Url::parse("https://example.test/font.woff").unwrap();
+        assert!(decode_web_font(font, &url).is_none());
+
+        let tables = &tables[..4095];
+        assert!(woff_to_sfnt(&woff(4095 * 4, tables)).is_ok());
     }
 
     /// The SFNT rebuilt from a WOFF2 font is held to the cap too, since rebuilding can grow it

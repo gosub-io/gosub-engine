@@ -1344,10 +1344,11 @@ fn resolve_font(map: &CssProperties, style: &mut ComputedStyle, parent: Option<&
     let parent_font_size = parent.map_or(16.0, |parent| parent.inherited.font_size);
 
     let Some(declared) = value_or_inherited(map, longhand(LonghandId::FontSize)) else {
-        // Nothing anywhere up the chain declared a size, so a bare generic `monospace` family
-        // gets the smaller default browsers give it.
-        if !style.inherited.font_size_declared_in_chain && family_is_monospace(&style.inherited.font_family) {
-            style.inherited_mut().font_size = MONOSPACE_DEFAULT_FONT_SIZE;
+        // Nothing anywhere up the chain declared a size, so the default is the family's: a bare
+        // generic `monospace` gets the smaller one browsers give it, anything else 16px.
+        if !style.inherited.font_size_declared_in_chain {
+            let monospace = family_is_monospace(&style.inherited.font_family);
+            style.inherited_mut().font_size = undeclared_font_size(monospace);
         }
         return;
     };
@@ -1390,6 +1391,20 @@ fn font_family(value: &CssValue) -> Option<Arc<str>> {
         need_space = true;
     }
     (!names.is_empty()).then(|| Arc::from(names.as_str()))
+}
+
+/// Whether a computed `font-family` value names the bare generic `monospace` first.
+pub(crate) fn names_monospace_first(value: &CssValue) -> bool {
+    font_family(value).is_some_and(|family| family_is_monospace(&family))
+}
+
+/// The `font-size` of an element when nothing up its chain declared one.
+pub(crate) fn undeclared_font_size(monospace: bool) -> f32 {
+    if monospace {
+        MONOSPACE_DEFAULT_FONT_SIZE
+    } else {
+        16.0
+    }
 }
 
 /// Whether the first family named is the bare generic `monospace`.

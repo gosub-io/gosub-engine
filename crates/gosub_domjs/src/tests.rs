@@ -65,6 +65,23 @@ fn mutations_land_in_the_document() {
 }
 
 #[test]
+fn append_child_that_would_cycle_throws() {
+    let value = eval(
+        "<div id=outer><p id=inner></p></div>",
+        "const outer = document.getElementById('outer');
+         const inner = document.getElementById('inner');
+         const tryAppend = (parent, child) => {
+             try { parent.appendChild(child); return 'appended'; } catch (e) { return e.message; }
+         };
+         [tryAppend(inner, outer), tryAppend(outer, outer), tryAppend(outer, inner)].join('|')",
+    );
+    assert_eq!(
+        value,
+        "appendChild would create a cycle|appendChild would create a cycle|appended"
+    );
+}
+
+#[test]
 fn node_wrappers_have_stable_identity() {
     let same = eval(
         "<div id=parent><span id=child></span></div>",
@@ -1014,4 +1031,15 @@ fn a_property_that_does_not_inherit_does_not_come_from_the_parent() {
          s.width + '|' + s.color;",
     );
     assert_eq!(value, "auto|rgb(1, 2, 3)");
+}
+
+#[test]
+fn a_removed_class_attribute_stops_class_selectors_matching() {
+    let value = eval(
+        "<div id=d class='x y'></div>",
+        "var d = document.getElementById('d'); \
+         d.removeAttribute('class'); \
+         String(document.querySelector('.x')) + ' ' + String(document.querySelector('.y'))",
+    );
+    assert_eq!(value, "null null");
 }

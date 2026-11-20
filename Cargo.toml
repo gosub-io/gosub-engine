@@ -127,7 +127,6 @@ vello = "0.8.0"
 wasm-bindgen = "0.2.114"
 wasm-bindgen-futures = "0.4.64"
 web-sys = "0.3.91"
-wgpu = "30.0.0"
 windows-sys = "0.59"
 winit = "0.30.12"
 [[example]]
@@ -237,8 +236,6 @@ parking_lot = { workspace = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gosub_v8 = { version = "0.1.1", path = "./crates/gosub_v8", features = [], registry = "gosub" }
 gosub_webexecutor = { version = "0.1.1", path = "./crates/gosub_webexecutor", features = [], registry = "gosub" }
-gosub_config = { version = "0.1.1", path = "./crates/gosub_config", features = [], registry = "gosub" }
-gosub_jsapi = { version = "0.1.1", path = "./crates/gosub_jsapi", features = [], registry = "gosub" }
 gosub-sonar = "0.17.0"
 futures = { workspace = true }
 cookie = { workspace = true, features = ["secure", "private"] }
@@ -247,8 +244,9 @@ derive_more = { workspace = true }
 simple_logger = { workspace = true }
 walkdir = "2.5.0"
 
-[target.'cfg(unix)'.dependencies]
-gosub_fontmanager = { version = "0.1.0", path = "./crates/gosub_fontmanager", registry = "gosub" }
+# Used by the config-store and multi-process examples.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+gosub_config = { version = "0.1.1", path = "./crates/gosub_config", features = [], registry = "gosub" }
 
 [patch.crates-io]
 vello = { git = "https://github.com/linebender/vello", rev = "1b24e77ba4e01d12f5db86a9b1b5f2cf828a6a33" }

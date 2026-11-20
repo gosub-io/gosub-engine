@@ -86,7 +86,9 @@ impl DocumentTaskQueue {
                     location,
                 } => {
                     let node_id = doc.create_element(name, Some(namespace), Attributes::new(), *location);
-                    doc.attach(node_id, *parent_id, *position);
+                    if let Err(err) = doc.attach(node_id, *parent_id, *position) {
+                        errors.push(format!("Node {node_id} not attached to {parent_id}: {err:?}"));
+                    }
                 }
                 DocumentTask::CreateText {
                     content,
@@ -94,7 +96,9 @@ impl DocumentTaskQueue {
                     location,
                 } => {
                     let node_id = doc.create_text(content, *location);
-                    doc.attach(node_id, *parent_id, None);
+                    if let Err(err) = doc.attach(node_id, *parent_id, None) {
+                        errors.push(format!("Node {node_id} not attached to {parent_id}: {err:?}"));
+                    }
                 }
                 DocumentTask::CreateComment {
                     content,
@@ -102,26 +106,27 @@ impl DocumentTaskQueue {
                     location,
                 } => {
                     let node_id = doc.create_comment(content, *location);
-                    doc.attach(node_id, *parent_id, None);
+                    if let Err(err) = doc.attach(node_id, *parent_id, None) {
+                        errors.push(format!("Node {node_id} not attached to {parent_id}: {err:?}"));
+                    }
                 }
                 DocumentTask::InsertAttribute {
                     key, value, element_id, ..
                 } => {
-                    if key == "id" && !is_valid_id_attribute_value(value) {
-                        errors.push(format!("ID attribute value '{value}' did not pass validation"));
-                        continue;
-                    }
-
-                    if let Some(existing_id) = doc.node_by_named_id(value) {
-                        if existing_id != *element_id {
-                            errors.push(format!("ID attribute value '{value}' already exists in DOM"));
-                            continue;
-                        }
-                    }
-
                     if doc.node_type(*element_id) != NodeType::ElementNode {
                         errors.push(format!("Node id {element_id} is not an element node"));
                         continue;
+                    }
+
+                    // An authoring error only: the attribute is still set, and a non-empty id
+                    // is still found by getElementById.
+                    if key == "id" && !is_valid_id_attribute_value(value) {
+                        errors.push(format!("ID attribute value '{value}' did not pass validation"));
+                    }
+
+                    // Duplicate ids are legal in the DOM: report it, but set the attribute.
+                    if key == "id" && !value.is_empty() && id_held_elsewhere::<C>(doc, *element_id, value) {
+                        errors.push(format!("ID attribute value '{value}' already exists in DOM"));
                     }
 
                     doc.set_attribute(*element_id, key, value);
@@ -132,6 +137,35 @@ impl DocumentTaskQueue {
 
         errors
     }
+}
+
+/// Whether another element in the same tree as `element_id` has `id` `value`. The tree is the
+/// document, a shadow tree, a detached subtree or the contents of a template. The document and
+/// shadow trees are answered from the id index; the other trees have none and are walked.
+fn id_held_elsewhere<C: HasDocument>(doc: &C::Document, element_id: NodeId, value: &str) -> bool {
+    // An ordinary template keeps its contents as its own children.
+    let holds_contents = |id: NodeId| doc.template_contents(id) == Some(id);
+
+    let mut top = element_id;
+    let mut stack = loop {
+        match doc.parent(top) {
+            Some(parent) if holds_contents(parent) => break doc.children(parent).to_vec(),
+            Some(parent) => top = parent,
+            None if top == NodeId::root() || doc.shadow_host(top).is_some() => {
+                return doc.named_id_held_by_other(top, value, element_id)
+            }
+            None => break vec![top],
+        }
+    };
+    while let Some(id) = stack.pop() {
+        if id != element_id && doc.attribute(id, "id") == Some(value) {
+            return true;
+        }
+        if !holds_contents(id) {
+            stack.extend_from_slice(doc.children(id));
+        }
+    }
+    false
 }
 
 /// according to HTML spec: <https://html.spec.whatwg.org/#global-attributes>
@@ -208,5 +242,216 @@ impl DocumentTaskQueue {
             next_node_id,
             tasks: Vec::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::document::builder::DocumentBuilderImpl;
+    use crate::document::document_impl::DocumentImpl;
+    use crate::node::HTML_NAMESPACE;
+    use crate::parser::Html5Parser;
+    use gosub_css3::system::Css3System;
+    use gosub_interface::config::ModuleConfiguration;
+    use gosub_interface::node::{ShadowRootInit, ShadowRootMode};
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct Config;
+
+    impl ModuleConfiguration for Config {
+        type CssSystem = Css3System;
+        type Document = DocumentImpl<Self>;
+        type HtmlParser = Html5Parser<'static, Self>;
+    }
+
+    #[test]
+    fn an_id_with_whitespace_is_reported_but_still_set() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let mut queue = DocumentTaskQueue::new::<Config>(&doc);
+
+        let div = queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        queue.insert_attribute("id", "a b", div, Location::default()).unwrap();
+        let errors = queue.flush::<Config>(&mut doc);
+
+        assert_eq!(errors.len(), 1, "whitespace in an id is still an authoring error");
+        assert_eq!(doc.node_by_named_id("a b"), Some(div));
+    }
+
+    #[test]
+    fn only_an_id_is_checked_against_existing_ids() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let mut queue = DocumentTaskQueue::new::<Config>(&doc);
+
+        let a = queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let b = queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        queue.insert_attribute("id", "foo", a, Location::default()).unwrap();
+        queue.insert_attribute("class", "foo", b, Location::default()).unwrap();
+        let errors = queue.flush::<Config>(&mut doc);
+
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(doc.attribute(b, "class"), Some("foo"));
+    }
+
+    #[test]
+    fn a_duplicate_id_is_reported_but_still_set() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let mut queue = DocumentTaskQueue::new::<Config>(&doc);
+
+        let a = queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let b = queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        queue.insert_attribute("id", "a b", a, Location::default()).unwrap();
+        queue.insert_attribute("id", "a b", b, Location::default()).unwrap();
+        let errors = queue.flush::<Config>(&mut doc);
+
+        assert_eq!(errors.len(), 3, "two whitespace ids and one duplicate: {errors:?}");
+        assert_eq!(doc.attribute(b, "id"), Some("a b"));
+        assert_eq!(doc.node_by_named_id("a b"), Some(a), "first in tree order");
+
+        doc.detach(a);
+        assert_eq!(doc.node_by_named_id("a b"), Some(b));
+    }
+
+    #[test]
+    fn a_non_element_target_gets_only_the_target_error() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let mut queue = DocumentTaskQueue::new::<Config>(&doc);
+
+        let a = queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let text = queue.create_text("hello", NodeId::root(), Location::default());
+        queue.insert_attribute("id", "x", a, Location::default()).unwrap();
+        queue.insert_attribute("id", "x", text, Location::default()).unwrap();
+        let errors = queue.flush::<Config>(&mut doc);
+
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(errors[0].contains("not an element node"), "{errors:?}");
+    }
+
+    #[test]
+    fn a_node_under_a_deleted_parent_is_reported() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let mut queue = DocumentTaskQueue::new::<Config>(&doc);
+        let gone = queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        assert!(queue.flush::<Config>(&mut doc).is_empty());
+        doc.remove(gone);
+
+        let mut queue = DocumentTaskQueue::new::<Config>(&doc);
+        queue.create_element("p", gone, None, HTML_NAMESPACE, Location::default());
+        queue.create_text("hello", gone, Location::default());
+        queue.create_comment("hi", gone, Location::default());
+        let errors = queue.flush::<Config>(&mut doc);
+
+        assert_eq!(errors.len(), 3, "{errors:?}");
+        assert!(errors.iter().all(|e| e.contains("not attached")), "{errors:?}");
+    }
+
+    #[test]
+    fn a_subtree_left_by_a_deleted_parent_is_its_own_tree() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let mut queue = DocumentTaskQueue::new::<Config>(&doc);
+
+        let outer = queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let container = queue.create_element("div", outer, None, HTML_NAMESPACE, Location::default());
+        let a = queue.create_element("span", container, None, HTML_NAMESPACE, Location::default());
+        let b = queue.create_element("span", container, None, HTML_NAMESPACE, Location::default());
+        queue.insert_attribute("id", "x", a, Location::default()).unwrap();
+        assert!(queue.flush::<Config>(&mut doc).is_empty());
+
+        doc.remove(outer);
+        let mut queue = DocumentTaskQueue::new::<Config>(&doc);
+        queue.insert_attribute("id", "x", b, Location::default()).unwrap();
+        assert_eq!(
+            queue.flush::<Config>(&mut doc).len(),
+            1,
+            "`a` holds it in the same subtree"
+        );
+    }
+
+    #[test]
+    fn empty_ids_are_not_duplicates() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let mut queue = DocumentTaskQueue::new::<Config>(&doc);
+
+        // Inside a template, where the tree is walked rather than read from the index.
+        let tpl = queue.create_element("template", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        assert!(queue.flush::<Config>(&mut doc).is_empty());
+        doc.set_template_contents(tpl, tpl);
+
+        let mut queue = DocumentTaskQueue::new::<Config>(&doc);
+        let a = queue.create_element("div", tpl, None, HTML_NAMESPACE, Location::default());
+        let b = queue.create_element("div", tpl, None, HTML_NAMESPACE, Location::default());
+        queue.insert_attribute("id", "", a, Location::default()).unwrap();
+        queue.insert_attribute("id", "", b, Location::default()).unwrap();
+        let errors = queue.flush::<Config>(&mut doc);
+
+        assert_eq!(
+            errors.len(),
+            2,
+            "one invalid-value error each, no duplicate: {errors:?}"
+        );
+        assert_eq!(doc.attribute(b, "id"), Some(""));
+    }
+
+    #[test]
+    fn setting_the_id_an_element_already_shares_is_a_duplicate() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let mut queue = DocumentTaskQueue::new::<Config>(&doc);
+
+        let a = queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let b = queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        queue.insert_attribute("id", "x", a, Location::default()).unwrap();
+        queue.insert_attribute("id", "x", b, Location::default()).unwrap();
+        assert_eq!(queue.flush::<Config>(&mut doc).len(), 1);
+
+        // `a` is the first holder, but `b` holds it too.
+        queue.insert_attribute("id", "x", a, Location::default()).unwrap();
+        assert_eq!(queue.flush::<Config>(&mut doc).len(), 1);
+    }
+
+    #[test]
+    fn an_id_alone_in_its_tree_is_not_a_duplicate() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let mut queue = DocumentTaskQueue::new::<Config>(&doc);
+
+        let host = queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let light = queue.create_element("span", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        queue.insert_attribute("id", "x", light, Location::default()).unwrap();
+        assert!(queue.flush::<Config>(&mut doc).is_empty());
+
+        let shadow = doc
+            .attach_shadow_root(host, ShadowRootInit::new(ShadowRootMode::Open), Location::default())
+            .unwrap();
+        let mut queue = DocumentTaskQueue::new::<Config>(&doc);
+        let inner = queue.create_element("span", shadow, None, HTML_NAMESPACE, Location::default());
+        queue.insert_attribute("id", "x", inner, Location::default()).unwrap();
+        assert!(
+            queue.flush::<Config>(&mut doc).is_empty(),
+            "the light tree is another tree"
+        );
+
+        let other = queue.create_element("span", shadow, None, HTML_NAMESPACE, Location::default());
+        queue.insert_attribute("id", "x", other, Location::default()).unwrap();
+        assert_eq!(queue.flush::<Config>(&mut doc).len(), 1, "two in the same shadow tree");
+    }
+
+    #[test]
+    fn template_contents_are_their_own_tree() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let mut queue = DocumentTaskQueue::new::<Config>(&doc);
+
+        let light = queue.create_element("span", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let tpl = queue.create_element("template", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        queue.insert_attribute("id", "x", light, Location::default()).unwrap();
+        assert!(queue.flush::<Config>(&mut doc).is_empty());
+        doc.set_template_contents(tpl, tpl);
+
+        let mut queue = DocumentTaskQueue::new::<Config>(&doc);
+        let inner = queue.create_element("span", tpl, None, HTML_NAMESPACE, Location::default());
+        queue.insert_attribute("id", "x", inner, Location::default()).unwrap();
+        assert!(queue.flush::<Config>(&mut doc).is_empty());
+
+        let other = queue.create_element("span", tpl, None, HTML_NAMESPACE, Location::default());
+        queue.insert_attribute("id", "x", other, Location::default()).unwrap();
+        assert_eq!(queue.flush::<Config>(&mut doc).len(), 1);
     }
 }
