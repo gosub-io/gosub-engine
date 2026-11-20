@@ -13,6 +13,7 @@ log = { workspace = true }
 parking_lot = { workspace = true }
 anyhow = { workspace = true, features = [] }
 colors-transform = "0.2.11"
+compact_str = "0.9.1"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 nom = { workspace = true }
@@ -31,5 +32,18 @@ harness = false
 default = []
 unresolved_syntax = ["dep:indexmap"]
 
-[lints]
-workspace = true
+# Mirrors the workspace lints, except unsafe_code is "deny" instead of "forbid":
+# the css_parser bench installs a counting GlobalAlloc, which requires unsafe
+# (allowed at file level there).
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unreachable = "deny"
+mod_module_files = "deny"

@@ -236,19 +236,19 @@ impl SyntaxComponent {
     }
 
     #[must_use]
-    pub fn get_multipliers(&self) -> Vec<SyntaxComponentMultiplier> {
+    pub fn get_multipliers(&self) -> &[SyntaxComponentMultiplier] {
         match self {
-            SyntaxComponent::Group { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::Function { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::GenericKeyword { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::Definition { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::Unit { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::Literal { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::Inherit { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::Initial { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::Unset { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::Value { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::Builtin { multipliers, .. } => multipliers.clone(),
+            SyntaxComponent::Group { multipliers, .. } => multipliers,
+            SyntaxComponent::Function { multipliers, .. } => multipliers,
+            SyntaxComponent::GenericKeyword { multipliers, .. } => multipliers,
+            SyntaxComponent::Definition { multipliers, .. } => multipliers,
+            SyntaxComponent::Unit { multipliers, .. } => multipliers,
+            SyntaxComponent::Literal { multipliers, .. } => multipliers,
+            SyntaxComponent::Inherit { multipliers, .. } => multipliers,
+            SyntaxComponent::Initial { multipliers, .. } => multipliers,
+            SyntaxComponent::Unset { multipliers, .. } => multipliers,
+            SyntaxComponent::Value { multipliers, .. } => multipliers,
+            SyntaxComponent::Builtin { multipliers, .. } => multipliers,
         }
     }
 

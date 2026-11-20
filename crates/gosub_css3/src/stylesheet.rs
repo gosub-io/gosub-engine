@@ -1,4 +1,5 @@
 use crate::matcher::property_ids::PropertyId;
+use compact_str::CompactString;
 use core::fmt::Debug;
 use core::slice;
 use cow_utils::CowUtils;
@@ -158,7 +159,44 @@ pub struct FontFace {
     /// The conditions around the rule, outermost first: `@media` blocks, an `@import`'s
     /// media list and the owning `<link>`/`<style>`'s `media` attribute. A face whose
     /// conditions fail is not part of the document's font set.
-    pub media: Option<Vec<Arc<MediaQueryList>>>,
+    pub media: Option<MediaConditions>,
+}
+
+/// The `@media` conditions around a rule, outermost first; all of them must match. One list is
+/// shared by everything in the block that set it, so a rule's copy is a refcount bump.
+pub type MediaConditions = Arc<[Arc<MediaQueryList>]>;
+
+/// Puts one condition in front of the lists it is applied to, outermost. Neighbours that shared
+/// a list share the new one too, rather than each getting a copy.
+struct PrependMedia<'a> {
+    media: &'a Arc<MediaQueryList>,
+    /// The last list replaced and what replaced it.
+    last: Option<(Option<MediaConditions>, MediaConditions)>,
+}
+
+impl<'a> PrependMedia<'a> {
+    fn new(media: &'a Arc<MediaQueryList>) -> Self {
+        Self { media, last: None }
+    }
+
+    fn apply(&mut self, conditions: &mut Option<MediaConditions>) {
+        if let Some((old, new)) = &self.last {
+            let same = match (old, &*conditions) {
+                (Some(old), Some(current)) => Arc::ptr_eq(old, current),
+                (None, None) => true,
+                _ => false,
+            };
+            if same {
+                *conditions = Some(Arc::clone(new));
+                return;
+            }
+        }
+        let new: MediaConditions = std::iter::once(Arc::clone(self.media))
+            .chain(conditions.iter().flat_map(|list| list.iter().cloned()))
+            .collect();
+        let old = conditions.replace(Arc::clone(&new));
+        self.last = Some((old, new));
+    }
 }
 
 impl FontFace {
@@ -189,7 +227,7 @@ pub struct PropertyRule {
     pub initial: Option<CssValue>,
     /// The `@media` blocks around the rule, outermost first. A registration whose conditions
     /// fail does not apply.
-    pub media: Option<Vec<Arc<MediaQueryList>>>,
+    pub media: Option<MediaConditions>,
     /// Whether the rule came from an `@import`ed sheet, which keeps the imported rules ahead
     /// of the sheet's own when several imports are spliced in.
     pub(crate) imported: bool,
@@ -389,28 +427,31 @@ impl CssStylesheet {
         // rules now live here, and the resize fingerprint is computed per sheet.
         self.uses_viewport_units |= uses_viewport_units;
         let count = rules.len();
+        // Outermost first: the import's condition gates everything inside it.
+        let mut prepend = media.map(PrependMedia::new);
         let rules = rules.into_iter().map(|mut rule| {
             rule.source = base.saturating_add(1).saturating_add(rule.source);
-            if let Some(media) = media {
-                // Outermost first: the import's condition gates everything inside it.
-                rule.media.get_or_insert_with(Vec::new).insert(0, Arc::clone(media));
+            if let Some(prepend) = &mut prepend {
+                prepend.apply(&mut rule.media);
             }
             rule
         });
         self.rules.splice(insert_at..insert_at, rules);
+        let mut prepend = media.map(PrependMedia::new);
         self.font_faces.extend(font_faces.into_iter().map(|mut face| {
-            if let Some(media) = media {
-                face.media.get_or_insert_with(Vec::new).insert(0, Arc::clone(media));
+            if let Some(prepend) = &mut prepend {
+                prepend.apply(&mut face.media);
             }
             face
         }));
         // Registrations go where the rules went: after the sheets imported before this one,
         // ahead of the importing sheet's own, and under the import's media condition.
         let at = self.property_rules.iter().take_while(|rule| rule.imported).count();
+        let mut prepend = media.map(PrependMedia::new);
         let property_rules = property_rules.into_iter().map(|mut rule| {
             rule.imported = true;
-            if let Some(media) = media {
-                rule.media.get_or_insert_with(Vec::new).insert(0, Arc::clone(media));
+            if let Some(prepend) = &mut prepend {
+                prepend.apply(&mut rule.media);
             }
             rule
         });
@@ -442,8 +483,9 @@ impl CssStylesheet {
         let rules = self.rules.iter_mut().map(|rule| &mut rule.media);
         let registrations = self.property_rules.iter_mut().map(|rule| &mut rule.media);
         let faces = self.font_faces.iter_mut().map(|face| &mut face.media);
+        let mut prepend = PrependMedia::new(&media);
         for conditions in rules.chain(registrations).chain(faces) {
-            conditions.get_or_insert_with(Vec::new).insert(0, Arc::clone(&media));
+            prepend.apply(conditions);
         }
     }
 
@@ -545,8 +587,9 @@ pub(crate) fn note_dropped(list: &mut Vec<CssDropped>, dropped: CssDropped) {
 /// A CSS rule, which contains a list of selectors and a list of declarations
 #[derive(Debug, Clone)]
 pub struct CssRule {
-    /// Selectors that must match for the declarations to apply
-    pub selectors: Vec<CssSelector>,
+    /// The selector list that must match for the declarations to apply. One per rule: `a, b`
+    /// is one `CssSelector` holding two complex selectors.
+    pub selector: CssSelector,
     /// Actual declarations that will be applied if the selectors match.
     ///
     /// Private, because [`CssRule::expanded`] is built from them once and kept: a caller that
@@ -562,7 +605,7 @@ pub struct CssRule {
     /// the check costs a null test. Each list is shared by every rule in its block.
     ///
     /// Conditions are kept unevaluated so that a viewport change is a restyle, not a re-parse.
-    pub media: Option<Vec<Arc<MediaQueryList>>>,
+    pub media: Option<MediaConditions>,
     /// The cascade layer this rule sits in, as an index into its sheet's
     /// [`CssStylesheet::layers`]. `None` for a rule outside every layer, which for a normal
     /// declaration is the strongest place to be.
@@ -581,7 +624,7 @@ pub struct CssRule {
 /// whether two rules are the same rule.
 impl PartialEq for CssRule {
     fn eq(&self, other: &Self) -> bool {
-        self.selectors == other.selectors
+        self.selector == other.selector
             && self.declarations == other.declarations
             && self.media == other.media
             && self.layer == other.layer
@@ -592,13 +635,13 @@ impl CssRule {
     /// A rule as the parser builds it, with the declaration expansion still to be done.
     #[must_use]
     pub fn new(
-        selectors: Vec<CssSelector>,
+        selector: CssSelector,
         declarations: Vec<CssDeclaration>,
-        media: Option<Vec<Arc<MediaQueryList>>>,
+        media: Option<MediaConditions>,
         layer: Option<u32>,
     ) -> Self {
         Self {
-            selectors,
+            selector,
             declarations,
             media,
             layer,
@@ -609,15 +652,15 @@ impl CssRule {
     }
 
     #[must_use]
-    pub fn selectors(&self) -> &Vec<CssSelector> {
-        &self.selectors
+    pub fn selector(&self) -> &CssSelector {
+        &self.selector
     }
 
-    /// Whether any selector of this rule places a condition on an ancestor of the element. A
-    /// rule that does not can be matched without an ancestor filter, which is what keeps a page
-    /// whose sheets are all single-compound selectors from building one at all.
+    /// Whether any selector in this rule's list places a condition on an ancestor of the
+    /// element. A rule that does not can be matched without an ancestor filter, which is what
+    /// keeps a page whose sheets are all single-compound selectors from building one at all.
     pub(crate) fn asks_about_ancestors(&self) -> bool {
-        self.selectors.iter().any(CssSelector::asks_about_ancestors)
+        self.selector.asks_about_ancestors()
     }
 
     #[must_use]
@@ -776,7 +819,7 @@ pub struct CssSelector {
     parts: Vec<CssSelectorPart>,
     /// One entry per complex selector: its slice of `parts`, its specificity, and what it needs
     /// of the element's ancestors.
-    entries: Box<[SelectorEntry]>,
+    entries: SelectorEntries,
     /// Whether any entry asks anything of an ancestor, so that a rule can be matched without an
     /// ancestor filter being built at all.
     asks_about_ancestors: bool,
@@ -798,6 +841,25 @@ struct SelectorEntry {
     ancestor_keys: Box<[u32]>,
 }
 
+/// A selector list's entries. Almost every list holds one complex selector, so that one is kept
+/// inline rather than costing an allocation per rule.
+#[derive(Debug, PartialEq, Clone)]
+enum SelectorEntries {
+    One(SelectorEntry),
+    Many(Box<[SelectorEntry]>),
+}
+
+impl std::ops::Deref for SelectorEntries {
+    type Target = [SelectorEntry];
+
+    fn deref(&self) -> &[SelectorEntry] {
+        match self {
+            Self::One(entry) => std::slice::from_ref(entry),
+            Self::Many(entries) => entries,
+        }
+    }
+}
+
 impl SelectorEntry {
     fn range(&self) -> std::ops::Range<usize> {
         self.start as usize..(self.start + self.len) as usize
@@ -807,45 +869,58 @@ impl SelectorEntry {
 impl CssSelector {
     #[must_use]
     pub fn new(parts: Vec<Vec<CssSelectorPart>>) -> Self {
-        let mut entries: Vec<SelectorEntry> = Vec::with_capacity(parts.len());
-        let mut asks_about_ancestors = false;
-
         // A list of one is the overwhelming case - `a, b` is rare - and its parts are already a
         // `Vec`, so take it whole rather than moving every part into a new one and freeing the
-        // old. Building a selector is on the per-element path: an inline `style` attribute is
-        // parsed as a one-rule sheet, and copying part by part measured as 10% on the render
-        // tree of a page that sets styles inline.
-        let flat = if parts.len() == 1 {
-            let complex = parts.into_iter().next().unwrap_or_default();
-            let keys = ancestor_keys(&complex);
-            asks_about_ancestors = !keys.is_empty();
-            entries.push(SelectorEntry {
-                start: 0,
-                len: u32::try_from(complex.len()).unwrap_or(u32::MAX),
-                specificity: Specificity::from(complex.as_slice()),
-                ancestor_keys: keys,
-            });
-            complex
-        } else {
-            let mut flat: Vec<CssSelectorPart> = Vec::with_capacity(parts.iter().map(Vec::len).sum());
-            for complex in parts {
-                let keys = ancestor_keys(&complex);
-                asks_about_ancestors |= !keys.is_empty();
-                entries.push(SelectorEntry {
-                    start: u32::try_from(flat.len()).unwrap_or(u32::MAX),
-                    len: u32::try_from(complex.len()).unwrap_or(u32::MAX),
-                    specificity: Specificity::from(complex.as_slice()),
-                    ancestor_keys: keys,
-                });
-                flat.extend(complex);
+        // old.
+        if parts.len() == 1 {
+            return Self::from_flat(parts.into_iter().next().unwrap_or_default(), &[]);
+        }
+        let mut flat: Vec<CssSelectorPart> = Vec::with_capacity(parts.iter().map(Vec::len).sum());
+        let mut starts = Vec::with_capacity(parts.len().saturating_sub(1));
+        for (i, complex) in parts.into_iter().enumerate() {
+            if i > 0 {
+                starts.push(flat.len());
             }
-            flat
+            flat.extend(complex);
+        }
+        Self::from_flat(flat, &starts)
+    }
+
+    /// Build from the parts of every complex selector laid end to end, `starts` saying where
+    /// each one after the first begins.
+    ///
+    /// `parts` is kept as it is given. Building a selector is on the per-element path: an inline
+    /// `style` attribute is parsed as a one-rule sheet, and copying part by part measured as 10%
+    /// on the render tree of a page that sets styles inline. Not shrunk either: the parser's
+    /// vector usually has spare capacity, and shrinking it would copy every part.
+    #[must_use]
+    pub fn from_flat(parts: Vec<CssSelectorPart>, starts: &[usize]) -> Self {
+        let mut asks_about_ancestors = false;
+        let ends = starts.iter().copied().chain(std::iter::once(parts.len()));
+        let mut begin = 0;
+        let mut entries = ends.map(|end| {
+            let complex = &parts[begin..end];
+            let keys = ancestor_keys(complex);
+            asks_about_ancestors |= !keys.is_empty();
+            let entry = SelectorEntry {
+                start: u32::try_from(begin).unwrap_or(u32::MAX),
+                len: u32::try_from(end - begin).unwrap_or(u32::MAX),
+                specificity: Specificity::from(complex),
+                ancestor_keys: keys,
+            };
+            begin = end;
+            entry
+        });
+        let entries = if starts.is_empty() {
+            entries
+                .next()
+                .map_or_else(|| SelectorEntries::Many(Box::new([])), SelectorEntries::One)
+        } else {
+            SelectorEntries::Many(entries.collect())
         };
-        // Deliberately not shrunk: the parser's vector usually has spare capacity, and shrinking
-        // it would copy every part - exactly the cost this path exists to avoid.
         Self {
-            parts: flat,
-            entries: entries.into(),
+            parts,
+            entries,
             asks_about_ancestors,
         }
     }
@@ -898,19 +973,19 @@ pub enum CssSelectorPart {
     #[default]
     Universal,
     Attribute(Box<AttributeSelector>),
-    Class(String),
-    Id(String),
-    PseudoClass(String),
-    PseudoElement(String),
+    Class(CompactString),
+    Id(CompactString),
+    PseudoClass(CompactString),
+    PseudoElement(CompactString),
     Combinator(Combinator),
-    Type(String),
+    Type(CompactString),
     /// `:not(...)`, holding the selector list it negates. Matches when *none* of the inner
     /// selectors match the element.
     Not(Vec<Vec<CssSelectorPart>>),
     /// `:nth-child()`, `:nth-last-child()`, `:nth-of-type()` or `:nth-last-of-type()`.
     Nth(Box<NthSelector>),
     /// `:lang(...)`, holding its language ranges as written.
-    Lang(Vec<String>),
+    Lang(Vec<CompactString>),
     /// `:is(...)` (and its older name `:matches()`), holding its selector list. Matches when any
     /// of the inner selectors matches the element, and is as specific as the most specific one.
     Is(Vec<Vec<CssSelectorPart>>),
@@ -1011,9 +1086,9 @@ impl Display for NthSelector {
 
 #[derive(PartialEq, Clone, Default, Debug)]
 pub struct AttributeSelector {
-    pub name: String,
+    pub name: CompactString,
     pub matcher: MatcherType,
-    pub value: String,
+    pub value: CompactString,
     pub case_insensitive: bool,
 }
 
@@ -1337,10 +1412,17 @@ pub enum CssValue {
     List(Vec<CssValue>),
 }
 
+/// The heap buffer of a `CompactString`; an inline one has none.
+fn compact_heap_size(string: &CompactString, walk: &mut gosub_shared::memory::Walk) {
+    if string.is_heap_allocated() {
+        walk.bytes(string.capacity());
+    }
+}
+
 impl gosub_shared::memory::HeapSize for AttributeSelector {
     fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
-        self.name.heap_size(walk);
-        self.value.heap_size(walk);
+        compact_heap_size(&self.name, walk);
+        compact_heap_size(&self.value, walk);
     }
 }
 
@@ -1361,7 +1443,7 @@ impl gosub_shared::memory::HeapSize for CssSelectorPart {
             | CssSelectorPart::Id(name)
             | CssSelectorPart::PseudoClass(name)
             | CssSelectorPart::PseudoElement(name)
-            | CssSelectorPart::Type(name) => name.heap_size(walk),
+            | CssSelectorPart::Type(name) => compact_heap_size(name, walk),
             CssSelectorPart::Not(list)
             | CssSelectorPart::Is(list)
             | CssSelectorPart::Where(list)
@@ -1375,9 +1457,9 @@ impl gosub_shared::memory::HeapSize for CssSelectorPart {
                 }
             }
             CssSelectorPart::Lang(ranges) => {
-                walk.bytes(ranges.capacity() * size_of::<String>());
+                walk.bytes(ranges.capacity() * size_of::<CompactString>());
                 for range in ranges {
-                    range.heap_size(walk);
+                    compact_heap_size(range, walk);
                 }
             }
             CssSelectorPart::Universal | CssSelectorPart::Combinator(_) | CssSelectorPart::Host(None) => {}
@@ -1391,8 +1473,10 @@ impl gosub_shared::memory::HeapSize for CssSelector {
         for part in &self.parts {
             part.heap_size(walk);
         }
-        walk.bytes(size_of_val(&*self.entries));
-        for entry in &self.entries {
+        if let SelectorEntries::Many(entries) = &self.entries {
+            walk.bytes(size_of_val(&**entries));
+        }
+        for entry in self.entries.iter() {
             walk.bytes(size_of_val(&*entry.ancestor_keys));
         }
     }
@@ -1407,16 +1491,18 @@ impl gosub_shared::memory::HeapSize for CssDeclaration {
 
 impl gosub_shared::memory::HeapSize for CssRule {
     fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
-        self.selectors.heap_size(walk);
+        self.selector.heap_size(walk);
         self.declarations.heap_size(walk);
         // `media` is one shared list per `@media` block, not one per rule.
         if let Some(media) = &self.media {
-            walk.bytes(media.capacity() * size_of::<std::sync::Arc<crate::media_query::MediaQueryList>>());
-            for query in media {
-                walk.shared_once(std::sync::Arc::as_ptr(query).cast::<u8>() as usize, |walk| {
-                    walk.bytes(size_of::<crate::media_query::MediaQueryList>() + 2 * size_of::<usize>());
-                });
-            }
+            walk.shared_once(Arc::as_ptr(media).cast::<u8>() as usize, |walk| {
+                walk.bytes(size_of_val(&**media) + 2 * size_of::<usize>());
+                for query in media.iter() {
+                    walk.shared_once(Arc::as_ptr(query).cast::<u8>() as usize, |walk| {
+                        walk.bytes(size_of::<MediaQueryList>() + 2 * size_of::<usize>());
+                    });
+                }
+            });
         }
     }
 }
@@ -1647,40 +1733,49 @@ impl CssValue {
     }
 
     /// Converts a CSS AST node to a CSS value
+    /// A number token's value.
+    pub(crate) fn number(value: f64, kind: NumberKind) -> CssValue {
+        if value == 0.0 {
+            // Zero is a special case since we need to do some pattern matching once in a while, and
+            // this is not possible (anymore) with floating point 0.0 it seems.
+            //
+            // It keeps no type flag, so `z-index: 0.0` is accepted where the spelling says
+            // it should not be. Every `<length>`, `<time>` and `<angle>` arm recognises a
+            // bare zero through this variant, so giving it a flag is a wider change than
+            // the one case it would fix.
+            CssValue::Zero
+        } else {
+            CssValue::Number(value, kind)
+        }
+    }
+
+    /// A hash token's value, `value` without its `#`.
+    pub(crate) fn hash_color(value: &str) -> CssValue {
+        let mut hex = CompactString::with_capacity(value.len() + 1);
+        hex.push('#');
+        hex.push_str(value);
+        CssValue::Color(RgbColor::from(hex.as_str()).into())
+    }
+
     pub fn parse_ast_node(node: crate::node::Node) -> CssResult<CssValue> {
         match node.node_type {
-            crate::node::NodeType::Ident { value } => Ok(CssValue::String(value)),
-            crate::node::NodeType::Number { value, kind } => {
-                if value == 0.0 {
-                    // Zero is a special case since we need to do some pattern matching once in a while, and
-                    // this is not possible (anymore) with floating point 0.0 it seems.
-                    //
-                    // It keeps no type flag, so `z-index: 0.0` is accepted where the spelling says
-                    // it should not be. Every `<length>`, `<time>` and `<angle>` arm recognises a
-                    // bare zero through this variant, so giving it a flag is a wider change than
-                    // the one case it would fix.
-                    Ok(CssValue::Zero)
-                } else {
-                    Ok(CssValue::Number(value, kind))
-                }
-            }
+            crate::node::NodeType::Ident { value } => Ok(CssValue::String(value.into())),
+            crate::node::NodeType::Number { value, kind } => Ok(CssValue::number(value, kind)),
             crate::node::NodeType::Percentage { value } => Ok(CssValue::Percentage(value)),
             // A unit identifier is ASCII case-insensitive, so it is folded here rather than at
             // every point that reads one. Both the syntax matcher (which looks a unit up in a
             // lowercase table) and `unit_to_px` (which matches it literally) took the author's
             // spelling as written, so `width: 1PX` was rejected as an unknown unit.
-            crate::node::NodeType::Dimension { value, unit } => {
-                Ok(CssValue::Unit(value, unit.cow_to_ascii_lowercase().into_owned()))
+            crate::node::NodeType::Dimension { value, mut unit } => {
+                unit.make_ascii_lowercase();
+                Ok(CssValue::Unit(value, unit.into()))
             }
-            crate::node::NodeType::String { value } => Ok(CssValue::String(value)),
-            crate::node::NodeType::Hash { mut value } => {
-                value.insert(0, '#');
-                Ok(CssValue::Color(RgbColor::from(value.as_str()).into()))
-            }
+            crate::node::NodeType::String { value } => Ok(CssValue::String(value.into())),
+            crate::node::NodeType::Hash { value } => Ok(CssValue::hash_color(&value)),
             // Keep the operator character (e.g. `/` in `16 / 9` or `font: 14px/1.5`)
             // as a string so it can match a `/` literal in a value grammar. Discarding
             // it (as `None`) makes `<ratio>` and other slash-delimited grammars unmatchable.
-            crate::node::NodeType::Operator { value, .. } => Ok(CssValue::Delim(value)),
+            crate::node::NodeType::Operator { value, .. } => Ok(CssValue::Delim(value.into())),
             // A `calc()` body is its arguments, and is simplified as far as it can be without
             // knowing the element: the arithmetic and the absolute lengths, which is why
             // `calc(1in + 1px)` is stored as `calc(97px)`. `em`, the viewport units and
@@ -1694,15 +1789,16 @@ impl CssValue {
                 }
                 Ok(reduce_function("calc".to_string(), body))
             }
-            crate::node::NodeType::Url { url } => {
-                Ok(CssValue::Function("url".to_string(), vec![CssValue::String(url)]))
-            }
+            crate::node::NodeType::Url { url } => Ok(CssValue::Function(
+                "url".to_string(),
+                vec![CssValue::String(url.into())],
+            )),
             crate::node::NodeType::Function { name, arguments } => {
-                let mut list = vec![];
+                let mut list = Vec::with_capacity(arguments.len());
                 for node in arguments {
                     list.push(CssValue::parse_ast_node(node)?);
                 }
-                Ok(reduce_function(name, list))
+                Ok(reduce_function(name.into(), list))
             }
 
             crate::node::NodeType::Comma => Ok(CssValue::Comma),
@@ -2411,7 +2507,7 @@ mod test {
     #[test]
     fn test_css_rule() {
         let rule = CssRule::new(
-            vec![CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]])],
+            CssSelector::new(vec![vec![CssSelectorPart::Type("h1".into())]]),
             vec![CssDeclaration {
                 property: "color".into(),
                 value: CssValue::String("red".to_string()).into(),
@@ -2421,10 +2517,10 @@ mod test {
             None,
         );
 
-        assert_eq!(rule.selectors().len(), 1);
-        let part = rule.selectors().first().unwrap().complex_at(0).first().unwrap();
+        assert_eq!(rule.selector().complex_count(), 1);
+        let part = rule.selector().complex_at(0).first().unwrap();
 
-        assert_eq!(part, &CssSelectorPart::Type("h1".to_string()));
+        assert_eq!(part, &CssSelectorPart::Type("h1".into()));
         assert_eq!(rule.declarations().len(), 1);
         assert_eq!(rule.declarations().first().unwrap().property.as_str(), "color");
     }
@@ -2445,7 +2541,7 @@ mod test {
         };
 
         let mut rule = CssRule::new(
-            vec![CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]])],
+            CssSelector::new(vec![vec![CssSelectorPart::Type("h1".into())]]),
             vec![declaration("color")],
             None,
             None,
@@ -2470,6 +2566,20 @@ mod test {
             color,
             "the expansion still names the property the rule no longer sets"
         );
+    }
+
+    #[test]
+    fn selector_names_count_only_a_heap_buffer() {
+        use gosub_shared::memory::{HeapSize, Walk};
+        let size = |part: CssSelectorPart| {
+            let mut walk = Walk::new();
+            part.heap_size(&mut walk);
+            walk.owned()
+        };
+        assert_eq!(size(CssSelectorPart::Class("short".into())), 0);
+        let long = CompactString::from("a-class-name-longer-than-inline");
+        assert!(long.is_heap_allocated());
+        assert_eq!(size(CssSelectorPart::Class(long.clone())), long.capacity());
     }
 
     /// Everything that carries specificity, at each of the three levels.
@@ -2576,27 +2686,27 @@ mod test {
     #[test]
     fn test_specificity() {
         let selector = CssSelector::new(vec![vec![
-            CssSelectorPart::Type("h1".to_string()),
-            CssSelectorPart::Class("myclass".to_string()),
-            CssSelectorPart::Id("myid".to_string()),
+            CssSelectorPart::Type("h1".into()),
+            CssSelectorPart::Class("myclass".into()),
+            CssSelectorPart::Id("myid".into()),
         ]]);
 
         assert_eq!(selector.specificity_at(0), Specificity::new(1, 1, 1));
 
         let selector = CssSelector::new(vec![vec![
-            CssSelectorPart::Type("h1".to_string()),
-            CssSelectorPart::Class("myclass".to_string()),
+            CssSelectorPart::Type("h1".into()),
+            CssSelectorPart::Class("myclass".into()),
         ]]);
 
         assert_eq!(selector.specificity_at(0), Specificity::new(0, 1, 1));
 
-        let selector = CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]]);
+        let selector = CssSelector::new(vec![vec![CssSelectorPart::Type("h1".into())]]);
 
         assert_eq!(selector.specificity_at(0), Specificity::new(0, 0, 1));
 
         let selector = CssSelector::new(vec![vec![
-            CssSelectorPart::Class("myclass".to_string()),
-            CssSelectorPart::Class("otherclass".to_string()),
+            CssSelectorPart::Class("myclass".into()),
+            CssSelectorPart::Class("otherclass".into()),
         ]]);
 
         assert_eq!(selector.specificity_at(0), Specificity::new(0, 2, 0));
@@ -2694,9 +2804,31 @@ mod test {
         assert!(sheet.rules.iter().all(|rule| !rule.media_matches(&screen)));
         assert!(sheet.rules.iter().all(|rule| rule.media_matches(&print)));
         // The sheet's own `@media` stays inside the attribute's condition, not instead of it.
-        assert_eq!(sheet.rules[1].media.as_ref().map(Vec::len), Some(2));
+        assert_eq!(sheet.rules[1].media.as_ref().map(|media| media.len()), Some(2));
         let registration = sheet.property_rules[0].media.as_ref().expect("gated too");
         assert!(!registration[0].matches(&screen));
+    }
+
+    #[test]
+    fn rules_in_one_media_block_share_their_conditions() {
+        use gosub_shared::config::ParserConfig;
+        let css = "a { color: red; } b { color: red; } \
+                   @media (min-width: 1px) { c { color: blue; } d { color: blue; } }";
+        let mut sheet = crate::Css3::parse_str(css, ParserConfig::default(), CssOrigin::Author, "test.css")
+            .expect("the sheet parses");
+        let shared = |sheet: &CssStylesheet, i: usize, j: usize| {
+            Arc::ptr_eq(
+                sheet.rules[i].media.as_ref().expect("conditional"),
+                sheet.rules[j].media.as_ref().expect("conditional"),
+            )
+        };
+        assert!(shared(&sheet, 2, 3));
+
+        sheet.set_owner_media("print");
+        assert!(shared(&sheet, 0, 1), "unconditional rules share the attribute's list");
+        assert!(shared(&sheet, 2, 3), "the block's rules still share theirs");
+        assert!(!shared(&sheet, 1, 2));
+        assert_eq!(sheet.rules[3].media.as_ref().map(|media| media.len()), Some(2));
     }
 
     #[test]

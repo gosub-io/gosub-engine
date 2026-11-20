@@ -1,4 +1,5 @@
 use crate::tokenizer::NumberKind;
+use compact_str::CompactString;
 use core::fmt::{Display, Formatter};
 use gosub_shared::byte_stream::Location;
 
@@ -21,12 +22,12 @@ pub enum NodeType {
         block: Option<Box<Node>>,
     },
     AtRule {
-        name: String,
+        name: CompactString,
         prelude: Option<Box<Node>>,
         block: Option<Box<Node>>,
     },
     Declaration {
-        property: String,
+        property: CompactString,
         value: Vec<Node>,
         important: bool,
     },
@@ -34,15 +35,15 @@ pub enum NodeType {
         children: Vec<Node>,
     },
     Comment {
-        value: String,
+        value: CompactString,
     },
     Cdo,
     Cdc,
     IdSelector {
-        value: String,
+        value: CompactString,
     },
     Ident {
-        value: String,
+        value: CompactString,
     },
     Number {
         value: Number,
@@ -54,34 +55,34 @@ pub enum NodeType {
     },
     Dimension {
         value: Number,
-        unit: String,
+        unit: CompactString,
     },
     Prelude,
     SelectorList {
         selectors: Vec<Node>,
     },
     AttributeSelector {
-        name: String,
+        name: CompactString,
         matcher: Option<Box<Node>>,
-        value: String,
-        flags: String,
+        value: CompactString,
+        flags: CompactString,
     },
     ClassSelector {
-        value: String,
+        value: CompactString,
     },
     NestingSelector,
     TypeSelector {
-        namespace: Option<String>,
-        value: String,
+        namespace: Option<CompactString>,
+        value: CompactString,
     },
     Combinator {
-        value: String,
+        value: CompactString,
     },
     Selector {
         children: Vec<Node>,
     },
     PseudoElementSelector {
-        value: String,
+        value: CompactString,
         /// Selector list of a functional pseudo-element, kept only for `::slotted()`.
         arguments: Option<Box<Node>>,
     },
@@ -89,8 +90,8 @@ pub enum NodeType {
         value: Box<Node>,
     },
     MediaQuery {
-        modifier: String,
-        media_type: String,
+        modifier: CompactString,
+        media_type: CompactString,
         condition: Option<Box<Node>>,
     },
     MediaQueryList {
@@ -101,24 +102,24 @@ pub enum NodeType {
     },
     Feature {
         kind: FeatureKind,
-        name: String,
+        name: CompactString,
         value: Option<Box<Node>>,
     },
     Hash {
-        value: String,
+        value: CompactString,
     },
     Value {
         children: Vec<Node>,
     },
     Comma,
     String {
-        value: String,
+        value: CompactString,
     },
     Url {
-        url: String,
+        url: CompactString,
     },
     Function {
-        name: String,
+        name: CompactString,
         arguments: Vec<Node>,
     },
     /// An operator token in a value: `+`, `-`, `*`, `/`, `,`, `:`, `=`.
@@ -132,7 +133,7 @@ pub enum NodeType {
     /// Both flags are false outside a value sequence (selectors, media queries), where no rule
     /// depends on them.
     Operator {
-        value: String,
+        value: CompactString,
         space_before: bool,
         space_after: bool,
     },
@@ -141,15 +142,15 @@ pub enum NodeType {
         selector: Option<Box<Node>>,
     },
     AnPlusB {
-        a: String,
-        b: String,
+        a: CompactString,
+        b: CompactString,
     },
     MSFunction {
         func: Box<Node>,
     },
     MSIdent {
-        value: String,
-        default_value: String,
+        value: CompactString,
+        default_value: CompactString,
     },
     /// A `calc()` body, as the tokens that make it up: values, operators with their
     /// whitespace, nested functions, in source order. A parenthesized group is a nested
@@ -168,7 +169,7 @@ pub enum NodeType {
     },
     FeatureFunction,
     Raw {
-        value: String,
+        value: CompactString,
     },
     Scope {
         root: Option<Box<Node>>,
@@ -196,7 +197,7 @@ impl NodeType {
     /// An operator with no recorded whitespace, which is the right default everywhere the
     /// surrounding whitespace carries no meaning. `parse_value_sequence` fills the flags in for
     /// the one context that needs them.
-    pub(crate) fn operator(value: impl Into<String>) -> Self {
+    pub(crate) fn operator(value: impl Into<CompactString>) -> Self {
         NodeType::Operator {
             value: value.into(),
             space_before: false,
@@ -288,7 +289,7 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_ident(&self) -> Option<&String> {
+    pub fn as_ident(&self) -> Option<&CompactString> {
         match &self.node_type {
             NodeType::Ident { value } => Some(value),
             _ => None,
@@ -314,7 +315,7 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_hash(&self) -> Option<&String> {
+    pub fn as_hash(&self) -> Option<&CompactString> {
         match &self.node_type {
             NodeType::Hash { value } => Some(value),
             _ => None,
@@ -322,7 +323,7 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_class_selector(&self) -> Option<&String> {
+    pub fn as_class_selector(&self) -> Option<&CompactString> {
         match &self.node_type {
             NodeType::ClassSelector { value } => Some(value),
             _ => None,
@@ -343,7 +344,7 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_type_selector(&self) -> Option<&String> {
+    pub fn as_type_selector(&self) -> Option<&CompactString> {
         match &self.node_type {
             NodeType::TypeSelector { value, .. } => Some(value),
             _ => None,
@@ -364,7 +365,7 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_attribute_selector(&self) -> Option<(&String, Option<&Node>, &String, &String)> {
+    pub fn as_attribute_selector(&self) -> Option<(&CompactString, Option<&Node>, &CompactString, &CompactString)> {
         match &self.node_type {
             NodeType::AttributeSelector {
                 name,
@@ -395,7 +396,7 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_pseudo_element_selector(&self) -> Option<&String> {
+    pub fn as_pseudo_element_selector(&self) -> Option<&CompactString> {
         match &self.node_type {
             NodeType::PseudoElementSelector { value, .. } => Some(value),
             _ => None,
@@ -408,7 +409,7 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_combinator(&self) -> Option<&String> {
+    pub fn as_combinator(&self) -> Option<&CompactString> {
         match &self.node_type {
             NodeType::Combinator { value } => Some(value),
             _ => None,
@@ -421,7 +422,7 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_dimension(&self) -> Option<(&Number, &String)> {
+    pub fn as_dimension(&self) -> Option<(&Number, &CompactString)> {
         match &self.node_type {
             NodeType::Dimension { value, unit } => Some((value, unit)),
             _ => None,
@@ -434,7 +435,7 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_id_selector(&self) -> Option<&String> {
+    pub fn as_id_selector(&self) -> Option<&CompactString> {
         match &self.node_type {
             NodeType::IdSelector { value } => Some(value),
             _ => None,
@@ -447,7 +448,7 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_declaration(&self) -> Option<(&String, &Vec<Node>, &bool)> {
+    pub fn as_declaration(&self) -> Option<(&CompactString, &Vec<Node>, &bool)> {
         match &self.node_type {
             NodeType::Declaration {
                 property,
@@ -471,14 +472,14 @@ impl Display for Node {
                 .iter()
                 .map(std::string::ToString::to_string)
                 .collect::<String>(),
-            NodeType::IdSelector { value } => value.clone(),
-            NodeType::Ident { value } => value.clone(),
+            NodeType::IdSelector { value } => value.to_string(),
+            NodeType::Ident { value } => value.to_string(),
             NodeType::Number { value, .. } => value.to_string(),
             NodeType::Percentage { value } => format!("{value}%"),
             NodeType::Dimension { value, unit } => format!("{value}{unit}"),
             NodeType::Hash { value } => format!("#{}", value.clone()),
-            NodeType::String { value } => value.clone(),
-            NodeType::Url { url } => url.clone(),
+            NodeType::String { value } => value.to_string(),
+            NodeType::Url { url } => url.to_string(),
             NodeType::Function { name, arguments } => {
                 let args = arguments
                     .iter()
@@ -503,13 +504,13 @@ impl Display for Node {
                 Some(arguments) => format!("::{value}({arguments})"),
                 None => format!("::{value}"),
             },
-            NodeType::Operator { value, .. } => value.clone(),
+            NodeType::Operator { value, .. } => value.to_string(),
             NodeType::ClassSelector { value } => format!(".{value}"),
             NodeType::TypeSelector { namespace, value } => {
                 let ns = namespace.as_ref().map_or(String::new(), |ns| format!("{ns}|"));
                 format!("{ns}{value}")
             }
-            NodeType::Combinator { value } => value.clone(),
+            NodeType::Combinator { value } => value.to_string(),
             NodeType::Nth { nth, selector } => {
                 let sel = selector
                     .as_ref()
@@ -521,7 +522,7 @@ impl Display for Node {
                 let body: Vec<String> = tokens.iter().map(std::string::ToString::to_string).collect();
                 format!("calc({})", body.join(" "))
             }
-            NodeType::Raw { value } => value.clone(),
+            NodeType::Raw { value } => value.to_string(),
 
             _ => {
                 String::new()

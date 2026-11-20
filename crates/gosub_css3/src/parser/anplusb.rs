@@ -222,7 +222,7 @@ impl Css3<'_> {
                 (a, b) = self.do_plus_block(value.as_str())?;
             }
             TokenType::Dimension { value, unit } => {
-                (a, b) = self.do_dimension_block(value, unit)?;
+                (a, b) = self.do_dimension_block(value, unit.into())?;
             }
             _ => {
                 self.tokenizer.reconsume(t);
@@ -241,7 +241,13 @@ impl Css3<'_> {
             b = b[1..].to_string();
         }
 
-        Ok(Node::new(NodeType::AnPlusB { a, b }, loc))
+        Ok(Node::new(
+            NodeType::AnPlusB {
+                a: a.into(),
+                b: b.into(),
+            },
+            loc,
+        ))
     }
 }
 
@@ -280,152 +286,152 @@ mod test {
             parse_anplusb,
             "1n+2",
             NodeType::AnPlusB {
-                a: "1".to_string(),
-                b: "2".to_string()
+                a: "1".into(),
+                b: "2".into()
             }
         );
         test!(
             parse_anplusb,
             "1n-2",
             NodeType::AnPlusB {
-                a: "1".to_string(),
-                b: "-2".to_string()
+                a: "1".into(),
+                b: "-2".into()
             }
         );
         test!(
             parse_anplusb,
             "-1n+2",
             NodeType::AnPlusB {
-                a: "-1".to_string(),
-                b: "2".to_string()
+                a: "-1".into(),
+                b: "2".into()
             }
         );
         test!(
             parse_anplusb,
             "-1n-20",
             NodeType::AnPlusB {
-                a: "-1".to_string(),
-                b: "-20".to_string()
+                a: "-1".into(),
+                b: "-20".into()
             }
         );
         test!(
             parse_anplusb,
             "-1n+20",
             NodeType::AnPlusB {
-                a: "-1".to_string(),
-                b: "20".to_string()
+                a: "-1".into(),
+                b: "20".into()
             }
         );
         test!(
             parse_anplusb,
             "1n",
             NodeType::AnPlusB {
-                a: "1".to_string(),
-                b: "0".to_string()
+                a: "1".into(),
+                b: "0".into()
             }
         );
         test!(
             parse_anplusb,
             "10n-5",
             NodeType::AnPlusB {
-                a: "10".to_string(),
-                b: "-5".to_string()
+                a: "10".into(),
+                b: "-5".into()
             }
         );
         test!(
             parse_anplusb,
             "0n+5",
             NodeType::AnPlusB {
-                a: "0".to_string(),
-                b: "5".to_string()
+                a: "0".into(),
+                b: "5".into()
             }
         );
         test!(
             parse_anplusb,
             "1n+0",
             NodeType::AnPlusB {
-                a: "1".to_string(),
-                b: "0".to_string()
+                a: "1".into(),
+                b: "0".into()
             }
         );
         test!(
             parse_anplusb,
             "n+0",
             NodeType::AnPlusB {
-                a: "1".to_string(),
-                b: "0".to_string()
+                a: "1".into(),
+                b: "0".into()
             }
         );
         test!(
             parse_anplusb,
             "n",
             NodeType::AnPlusB {
-                a: "1".to_string(),
-                b: "0".to_string()
+                a: "1".into(),
+                b: "0".into()
             }
         );
         test!(
             parse_anplusb,
             "2n+0",
             NodeType::AnPlusB {
-                a: "2".to_string(),
-                b: "0".to_string()
+                a: "2".into(),
+                b: "0".into()
             }
         );
         test!(
             parse_anplusb,
             "2n",
             NodeType::AnPlusB {
-                a: "2".to_string(),
-                b: "0".to_string()
+                a: "2".into(),
+                b: "0".into()
             }
         );
         test!(
             parse_anplusb,
             "3n-6",
             NodeType::AnPlusB {
-                a: "3".to_string(),
-                b: "-6".to_string()
+                a: "3".into(),
+                b: "-6".into()
             }
         );
         test!(
             parse_anplusb,
             "3n + 1",
             NodeType::AnPlusB {
-                a: "3".to_string(),
-                b: "1".to_string()
+                a: "3".into(),
+                b: "1".into()
             }
         );
         test!(
             parse_anplusb,
             "+3n - 2",
             NodeType::AnPlusB {
-                a: "3".to_string(),
-                b: "-2".to_string()
+                a: "3".into(),
+                b: "-2".into()
             }
         );
         test!(
             parse_anplusb,
             "-n+ 6",
             NodeType::AnPlusB {
-                a: "-1".to_string(),
-                b: "6".to_string()
+                a: "-1".into(),
+                b: "6".into()
             }
         );
         test!(
             parse_anplusb,
             "-n+6",
             NodeType::AnPlusB {
-                a: "-1".to_string(),
-                b: "6".to_string()
+                a: "-1".into(),
+                b: "6".into()
             }
         );
         test!(
             parse_anplusb,
             "-n +6",
             NodeType::AnPlusB {
-                a: "-1".to_string(),
-                b: "6".to_string()
+                a: "-1".into(),
+                b: "6".into()
             }
         );
     }

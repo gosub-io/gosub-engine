@@ -1,6 +1,7 @@
 use crate::node::{Node, NodeType};
 use crate::tokenizer::TokenType;
 use crate::Css3;
+use compact_str::CompactString;
 use cow_utils::CowUtils;
 use gosub_shared::errors::CssError;
 use gosub_shared::errors::CssResult;
@@ -9,7 +10,7 @@ impl Css3<'_> {
     fn parse_attribute_operator(&mut self) -> CssResult<Node> {
         log::trace!("parse_attribute_operator");
 
-        let mut value = String::new();
+        let mut value = CompactString::default();
         let loc = self.tokenizer.current_location();
 
         let t = self.consume_any()?;
@@ -66,11 +67,11 @@ impl Css3<'_> {
         Ok(Node::new(NodeType::NestingSelector, loc))
     }
 
-    fn parse_type_selector_ident_or_asterisk(&mut self) -> CssResult<String> {
+    fn parse_type_selector_ident_or_asterisk(&mut self) -> CssResult<CompactString> {
         let t = self.tokenizer.consume();
         match t.token_type {
             TokenType::Ident(value) => Ok(value),
-            TokenType::Delim('*') => Ok("*".to_string()),
+            TokenType::Delim('*') => Ok(CompactString::const_new("*")),
             _ => {
                 let message = format!("Unexpected token {t:?}");
                 self.tokenizer.reconsume(t);
@@ -86,7 +87,7 @@ impl Css3<'_> {
         log::trace!("parse_type_selector");
 
         let loc = self.tokenizer.current_location();
-        let mut value = String::new();
+        let mut value = CompactString::default();
 
         if self.tokenizer.lookahead(0).token_type == TokenType::Delim('|') {
             self.tokenizer.consume();
@@ -103,8 +104,8 @@ impl Css3<'_> {
         }
 
         let (namespace, ident) = match value.split_once('|') {
-            Some((namespace, ident)) => (Some(namespace.to_string()), ident.to_string()),
-            None => (None, value.to_string()),
+            Some((namespace, ident)) => (Some(namespace.into()), ident.into()),
+            None => (None, value),
         };
 
         Ok(Node::new(
@@ -121,9 +122,9 @@ impl Css3<'_> {
 
         let loc = self.tokenizer.current_location();
 
-        let mut flags = String::new();
+        let mut flags = CompactString::default();
         let mut matcher = None;
-        let mut value = String::new();
+        let mut value = CompactString::default();
 
         self.consume(TokenType::LBracket)?;
         self.consume_whitespace_comments();
@@ -260,7 +261,7 @@ impl Css3<'_> {
 
                 Node::new(
                     NodeType::Function {
-                        name: name.to_string(),
+                        name: CompactString::from(name.as_ref()),
                         arguments: vec![args],
                     },
                     t.location,
@@ -386,7 +387,12 @@ impl Css3<'_> {
 
             if space {
                 // Detected a space previously, so we need to emit a descendant combinator
-                let node = Node::new(NodeType::Combinator { value: " ".to_string() }, whitespace_location);
+                let node = Node::new(
+                    NodeType::Combinator {
+                        value: CompactString::const_new(" "),
+                    },
+                    whitespace_location,
+                );
                 // insert before the last added node
                 children.push(node);
                 space = false;

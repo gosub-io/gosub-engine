@@ -1,9 +1,11 @@
+use compact_str::{CompactString, ToCompactString};
 use cow_utils::CowUtils;
 use log::warn;
 
 use crate::media_query::MediaQueryList;
 use crate::node::{Node as CssNode, NodeType};
 use crate::stylesheet::note_dropped;
+use crate::stylesheet::MediaConditions;
 use crate::stylesheet::{
     AttributeSelector, Combinator, CssDeclaration, CssRule, CssSelector, CssSelectorPart, CssStylesheet, CssValue,
     FontFace, ImportRule, MatcherType, NthKind, NthSelector, PropertyRule,
@@ -276,7 +278,7 @@ fn math_spacing_is_valid(node: &CssNode, in_math: bool) -> bool {
 /// Convert a functional pseudo-class's selector-list argument (as `:not()` takes) into one
 /// compound per comma-separated selector.
 fn convert_selector_list(arguments: Vec<CssNode>) -> CssResult<Vec<Vec<CssSelectorPart>>> {
-    let mut out: Vec<Vec<CssSelectorPart>> = vec![vec![]];
+    let mut out = FlatSelectors::default();
     for argument in arguments {
         let selectors = match argument.node_type {
             NodeType::SelectorList { selectors } => selectors,
@@ -290,14 +292,13 @@ fn convert_selector_list(arguments: Vec<CssNode>) -> CssResult<Vec<Vec<CssSelect
         // Each selector of the list is a complex selector of its own.
         for selector in selectors {
             if let NodeType::Selector { children } = selector.node_type {
-                out.push(vec![]);
+                out.next_complex();
                 convert_selector_children(children, &mut out)?;
             }
         }
     }
 
-    out.retain(|compound| !compound.is_empty());
-    Ok(out)
+    Ok(out.into_lists())
 }
 
 /// Converts the argument of an `:nth-*()` pseudo-class: `An+B` (or a bare integer), and for
@@ -366,7 +367,7 @@ fn relative_selectors(list: Vec<Vec<CssSelectorPart>>) -> Vec<Vec<CssSelectorPar
 }
 
 /// The language ranges of a `:lang()`, each as written (ident or string).
-fn convert_lang_ranges(arguments: Vec<CssNode>) -> CssResult<Vec<String>> {
+fn convert_lang_ranges(arguments: Vec<CssNode>) -> CssResult<Vec<CompactString>> {
     let Some(NodeType::Value { children }) = arguments.into_iter().next().map(|node| node.node_type) else {
         return Err(CssError::new(":lang() without language ranges"));
     };
@@ -379,15 +380,64 @@ fn convert_lang_ranges(arguments: Vec<CssNode>) -> CssResult<Vec<String>> {
         .collect()
 }
 
+/// Selector parts laid end to end, one complex selector after another, which is how
+/// `CssSelector` keeps them: building them that way spares a `Vec` per complex selector and the
+/// one holding them.
+#[derive(Default)]
+struct FlatSelectors {
+    parts: Vec<CssSelectorPart>,
+    /// Where each complex selector after the first begins in `parts`.
+    starts: Vec<usize>,
+}
+
+impl FlatSelectors {
+    /// Start the next complex selector. An empty one is not kept: a compound with no parts
+    /// matches every element vacuously, so the parts that follow go into it instead.
+    fn next_complex(&mut self) {
+        if self.parts.len() > self.starts.last().copied().unwrap_or(0) {
+            self.starts.push(self.parts.len());
+        }
+    }
+
+    /// Drop a trailing empty complex selector.
+    fn trim(&mut self) {
+        if self.starts.last() == Some(&self.parts.len()) {
+            self.starts.pop();
+        }
+    }
+
+    /// `None` when no complex selector has any parts.
+    fn into_selector(mut self) -> Option<CssSelector> {
+        self.trim();
+        (!self.parts.is_empty()).then(|| CssSelector::from_flat(self.parts, &self.starts))
+    }
+
+    fn into_lists(mut self) -> Vec<Vec<CssSelectorPart>> {
+        self.trim();
+        if self.parts.is_empty() {
+            return vec![];
+        }
+        let mut lists = Vec::with_capacity(self.starts.len() + 1);
+        for &start in self.starts.iter().rev() {
+            lists.push(self.parts.split_off(start));
+        }
+        lists.push(self.parts);
+        lists.reverse();
+        lists
+    }
+}
+
 /// Convert the children of one `Selector` AST node into selector parts, appending to the compound
 /// currently being built in `out`. A comma starts a new compound.
-fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelectorPart>>) -> CssResult<()> {
-    // One part per node, give or take the few that convert to none, so the list is sized here
-    // rather than doubled into place: `CssSelector` keeps this vector as it is given it, and the
-    // slots a doubling claimed would stay unused for as long as the sheet is loaded.
-    if let Some(current) = out.last_mut() {
-        current.reserve_exact(children.len());
-    }
+fn convert_selector_children(children: Vec<CssNode>, out: &mut FlatSelectors) -> CssResult<()> {
+    // One part per node but the commas, so the list is sized here rather than doubled into
+    // place: `CssSelector` keeps this vector as it is given it, and the slots a doubling claimed
+    // would stay unused for as long as the sheet is loaded.
+    let commas = children
+        .iter()
+        .filter(|node| matches!(node.node_type, NodeType::Comma))
+        .count();
+    out.parts.reserve_exact(children.len() - commas);
     for node in children {
         let part = match node.node_type {
             NodeType::Ident { value } => CssSelectorPart::Type(value),
@@ -438,11 +488,11 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelect
                         // Any other functional pseudo-class keeps its serialized form, which is
                         // what the matcher's name-based arms expect.
                         CssSelectorPart::PseudoClass(
-                            CssNode::new(NodeType::Function { name, arguments }, node.location).to_string(),
+                            CssNode::new(NodeType::Function { name, arguments }, node.location).to_compact_string(),
                         )
                     }
                 } else {
-                    let name = value.to_string();
+                    let name = value.to_compact_string();
                     if is_legacy_pseudo_element(&name) {
                         CssSelectorPart::PseudoElement(name)
                     } else if name.eq_ignore_ascii_case("host") {
@@ -501,7 +551,7 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelect
                 }))
             }
             NodeType::Comma => {
-                out.push(vec![]);
+                out.next_complex();
                 continue;
             }
             other => {
@@ -513,11 +563,7 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelect
                 ));
             }
         };
-        if let Some(x) = out.last_mut() {
-            x.push(part);
-        } else {
-            out.push(vec![part]); //unreachable, but still, we handle it
-        }
+        out.parts.push(part);
     }
 
     Ok(())
@@ -554,51 +600,38 @@ fn collect_rule(
     line: u32,
     prelude: Option<Box<CssNode>>,
     block: Option<Box<CssNode>>,
-    media: &[Arc<MediaQueryList>],
+    media: Option<&MediaConditions>,
     layer: Option<u32>,
 ) -> Option<CssRule> {
-    // Sized rather than grown: a rule gets exactly one `CssSelector` - the whole selector list
-    // is one of them - and a `Vec` that grows by doubling claims four slots to hold it.
-    let mut rule = CssRule::new(
-        Vec::with_capacity(1),
-        vec![],
-        (!media.is_empty()).then(|| media.to_vec()),
-        layer,
-    );
-    rule.line = line;
+    // The parser gives every style rule a selector list; a rule without one would match nothing.
+    let NodeType::SelectorList { selectors } = prelude?.node_type else {
+        return None;
+    };
 
-    if let Some(node) = prelude {
-        let NodeType::SelectorList { selectors } = node.node_type else {
-            return None;
+    let mut parts = FlatSelectors::default();
+    for node in selectors {
+        let NodeType::Selector { children } = node.node_type else {
+            continue;
         };
 
-        let mut parts: Vec<Vec<CssSelectorPart>> = vec![vec![]];
-        for node in selectors {
-            let NodeType::Selector { children } = node.node_type else {
-                continue;
-            };
-
-            if let Err(err) = convert_selector_children(children, &mut parts) {
-                // One member of a selector list being invalid invalidates the whole list, and so
-                // this rule - but only this rule.
-                log::debug!("Rule dropped: {err}");
-                drop_here(dropped, CssDroppedKind::InvalidSelector, err.to_string(), line);
-                return None;
-            }
-        }
-
-        // A compound with no parts matches every element vacuously, so an empty prelude
-        // (e.g. `/*.a, .b*/{ ... }`, where the whole selector list is commented out) would
-        // apply its declarations to the entire document. Per CSS Syntax a style rule with an
-        // invalid or empty prelude is invalid and must be dropped, so drop the empty compounds
-        // and the rule with them if nothing is left.
-        parts.retain(|part| !part.is_empty());
-        if parts.is_empty() {
+        if let Err(err) = convert_selector_children(children, &mut parts) {
+            // One member of a selector list being invalid invalidates the whole list, and so
+            // this rule - but only this rule.
+            log::debug!("Rule dropped: {err}");
+            drop_here(dropped, CssDroppedKind::InvalidSelector, err.to_string(), line);
             return None;
         }
-
-        rule.selectors.push(CssSelector::new(parts));
     }
+
+    // A compound with no parts matches every element vacuously, so an empty prelude
+    // (e.g. `/*.a, .b*/{ ... }`, where the whole selector list is commented out) would
+    // apply its declarations to the entire document. Per CSS Syntax a style rule with an
+    // invalid or empty prelude is invalid and must be dropped, so drop the empty compounds
+    // and the rule with them if nothing is left.
+    let selector = parts.into_selector()?;
+
+    let mut rule = CssRule::new(selector, vec![], media.cloned(), layer);
+    rule.line = line;
 
     if let Some(declaration) = block {
         let NodeType::Block { children } = declaration.node_type else {
@@ -634,45 +667,55 @@ fn collect_rule(
                 continue;
             }
 
-            // Convert the nodes into CSS Values. A component value that does not convert makes
-            // the declaration invalid (css-syntax-3 §9), so it is dropped whole: keeping the
-            // tokens that did convert would leave `margin: 1px <unconvertible>` behind as
-            // `margin: 1px`, which is not what the author wrote.
-            let mut css_values = Vec::with_capacity(value.len());
-            let mut converted = true;
-            for node in value {
-                match CssValue::parse_ast_node(node) {
-                    Ok(value) => css_values.push(value),
-                    Err(err) => {
-                        log::debug!("Declaration dropped, {property}: {err}");
-                        converted = false;
-                        break;
-                    }
-                }
-            }
-
             // Only a custom property can arrive with no value at all (`--x:;`, which the parser
             // lets through), and for one that is a value: it substitutes to nothing.
-            if !converted || (css_values.is_empty() && !property.starts_with("--")) {
+            if value.is_empty() && !property.starts_with("--") {
                 drop_here(dropped, CssDroppedKind::InvalidValue, property, at);
                 continue;
             }
 
-            let value = match css_values.pop() {
-                Some(value) if css_values.is_empty() => value,
-                Some(value) => {
-                    css_values.push(value);
-                    CssValue::List(css_values)
+            // A value already pooled is found from its nodes, so a repeat builds nothing. A lone
+            // prefixed `display` keyword is looked up as the keyword it aliases.
+            let alias = match value.as_slice() {
+                [node] if property.eq_ignore_ascii_case("display") => match &node.node_type {
+                    NodeType::Ident { value } | NodeType::String { value } => display_alias(value),
+                    _ => None,
+                },
+                _ => None,
+            };
+            let value = pool.get_or_build(value, alias, |value| {
+                // Convert the nodes into CSS Values. A component value that does not convert
+                // makes the declaration invalid (css-syntax-3 §9), so it is dropped whole: keeping
+                // the tokens that did convert would leave `margin: 1px <unconvertible>` behind as
+                // `margin: 1px`, which is not what the author wrote. A single component value, the
+                // common case, is converted on its own rather than through a list of one.
+                let value = match <[CssNode; 1]>::try_from(value) {
+                    Ok([node]) => CssValue::parse_ast_node(node),
+                    Err(nodes) => {
+                        let mut values = Vec::with_capacity(nodes.len());
+                        nodes
+                            .into_iter()
+                            .try_for_each(|node| CssValue::parse_ast_node(node).map(|value| values.push(value)))
+                            .map(|()| CssValue::List(values))
+                    }
+                }?;
+                // The four prefixed `display` keywords the Compatibility Standard requires are
+                // the standard values they alias. Resolved here so that every reader of a
+                // stylesheet - the cascade and the CSSOM alike - sees the value they mean.
+                Ok::<_, CssError>(resolve_display_alias(&property, value))
+            });
+            // One allocation per *distinct* value in the sheet, shared from here on by every rule
+            // that writes it and every element those rules match.
+            let value = match value {
+                Ok(value) => value,
+                Err(err) => {
+                    log::debug!("Declaration dropped, {property}: {err}");
+                    drop_here(dropped, CssDroppedKind::InvalidValue, property, at);
+                    continue;
                 }
-                None => CssValue::List(css_values),
             };
 
-            // The four prefixed `display` keywords the Compatibility Standard requires are
-            // the standard values they alias. Resolved here so that every reader of a
-            // stylesheet - the cascade and the CSSOM alike - sees the value they mean.
-            let value = resolve_display_alias(&property, value);
-
-            let property: crate::stylesheet::PropertyName = property.into();
+            let property: crate::stylesheet::PropertyName = property.as_str().into();
             // A property with no definition is dropped by the expansion; said here, where the
             // line is known and every rule is seen, not only those an element uses.
             if !property.is_custom() && property.id().is_none() {
@@ -682,9 +725,7 @@ fn collect_rule(
                 // Resolved to an id here, once, rather than by name on every rule expansion
                 // and every element a pending declaration reaches.
                 property,
-                // One allocation per *distinct* value in the sheet, shared from here on by
-                // every rule that writes it and every element those rules match.
-                value: pool.intern(value),
+                value,
                 important,
             });
         }
@@ -719,13 +760,18 @@ pub(crate) fn resolve_display_alias(property: &str, value: CssValue) -> CssValue
     let CssValue::String(keyword) = &value else {
         return value;
     };
-    match DISPLAY_ALIASES
-        .iter()
-        .find(|(alias, _)| keyword.eq_ignore_ascii_case(alias))
-    {
-        Some((_, standard)) => CssValue::String((*standard).to_string()),
+    match display_alias(keyword) {
+        Some(standard) => CssValue::String(standard.to_string()),
         None => value,
     }
+}
+
+/// The standard `display` keyword a prefixed one aliases.
+pub(crate) fn display_alias(keyword: &str) -> Option<&'static str> {
+    DISPLAY_ALIASES
+        .iter()
+        .find(|(alias, _)| keyword.eq_ignore_ascii_case(alias))
+        .map(|(_, standard)| *standard)
 }
 
 /// Build an [`ImportRule`] from an `@import` prelude ([`NodeType::ImportList`]).
@@ -744,12 +790,12 @@ fn collect_import(prelude: &CssNode) -> Option<ImportRule> {
 
     for child in children {
         match &child.node_type {
-            NodeType::String { value } if url.is_none() => url = Some(value.clone()),
-            NodeType::Url { url: value } if url.is_none() => url = Some(value.clone()),
+            NodeType::String { value } if url.is_none() => url = Some(value.to_string()),
+            NodeType::Url { url: value } if url.is_none() => url = Some(value.to_string()),
             NodeType::Ident { value } if value.eq_ignore_ascii_case("layer") => layer = Some(None),
             NodeType::Function { name, arguments } if name.eq_ignore_ascii_case("layer") => {
                 let named = arguments.iter().find_map(|arg| match &arg.node_type {
-                    NodeType::Ident { value } => Some(value.clone()),
+                    NodeType::Ident { value } => Some(value.to_string()),
                     _ => None,
                 });
                 layer = Some(named);
@@ -777,7 +823,7 @@ fn layer_names(prelude: &CssNode) -> Vec<String> {
     layers
         .iter()
         .filter_map(|node| match &node.node_type {
-            NodeType::Ident { value } => Some(value.clone()),
+            NodeType::Ident { value } => Some(value.to_string()),
             _ => None,
         })
         .collect()
@@ -815,11 +861,8 @@ fn register_layer(layers: &mut Vec<String>, name: &str) -> u32 {
     u32::try_from(index).unwrap_or(u32::MAX)
 }
 
-/// Walk a stylesheet's top-level nodes, flattening at-rules into a single rule list.
-///
-/// `media` is the stack of `@media` conditions currently in scope, outermost first; every rule
 /// What converting a sheet's nodes accumulates, gathered so the walk carries one thing rather
-/// than six. The media stack and the current layer are not here: they are scoped to the branch
+/// than six. The media conditions and the current layer are not here: they are scoped to the branch
 /// being walked rather than to the sheet.
 struct SheetParts<'a> {
     pool: &'a mut ValuePool,
@@ -831,146 +874,152 @@ struct SheetParts<'a> {
     layers: &'a mut Vec<String>,
 }
 
-/// collected while it is non-empty records it and is evaluated against the live
+/// Walk a stylesheet's top-level nodes, flattening at-rules into a single rule list.
+///
+/// `media` is the `@media` conditions currently in scope, outermost first; every rule collected
+/// under them shares the list, and it is evaluated against the live
 /// [`MediaEnvironment`](crate::media_query::MediaEnvironment) at match time rather than here.
-fn collect_rules(
-    sheet: &mut SheetParts<'_>,
-    nodes: Vec<CssNode>,
-    media: &mut Vec<Arc<MediaQueryList>>,
-    layer: Option<u32>,
-) {
+fn collect_rules(sheet: &mut SheetParts<'_>, nodes: Vec<CssNode>, media: Option<&MediaConditions>, layer: Option<u32>) {
     for node in nodes {
-        let line = line_of(&node.location);
-        match node.node_type {
-            NodeType::Rule { prelude, block } => {
-                if let Some(rule) = collect_rule(sheet.pool, sheet.dropped, line, prelude, block, media, layer) {
-                    sheet.rules.push(rule);
-                }
+        collect_node(sheet, node, media, layer);
+    }
+}
+
+/// One node of [`collect_rules`]; called directly for a top-level node, which comes alone.
+fn collect_node(sheet: &mut SheetParts<'_>, node: CssNode, media: Option<&MediaConditions>, layer: Option<u32>) {
+    let line = line_of(&node.location);
+    match node.node_type {
+        NodeType::Rule { prelude, block } => {
+            if let Some(rule) = collect_rule(sheet.pool, sheet.dropped, line, prelude, block, media, layer) {
+                sheet.rules.push(rule);
             }
-            NodeType::AtRule {
-                name,
-                prelude,
-                block: Some(block),
-            } if name.eq_ignore_ascii_case("media") => {
-                if let NodeType::Block { children } = block.node_type {
-                    // A missing or unparseable prelude yields an empty (always-matching) list,
-                    // so the block's sheet.rules stay visible rather than disappearing.
-                    let list = prelude.map(|node| MediaQueryList::from_ast(&node)).unwrap_or_default();
-                    media.push(Arc::new(list));
-                    collect_rules(sheet, children, media, layer);
-                    media.pop();
-                }
-            }
-            NodeType::AtRule {
-                name,
-                prelude: Some(prelude),
-                block: None,
-            } if name.eq_ignore_ascii_case("import") => {
-                // Per spec `@import` may only appear before any style rule; a later one is
-                // invalid and ignored. Enforcing that keeps `splice_import`'s "imported sheet.rules
-                // go in front" contract honest.
-                if sheet.rules.is_empty() {
-                    if let Some(import) = collect_import(&prelude) {
-                        sheet.imports.push(import);
-                    }
-                } else {
-                    warn!("Ignoring @import that follows a style rule");
-                    drop_here(sheet.dropped, CssDroppedKind::UnsupportedAtRule, "@import", line);
-                }
-            }
-            NodeType::AtRule {
-                name,
-                prelude,
-                block: Some(block),
-            } if name.eq_ignore_ascii_case("supports") => {
-                // A supports condition asks about the engine, never the device, so it can be
-                // settled here: a false block contributes no sheet.rules at all, and a true one
-                // flattens away exactly like `@layer`.
-                let holds = match prelude.as_deref() {
-                    Some(CssNode {
-                        node_type: NodeType::Raw { value },
-                        ..
-                    }) => SupportsCondition::parse(value).matches(),
-                    // No prelude at all is not a valid `@supports`; drop the block.
-                    _ => false,
-                };
-                if holds {
-                    if let NodeType::Block { children } = block.node_type {
-                        collect_rules(sheet, children, media, layer);
-                    }
-                }
-            }
-            // `@layer name { ... }`, or an anonymous `@layer { ... }`. The block's sheet.rules are
-            // flattened into the sheet like any other conditional group, but they carry the
-            // layer with them: which layer a rule sits in decides the cascade before specificity
-            // is ever looked at (css-cascade-5 §6.4.1).
-            NodeType::AtRule {
-                name,
-                prelude,
-                block: Some(block),
-            } if name.eq_ignore_ascii_case("layer") => {
-                // A nested `@layer b` inside `@layer a` is the layer `a.b`.
-                let outer = layer.and_then(|index| sheet.layers.get(index as usize)).cloned();
-                let declared = prelude.as_deref().map_or_else(Vec::new, layer_names);
-                // At most one name may be given when there is a block; an anonymous layer is
-                // its own layer every time, and cannot be reopened, so it gets a name no
-                // author-written `@layer` can collide with.
-                let name = match declared.first() {
-                    Some(name) => qualify_layer(outer.as_deref(), name),
-                    None => format!("%anonymous-{}", sheet.layers.len()),
-                };
-                let inner = register_layer(sheet.layers, &name);
-                if let NodeType::Block { children } = block.node_type {
-                    collect_rules(sheet, children, media, Some(inner));
-                }
-            }
-            // `@layer a, b;` sets the order of sheet.layers before either is filled in. It carries no
-            // sheet.rules; naming them here is its whole purpose.
-            NodeType::AtRule {
-                name,
-                prelude,
-                block: None,
-            } if name.eq_ignore_ascii_case("layer") => {
-                let outer = layer.and_then(|index| sheet.layers.get(index as usize)).cloned();
-                for declared in prelude.as_deref().map_or_else(Vec::new, layer_names) {
-                    register_layer(sheet.layers, &qualify_layer(outer.as_deref(), &declared));
-                }
-            }
-            NodeType::AtRule {
-                name,
-                block: Some(block),
-                ..
-            } if name.eq_ignore_ascii_case("font-face") => {
-                if let NodeType::Block { children } = block.node_type {
-                    if let Some(face) = collect_font_face(children, media) {
-                        sheet.font_faces.push(face);
-                    }
-                }
-            }
-            NodeType::AtRule {
-                name,
-                prelude,
-                block: Some(block),
-            } if name.eq_ignore_ascii_case("property") => {
-                match collect_property(prelude.map(|node| *node), *block, media) {
-                    Some(rule) => sheet.property_rules.push(rule),
-                    None => drop_here(sheet.dropped, CssDroppedKind::InvalidValue, "@property", line),
-                }
-            }
-            // `@charset` only ever named the encoding, which is settled before CSS is parsed.
-            NodeType::AtRule { name, .. } if name.eq_ignore_ascii_case("charset") => {}
-            // An at-rule this engine does not implement (`@keyframes`, `@page`, `@container`),
-            // or a known one in a shape it cannot use (`@media` with no block).
-            NodeType::AtRule { name, .. } => {
-                drop_here(
-                    sheet.dropped,
-                    CssDroppedKind::UnsupportedAtRule,
-                    format!("@{name}"),
-                    line,
-                );
-            }
-            _ => {}
         }
+        NodeType::AtRule {
+            name,
+            prelude,
+            block: Some(block),
+        } if name.eq_ignore_ascii_case("media") => {
+            if let NodeType::Block { children } = block.node_type {
+                // A missing or unparseable prelude yields an empty (always-matching) list,
+                // so the block's sheet.rules stay visible rather than disappearing.
+                let list = prelude.map(|node| MediaQueryList::from_ast(&node)).unwrap_or_default();
+                let inner: MediaConditions = media
+                    .into_iter()
+                    .flat_map(|outer| outer.iter().cloned())
+                    .chain(std::iter::once(Arc::new(list)))
+                    .collect();
+                collect_rules(sheet, children, Some(&inner), layer);
+            }
+        }
+        NodeType::AtRule {
+            name,
+            prelude: Some(prelude),
+            block: None,
+        } if name.eq_ignore_ascii_case("import") => {
+            // Per spec `@import` may only appear before any style rule; a later one is
+            // invalid and ignored. Enforcing that keeps `splice_import`'s "imported sheet.rules
+            // go in front" contract honest.
+            if sheet.rules.is_empty() {
+                if let Some(import) = collect_import(&prelude) {
+                    sheet.imports.push(import);
+                }
+            } else {
+                warn!("Ignoring @import that follows a style rule");
+                drop_here(sheet.dropped, CssDroppedKind::UnsupportedAtRule, "@import", line);
+            }
+        }
+        NodeType::AtRule {
+            name,
+            prelude,
+            block: Some(block),
+        } if name.eq_ignore_ascii_case("supports") => {
+            // A supports condition asks about the engine, never the device, so it can be
+            // settled here: a false block contributes no sheet.rules at all, and a true one
+            // flattens away exactly like `@layer`.
+            let holds = match prelude.as_deref() {
+                Some(CssNode {
+                    node_type: NodeType::Raw { value },
+                    ..
+                }) => SupportsCondition::parse(value).matches(),
+                // No prelude at all is not a valid `@supports`; drop the block.
+                _ => false,
+            };
+            if holds {
+                if let NodeType::Block { children } = block.node_type {
+                    collect_rules(sheet, children, media, layer);
+                }
+            }
+        }
+        // `@layer name { ... }`, or an anonymous `@layer { ... }`. The block's sheet.rules are
+        // flattened into the sheet like any other conditional group, but they carry the
+        // layer with them: which layer a rule sits in decides the cascade before specificity
+        // is ever looked at (css-cascade-5 §6.4.1).
+        NodeType::AtRule {
+            name,
+            prelude,
+            block: Some(block),
+        } if name.eq_ignore_ascii_case("layer") => {
+            // A nested `@layer b` inside `@layer a` is the layer `a.b`.
+            let outer = layer.and_then(|index| sheet.layers.get(index as usize)).cloned();
+            let declared = prelude.as_deref().map_or_else(Vec::new, layer_names);
+            // At most one name may be given when there is a block; an anonymous layer is
+            // its own layer every time, and cannot be reopened, so it gets a name no
+            // author-written `@layer` can collide with.
+            let name = match declared.first() {
+                Some(name) => qualify_layer(outer.as_deref(), name),
+                None => format!("%anonymous-{}", sheet.layers.len()),
+            };
+            let inner = register_layer(sheet.layers, &name);
+            if let NodeType::Block { children } = block.node_type {
+                collect_rules(sheet, children, media, Some(inner));
+            }
+        }
+        // `@layer a, b;` sets the order of sheet.layers before either is filled in. It carries no
+        // sheet.rules; naming them here is its whole purpose.
+        NodeType::AtRule {
+            name,
+            prelude,
+            block: None,
+        } if name.eq_ignore_ascii_case("layer") => {
+            let outer = layer.and_then(|index| sheet.layers.get(index as usize)).cloned();
+            for declared in prelude.as_deref().map_or_else(Vec::new, layer_names) {
+                register_layer(sheet.layers, &qualify_layer(outer.as_deref(), &declared));
+            }
+        }
+        NodeType::AtRule {
+            name,
+            block: Some(block),
+            ..
+        } if name.eq_ignore_ascii_case("font-face") => {
+            if let NodeType::Block { children } = block.node_type {
+                if let Some(face) = collect_font_face(children, media) {
+                    sheet.font_faces.push(face);
+                }
+            }
+        }
+        NodeType::AtRule {
+            name,
+            prelude,
+            block: Some(block),
+        } if name.eq_ignore_ascii_case("property") => {
+            match collect_property(prelude.map(|node| *node), *block, media) {
+                Some(rule) => sheet.property_rules.push(rule),
+                None => drop_here(sheet.dropped, CssDroppedKind::InvalidValue, "@property", line),
+            }
+        }
+        // `@charset` only ever named the encoding, which is settled before CSS is parsed.
+        NodeType::AtRule { name, .. } if name.eq_ignore_ascii_case("charset") => {}
+        // An at-rule this engine does not implement (`@keyframes`, `@page`, `@container`),
+        // or a known one in a shape it cannot use (`@media` with no block).
+        NodeType::AtRule { name, .. } => {
+            drop_here(
+                sheet.dropped,
+                CssDroppedKind::UnsupportedAtRule,
+                format!("@{name}"),
+                line,
+            );
+        }
+        _ => {}
     }
 }
 
@@ -978,7 +1027,7 @@ fn collect_rules(
 /// (css-properties-values-api-1 §3): the prelude is not one custom property name, `syntax` or
 /// `inherits` is missing or malformed, or a syntax other than `*` has no `initial-value`.
 /// Unknown descriptors are ignored, and a later descriptor replaces an earlier one.
-fn collect_property(prelude: Option<CssNode>, block: CssNode, media: &[Arc<MediaQueryList>]) -> Option<PropertyRule> {
+fn collect_property(prelude: Option<CssNode>, block: CssNode, media: Option<&MediaConditions>) -> Option<PropertyRule> {
     let NodeType::Container { children } = prelude?.node_type else {
         return None;
     };
@@ -1047,18 +1096,18 @@ fn collect_property(prelude: Option<CssNode>, block: CssNode, media: &[Arc<Media
         return None;
     }
     Some(PropertyRule {
-        name: name.clone(),
+        name: name.to_string(),
         syntax,
         inherits: inherits?,
         initial,
-        media: (!media.is_empty()).then(|| media.to_vec()),
+        media: media.cloned(),
         imported: false,
     })
 }
 
 /// Build a [`FontFace`] from the declarations inside an `@font-face` block. Requires a
 /// `font-family` and at least one `src: url(...)`; returns `None` otherwise.
-fn collect_font_face(nodes: Vec<CssNode>, media: &[Arc<MediaQueryList>]) -> Option<FontFace> {
+fn collect_font_face(nodes: Vec<CssNode>, media: Option<&MediaConditions>) -> Option<FontFace> {
     let mut family: Option<String> = None;
     let mut sources: Vec<String> = Vec::new();
     let mut unicode_range: Option<String> = None;
@@ -1140,7 +1189,7 @@ fn collect_font_face(nodes: Vec<CssNode>, media: &[Arc<MediaQueryList>]) -> Opti
         family,
         sources,
         unicode_range,
-        media: (!media.is_empty()).then(|| media.to_vec()),
+        media: media.cloned(),
     })
 }
 
@@ -1240,9 +1289,8 @@ fn collect_src_entries(value: &CssValue, out: &mut Vec<SrcEntry>) {
 /// The streaming counterpart of [`convert_ast_to_stylesheet`]: the parser hands over each rule
 /// as it finishes it, the rule's nodes are converted here, and the caller drops them before the
 /// next rule is parsed. `rules` accumulates across calls, which is what keeps `@import`'s "only
-/// before any style rule" check honest, and so does `layers`. The media stack is per call
-/// because it is balanced within one top-level node - a nested `@media` pushes its condition and
-/// pops it again before the node is done.
+/// before any style rule" check honest, and so does `layers`. A top-level node starts outside
+/// every `@media`.
 pub(crate) fn convert_node_into(
     node: CssNode,
     sheet: &mut CssStylesheet,
@@ -1258,7 +1306,7 @@ pub(crate) fn convert_node_into(
         property_rules: &mut sheet.property_rules,
         layers,
     };
-    collect_rules(&mut parts, vec![node], &mut Vec::new(), None);
+    collect_node(&mut parts, node, None, None);
 }
 
 /// Whether any declaration in the sheet uses a viewport-relative unit; see
@@ -1289,7 +1337,7 @@ pub fn convert_ast_to_stylesheet(css_ast: CssNode, origin: CssOrigin, url: &str)
         property_rules: &mut sheet.property_rules,
         layers: &mut layers,
     };
-    collect_rules(&mut parts, children, &mut Vec::new(), None);
+    collect_rules(&mut parts, children, None, None);
     sheet.layers = layers;
     // Recorded once here rather than asked per resize: a sheet using `vw`/`vh` must be
     // restyled whenever the viewport changes, while one that does not can keep its cached
@@ -1322,6 +1370,27 @@ mod tests {
         assert_eq!(value_of(1), CssValue::String("flex".into()));
         assert_eq!(value_of(2), CssValue::String("-webkit-grab".into()));
         assert_eq!(value_of(3), CssValue::String("-webkit-spin".into()));
+    }
+
+    /// A prefixed `display` keyword is found in the pool as the keyword it aliases, not as the
+    /// same spelling written for another property.
+    #[test]
+    fn a_display_alias_is_not_the_same_keyword_elsewhere() {
+        use crate::stylesheet::CssValue;
+        let sheet = crate::Css3::parse_str(
+            "a { animation-name: -webkit-box } b { display: -webkit-box } c { display: flex }",
+            gosub_shared::config::ParserConfig {
+                ignore_errors: true,
+                ..Default::default()
+            },
+            gosub_interface::css3::CssOrigin::Author,
+            "",
+        )
+        .expect("parses");
+        let value_of = |rule: usize| Arc::clone(&sheet.rules[rule].declarations()[0].value);
+        assert_eq!(*value_of(0), CssValue::String("-webkit-box".into()));
+        assert_eq!(*value_of(1), CssValue::String("flex".into()));
+        assert!(Arc::ptr_eq(&value_of(1), &value_of(2)));
     }
     use super::*;
     use crate::media_query::MediaEnvironment;
@@ -1494,6 +1563,37 @@ mod tests {
         assert_eq!(properties, vec!["color", "display"]);
     }
 
+    /// One component value is the value itself, several are a list, and an empty value is kept
+    /// only for a custom property. Units are folded to lowercase.
+    #[test]
+    fn declaration_values_take_the_shape_of_what_was_written() {
+        use crate::stylesheet::CssValue;
+        let stylesheet = Css3::parse_str(
+            "a { width: 1PX; margin: 1px 2EM; --x:; color: ; }",
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        let values: Vec<(&str, &CssValue)> = stylesheet.rules[0]
+            .declarations()
+            .iter()
+            .map(|declaration| (declaration.property.as_str(), &*declaration.value))
+            .collect();
+        assert_eq!(
+            values,
+            vec![
+                ("width", &CssValue::Unit(1.0, "px".into())),
+                (
+                    "margin",
+                    &CssValue::List(vec![CssValue::Unit(1.0, "px".into()), CssValue::Unit(2.0, "em".into())])
+                ),
+                ("--x", &CssValue::List(vec![])),
+            ]
+        );
+    }
+
     #[test]
     fn rule_with_fully_commented_out_selector_is_dropped() {
         // slashdot.org's classic.css ships `/*.a, .b*/{ ... }`. The empty prelude used to
@@ -1529,10 +1629,43 @@ mod tests {
 
         assert_eq!(stylesheet.rules.len(), 1);
         assert_eq!(
-            stylesheet.rules[0].selectors.first().unwrap().complex_count(),
+            stylesheet.rules[0].selector.complex_count(),
             3,
             "dropping empty compounds must not drop real ones"
         );
+        let selector = &stylesheet.rules[0].selector;
+        assert_eq!(selector.complex_at(0), [CssSelectorPart::Type("h3".into())]);
+        assert_eq!(selector.complex_at(1), [CssSelectorPart::Type("h4".into())]);
+        assert_eq!(
+            selector.complex_at(2),
+            [
+                CssSelectorPart::Class("foo".into()),
+                CssSelectorPart::Combinator(Combinator::Child),
+                CssSelectorPart::Class("bar".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn flat_selectors_keep_no_empty_complex() {
+        let mut flat = FlatSelectors::default();
+        flat.next_complex();
+        flat.parts.push(CssSelectorPart::Class("a".into()));
+        flat.next_complex();
+        flat.next_complex();
+        flat.parts.push(CssSelectorPart::Class("b".into()));
+        flat.next_complex();
+        assert_eq!(
+            flat.into_lists(),
+            [
+                vec![CssSelectorPart::Class("a".into())],
+                vec![CssSelectorPart::Class("b".into())]
+            ]
+        );
+
+        let mut flat = FlatSelectors::default();
+        flat.next_complex();
+        assert!(flat.into_selector().is_none());
     }
 
     #[test]
@@ -1547,7 +1680,7 @@ mod tests {
         )
         .unwrap();
 
-        let parts: Vec<_> = stylesheet.rules[0].selectors[0].complex_at(0).to_vec();
+        let parts: Vec<_> = stylesheet.rules[0].selector.complex_at(0).to_vec();
         assert!(
             parts
                 .iter()
@@ -1555,7 +1688,7 @@ mod tests {
             "`:after` must become a pseudo-element, got {parts:?}"
         );
 
-        let parts: Vec<_> = stylesheet.rules[1].selectors[0].complex_at(0).to_vec();
+        let parts: Vec<_> = stylesheet.rules[1].selector.complex_at(0).to_vec();
         assert!(
             parts
                 .iter()
@@ -1689,12 +1822,12 @@ mod tests {
         )
         .unwrap();
 
-        let parts = stylesheet.rules[0].selectors[0].complex_at(0);
+        let parts = stylesheet.rules[0].selector.complex_at(0);
         let Some(CssSelectorPart::Not(inner)) = parts.last() else {
             panic!("expected a Not part, got {parts:?}");
         };
         assert_eq!(inner.len(), 1, "one compound in the argument");
-        assert_eq!(inner[0], vec![CssSelectorPart::Class("skip".to_string())]);
+        assert_eq!(inner[0], vec![CssSelectorPart::Class("skip".into())]);
     }
 
     #[test]
@@ -1707,7 +1840,7 @@ mod tests {
         )
         .unwrap();
 
-        let parts = stylesheet.rules[0].selectors[0].complex_at(0);
+        let parts = stylesheet.rules[0].selector.complex_at(0);
         let Some(CssSelectorPart::Not(inner)) = parts.last() else {
             panic!("expected a Not part, got {parts:?}");
         };
@@ -1725,7 +1858,7 @@ mod tests {
         )
         .unwrap();
 
-        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selectors[0].complex_at(0));
+        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selector.complex_at(0));
         assert_eq!(spec(0), Specificity::new(1, 0, 1), "an id argument counts as an id");
         assert_eq!(spec(1), Specificity::new(0, 1, 1), "a class argument counts as a class");
         assert_eq!(spec(2), Specificity::new(0, 0, 2), "a type argument counts as a type");
@@ -1745,7 +1878,7 @@ mod tests {
         )
         .unwrap();
 
-        let nth = |i: usize| match stylesheet.rules[i].selectors[0].complex_at(0).last() {
+        let nth = |i: usize| match stylesheet.rules[i].selector.complex_at(0).last() {
             Some(CssSelectorPart::Nth(nth)) => (**nth).clone(),
             other => panic!("expected an Nth part, got {other:?}"),
         };
@@ -1775,7 +1908,7 @@ mod tests {
         assert_eq!((nth(8).a, nth(8).b), (i32::MAX, 1), "a coefficient past i32 clamps");
         assert_eq!((nth(9).a, nth(9).b), (0, i32::MIN), "and so does a bare integer");
 
-        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selectors[0].complex_at(0));
+        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selector.complex_at(0));
         assert_eq!(spec(0), Specificity::new(0, 1, 1), "a pseudo-class");
         assert_eq!(spec(4), Specificity::new(1, 1, 1), "plus the most specific of S");
     }
@@ -1827,7 +1960,7 @@ mod tests {
         )
         .unwrap();
 
-        let list = |i: usize| match stylesheet.rules[i].selectors[0].complex_at(0).last() {
+        let list = |i: usize| match stylesheet.rules[i].selector.complex_at(0).last() {
             Some(CssSelectorPart::Is(list) | CssSelectorPart::Where(list)) => list.clone(),
             other => panic!("expected an Is or Where part, got {other:?}"),
         };
@@ -1878,11 +2011,11 @@ mod tests {
         )
         .unwrap();
 
-        let list = |i: usize| match stylesheet.rules[i].selectors[0].complex_at(0).last() {
+        let list = |i: usize| match stylesheet.rules[i].selector.complex_at(0).last() {
             Some(CssSelectorPart::Is(list) | CssSelectorPart::Where(list)) => list.clone(),
             other => panic!("expected an Is or Where part, got {other:?}"),
         };
-        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selectors[0].complex_at(0));
+        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selector.complex_at(0));
         let ok = vec![vec![CssSelectorPart::Class("ok".into())]];
 
         assert_eq!(list(0), ok, "an unknown pseudo-class");
@@ -1909,7 +2042,7 @@ mod tests {
         )
         .unwrap();
 
-        let last = |i: usize| stylesheet.rules[i].selectors[0].complex_at(0).last().cloned();
+        let last = |i: usize| stylesheet.rules[i].selector.complex_at(0).last().cloned();
         let Some(CssSelectorPart::Is(inner)) = last(0) else {
             panic!("expected an Is part, got {:?}", last(0));
         };
@@ -1929,7 +2062,7 @@ mod tests {
             ":matches() is the old name of :is()"
         );
 
-        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selectors[0].complex_at(0));
+        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selector.complex_at(0));
         assert_eq!(
             spec(0),
             Specificity::new(0, 1, 1),
@@ -1949,7 +2082,7 @@ mod tests {
         )
         .unwrap();
 
-        let has = |i: usize| match stylesheet.rules[i].selectors[0].complex_at(0).last() {
+        let has = |i: usize| match stylesheet.rules[i].selector.complex_at(0).last() {
             Some(CssSelectorPart::Has(list)) => list.clone(),
             other => panic!("expected a Has part, got {other:?}"),
         };
@@ -1977,7 +2110,7 @@ mod tests {
             "no written combinator means descendant"
         );
         assert_eq!(
-            Specificity::from(stylesheet.rules[3].selectors[0].complex_at(0)),
+            Specificity::from(stylesheet.rules[3].selector.complex_at(0)),
             Specificity::new(1, 0, 1),
             ":has() counts its most specific argument"
         );
@@ -1993,7 +2126,7 @@ mod tests {
         )
         .unwrap();
 
-        let last = |i: usize| stylesheet.rules[i].selectors[0].complex_at(0).last().cloned();
+        let last = |i: usize| stylesheet.rules[i].selector.complex_at(0).last().cloned();
         assert_eq!(last(0), Some(CssSelectorPart::Lang(vec!["en".into()])));
         assert_eq!(
             last(1),
@@ -2001,7 +2134,7 @@ mod tests {
             "a comma-separated list, idents and strings"
         );
         assert_eq!(
-            Specificity::from(stylesheet.rules[0].selectors[0].complex_at(0)),
+            Specificity::from(stylesheet.rules[0].selector.complex_at(0)),
             Specificity::new(0, 1, 1),
             "a pseudo-class"
         );
@@ -2097,15 +2230,15 @@ mod tests {
 
         assert_eq!(stylesheet.rules.len(), 3);
         assert_eq!(
-            stylesheet.rules[0].selectors[0].complex_at(0)[0],
+            stylesheet.rules[0].selector.complex_at(0)[0],
             CssSelectorPart::Type("h1".into())
         );
         assert_eq!(
-            stylesheet.rules[1].selectors[0].complex_at(0)[0],
+            stylesheet.rules[1].selector.complex_at(0)[0],
             CssSelectorPart::Type("h2".into())
         );
         assert_eq!(
-            stylesheet.rules[2].selectors[0].complex_at(0)[0],
+            stylesheet.rules[2].selector.complex_at(0)[0],
             CssSelectorPart::Type("h3".into())
         );
     }
@@ -2400,7 +2533,7 @@ mod tests {
 
         assert_eq!(sheet.rules.len(), 1, "only the satisfied block contributes rules");
         assert_eq!(
-            sheet.rules[0].selectors[0].complex_at(0)[0],
+            sheet.rules[0].selector.complex_at(0)[0],
             CssSelectorPart::Type("h1".into())
         );
     }

@@ -81,7 +81,7 @@ impl Css3<'_> {
                 }
             }
             let value = self.tokenizer.slice(start, end.max(start));
-            children.push(Node::new(NodeType::Raw { value }, function.location));
+            children.push(Node::new(NodeType::Raw { value: value.into() }, function.location));
         }
 
         self.consume_whitespace_comments();

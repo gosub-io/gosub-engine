@@ -1,5 +1,6 @@
 use crate::tokenizer::{Number, Token, TokenType};
 use crate::Css3;
+use compact_str::{format_compact, CompactString};
 use gosub_shared::errors::{CssError, CssResult};
 
 mod anplusb;
@@ -39,7 +40,7 @@ impl Css3<'_> {
         Ok(self.tokenizer.consume())
     }
 
-    pub fn consume_function(&mut self) -> CssResult<String> {
+    pub fn consume_function(&mut self) -> CssResult<CompactString> {
         let t = self.tokenizer.consume();
         match t.token_type {
             TokenType::Function(name) => Ok(name),
@@ -72,7 +73,7 @@ impl Css3<'_> {
         }
     }
 
-    pub fn consume_any_string(&mut self) -> CssResult<String> {
+    pub fn consume_any_string(&mut self) -> CssResult<CompactString> {
         let t = self.tokenizer.consume();
         match t.token_type {
             TokenType::QuotedString(s) => Ok(s),
@@ -109,7 +110,7 @@ impl Css3<'_> {
         }
     }
 
-    pub fn consume_ident_ci(&mut self, ident: &str) -> CssResult<String> {
+    pub fn consume_ident_ci(&mut self, ident: &str) -> CssResult<CompactString> {
         let t = self.tokenizer.consume();
         match t.token_type {
             TokenType::Ident(s) if s.eq_ignore_ascii_case(ident) => Ok(s),
@@ -120,7 +121,7 @@ impl Css3<'_> {
         }
     }
 
-    pub fn consume_ident(&mut self, ident: &str) -> CssResult<String> {
+    pub fn consume_ident(&mut self, ident: &str) -> CssResult<CompactString> {
         let t = self.tokenizer.consume();
         match t.token_type {
             TokenType::Ident(s) if s == ident => Ok(s),
@@ -131,14 +132,14 @@ impl Css3<'_> {
         }
     }
 
-    pub fn consume_any_ident(&mut self) -> CssResult<String> {
+    pub fn consume_any_ident(&mut self) -> CssResult<CompactString> {
         let t = self.tokenizer.consume();
 
         match t.token_type {
             TokenType::Delim('.') => {
                 let t = self.tokenizer.consume();
                 match t.token_type {
-                    TokenType::Ident(s) => Ok(format!(".{s}")),
+                    TokenType::Ident(s) => Ok(format_compact!(".{s}")),
                     _ => Err(CssError::with_location(
                         format!("Expected ident, got {t:?}").as_str(),
                         self.tokenizer.current_location(),

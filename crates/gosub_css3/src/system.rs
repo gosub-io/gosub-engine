@@ -277,7 +277,7 @@ fn style_environment_fingerprint_impl(sheets: &[CssStylesheet]) -> u64 {
             let Some(conditions) = media else {
                 continue;
             };
-            for list in conditions {
+            for list in conditions.iter() {
                 // Hash each distinct condition once, in first-seen (rule) order, so the
                 // result is deterministic across runs.
                 if seen.insert(Arc::as_ptr(list) as usize) {
@@ -418,18 +418,9 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
             let filter = rule
                 .asks_about_ancestors()
                 .then(|| &**ancestors.get_or_insert_with(|| ancestor_filter::<C>(doc, id, known)));
-            // A rule applies with the highest specificity among its matching selectors.
-            let best = rule
-                .selectors()
-                .iter()
-                .filter_map(
-                    |selector| match match_selector::<C>(doc, id, selector, pseudo, scope, filter) {
-                        (true, specificity) => Some(specificity),
-                        (false, _) => None,
-                    },
-                )
-                .max();
-            if let Some(specificity) = best {
+            // A rule applies with the highest specificity among the matching selectors in its list.
+            let (matches, specificity) = match_selector::<C>(doc, id, rule.selector(), pseudo, scope, filter);
+            if matches {
                 matched.push(MatchedRule {
                     sheet,
                     rule,
@@ -975,13 +966,11 @@ fn hover_fingerprints_impl(sheets: &[CssStylesheet]) -> HoverFingerprints {
 
     for sheet in sheets {
         for rule in &sheet.rules {
-            for selector in &rule.selectors {
-                for part_list in selector.complexes() {
-                    if !fingerprint_complex(part_list, &[], &mut fp) {
-                        // A `:hover` with nothing to narrow it - every node is sensitive.
-                        fp.has_universal = true;
-                        return fp;
-                    }
+            for part_list in rule.selector.complexes() {
+                if !fingerprint_complex(part_list, &[], &mut fp) {
+                    // A `:hover` with nothing to narrow it - every node is sensitive.
+                    fp.has_universal = true;
+                    return fp;
                 }
             }
         }
@@ -1051,15 +1040,15 @@ fn record_hover_compound<'a>(
     for part in compound {
         match part {
             CssSelectorPart::Type(t) => {
-                fp.types.insert(t.clone());
+                fp.types.insert(t.as_str().into());
                 specific = true;
             }
             CssSelectorPart::Class(c) => {
-                fp.classes.insert(c.clone());
+                fp.classes.insert(c.as_str().into());
                 specific = true;
             }
             CssSelectorPart::Id(id) => {
-                fp.ids.insert(id.clone());
+                fp.ids.insert(id.as_str().into());
                 specific = true;
             }
             _ => {}
