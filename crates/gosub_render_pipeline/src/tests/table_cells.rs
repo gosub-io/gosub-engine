@@ -250,10 +250,11 @@ fn a_percentage_table_height_makes_the_cell_height_specified() {
 
 /// `empty-cells: hide` drops the background, borders, shadows and outline of an empty cell in the
 /// separated borders model. Whitespace that collapses away and an absolutely positioned child leave a cell
-/// empty, an `&nbsp;` does not; under `border-collapse: collapse` the property does nothing.
+/// empty, an `&nbsp;` does not; under `border-collapse: collapse` the property does nothing. The
+/// borders model is the table's, whatever the cell's own `border-collapse`.
 #[test]
 fn empty_cells_hide_paints_nothing_for_an_empty_cell() {
-    let (layers, [empty, spaces, positioned, nbsp, filled, collapsed]) = lay_out(
+    let (layers, [empty, spaces, positioned, nbsp, filled, collapsed, own_collapse, own_separate]) = lay_out(
         r#"<html><body>
           <table style="empty-cells: hide"><tr>
             <td id="empty" style="background: red; border: 2px solid red; box-shadow: 2px 2px red, inset 0 0 2px red; outline: 2px solid red; width: 10px; height: 10px"></td>
@@ -265,8 +266,23 @@ fn empty_cells_hide_paints_nothing_for_an_empty_cell() {
           <table style="empty-cells: hide; border-collapse: collapse"><tr>
             <td id="collapsed" style="background: green; width: 10px; height: 10px"></td>
           </tr></table>
+          <table style="empty-cells: hide"><tr>
+            <td id="own-collapse" style="border-collapse: collapse; background: red; width: 10px; height: 10px"></td>
+          </tr></table>
+          <table style="empty-cells: hide; border-collapse: collapse"><tbody><tr>
+            <td id="own-separate" style="border-collapse: separate; background: green; width: 10px; height: 10px"></td>
+          </tr></tbody></table>
         </body></html>"#,
-        ["empty", "spaces", "positioned", "nbsp", "filled", "collapsed"],
+        [
+            "empty",
+            "spaces",
+            "positioned",
+            "nbsp",
+            "filled",
+            "collapsed",
+            "own-collapse",
+            "own-separate",
+        ],
     );
     let painter = Painter::new(Arc::clone(&layers), None);
     let paints_box = |id| {
@@ -281,6 +297,8 @@ fn empty_cells_hide_paints_nothing_for_an_empty_cell() {
     assert!(paints_box(nbsp));
     assert!(paints_box(filled));
     assert!(paints_box(collapsed));
+    assert!(!paints_box(own_collapse));
+    assert!(paints_box(own_separate));
 }
 
 /// The cell's passes put back only the heights they set: a baseline shift made meanwhile stays

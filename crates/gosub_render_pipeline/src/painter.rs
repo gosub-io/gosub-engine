@@ -543,13 +543,19 @@ impl Painter {
     /// An empty cell under `empty-cells: hide` is not rendered, as if it were `visibility:
     /// hidden`, in the separated-borders model only (css-tables-3 §5.2, §5.3.2). It is empty when
     /// nothing in it is in flow or floated; whitespace counts only where `white-space` keeps it.
+    /// The borders model is the table's: past the rows and row groups, the table element, or the
+    /// parent an anonymous table inherits from.
     fn is_hidden_empty_cell(&self, dom_node_id: NodeId) -> bool {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         let style = doc.computed_style(dom_node_id);
-        if style.declared_display() != Some(Display::TableCell)
-            || style.inherited.empty_cells != EmptyCells::Hide
-            || style.inherited.border_collapse == BorderCollapse::Collapse
-        {
+        if style.declared_display() != Some(Display::TableCell) || style.inherited.empty_cells != EmptyCells::Hide {
+            return false;
+        }
+        let mut table = doc.parent(dom_node_id);
+        while let Some(id) = table.filter(|&id| self.is_table_track_group(id)) {
+            table = doc.parent(id);
+        }
+        if table.is_some_and(|id| doc.computed_style(id).inherited.border_collapse == BorderCollapse::Collapse) {
             return false;
         }
         doc.children(dom_node_id).into_iter().all(|child| {
