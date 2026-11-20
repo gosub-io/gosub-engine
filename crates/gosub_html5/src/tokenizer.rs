@@ -54,6 +54,8 @@ pub struct Tokenizer<'tokens> {
     pub last_start_token: String,
     /// Last token location
     pub last_token_location: Location,
+    /// Location of the first character in the consume buffer
+    pub consumed_location: Location,
     /// Last read character
     pub last_char: Character,
     /// Error logger to log errors to
@@ -122,6 +124,7 @@ impl<'stream> Tokenizer<'stream> {
             state: opts.as_ref().map_or(State::Data, |o| o.initial_state),
             last_start_token: opts.map_or(String::new(), |o| o.last_start_tag),
             last_token_location: Location::default(),
+            consumed_location: Location::default(),
             consumed: String::new(),
             current_token: None,
             token_queue: vec![],
@@ -170,6 +173,21 @@ impl<'stream> Tokenizer<'stream> {
             // Something is already in the token buffer, so we can return it.
             if !self.token_queue.is_empty() {
                 return Ok(());
+            }
+
+            // Text starts in one of these states. The states after a '<' or '&' can still end
+            // up adding to the text, but then it starts at the '<' or '&' itself.
+            if matches!(
+                self.state,
+                State::Data
+                    | State::RCDATA
+                    | State::RAWTEXT
+                    | State::ScriptData
+                    | State::PLAINTEXT
+                    | State::CDATASection
+            ) && !self.has_consumed_data()
+            {
+                self.consumed_location = self.get_location();
             }
 
             match self.state {
@@ -1232,7 +1250,7 @@ impl<'stream> Tokenizer<'stream> {
                     if Character::slice_to_string(self.stream.get_slice(2)) == "--" {
                         self.current_token = Some(Token::Comment {
                             comment: String::new(),
-                            location: self.get_location(),
+                            location: self.last_token_location,
                         });
 
                         // Skip the two -- signs
@@ -1261,7 +1279,7 @@ impl<'stream> Tokenizer<'stream> {
                         self.parse_error(ParserError::CdataInHtmlContent, loc);
                         self.current_token = Some(Token::Comment {
                             comment: "[CDATA[".into(),
-                            location: self.get_location(),
+                            location: self.last_token_location,
                         });
 
                         self.state = State::BogusComment;
@@ -2144,7 +2162,7 @@ impl<'stream> Tokenizer<'stream> {
         if self.has_consumed_data() {
             self.token_queue.push(Token::Text {
                 text: std::mem::take(&mut self.consumed),
-                location: self.last_token_location,
+                location: self.consumed_location,
             });
         }
 
@@ -2329,5 +2347,153 @@ impl<'stream> Tokenizer<'stream> {
         for _ in 0..n {
             self.stream_read_and_next();
         }
+    }
+}
+
+#[cfg(test)]
+mod location_tests {
+    use super::*;
+    use crate::node::SVG_NAMESPACE;
+    use gosub_shared::byte_stream::Encoding;
+
+    /// Tokenizes `html` and returns `(text, line, column)` for every text and comment token.
+    /// Comments are wrapped in `<!--` and `-->` so they can be told apart from text.
+    fn located(html: &str, opts: Option<Options>, namespace: &'static str) -> Vec<(String, usize, usize)> {
+        let mut stream = ByteStream::from_str(html, Encoding::UTF8);
+        let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
+        let mut tokenizer = Tokenizer::new(&mut stream, opts, error_logger, Location::default());
+
+        let mut result = vec![];
+        loop {
+            let parser_data = ParserData {
+                adjusted_node_namespace: namespace.into(),
+            };
+            match tokenizer.next_token(parser_data).unwrap() {
+                Token::Text { text, location } => result.push((text, location.line, location.column)),
+                Token::Comment { comment, location } => {
+                    result.push((format!("<!--{comment}-->"), location.line, location.column));
+                }
+                Token::Eof { .. } => break,
+                _ => {}
+            }
+        }
+        result
+    }
+
+    fn html(html: &str) -> Vec<(String, usize, usize)> {
+        located(html, None, HTML_NAMESPACE)
+    }
+
+    fn in_state(html: &str, state: State, last_start_tag: &str) -> Vec<(String, usize, usize)> {
+        let opts = Options {
+            initial_state: state,
+            last_start_tag: last_start_tag.to_string(),
+        };
+        located(html, Some(opts), HTML_NAMESPACE)
+    }
+
+    fn t(text: &str, line: usize, column: usize) -> (String, usize, usize) {
+        (text.to_string(), line, column)
+    }
+
+    #[test]
+    fn text_at_document_start() {
+        assert_eq!(html("hello"), vec![t("hello", 1, 1)]);
+    }
+
+    #[test]
+    fn text_before_start_tag() {
+        assert_eq!(html("<p>hello<b>x"), vec![t("hello", 1, 4), t("x", 1, 12)]);
+    }
+
+    #[test]
+    fn text_before_end_tag() {
+        assert_eq!(html("<p>ab</p>"), vec![t("ab", 1, 4)]);
+    }
+
+    #[test]
+    fn text_before_eof() {
+        assert_eq!(html("<p>tail"), vec![t("tail", 1, 4)]);
+    }
+
+    #[test]
+    fn text_over_several_lines() {
+        assert_eq!(html("<p>\n<b>\n  x</b>"), vec![t("\n", 1, 4), t("\n  x", 2, 4)]);
+    }
+
+    #[test]
+    fn text_after_crlf() {
+        assert_eq!(html("<p>a\r\nb<b>\r\nc"), vec![t("a\nb", 1, 4), t("\nc", 2, 5)]);
+    }
+
+    #[test]
+    fn text_with_character_references() {
+        assert_eq!(html("<p>&amp;x<b>y"), vec![t("&x", 1, 4), t("y", 1, 13)]);
+        assert_eq!(html("<p>a&lt;b"), vec![t("a<b", 1, 4)]);
+    }
+
+    #[test]
+    fn text_with_null() {
+        assert_eq!(html("<p>\0x"), vec![t("\0x", 1, 4)]);
+    }
+
+    #[test]
+    fn text_that_starts_with_a_less_than_sign() {
+        assert_eq!(html("<p>< x<b>"), vec![t("< x", 1, 4)]);
+        assert_eq!(html("a<b>< x"), vec![t("a", 1, 1), t("< x", 1, 5)]);
+        assert_eq!(html("<p><"), vec![t("<", 1, 4)]);
+        assert_eq!(html("<p></"), vec![t("</", 1, 4)]);
+    }
+
+    #[test]
+    fn text_after_dropped_end_tag() {
+        assert_eq!(html("<p></>b"), vec![t("b", 1, 7)]);
+    }
+
+    #[test]
+    fn text_after_comment() {
+        assert_eq!(html("<!--a-->b"), vec![t("<!--a-->", 1, 1), t("b", 1, 9)]);
+    }
+
+    #[test]
+    fn text_in_rcdata_rawtext_and_script_data() {
+        assert_eq!(
+            in_state("a&amp;b</title>c", State::RCDATA, "title"),
+            vec![t("a&b", 1, 1), t("c", 1, 16)]
+        );
+        assert_eq!(
+            in_state("x</y>z</style>w", State::RAWTEXT, "style"),
+            vec![t("x</y>z", 1, 1), t("w", 1, 15)]
+        );
+        assert_eq!(
+            in_state("x</y>z</script>w", State::ScriptData, "script"),
+            vec![t("x</y>z", 1, 1), t("w", 1, 16)]
+        );
+        assert_eq!(
+            in_state("<!--<script>a</script>-->b</script>c", State::ScriptData, "script"),
+            vec![t("<!--<script>a</script>-->b", 1, 1), t("c", 1, 36)]
+        );
+    }
+
+    #[test]
+    fn text_in_cdata_section() {
+        assert_eq!(located("<svg><![CDATA[x]]>", None, SVG_NAMESPACE), vec![t("x", 1, 15)]);
+        assert_eq!(located("<svg>a<![CDATA[x]]>", None, SVG_NAMESPACE), vec![t("ax", 1, 6)]);
+    }
+
+    #[test]
+    fn comment_starts_at_its_less_than_sign() {
+        assert_eq!(html("<p><!--x-->"), vec![t("<!--x-->", 1, 4)]);
+        assert_eq!(html("<p><!---->"), vec![t("<!---->", 1, 4)]);
+        assert_eq!(html("<p><!-->"), vec![t("<!---->", 1, 4)]);
+        assert_eq!(html("<p>\n  <!--x"), vec![t("\n  ", 1, 4), t("<!--x-->", 2, 3)]);
+    }
+
+    #[test]
+    fn bogus_comment_starts_at_its_less_than_sign() {
+        assert_eq!(html("<p><!x>"), vec![t("<!--x-->", 1, 4)]);
+        assert_eq!(html("<p><?x>"), vec![t("<!--?x-->", 1, 4)]);
+        assert_eq!(html("<p></ x>"), vec![t("<!-- x-->", 1, 4)]);
+        assert_eq!(html("<p><![CDATA[x]]>"), vec![t("<!--[CDATA[x]]-->", 1, 4)]);
     }
 }
