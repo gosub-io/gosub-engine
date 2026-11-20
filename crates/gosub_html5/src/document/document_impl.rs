@@ -50,7 +50,7 @@ pub struct DocumentImpl<C: HasDocument> {
     edits: parking_lot::RwLock<HashMap<NodeId, ControlEditState>>,
     /// Checkboxes/radios the user has toggled; absent = the `checked` attribute.
     checked: parking_lot::RwLock<HashMap<NodeId, bool>>,
-    /// `<select>` → option the user picked; absent = the `selected` attribute.
+    /// `<select>` -> option the user picked; absent = the `selected` attribute.
     selected: parking_lot::RwLock<HashMap<NodeId, NodeId>>,
     open_select: parking_lot::RwLock<Option<OpenSelect>>,
     /// Controls the user resized, with their border-box size.
@@ -82,7 +82,7 @@ impl<C: HasDocument> PartialEq for DocumentImpl<C> {
     }
 }
 
-// ── new Document<C> trait impl ──────────────────────────────────────────────
+// new Document<C> trait impl
 
 impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     /// Create an empty document with its root registered and scripting enabled by default.
@@ -111,7 +111,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         doc
     }
 
-    // ── node creation ──────────────────────────────────────────────────────
+    // node creation
 
     fn create_element(
         &mut self,
@@ -187,7 +187,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         self.register_node(dup)
     }
 
-    // ── tree navigation ────────────────────────────────────────────────────
+    // tree navigation
 
     fn root(&self) -> NodeId {
         NodeId::root()
@@ -226,13 +226,13 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         let _ = self.attach_node(node, parent, None);
     }
 
-    // ── node type ──────────────────────────────────────────────────────────
+    // node type
 
     fn node_type(&self, id: NodeId) -> NodeType {
         self.arena.node_ref(id).map_or(NodeType::DocumentNode, |n| n.type_of())
     }
 
-    // ── element data ───────────────────────────────────────────────────────
+    // element data
 
     fn tag_name(&self, id: NodeId) -> Option<&str> {
         match self.arena.node_ref(id)?.data {
@@ -336,7 +336,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         self.refresh_template_children(id);
     }
 
-    // ── shadow trees ───────────────────────────────────────────────────────
+    // shadow trees
 
     fn attach_shadow_root(&mut self, host: NodeId, init: ShadowRootInit, location: Location) -> Option<NodeId> {
         // The eligibility half of the spec's "attach a shadow root"; failing it is the
@@ -373,7 +373,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         Some(self.arena.node_ref(id)?.get_shadow_root_data()?.init)
     }
 
-    // ── text / comment / doctype ───────────────────────────────────────────
+    // text / comment / doctype
 
     fn text_value(&self, id: NodeId) -> Option<&str> {
         match self.arena.node_ref(id)?.data {
@@ -433,7 +433,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         }
     }
 
-    // ── document metadata ──────────────────────────────────────────────────
+    // document metadata
 
     fn url(&self) -> Option<Url> {
         self.url.clone()
@@ -492,7 +492,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         self.arena.peek_next_id()
     }
 
-    // ── stylesheets ────────────────────────────────────────────────────────
+    // stylesheets
 
     fn stylesheets(&self) -> &[<C::CssSystem as CssSystem>::Stylesheet] {
         &self.stylesheets
@@ -522,7 +522,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         self.stylesheets.insert(position, sheet);
     }
 
-    // ── serialisation ──────────────────────────────────────────────────────
+    // serialisation
 
     fn write(&self) -> String {
         self.write_from_node(NodeId::root())
@@ -615,7 +615,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 }
 
-// ── Internal helpers (not part of Document trait) ───────────────────────────
+// Internal helpers (not part of Document trait)
 
 impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     /// Keep the errors [`Html5Parser::parse_document`](crate::parser::Html5Parser::parse_document)
@@ -995,9 +995,8 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         if self.would_cycle(node_id, parent_id) {
             return Err(AttachError::Cycle);
         }
-        // Guarded here rather than in the `Document` methods that call it: this one is public
-        // and inherent, so it wins over the trait method for anything holding a concrete
-        // `DocumentImpl` - a check on the trait side alone is simply stepped around.
+        // Checked here and not in the trait methods: this inherent method is public, so a caller
+        // with a concrete `DocumentImpl` reaches it directly.
         if self.refuses_tree_mutation("attach_node", node_id) {
             return Err(AttachError::ShadowRoot);
         }
@@ -1058,19 +1057,11 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         }
     }
 
-    /// Whether a generic tree mutation must leave `node` alone because it is a shadow root.
-    ///
-    /// A shadow root hangs off its host by a side pointer and never appears in a `children`
-    /// list. `attach_shadow_root` returns its raw id, though, so it is one call away from any
-    /// of the ordinary mutations - and attaching it would give it a parent and put it into
-    /// normal traversal, where it is both a shadow tree and a child of the element it shadows.
     /// Whether `node_id` must not be copied, because it is a shadow root.
     ///
-    /// A shadow root's data holds the id of its host, so copying it produces a second root
-    /// claiming the same host while the host still names the first - two roots, one host, and a
-    /// back pointer that agrees with neither. `ShadowRoot.cloneNode()` throws in the spec for
-    /// the same reason, so refusing is the faithful answer; the caller gets the original id
-    /// back, which is what the not-found path already returns.
+    /// A shadow root's data holds the id of its host, so a copy would be a second root for the
+    /// same host. `ShadowRoot.cloneNode()` throws in the spec; here the caller gets the original
+    /// id back, as on the not-found path.
     fn refuses_copy(&self, node_id: NodeId) -> bool {
         let is_shadow_root = self
             .arena
@@ -1103,6 +1094,11 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         Some(copy_id)
     }
 
+    /// Whether a generic tree mutation must leave `node_id` alone because it is a shadow root.
+    ///
+    /// A shadow root hangs off its host by a side pointer and never appears in a `children`
+    /// list. Attaching it would give it a parent and put it into normal traversal as a child of
+    /// the element it shadows.
     fn refuses_tree_mutation(&self, what: &str, node_id: NodeId) -> bool {
         let is_shadow_root = self
             .arena
@@ -1176,10 +1172,9 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     /// each the root of its own detached tree, and the ids below `node_id` leave the document's
     /// registry.
     pub fn delete_node_by_id(&mut self, node_id: NodeId) {
-        // The host and its shadow root each name the other, so deleting either has to clear the
-        // link the other way round or the survivor keeps naming a node that is gone. Done here
-        // rather than in `Document::remove` because this method is inherent and public, and so
-        // wins over the trait method for anything holding a concrete `DocumentImpl`.
+        // The host and its shadow root each name the other, so deleting either clears the link
+        // the other way round. Done here and not in `Document::remove` because this inherent
+        // method is public.
         //
         // Deleting the root drops the host's side pointer.
         if let Some(host) = self.shadow_host(node_id) {
@@ -1324,7 +1319,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         )
     }
 
-    // ── display helper ─────────────────────────────────────────────────────
+    // display helper
 
     pub fn print_tree(&self, node: &NodeImpl, prefix: String, last: bool, f: &mut Formatter) {
         let mut buffer = prefix.clone();
@@ -1401,7 +1396,7 @@ impl<C: HasDocument<Document = Self>> Display for DocumentImpl<C> {
     }
 }
 
-// ── Tree iterator ────────────────────────────────────────────────────────────
+// Tree iterator
 
 pub struct TreeIterator<'a, C: HasDocument> {
     current_node_id: Option<NodeId>,

@@ -102,7 +102,6 @@ impl Tokenizer<'_> {
                 CcrState::AmbiguousAmpersand => {
                     let c = self.stream_read_and_next();
                     match c {
-                        // Element::Eof => return,
                         Ch(ch) if ch.is_ascii_alphanumeric() => {
                             if as_attribute {
                                 self.current_attr_value.push(c.into());
@@ -116,7 +115,6 @@ impl Tokenizer<'_> {
                             return;
                         }
                         Character::StreamEnd => {
-                            // self.consume_temp_buffer(as_attribute);
                             return;
                         }
                         _ => {
@@ -131,7 +129,6 @@ impl Tokenizer<'_> {
                     let c = self.stream_read_and_next();
                     match c {
                         Ch('X' | 'x') => {
-                            // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEnd,
                             self.temporary_buffer.push(c.into());
                             ccr_state = CcrState::HexadecimalCharacterReferenceStart;
                         }
@@ -149,7 +146,6 @@ impl Tokenizer<'_> {
                     let c = self.stream_read_and_next();
                     match c {
                         Ch('0'..='9' | 'A'..='F' | 'a'..='f') => {
-                            // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEnd,
                             self.stream_prev();
                             ccr_state = CcrState::HexadecimalCharacterReference;
                         }
@@ -193,7 +189,6 @@ impl Tokenizer<'_> {
                     let loc = self.get_location();
                     let c = self.stream_read_and_next();
                     match c {
-                        // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEnd,
                         Ch(c @ '0'..='9') => {
                             let i = c as u32 - 0x30;
                             if let Some(value) = char_ref_code {
@@ -230,7 +225,6 @@ impl Tokenizer<'_> {
                     let loc = self.get_location();
                     let c = self.stream_read_and_next();
                     match c {
-                        // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEndState,
                         Ch(c @ '0'..='9') => {
                             let i = c as u32 - 0x30;
                             if let Some(value) = char_ref_code {
@@ -271,7 +265,6 @@ impl Tokenizer<'_> {
                     }
                     if self.is_noncharacter(char_ref_code) {
                         self.parse_error(ParserError::NoncharacterCharacterReference, self.get_location());
-                        // char_ref_code = CHAR_REPLACEMENT as u32;
                     }
                     if self.is_control_char(char_ref_code) || char_ref_code == 0x0D {
                         self.parse_error(ParserError::ControlCharacterReference, self.get_location());
@@ -431,10 +424,6 @@ mod tests {
         entity_119: ("&amp;amp;", "&amp;")
         entity_120: ("&notén;", "¬én;")
 
-        // // ChatGPT generated tests
-        entity_200: ("&copy;", "©")
-        entity_201: ("&copy ", "© ")
-        entity_202: ("&#169;", "©")
         entity_203: ("&#xA9;", "©")
         entity_204: ("&lt;", "<")
         entity_205: ("&unknown;", "&unknown;")

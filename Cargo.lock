@@ -3458,6 +3458,7 @@ dependencies = [
  "criterion",
  "flate2",
  "gosub_css3",
+ "gosub_html5",
  "gosub_interface",
  "gosub_shared",
  "indexmap",

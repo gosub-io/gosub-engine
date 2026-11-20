@@ -103,7 +103,7 @@ fn serializes_as_void<C: HasDocument>(id: NodeId, name: &str, doc: &C::Document)
 
 /// Write an attribute name back out as source text.
 ///
-/// "Adjust foreign attributes" (HTML §13.2.6.1) splits a namespaced attribute on a `<svg>` or
+/// "Adjust foreign attributes" (HTML section 13.2.6.1) splits a namespaced attribute on a `<svg>` or
 /// `<math>` element into a prefix and a local name, and the parser stores the pair space-joined
 /// (`xlink:href` becomes `xlink href`, `xmlns` becomes `xmlns ` with an empty local name) because
 /// that is the form the html5lib tree-construction tests expect. An attribute name can never
@@ -124,9 +124,8 @@ fn write_attribute_name(name: &str, buf: &mut String) {
 
 /// Work stack for [`write_node`].
 ///
-/// This walk used to recurse, which a page can drive as deep as it likes - an inline `<svg>` of
-/// nested `<g>` comes back through here on the layout path, on a 2 MiB tokio worker. Keeping the
-/// pending work on the heap makes depth cost memory instead of stack.
+/// The pending work lives on the heap, so a page can nest as deep as it likes without running
+/// out of stack. An inline `<svg>` is serialized on the layout path, on a 2 MiB tokio worker.
 enum Step {
     /// Emit this node's own text, then queue its children.
     Enter(NodeId),
@@ -219,8 +218,7 @@ fn write_node<C: HasDocument>(
                 }
             }
             NodeType::ElementNode => {
-                // A nameless element writes nothing, children included, as before: the `if let`
-                // used to guard the recursion too.
+                // A nameless element writes nothing, children included.
                 let Some(name) = doc.tag_name(id) else {
                     continue;
                 };
@@ -287,9 +285,8 @@ mod tests {
 
     #[test]
     fn adjusted_foreign_attributes_are_rejoined_with_a_colon() {
-        // These are stored space-joined by "adjust foreign attributes". Writing them verbatim
-        // produced `xlink href="..."`, which no XML parser accepts - which is why an inline
-        // <svg> failed with "expected '=' ...".
+        // These are stored space-joined by "adjust foreign attributes". Written verbatim,
+        // `xlink href="..."` is not valid XML.
         assert_eq!(name("xlink href"), "xlink:href");
         assert_eq!(name("xml space"), "xml:space");
         assert_eq!(name("xmlns xlink"), "xmlns:xlink");
