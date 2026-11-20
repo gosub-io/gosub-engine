@@ -130,7 +130,7 @@ fn ids_in_a_clone_count_once_it_is_inserted() {
     let cloned_p = doc.children(clone)[0];
     assert_eq!(doc.node_by_named_id("x"), Some(p), "a detached clone is in no tree");
 
-    doc.attach(clone, body, Some(0));
+    doc.attach(clone, body, Some(0)).unwrap();
     assert_eq!(
         doc.node_by_named_id("x"),
         Some(cloned_p),
@@ -152,7 +152,7 @@ fn a_cloned_template_holds_its_own_contents() {
     assert_eq!(doc.template_contents(template), Some(template));
     assert_eq!(doc.write_from_node(clone), doc.write_from_node(template));
 
-    doc.attach(clone, body, None);
+    doc.attach(clone, body, None).unwrap();
     assert_eq!(
         doc.node_by_named_id("t"),
         None,
@@ -170,7 +170,7 @@ fn a_template_cloned_inside_a_subtree_holds_its_own_contents() {
     let cloned_template = doc.children(clone)[0];
 
     assert_eq!(doc.template_contents(cloned_template), Some(cloned_template));
-    doc.attach(clone, body, Some(0));
+    doc.attach(clone, body, Some(0)).unwrap();
     assert_eq!(doc.node_by_named_id("t"), None);
 }
 
@@ -224,11 +224,11 @@ fn a_very_deep_subtree_clones_without_running_out_of_stack() {
     let mut doc = parse("<body></body>");
     let body = find::<Config>(&doc, "body").unwrap();
     let top = doc.create_element("div", None, Attributes::new(), Location::default());
-    doc.attach(top, body, None);
+    doc.attach(top, body, None).unwrap();
     let mut parent = top;
     for _ in 1..DEPTH {
         let child = doc.create_element("div", None, Attributes::new(), Location::default());
-        doc.attach(child, parent, None);
+        doc.attach(child, parent, None).unwrap();
         parent = child;
     }
 
