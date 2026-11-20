@@ -485,18 +485,18 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         parser.reset_insertion_mode();
 
         // 11. Set the parser's form element pointer to the nearest node to the context element that is a form element (going straight up the ancestor chain, and including the element itself, if it is a form element), if any. (If there is no such form element, the form element pointer keeps its initial value, null.)
-        let context_tag = parser.document.tag_name(context_node_id).unwrap_or_default().to_owned();
-        let mut cur_id = context_node_id;
-        loop {
-            if context_tag == "form" {
-                parser.form_element = Some(cur_id);
+        let mut cur_id = Some(context_node_id);
+        while let Some(id) = cur_id {
+            if parser.document.tag_name(id) == Some("form") && parser.document.namespace(id) == Some(HTML_NAMESPACE) {
+                parser.form_element = Some(id);
                 break;
             }
-
-            match parser.document.parent(cur_id) {
-                None => break,
-                Some(parent_id) => cur_id = parent_id,
-            }
+            // Template contents are a fragment of their own in the spec, so the chain ends there.
+            // Here they are the template's children, which `parent` would walk straight out of.
+            cur_id = parser
+                .document
+                .parent(id)
+                .filter(|&parent| parser.document.template_contents(parent) != Some(parent));
         }
 
         // 13. / 14.
