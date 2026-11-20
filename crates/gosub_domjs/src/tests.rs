@@ -65,6 +65,23 @@ fn mutations_land_in_the_document() {
 }
 
 #[test]
+fn append_child_that_would_cycle_throws() {
+    let value = eval(
+        "<div id=outer><p id=inner></p></div>",
+        "const outer = document.getElementById('outer');
+         const inner = document.getElementById('inner');
+         const tryAppend = (parent, child) => {
+             try { parent.appendChild(child); return 'appended'; } catch (e) { return e.message; }
+         };
+         [tryAppend(inner, outer), tryAppend(outer, outer), tryAppend(outer, inner)].join('|')",
+    );
+    assert_eq!(
+        value,
+        "appendChild would create a cycle|appendChild would create a cycle|appended"
+    );
+}
+
+#[test]
 fn node_wrappers_have_stable_identity() {
     let same = eval(
         "<div id=parent><span id=child></span></div>",

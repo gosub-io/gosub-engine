@@ -10,7 +10,7 @@ use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_html5::testing::tree_construction::generator::TreeOutputGenerator;
 use gosub_interface::config::{HasDocument, ModuleConfiguration};
-use gosub_interface::document::Document;
+use gosub_interface::document::{AttachError, Document};
 use gosub_interface::node::{NodeType, ShadowRootMode, SlotAssignmentMode};
 use gosub_shared::attributes::Attributes;
 use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
@@ -218,7 +218,7 @@ fn fragment_parsing_never_builds_shadow_roots() {
     // innerHTML must not create shadow roots; that needs setHTMLUnsafe().
     let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
     let host = doc.create_element("div", None, Attributes::new(), Location::default());
-    doc.attach(host, doc.root(), None);
+    doc.attach(host, doc.root(), None).unwrap();
 
     let mut stream = ByteStream::from_str("<template shadowrootmode=open><i>x</i></template>", Encoding::UTF8);
     let _ = Html5Parser::<Config>::parse_fragment(&mut stream, &mut doc, host, None, Location::default());
@@ -262,7 +262,7 @@ fn a_shadow_root_cannot_be_attached_into_the_ordinary_tree() {
     let other = find::<Config>(&doc, "p").unwrap();
     let root = doc.shadow_root(host).expect("declarative shadow root");
 
-    doc.attach(root, other, None);
+    assert_eq!(doc.attach(root, other, None), Err(AttachError::ShadowRoot));
 
     assert!(!doc.children(other).contains(&root), "must not become a child");
     assert_eq!(doc.parent(root), None, "must not gain a parent");

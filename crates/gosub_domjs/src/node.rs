@@ -5,7 +5,7 @@
 //! that `instanceof` and prototype-chain tests work; this is enough to drive the engine.
 
 use cow_utils::CowUtils;
-use gosub_interface::document::Document as _;
+use gosub_interface::document::{AttachError, Document as _};
 use gosub_interface::node::NodeType;
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
@@ -136,17 +136,17 @@ impl GosubNode {
 
     pub fn append_child<'js>(&self, ctx: Ctx<'js>, child: rquickjs::Class<'js, GosubNode>) -> Result<Value<'js>> {
         let child_id = child.borrow().id;
-        {
+        let attached = {
             let mut doc = self.doc.borrow_mut();
             doc.detach(child_id);
-            doc.attach(child_id, self.id, None);
-        }
+            doc.attach(child_id, self.id, None)
+        };
         crate::style_cache::invalidate();
-        if self.doc.borrow().parent(child_id) != Some(self.id) {
-            // `attach_node` refuses to build a cycle instead of throwing HierarchyRequestError.
-            return Err(Exception::throw_message(&ctx, "appendChild would create a cycle"));
+        match attached {
+            Ok(()) => wrap(&ctx, &self.doc, child_id),
+            Err(AttachError::Cycle) => Err(Exception::throw_message(&ctx, "appendChild would create a cycle")),
+            Err(err) => Err(Exception::throw_message(&ctx, &format!("appendChild refused: {err:?}"))),
         }
-        wrap(&ctx, &self.doc, child_id)
     }
 
     pub fn remove_child<'js>(&self, ctx: Ctx<'js>, child: rquickjs::Class<'js, GosubNode>) -> Result<Value<'js>> {
@@ -337,7 +337,9 @@ impl GosubNode {
         }
         if !value.is_empty() {
             let text = doc.create_text(&value, Location::default());
-            doc.attach(text, self.id, None);
+            // A new text node under a live node: nothing to refuse, and a setter has no way to
+            // report it anyway.
+            let _ = doc.attach(text, self.id, None);
         }
         drop(doc);
         crate::style_cache::invalidate();

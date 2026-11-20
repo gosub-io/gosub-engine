@@ -127,14 +127,22 @@ impl<C: HasDocument> Html5Parser<'_, C> {
             })
     }
 
+    /// The tree builder only attaches nodes it just created or just detached, under a node that
+    /// is in the tree, so a refusal is an engine bug rather than anything in the markup.
+    pub(crate) fn attach_node(&mut self, node_id: NodeId, parent_id: NodeId, position: Option<usize>) {
+        if let Err(err) = self.document.attach(node_id, parent_id, position) {
+            log::warn!("tree builder: attaching {node_id} to {parent_id} was refused: {err:?}");
+        }
+    }
+
     pub(crate) fn insert_element_helper(&mut self, node_id: NodeId, position: InsertionPositionMode<NodeId>) {
         match position {
             InsertionPositionMode::Sibling { parent_id, before_id } => {
                 let pos = self.document.children(parent_id).iter().position(|&x| x == before_id);
-                self.document.attach(node_id, parent_id, pos);
+                self.attach_node(node_id, parent_id, pos);
             }
             InsertionPositionMode::LastChild { parent_id } => {
-                self.document.attach(node_id, parent_id, None);
+                self.attach_node(node_id, parent_id, None);
             }
         }
     }
@@ -156,7 +164,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                 match pos {
                     None | Some(0) => {
                         let node_id = self.create_node(token, HTML_NAMESPACE);
-                        self.document.attach(node_id, parent_id, pos);
+                        self.attach_node(node_id, parent_id, pos);
                     }
                     Some(index) => {
                         let last_node_id = children[index - 1];
@@ -165,7 +173,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                             return;
                         }
                         let node_id = self.create_node(token, HTML_NAMESPACE);
-                        self.document.attach(node_id, parent_id, Some(index));
+                        self.attach_node(node_id, parent_id, Some(index));
                     }
                 }
             }
@@ -178,7 +186,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                     }
                 }
                 let node_id = self.create_node(token, HTML_NAMESPACE);
-                self.document.attach(node_id, parent_id, None);
+                self.attach_node(node_id, parent_id, None);
             }
         }
     }
@@ -219,19 +227,19 @@ impl<C: HasDocument> Html5Parser<'_, C> {
 
     pub(crate) fn insert_doctype_element(&mut self, token: &Token) {
         let node_id = self.create_node(token, HTML_NAMESPACE);
-        self.document.attach(node_id, NodeId::root(), None);
+        self.attach_node(node_id, NodeId::root(), None);
     }
 
     pub(crate) fn insert_document_element(&mut self, token: &mut Token) {
         let node_id = self.create_element_node(token, HTML_NAMESPACE);
-        self.document.attach(node_id, NodeId::root(), None);
+        self.attach_node(node_id, NodeId::root(), None);
         self.open_elements.push(node_id);
     }
 
     pub(crate) fn insert_comment_element(&mut self, token: &Token, insert_position: Option<NodeId>) {
         let node_id = self.create_node(token, HTML_NAMESPACE);
         if let Some(position) = insert_position {
-            self.document.attach(node_id, position, None);
+            self.attach_node(node_id, position, None);
             return;
         }
 
@@ -457,7 +465,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
 
                 // step 4.13.8
                 self.document.detach(last_node_id);
-                self.document.attach(last_node_id, replace_node_id, None);
+                self.attach_node(last_node_id, replace_node_id, None);
 
                 // step 4.13.9
                 last_node_id = node_id;
@@ -489,7 +497,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
             }
 
             // step 4.17
-            self.document.attach(new_node_id, further_block_node_id, None);
+            self.attach_node(new_node_id, further_block_node_id, None);
 
             // step 4.18
             match bookmark_node_id {

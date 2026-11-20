@@ -652,7 +652,7 @@ mod tests {
         // A detached tree whose root is itself a checked radio.
         let root = radio(&mut doc, true);
         let child = radio(&mut doc, false);
-        doc.attach(child, root, None);
+        doc.attach(child, root, None).unwrap();
         assert_eq!(toggle(&doc, child), [(child, true), (root, false)]);
     }
 

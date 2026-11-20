@@ -607,7 +607,7 @@ mod rendertree_from_engine {
         let root = doc.root();
         let div = find_node_by_id_attr(&doc, root, "d").expect("d");
         let svg_a = doc.create_element("a", Some(SVG_NAMESPACE), Default::default(), Location::default());
-        doc.attach(svg_a, div, Some(0));
+        doc.attach(svg_a, div, Some(0)).unwrap();
 
         let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
         let node = find_node_by_id_attr(&adapter.doc, root, "html-a").expect("html-a");
@@ -2645,11 +2645,11 @@ mod rendertree_from_engine {
                     for _ in 0..DEPTH {
                         let child =
                             doc.create_element(tag, Some(HTML_NAMESPACE), Default::default(), Location::default());
-                        doc.attach(child, parent, None);
+                        doc.attach(child, parent, None).unwrap();
                         parent = child;
                     }
                     let text = doc.create_text("x", Location::default());
-                    doc.attach(text, parent, None);
+                    doc.attach(text, parent, None).unwrap();
                     doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
 
                     let mut render_tree = RenderTree::new(Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc))));
@@ -2695,17 +2695,17 @@ mod rendertree_from_engine {
                 let mut parent = body;
                 for tag in ["table", "tr", "td"] {
                     let node = doc.create_element(tag, Some(HTML_NAMESPACE), Default::default(), Location::default());
-                    doc.attach(node, parent, None);
+                    doc.attach(node, parent, None).unwrap();
                     parent = node;
                 }
                 for _ in 0..DEPTH {
                     let child =
                         doc.create_element("div", Some(HTML_NAMESPACE), Default::default(), Location::default());
-                    doc.attach(child, parent, None);
+                    doc.attach(child, parent, None).unwrap();
                     parent = child;
                 }
                 let text = doc.create_text("x", Location::default());
-                doc.attach(text, parent, None);
+                doc.attach(text, parent, None).unwrap();
                 doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
 
                 let mut render_tree = RenderTree::new(Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc))));
