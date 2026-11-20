@@ -4852,9 +4852,7 @@ mod test {
         assert!(element.classlist().contains("two"));
         assert!(element.classlist().contains("three"));
 
-        assert!(element.classlist().is_active("one"));
-        assert!(element.classlist().is_active("two"));
-        assert!(element.classlist().is_active("three"));
+        assert_eq!(element.classlist().as_vec(), ["one", "two", "three"]);
     }
 
     #[test]
@@ -4877,9 +4875,7 @@ mod test {
         assert!(element.classlist().contains("two"));
         assert!(element.classlist().contains("three"));
 
-        assert!(element.classlist().is_active("one"));
-        assert!(element.classlist().is_active("two"));
-        assert!(element.classlist().is_active("three"));
+        assert_eq!(element.classlist().as_vec(), ["one", "two", "three"]);
     }
 
     #[test]

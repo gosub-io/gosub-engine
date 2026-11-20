@@ -12,7 +12,7 @@ use crate::document::presentation_hints;
 use crate::node::arena::NodeArena;
 use crate::node::data::comment::CommentData;
 use crate::node::data::doctype::DocTypeData;
-use crate::node::data::element::{ClassListImpl, ElementData};
+use crate::node::data::element::ElementData;
 use crate::node::node_impl::{NodeDataTypeInternal, NodeImpl};
 use crate::node::visitor::Visitor;
 use crate::node::HTML_NAMESPACE;
@@ -120,13 +120,9 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         attributes: Attributes,
         location: Location,
     ) -> NodeId {
-        let class_list = match attributes.get("class") {
-            Some(class_value) => ClassListImpl::from(class_value.as_str()),
-            None => ClassListImpl::default(),
-        };
         let node = NodeImpl::new(
             location,
-            NodeDataTypeInternal::Element(ElementData::new(name, namespace, attributes, class_list)),
+            NodeDataTypeInternal::Element(ElementData::new(name, namespace, attributes)),
         );
         self.register_node(node)
     }
@@ -234,14 +230,14 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
 
     fn attribute(&self, id: NodeId, name: &str) -> Option<&str> {
         match self.arena.node_ref(id)?.data {
-            NodeDataTypeInternal::Element(ref e) => e.attributes.get(name).map(String::as_str),
+            NodeDataTypeInternal::Element(ref e) => e.attribute(name).map(String::as_str),
             _ => None,
         }
     }
 
     fn attributes(&self, id: NodeId) -> Option<&Attributes> {
         match self.arena.node_ref(id)?.data {
-            NodeDataTypeInternal::Element(ref e) => Some(&e.attributes),
+            NodeDataTypeInternal::Element(ref e) => Some(e.attributes()),
             _ => None,
         }
     }
@@ -282,7 +278,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             return false;
         };
         match &node.data {
-            NodeDataTypeInternal::Element(e) => e.classlist().is_active(name),
+            NodeDataTypeInternal::Element(e) => e.classlist().contains(name),
             _ => false,
         }
     }
@@ -797,7 +793,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                 .arena
                 .node_ref(node_id)
                 .and_then(NodeImpl::get_element_data)
-                .is_some_and(|data| data.attributes.contains_key("id"))
+                .is_some_and(|data| data.attributes().contains_key("id"))
     }
 
     /// Bring `node_id`'s registration in line with its `id` attribute, after that changed.
@@ -819,7 +815,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             .arena
             .node_ref(node_id)
             .and_then(NodeImpl::get_element_data)
-            .and_then(|data| data.attributes.get("id"))
+            .and_then(|data| data.attribute("id"))
             .filter(|v| !v.is_empty())
             .cloned();
         let (Some(registry), Some(id_value)) = (registry, id_value) else {
@@ -874,7 +870,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             };
             let holds = node
                 .get_element_data()
-                .and_then(|data| data.attributes.get("id"))
+                .and_then(|data| data.attribute("id"))
                 .is_some_and(|v| v == name_id);
             if holds {
                 return Some(id);
@@ -1263,13 +1259,9 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         attributes: Attributes,
         location: Location,
     ) -> NodeImpl {
-        let class_list = match attributes.get("class") {
-            Some(class_value) => ClassListImpl::from(class_value.as_str()),
-            None => ClassListImpl::default(),
-        };
         NodeImpl::new(
             location,
-            NodeDataTypeInternal::Element(ElementData::new(name, namespace, attributes, class_list)),
+            NodeDataTypeInternal::Element(ElementData::new(name, namespace, attributes)),
         )
     }
 
@@ -1302,7 +1294,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             }
             NodeDataTypeInternal::Element(element) => {
                 let _ = write!(f, "{}<{}", buffer, element.name);
-                for (key, value) in &element.attributes {
+                for (key, value) in element.attributes() {
                     let _ = write!(f, " {key}={value}");
                 }
                 let _ = writeln!(f, ">");
@@ -1493,10 +1485,10 @@ mod tests {
         let data = n.get_element_data_mut().expect("element");
         match id {
             Some(id) => {
-                data.attributes.insert("id".to_string(), id.to_string());
+                data.add_attribute("id", id);
             }
             None => {
-                data.attributes.remove("id");
+                data.remove_attribute("id");
             }
         }
         doc.update_node(n);

@@ -48,8 +48,8 @@ impl HeapSize for ElementData {
     fn heap_size(&self, walk: &mut Walk) {
         self.name.heap_size(walk);
         self.namespace.heap_size(walk);
-        self.attributes.heap_size(walk);
-        self.class_list.heap_size(walk);
+        self.attributes().heap_size(walk);
+        self.classlist().heap_size(walk);
     }
 }
 
