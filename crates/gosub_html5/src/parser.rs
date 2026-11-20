@@ -13,7 +13,7 @@ use crate::parser::attr_replacements::{
 };
 use crate::parser::errors::{ErrorLogger, ParserError};
 use crate::parser::helper::{
-    is_html_integration_point, is_mathml_integration_point, is_special, matches_tag_and_attrs_without_order,
+    is_html_integration_point, is_mathml_text_integration_point, is_special, matches_tag_and_attrs_without_order,
 };
 use crate::parser::open_elements::OpenElements;
 use crate::tokenizer::state::State;
@@ -725,7 +725,11 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     }
                 }
             }
-            Token::EndTag { name, .. } if name == "script" => {
+            Token::EndTag { name, .. }
+                if name == "script"
+                    && node_tag!(self, current_node_id!(self)) == "script"
+                    && node_ns!(self, current_node_id!(self)) == Some(SVG_NAMESPACE) =>
+            {
                 handle_as_script_endtag = true;
             }
             Token::EndTag { name, .. } => {
@@ -4123,13 +4127,14 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             return DispatcherMode::Html;
         }
 
-        if is_mathml_integration_point::<C>(self.document, acn_id)
+        if is_mathml_text_integration_point::<C>(self.document, acn_id)
+            && self.current_token.is_any_start_tag()
             && (!self.current_token.is_start_tag("mglyph") && !self.current_token.is_start_tag("malignmark"))
         {
             return DispatcherMode::Html;
         }
 
-        if is_mathml_integration_point::<C>(self.document, acn_id) && self.current_token.is_text_token() {
+        if is_mathml_text_integration_point::<C>(self.document, acn_id) && self.current_token.is_text_token() {
             return DispatcherMode::Html;
         }
 
@@ -4162,7 +4167,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
         loop {
             let cn_id = current_node_id!(self);
-            if is_mathml_integration_point::<C>(self.document, cn_id)
+            if is_mathml_text_integration_point::<C>(self.document, cn_id)
                 || is_html_integration_point::<C>(self.document, cn_id)
                 || self.document.namespace(cn_id) == Some(HTML_NAMESPACE)
             {

@@ -49,7 +49,7 @@ pub(crate) fn is_special<C: HasDocument>(doc: &C::Document, id: NodeId) -> bool 
 }
 
 /// Returns true when the element is a MathML text integration point.
-pub(crate) fn is_mathml_integration_point<C: HasDocument>(doc: &C::Document, id: NodeId) -> bool {
+pub(crate) fn is_mathml_text_integration_point<C: HasDocument>(doc: &C::Document, id: NodeId) -> bool {
     let ns = doc.namespace(id).unwrap_or_default();
     let tag = doc.tag_name(id).unwrap_or_default();
     ns == MATHML_NAMESPACE && ["mi", "mo", "mn", "ms", "mtext"].contains(&tag)
