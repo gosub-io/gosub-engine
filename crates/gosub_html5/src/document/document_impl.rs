@@ -158,9 +158,28 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         if self.refuses_copy(id) {
             return id;
         }
-        let Some(node) = self.arena.node(id) else { return id };
-        let cloned = NodeImpl::new_from_node(&node);
-        self.register_node(cloned)
+        let Some(root) = self.copy_node(id) else { return id };
+        // A stack rather than recursion: the parser builds trees deep enough to blow the call
+        // stack, and a clone has to cope with whatever it built.
+        let mut stack = vec![(id, root)];
+        while let Some((original, copy)) = stack.pop() {
+            for child in self.children(original).to_vec() {
+                let Some(child_copy) = self.copy_node(child) else {
+                    continue;
+                };
+                // Linked by hand, not with `attach_node`: the copy is a fresh leaf in a detached
+                // tree, so there is no cycle to check and no registry for its id. Asking for one
+                // walks every copied ancestor per node, which is quadratic down a deep chain.
+                if let Some(parent) = self.arena.node_ref_mut(copy) {
+                    parent.push(child_copy);
+                }
+                if let Some(node) = self.arena.node_ref_mut(child_copy) {
+                    node.parent = Some(copy);
+                }
+                stack.push((child, child_copy));
+            }
+        }
+        root
     }
 
     fn duplicate_node(&mut self, id: NodeId) -> NodeId {
@@ -1050,6 +1069,27 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             log::warn!("refusing to copy shadow root {node_id}");
         }
         is_shadow_root
+    }
+
+    /// One node of a `clone_node`: registered, unattached, no children yet.
+    ///
+    /// A template that holds its own contents points at itself, and the copied data still
+    /// points at the original - which would send the copy's contents into the original. Any
+    /// other target is a declarative shadow root, which belongs to the original alone.
+    fn copy_node(&mut self, node_id: NodeId) -> Option<NodeId> {
+        let holds_contents = self.holds_template_contents(node_id);
+        let copy = NodeImpl::new_from_node(self.arena.node_ref(node_id)?);
+        let copy_id = self.register_node(copy);
+        if let Some(data) = self
+            .arena
+            .node_ref_mut(copy_id)
+            .and_then(NodeImpl::get_element_data_mut)
+        {
+            if data.template_contents.is_some() {
+                data.template_contents = holds_contents.then_some(copy_id);
+            }
+        }
+        Some(copy_id)
     }
 
     fn refuses_tree_mutation(&self, what: &str, node_id: NodeId) -> bool {
