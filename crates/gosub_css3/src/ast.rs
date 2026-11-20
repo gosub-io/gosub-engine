@@ -1,3 +1,4 @@
+use compact_str::{CompactString, ToCompactString};
 use cow_utils::CowUtils;
 use log::warn;
 
@@ -366,14 +367,14 @@ fn relative_selectors(list: Vec<Vec<CssSelectorPart>>) -> Vec<Vec<CssSelectorPar
 }
 
 /// The language ranges of a `:lang()`, each as written (ident or string).
-fn convert_lang_ranges(arguments: Vec<CssNode>) -> CssResult<Vec<String>> {
+fn convert_lang_ranges(arguments: Vec<CssNode>) -> CssResult<Vec<CompactString>> {
     let Some(NodeType::Value { children }) = arguments.into_iter().next().map(|node| node.node_type) else {
         return Err(CssError::new(":lang() without language ranges"));
     };
     children
         .into_iter()
         .map(|child| match child.node_type {
-            NodeType::Ident { value } | NodeType::String { value } => Ok(value.into()),
+            NodeType::Ident { value } | NodeType::String { value } => Ok(value),
             _ => Err(CssError::new("invalid language range in :lang()")),
         })
         .collect()
@@ -439,8 +440,8 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut FlatSelectors) ->
     out.parts.reserve_exact(children.len() - commas);
     for node in children {
         let part = match node.node_type {
-            NodeType::Ident { value } => CssSelectorPart::Type(value.into()),
-            NodeType::ClassSelector { value } => CssSelectorPart::Class(value.into()),
+            NodeType::Ident { value } => CssSelectorPart::Type(value),
+            NodeType::ClassSelector { value } => CssSelectorPart::Class(value),
             NodeType::Combinator { value } => {
                 let combinator = match value.as_str() {
                     ">" => Combinator::Child,
@@ -454,7 +455,7 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut FlatSelectors) ->
 
                 CssSelectorPart::Combinator(combinator)
             }
-            NodeType::IdSelector { value } => CssSelectorPart::Id(value.into()),
+            NodeType::IdSelector { value } => CssSelectorPart::Id(value),
             NodeType::TypeSelector { value, .. } if value == "*" => CssSelectorPart::Universal,
             // CSS2 spelled the pseudo-*elements* with a single colon, and that is still
             // what most older stylesheets use (`.container:after` for the clearfix
@@ -487,11 +488,11 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut FlatSelectors) ->
                         // Any other functional pseudo-class keeps its serialized form, which is
                         // what the matcher's name-based arms expect.
                         CssSelectorPart::PseudoClass(
-                            CssNode::new(NodeType::Function { name, arguments }, node.location).to_string(),
+                            CssNode::new(NodeType::Function { name, arguments }, node.location).to_compact_string(),
                         )
                     }
                 } else {
-                    let name = value.to_string();
+                    let name = value.to_compact_string();
                     if is_legacy_pseudo_element(&name) {
                         CssSelectorPart::PseudoElement(name)
                     } else if name.eq_ignore_ascii_case("host") {
@@ -508,10 +509,10 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut FlatSelectors) ->
                     Some(args) if value.eq_ignore_ascii_case("slotted") => {
                         CssSelectorPart::Slotted(convert_selector_list(vec![*args])?)
                     }
-                    _ => CssSelectorPart::PseudoElement(value.into()),
+                    _ => CssSelectorPart::PseudoElement(value),
                 }
             }
-            NodeType::TypeSelector { value, .. } => CssSelectorPart::Type(value.into()),
+            NodeType::TypeSelector { value, .. } => CssSelectorPart::Type(value),
             NodeType::AttributeSelector {
                 name,
                 value,
@@ -543,9 +544,9 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut FlatSelectors) ->
                 };
 
                 CssSelectorPart::Attribute(Box::new(AttributeSelector {
-                    name: name.into(),
+                    name,
                     matcher,
-                    value: value.into(),
+                    value,
                     case_insensitive: flags.eq_ignore_ascii_case("i"),
                 }))
             }
@@ -1826,7 +1827,7 @@ mod tests {
             panic!("expected a Not part, got {parts:?}");
         };
         assert_eq!(inner.len(), 1, "one compound in the argument");
-        assert_eq!(inner[0], vec![CssSelectorPart::Class("skip".to_string())]);
+        assert_eq!(inner[0], vec![CssSelectorPart::Class("skip".into())]);
     }
 
     #[test]

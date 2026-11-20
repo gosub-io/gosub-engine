@@ -297,9 +297,9 @@ mod tests {
 
     fn attribute(name: &str) -> CssSelectorPart {
         CssSelectorPart::Attribute(Box::new(AttributeSelector {
-            name: name.to_string(),
+            name: name.into(),
             matcher: MatcherType::None,
-            value: String::new(),
+            value: compact_str::CompactString::default(),
             case_insensitive: false,
         }))
     }

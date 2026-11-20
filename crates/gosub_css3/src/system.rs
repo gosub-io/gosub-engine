@@ -1040,15 +1040,15 @@ fn record_hover_compound<'a>(
     for part in compound {
         match part {
             CssSelectorPart::Type(t) => {
-                fp.types.insert(t.clone());
+                fp.types.insert(t.as_str().into());
                 specific = true;
             }
             CssSelectorPart::Class(c) => {
-                fp.classes.insert(c.clone());
+                fp.classes.insert(c.as_str().into());
                 specific = true;
             }
             CssSelectorPart::Id(id) => {
-                fp.ids.insert(id.clone());
+                fp.ids.insert(id.as_str().into());
                 specific = true;
             }
             _ => {}

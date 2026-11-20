@@ -1,4 +1,5 @@
 use crate::matcher::property_ids::PropertyId;
+use compact_str::CompactString;
 use core::fmt::Debug;
 use core::slice;
 use cow_utils::CowUtils;
@@ -972,19 +973,19 @@ pub enum CssSelectorPart {
     #[default]
     Universal,
     Attribute(Box<AttributeSelector>),
-    Class(String),
-    Id(String),
-    PseudoClass(String),
-    PseudoElement(String),
+    Class(CompactString),
+    Id(CompactString),
+    PseudoClass(CompactString),
+    PseudoElement(CompactString),
     Combinator(Combinator),
-    Type(String),
+    Type(CompactString),
     /// `:not(...)`, holding the selector list it negates. Matches when *none* of the inner
     /// selectors match the element.
     Not(Vec<Vec<CssSelectorPart>>),
     /// `:nth-child()`, `:nth-last-child()`, `:nth-of-type()` or `:nth-last-of-type()`.
     Nth(Box<NthSelector>),
     /// `:lang(...)`, holding its language ranges as written.
-    Lang(Vec<String>),
+    Lang(Vec<CompactString>),
     /// `:is(...)` (and its older name `:matches()`), holding its selector list. Matches when any
     /// of the inner selectors matches the element, and is as specific as the most specific one.
     Is(Vec<Vec<CssSelectorPart>>),
@@ -1085,9 +1086,9 @@ impl Display for NthSelector {
 
 #[derive(PartialEq, Clone, Default, Debug)]
 pub struct AttributeSelector {
-    pub name: String,
+    pub name: CompactString,
     pub matcher: MatcherType,
-    pub value: String,
+    pub value: CompactString,
     pub case_insensitive: bool,
 }
 
@@ -1411,10 +1412,17 @@ pub enum CssValue {
     List(Vec<CssValue>),
 }
 
+/// The heap buffer of a `CompactString`; an inline one has none.
+fn compact_heap_size(string: &CompactString, walk: &mut gosub_shared::memory::Walk) {
+    if string.is_heap_allocated() {
+        walk.bytes(string.capacity());
+    }
+}
+
 impl gosub_shared::memory::HeapSize for AttributeSelector {
     fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
-        self.name.heap_size(walk);
-        self.value.heap_size(walk);
+        compact_heap_size(&self.name, walk);
+        compact_heap_size(&self.value, walk);
     }
 }
 
@@ -1435,7 +1443,7 @@ impl gosub_shared::memory::HeapSize for CssSelectorPart {
             | CssSelectorPart::Id(name)
             | CssSelectorPart::PseudoClass(name)
             | CssSelectorPart::PseudoElement(name)
-            | CssSelectorPart::Type(name) => name.heap_size(walk),
+            | CssSelectorPart::Type(name) => compact_heap_size(name, walk),
             CssSelectorPart::Not(list)
             | CssSelectorPart::Is(list)
             | CssSelectorPart::Where(list)
@@ -1449,9 +1457,9 @@ impl gosub_shared::memory::HeapSize for CssSelectorPart {
                 }
             }
             CssSelectorPart::Lang(ranges) => {
-                walk.bytes(ranges.capacity() * size_of::<String>());
+                walk.bytes(ranges.capacity() * size_of::<CompactString>());
                 for range in ranges {
-                    range.heap_size(walk);
+                    compact_heap_size(range, walk);
                 }
             }
             CssSelectorPart::Universal | CssSelectorPart::Combinator(_) | CssSelectorPart::Host(None) => {}
@@ -1743,7 +1751,7 @@ impl CssValue {
 
     /// A hash token's value, `value` without its `#`.
     pub(crate) fn hash_color(value: &str) -> CssValue {
-        let mut hex = compact_str::CompactString::with_capacity(value.len() + 1);
+        let mut hex = CompactString::with_capacity(value.len() + 1);
         hex.push('#');
         hex.push_str(value);
         CssValue::Color(RgbColor::from(hex.as_str()).into())
@@ -2499,7 +2507,7 @@ mod test {
     #[test]
     fn test_css_rule() {
         let rule = CssRule::new(
-            CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]]),
+            CssSelector::new(vec![vec![CssSelectorPart::Type("h1".into())]]),
             vec![CssDeclaration {
                 property: "color".into(),
                 value: CssValue::String("red".to_string()).into(),
@@ -2512,7 +2520,7 @@ mod test {
         assert_eq!(rule.selector().complex_count(), 1);
         let part = rule.selector().complex_at(0).first().unwrap();
 
-        assert_eq!(part, &CssSelectorPart::Type("h1".to_string()));
+        assert_eq!(part, &CssSelectorPart::Type("h1".into()));
         assert_eq!(rule.declarations().len(), 1);
         assert_eq!(rule.declarations().first().unwrap().property.as_str(), "color");
     }
@@ -2533,7 +2541,7 @@ mod test {
         };
 
         let mut rule = CssRule::new(
-            CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]]),
+            CssSelector::new(vec![vec![CssSelectorPart::Type("h1".into())]]),
             vec![declaration("color")],
             None,
             None,
@@ -2558,6 +2566,20 @@ mod test {
             color,
             "the expansion still names the property the rule no longer sets"
         );
+    }
+
+    #[test]
+    fn selector_names_count_only_a_heap_buffer() {
+        use gosub_shared::memory::{HeapSize, Walk};
+        let size = |part: CssSelectorPart| {
+            let mut walk = Walk::new();
+            part.heap_size(&mut walk);
+            walk.owned()
+        };
+        assert_eq!(size(CssSelectorPart::Class("short".into())), 0);
+        let long = CompactString::from("a-class-name-longer-than-inline");
+        assert!(long.is_heap_allocated());
+        assert_eq!(size(CssSelectorPart::Class(long.clone())), long.capacity());
     }
 
     /// Everything that carries specificity, at each of the three levels.
@@ -2664,27 +2686,27 @@ mod test {
     #[test]
     fn test_specificity() {
         let selector = CssSelector::new(vec![vec![
-            CssSelectorPart::Type("h1".to_string()),
-            CssSelectorPart::Class("myclass".to_string()),
-            CssSelectorPart::Id("myid".to_string()),
+            CssSelectorPart::Type("h1".into()),
+            CssSelectorPart::Class("myclass".into()),
+            CssSelectorPart::Id("myid".into()),
         ]]);
 
         assert_eq!(selector.specificity_at(0), Specificity::new(1, 1, 1));
 
         let selector = CssSelector::new(vec![vec![
-            CssSelectorPart::Type("h1".to_string()),
-            CssSelectorPart::Class("myclass".to_string()),
+            CssSelectorPart::Type("h1".into()),
+            CssSelectorPart::Class("myclass".into()),
         ]]);
 
         assert_eq!(selector.specificity_at(0), Specificity::new(0, 1, 1));
 
-        let selector = CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]]);
+        let selector = CssSelector::new(vec![vec![CssSelectorPart::Type("h1".into())]]);
 
         assert_eq!(selector.specificity_at(0), Specificity::new(0, 0, 1));
 
         let selector = CssSelector::new(vec![vec![
-            CssSelectorPart::Class("myclass".to_string()),
-            CssSelectorPart::Class("otherclass".to_string()),
+            CssSelectorPart::Class("myclass".into()),
+            CssSelectorPart::Class("otherclass".into()),
         ]]);
 
         assert_eq!(selector.specificity_at(0), Specificity::new(0, 2, 0));

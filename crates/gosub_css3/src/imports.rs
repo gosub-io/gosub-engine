@@ -143,7 +143,7 @@ mod tests {
             .rules
             .iter()
             .map(|rule| match &rule.selector.complex_at(0)[0] {
-                CssSelectorPart::Type(name) => name.clone(),
+                CssSelectorPart::Type(name) => name.to_string(),
                 other => format!("{other:?}"),
             })
             .collect()
