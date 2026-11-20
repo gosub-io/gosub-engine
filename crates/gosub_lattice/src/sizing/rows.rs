@@ -128,8 +128,11 @@ fn measure_cell<T: TableTree>(
     // Ask the implementor to lay out the cell's children and report their height.
     let content_h = tree.layout_cell(cell.node, inner_w);
 
-    // Explicit CSS `height` is a minimum - content can be taller.
+    // Explicit CSS `height` is a minimum - content can be taller. A `border-box` one counts the
+    // cell's border and padding.
+    let border_box = matches!(tree.css_length(cell.node, CssProp::BoxSizing), CssLength::Px(v) if v == 1.0);
     let explicit_h = match tree.css_length(cell.node, CssProp::Height) {
+        CssLength::Px(px) if border_box => (px - border.vertical() - padding.vertical()).max(0.0),
         CssLength::Px(px) => px,
         _ => 0.0,
     };

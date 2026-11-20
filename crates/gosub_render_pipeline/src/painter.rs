@@ -7,8 +7,8 @@ use crate::common::browser_state::{BrowserState, WireframeState};
 use crate::common::document::node::NodeId;
 use gosub_interface::style::{
     Anchor, BackgroundImage, BackgroundRepeat, BackgroundSize, BackgroundTile, BorderCollapse,
-    BorderStyle as CssBorderStyle, Color as CssColor, ComputedStyle, Display, LinearGradient as CssLinearGradient,
-    ObjectFit, OverflowWrap, WordBreak,
+    BorderStyle as CssBorderStyle, Color as CssColor, ComputedStyle, Display, EmptyCells,
+    LinearGradient as CssLinearGradient, ObjectFit, OverflowWrap, Position, Prop, WordBreak,
 };
 
 /// Which colour of a [`ComputedStyle`] a brush is made from. A function pointer rather than a
@@ -541,8 +541,36 @@ impl Painter {
         )
     }
 
+    /// An empty cell under `empty-cells: hide` is not rendered, as if it were `visibility:
+    /// hidden`, in the separated-borders model only (css-tables-3 §5.2, §5.3.2). It is empty when
+    /// nothing in it is in flow or floated; whitespace counts only where `white-space` keeps it.
+    /// The borders model is the table's: past the rows and row groups, the table element, or the
+    /// parent an anonymous table inherits from.
+    fn is_hidden_empty_cell(&self, dom_node_id: NodeId) -> bool {
+        let doc = &self.layer_list.layout_tree.render_tree.doc;
+        let style = doc.computed_style(dom_node_id);
+        if style.declared_display() != Some(Display::TableCell) || style.inherited.empty_cells != EmptyCells::Hide {
+            return false;
+        }
+        let mut table = doc.parent(dom_node_id);
+        while let Some(id) = table.filter(|&id| self.is_table_track_group(id)) {
+            table = doc.parent(id);
+        }
+        if table.is_some_and(|id| doc.computed_style(id).inherited.border_collapse == BorderCollapse::Collapse) {
+            return false;
+        }
+        doc.children(dom_node_id).into_iter().all(|child| {
+            let child_style = doc.computed_style(child);
+            let out_of_flow = child_style.has(Prop::Position)
+                && matches!(child_style.box_group.position, Position::Absolute | Position::Fixed);
+            out_of_flow || doc.generates_no_table_box(child)
+        })
+    }
+
     fn generate_element_commands(&self, layout_element: &LayoutElementNode, dom_node_id: NodeId) -> Vec<PaintCommand> {
         let mut commands = Vec::new();
+        let hidden_cell =
+            matches!(layout_element.context, ElementContext::None) && self.is_hidden_empty_cell(dom_node_id);
 
         // A run of text has no box of its own to cast a shadow, the popup is not the select, and
         // the table's border overlay paints its cells' borders, not the table.
@@ -550,6 +578,7 @@ impl Painter {
             ElementContext::Text(_) | ElementContext::SelectPopup(_) | ElementContext::TableBorderOverlay(_) => {
                 (None, None)
             }
+            _ if hidden_cell => (None, None),
             _ => self.shadow_commands(layout_element, dom_node_id),
         };
         commands.extend(outer_shadows);
@@ -714,6 +743,7 @@ impl Painter {
             // Rows and row groups paint nothing themselves: their backgrounds go under the cells and,
             // under collapse, their borders join the cells' conflict resolution.
             ElementContext::None if self.is_table_track_group(dom_node_id) => {}
+            ElementContext::None if hidden_cell => {}
             ElementContext::None => {
                 commands.extend(self.table_layer_commands(layout_element));
                 let border_box = snap_to_pixels(layout_element.box_model.border_box);
@@ -771,10 +801,12 @@ impl Painter {
 
         // Text runs don't carry an outline; the owning element does. The popup shares the select's
         // node but isn't the select.
-        if !matches!(
-            layout_element.context,
-            ElementContext::Text(_) | ElementContext::SelectPopup(_)
-        ) {
+        if !hidden_cell
+            && !matches!(
+                layout_element.context,
+                ElementContext::Text(_) | ElementContext::SelectPopup(_)
+            )
+        {
             if let Some(cmd) = self.outline_command(layout_element, dom_node_id) {
                 commands.push(cmd);
             }

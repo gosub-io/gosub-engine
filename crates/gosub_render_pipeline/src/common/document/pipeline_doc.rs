@@ -1290,7 +1290,12 @@ where
         }
         match self.doc.node_type(id) {
             GosubNodeType::TextNode => {
-                if self.doc.text_value(id).is_some_and(|t| !t.trim().is_empty()) {
+                // Not `trim`: an `&nbsp;` is content, not white space that collapses.
+                if self
+                    .doc
+                    .text_value(id)
+                    .is_some_and(|t| !t.chars().all(|c| c.is_ascii_whitespace()))
+                {
                     return false;
                 }
                 // Whitespace-only text: skippable only when collapsing would remove it.

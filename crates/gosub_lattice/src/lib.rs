@@ -51,6 +51,14 @@ pub trait TableTree {
     /// by the row-height algorithm.
     fn layout_cell(&mut self, id: Self::NodeId, available_width: f64) -> f64;
 
+    /// Lay out the children of cell `id` again now that its inner height is known, so the
+    /// percentage heights of its children can resolve against it (css-tables-3 §3.10.6, second
+    /// pass). Called once per cell as it is placed, after `layout_cell`. Returns the new content
+    /// height, or `None` when the cell was not laid out again.
+    fn layout_cell_at_height(&mut self, _id: Self::NodeId, _inner_width: f64, _inner_height: f64) -> Option<f64> {
+        None
+    }
+
     /// Returns the natural (pre-pass) border-box width of cell `id` as
     /// measured by the layout engine in a prior pass (e.g. Taffy).  Used to
     /// distribute auto column widths proportionally to content width rather
