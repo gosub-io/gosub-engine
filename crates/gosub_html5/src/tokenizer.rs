@@ -12,7 +12,6 @@ use crate::node::HTML_NAMESPACE;
 use crate::parser::errors::{ErrorLogger, ParserError};
 use crate::tokenizer::state::State;
 use crate::tokenizer::token::Token;
-use cow_utils::CowUtils;
 use gosub_shared::attributes::Attributes;
 use gosub_shared::byte_stream::Character::{Ch, StreamEnd};
 use gosub_shared::byte_stream::{ByteStream, Character, Location, Stream};
@@ -1234,7 +1233,7 @@ impl<'stream> Tokenizer<'stream> {
                         continue;
                     }
 
-                    if Character::slice_to_string(self.stream.get_slice(7)).cow_to_uppercase() == "DOCTYPE" {
+                    if self.lookahead_eq_ignore_ascii_case("DOCTYPE") {
                         self.stream_next_n(7);
                         self.state = State::DOCTYPE;
                         continue;
@@ -1604,12 +1603,12 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         _ => {
                             self.stream_prev();
-                            if Character::slice_to_string(self.stream.get_slice(6)).cow_to_uppercase() == "PUBLIC" {
+                            if self.lookahead_eq_ignore_ascii_case("PUBLIC") {
                                 self.stream_next_n(6);
                                 self.state = State::AfterDOCTYPEPublicKeyword;
                                 continue;
                             }
-                            if Character::slice_to_string(self.stream.get_slice(6)).cow_to_uppercase() == "SYSTEM" {
+                            if self.lookahead_eq_ignore_ascii_case("SYSTEM") {
                                 self.stream_next_n(6);
                                 self.state = State::AfterDOCTYPESystemKeyword;
                                 continue;
@@ -2169,6 +2168,16 @@ impl<'stream> Tokenizer<'stream> {
     /// `last_start_token` = 'table')
     fn is_appropriate_end_token(&self, end_token: &str) -> bool {
         self.last_start_token == end_token
+    }
+
+    /// Returns true when the next characters in the stream match the (ASCII) `keyword`, compared
+    /// ASCII case-insensitively. The stream position is not changed.
+    fn lookahead_eq_ignore_ascii_case(&mut self, keyword: &str) -> bool {
+        self.stream
+            .get_slice(keyword.len())
+            .iter()
+            .zip(keyword.chars())
+            .all(|(c, k)| matches!(c, Ch(c) if c.eq_ignore_ascii_case(&k)))
     }
 
     /// Return the consumed string as a String
