@@ -26,6 +26,17 @@ pub struct PendingStylesheet {
     pub media: Option<String>,
 }
 
+/// Why [`Document::attach`] left the tree as it was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttachError {
+    /// The node or the parent is not in the document.
+    MissingNode,
+    /// The node is the parent, or one of its host-including ancestors.
+    Cycle,
+    /// The node is a shadow root, which hangs off its host and is never anyone's child.
+    ShadowRoot,
+}
+
 /// Storage-agnostic document interface.
 ///
 /// All node data is accessed through `NodeId` handles. The concrete storage
@@ -71,7 +82,9 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     fn children(&self, id: NodeId) -> &[NodeId];
     fn next_sibling(&self, id: NodeId) -> Option<NodeId>;
 
-    fn attach(&mut self, node: NodeId, parent: NodeId, position: Option<usize>);
+    /// Insert `node` under `parent`, at `position` or last, moving it from where it was. On an
+    /// error nothing changes.
+    fn attach(&mut self, node: NodeId, parent: NodeId, position: Option<usize>) -> Result<(), AttachError>;
     fn detach(&mut self, node: NodeId);
     /// Delete `node` itself, and its shadow root if it is a host. Their children are not
     /// deleted: each becomes the root of its own detached tree, and no id below `node` resolves

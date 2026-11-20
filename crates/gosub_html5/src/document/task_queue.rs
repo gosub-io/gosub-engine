@@ -86,7 +86,9 @@ impl DocumentTaskQueue {
                     location,
                 } => {
                     let node_id = doc.create_element(name, Some(namespace), Attributes::new(), *location);
-                    doc.attach(node_id, *parent_id, *position);
+                    if let Err(err) = doc.attach(node_id, *parent_id, *position) {
+                        errors.push(format!("Node {node_id} not attached to {parent_id}: {err:?}"));
+                    }
                 }
                 DocumentTask::CreateText {
                     content,
@@ -94,7 +96,9 @@ impl DocumentTaskQueue {
                     location,
                 } => {
                     let node_id = doc.create_text(content, *location);
-                    doc.attach(node_id, *parent_id, None);
+                    if let Err(err) = doc.attach(node_id, *parent_id, None) {
+                        errors.push(format!("Node {node_id} not attached to {parent_id}: {err:?}"));
+                    }
                 }
                 DocumentTask::CreateComment {
                     content,
@@ -102,7 +106,9 @@ impl DocumentTaskQueue {
                     location,
                 } => {
                     let node_id = doc.create_comment(content, *location);
-                    doc.attach(node_id, *parent_id, None);
+                    if let Err(err) = doc.attach(node_id, *parent_id, None) {
+                        errors.push(format!("Node {node_id} not attached to {parent_id}: {err:?}"));
+                    }
                 }
                 DocumentTask::InsertAttribute {
                     key, value, element_id, ..
@@ -319,6 +325,24 @@ mod tests {
 
         assert_eq!(errors.len(), 1, "{errors:?}");
         assert!(errors[0].contains("not an element node"), "{errors:?}");
+    }
+
+    #[test]
+    fn a_node_under_a_deleted_parent_is_reported() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let mut queue = DocumentTaskQueue::new::<Config>(&doc);
+        let gone = queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        assert!(queue.flush::<Config>(&mut doc).is_empty());
+        doc.remove(gone);
+
+        let mut queue = DocumentTaskQueue::new::<Config>(&doc);
+        queue.create_element("p", gone, None, HTML_NAMESPACE, Location::default());
+        queue.create_text("hello", gone, Location::default());
+        queue.create_comment("hi", gone, Location::default());
+        let errors = queue.flush::<Config>(&mut doc);
+
+        assert_eq!(errors.len(), 3, "{errors:?}");
+        assert!(errors.iter().all(|e| e.contains("not attached")), "{errors:?}");
     }
 
     #[test]

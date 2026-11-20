@@ -456,7 +456,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         let html_id = parser
             .document
             .create_element("html", Some(HTML_NAMESPACE), Attributes::new(), start_location);
-        parser.document.attach(html_id, parser.document.root(), None);
+        let root = parser.document.root();
+        parser.attach_node(html_id, root, None);
 
         // 7.
         parser.open_elements.push(html_id);
@@ -4598,7 +4599,7 @@ mod test {
                 $self
                     .document
                     .create_element($name, Some(HTML_NAMESPACE), Attributes::new(), Location::default());
-            $self.document.attach(node_id, NodeId::root(), None);
+            $self.document.attach(node_id, NodeId::root(), None).unwrap();
             $self.open_elements.push(node_id);
         }};
     }

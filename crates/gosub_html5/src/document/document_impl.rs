@@ -1,6 +1,6 @@
 use core::fmt::Debug;
 use gosub_interface::css3::CssSystem;
-use gosub_interface::document::{ControlEditState, Document, DocumentType, OpenSelect, PendingStylesheet};
+use gosub_interface::document::{AttachError, ControlEditState, Document, DocumentType, OpenSelect, PendingStylesheet};
 use gosub_shared::attributes::Attributes;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -190,8 +190,8 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         self.get_next_sibling(id)
     }
 
-    fn attach(&mut self, node: NodeId, parent: NodeId, position: Option<usize>) {
-        self.attach_node(node, parent, position);
+    fn attach(&mut self, node: NodeId, parent: NodeId, position: Option<usize>) -> Result<(), AttachError> {
+        self.attach_node(node, parent, position)
     }
 
     fn detach(&mut self, node: NodeId) {
@@ -207,7 +207,8 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             return;
         }
         self.detach_node(node);
-        self.attach_node(node, parent, None);
+        // The cycle is checked above; `attach_node` logs the other refusals.
+        let _ = self.attach_node(node, parent, None);
     }
 
     // ── node type ──────────────────────────────────────────────────────────
@@ -957,19 +958,33 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     /// Register a node and attach it to a parent
     pub fn register_node_at(&mut self, node: NodeImpl, parent_id: NodeId, position: Option<usize>) -> NodeId {
         let node_id = self.register_node(node);
-        self.attach_node(node_id, parent_id, position);
+        // A new node cannot make a cycle; `attach_node` logs the other refusals.
+        let _ = self.attach_node(node_id, parent_id, position);
         node_id
     }
 
-    pub fn attach_node(&mut self, node_id: NodeId, parent_id: NodeId, position: Option<usize>) {
+    /// Insert `node_id` under `parent_id`, at `position` or last, moving it from where it was.
+    /// On an error the tree is left as it was.
+    pub fn attach_node(
+        &mut self,
+        node_id: NodeId,
+        parent_id: NodeId,
+        position: Option<usize>,
+    ) -> Result<(), AttachError> {
+        // Checked before anything moves: a missing node would otherwise be pushed into the
+        // parent's children first and only then be found missing.
+        if self.arena.node_ref(node_id).is_none() || self.arena.node_ref(parent_id).is_none() {
+            log::warn!("attach_node: node {node_id} or parent {parent_id} not found in arena");
+            return Err(AttachError::MissingNode);
+        }
         if self.would_cycle(node_id, parent_id) {
-            return;
+            return Err(AttachError::Cycle);
         }
         // Guarded here rather than in the `Document` methods that call it: this one is public
         // and inherent, so it wins over the trait method for anything holding a concrete
         // `DocumentImpl` - a check on the trait side alone is simply stepped around.
         if self.refuses_tree_mutation("attach_node", node_id) {
-            return;
+            return Err(AttachError::ShadowRoot);
         }
         // Insertion removes the node from where it was, or it ends up in two child lists and
         // the parent walk in `would_cycle` no longer sees every ancestor.
@@ -985,18 +1000,18 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             }
         }
         let Some(node) = self.arena.node_ref_mut(node_id) else {
-            log::warn!("attach_node: node {node_id} not found in arena");
-            return;
+            return Err(AttachError::MissingNode);
         };
         node.parent = Some(parent_id);
         let is_leaf = node.children.is_empty();
         if is_leaf {
             // Most attaches are the parser adding a leaf: skip the ancestor walk when it has no id.
             self.refresh_named_id(node_id);
-            return;
+            return Ok(());
         }
         let registry = self.registry_of(node_id);
         self.refresh_named_ids(node_id, registry);
+        Ok(())
     }
 
     /// Whether `node_id` is a host-including inclusive ancestor of `parent_id` (DOM "pre-insert
@@ -1090,7 +1105,8 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             return;
         }
         self.detach_node(node_id);
-        self.attach_node(node_id, parent_id, None);
+        // The cycle is checked above; `attach_node` logs the other refusals.
+        let _ = self.attach_node(node_id, parent_id, None);
     }
 
     pub fn update_node(&mut self, node: NodeImpl) {
@@ -1442,7 +1458,7 @@ mod tests {
 
     fn element_with_id(doc: &mut DocumentImpl<Config>, name: &str, parent: NodeId, id: Option<&str>) -> NodeId {
         let node = detached_element(doc, name, id);
-        doc.attach_node(node, parent, None);
+        doc.attach_node(node, parent, None).unwrap();
         node
     }
 
@@ -1554,7 +1570,7 @@ mod tests {
     fn template(doc: &mut DocumentImpl<Config>, parent: NodeId) -> NodeId {
         let node = detached_element(doc, "template", None);
         doc.set_template_contents(node, node);
-        doc.attach_node(node, parent, None);
+        doc.attach_node(node, parent, None).unwrap();
         node
     }
 
@@ -1628,7 +1644,7 @@ mod tests {
         let tpl = template(&mut doc, wrapper);
         element_with_id(&mut doc, "span", tpl, Some("inside"));
 
-        doc.attach_node(wrapper, root, None);
+        doc.attach_node(wrapper, root, None).unwrap();
         assert_eq!(doc.node_by_named_id("wrapper"), Some(wrapper));
         assert_eq!(doc.node_by_named_id("inside"), None);
     }
@@ -1725,7 +1741,7 @@ mod tests {
         doc.set_attribute(div, "id", "y");
         assert_eq!(doc.node_by_named_id("y"), None);
 
-        doc.attach_node(div, root, None);
+        doc.attach_node(div, root, None).unwrap();
         assert_eq!(doc.node_by_named_id("y"), Some(div));
     }
 
@@ -1740,7 +1756,7 @@ mod tests {
         assert_eq!(doc.node_by_named_id("parent"), None);
         assert_eq!(doc.node_by_named_id("child"), None);
 
-        doc.attach_node(parent, root, None);
+        doc.attach_node(parent, root, None).unwrap();
         assert_eq!(doc.node_by_named_id("parent"), Some(parent));
         assert_eq!(doc.node_by_named_id("child"), Some(child));
     }
@@ -1817,7 +1833,7 @@ mod tests {
         // Registered second, but inserted before the first holder.
         let later = element_with_id(&mut doc, "div", root, Some("dup"));
         let earlier = detached_element(&mut doc, "div", Some("dup"));
-        doc.attach_node(earlier, root, Some(0));
+        doc.attach_node(earlier, root, Some(0)).unwrap();
         assert_eq!(doc.node_by_named_id("dup"), Some(earlier));
         assert_eq!(doc.get_node_by_named_id("dup").map(NodeImpl::id), Some(earlier));
         assert_ne!(later, earlier);
@@ -1845,7 +1861,7 @@ mod tests {
         );
 
         doc.detach_node(second_branch);
-        doc.attach_node(second_branch, root, Some(0));
+        doc.attach_node(second_branch, root, Some(0)).unwrap();
         assert_eq!(
             doc.node_by_named_id("dup"),
             Some(shallow),
@@ -1862,7 +1878,7 @@ mod tests {
         let mut front = None;
         for _ in 0..50 {
             let e = detached_element(&mut doc, "p", Some("many"));
-            doc.attach_node(e, parent, Some(0));
+            doc.attach_node(e, parent, Some(0)).unwrap();
             front = Some(e);
         }
         assert_eq!(doc.node_by_named_id("many"), front);
@@ -1933,7 +1949,7 @@ mod tests {
 
         doc.detach_node(host);
         assert_eq!(doc.node_by_named_id_in(shadow, "x"), Some(inner));
-        doc.attach_node(host, root, None);
+        doc.attach_node(host, root, None).unwrap();
         assert_eq!(doc.node_by_named_id_in(shadow, "x"), Some(inner));
     }
 
@@ -1948,10 +1964,10 @@ mod tests {
 
         doc.detach_node(parent);
         assert_eq!(doc.node_by_named_id_in(shadow, "c"), None);
-        doc.attach_node(parent, root, None);
+        doc.attach_node(parent, root, None).unwrap();
         assert_eq!(doc.node_by_named_id("c"), Some(child), "now in the document tree");
         doc.detach_node(parent);
-        doc.attach_node(parent, shadow, None);
+        doc.attach_node(parent, shadow, None).unwrap();
         assert_eq!(doc.node_by_named_id_in(shadow, "c"), Some(child));
         assert_eq!(doc.node_by_named_id("c"), None);
     }
@@ -1975,8 +1991,8 @@ mod tests {
         let top = detached_element(&mut doc, "div", Some("top"));
         let first = detached_element(&mut doc, "span", Some("dup"));
         let second = detached_element(&mut doc, "span", Some("dup"));
-        doc.attach_node(first, top, None);
-        doc.attach_node(second, top, None);
+        doc.attach_node(first, top, None).unwrap();
+        doc.attach_node(second, top, None).unwrap();
 
         assert_eq!(doc.tree_root(second), top);
         assert_eq!(doc.node_by_named_id_in(top, "top"), Some(top));
@@ -2044,7 +2060,7 @@ mod tests {
         let shadow = shadow_root_of(&mut doc, host);
         let inner = element_with_id(&mut doc, "div", shadow, None);
 
-        doc.attach_node(host, shadow, None);
+        assert_eq!(doc.attach_node(host, shadow, None), Err(AttachError::Cycle));
         doc.relocate_node(host, inner);
         Document::relocate_node(&mut doc, host, inner);
         assert_eq!(doc.parent(host), Some(root), "the host stays where it was");
@@ -2061,7 +2077,7 @@ mod tests {
 
         doc.relocate_node(outer, inner);
         assert_eq!(doc.parent(outer), Some(root), "not left detached");
-        doc.attach_node(outer, outer, None);
+        assert_eq!(doc.attach_node(outer, outer, None), Err(AttachError::Cycle));
         assert!(doc.children(outer) == [inner]);
     }
 
@@ -2073,13 +2089,13 @@ mod tests {
         let b = element_with_id(&mut doc, "div", root, None);
         let x = element_with_id(&mut doc, "div", a, None);
 
-        doc.attach_node(x, b, None);
+        doc.attach_node(x, b, None).unwrap();
         assert!(doc.children(a).is_empty(), "x left its old parent");
         assert!(doc.children(b) == [x]);
         assert_eq!(doc.parent(x), Some(b));
 
         // With x in both child lists this closed a cycle a -> x -> a.
-        doc.attach_node(a, x, None);
+        doc.attach_node(a, x, None).unwrap();
         assert_eq!(doc.parent(a), Some(x));
         assert!(doc.children(root) == [b]);
     }
@@ -2093,12 +2109,48 @@ mod tests {
         let gone = element_with_id(&mut doc, "div", root, None);
         doc.delete_node_by_id(gone);
 
-        doc.attach_node(x, gone, None);
+        assert_eq!(doc.attach_node(x, gone, None), Err(AttachError::MissingNode));
         doc.relocate_node(x, gone);
         Document::relocate_node(&mut doc, x, gone);
         assert_eq!(doc.parent(x), Some(a));
         assert!(doc.children(a) == [x]);
         assert_eq!(doc.node_by_named_id("x"), Some(x));
+    }
+
+    #[test]
+    fn a_deleted_node_is_not_attached() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let kept = element_with_id(&mut doc, "div", root, None);
+        let gone = element_with_id(&mut doc, "div", root, None);
+        doc.delete_node_by_id(gone);
+
+        assert_eq!(doc.attach_node(gone, root, None), Err(AttachError::MissingNode));
+        assert_eq!(
+            Document::attach(&mut doc, gone, root, Some(0)),
+            Err(AttachError::MissingNode)
+        );
+        assert!(doc.children(root) == [kept], "no child slot for a node that is gone");
+    }
+
+    #[test]
+    fn a_refused_attach_says_why_and_changes_nothing() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let outer = element_with_id(&mut doc, "div", root, None);
+        let inner = element_with_id(&mut doc, "div", outer, None);
+        let host = element_with_id(&mut doc, "div", root, None);
+        let shadow = shadow_root_of(&mut doc, host);
+
+        assert_eq!(doc.attach_node(outer, inner, None), Err(AttachError::Cycle));
+        assert_eq!(doc.attach_node(shadow, outer, None), Err(AttachError::ShadowRoot));
+        assert_eq!(Document::attach(&mut doc, outer, outer, None), Err(AttachError::Cycle));
+        assert!(doc.children(root) == [outer, host]);
+        assert!(doc.children(outer) == [inner]);
+        assert_eq!(doc.parent(shadow), None);
+
+        assert_eq!(Document::attach(&mut doc, inner, host, Some(0)), Ok(()));
+        assert_eq!(doc.parent(inner), Some(host));
     }
 
     #[test]
@@ -2117,7 +2169,7 @@ mod tests {
 
         let later = element_with_id(&mut doc, "p", shadow, Some("dup"));
         let earlier = detached_element(&mut doc, "p", Some("dup"));
-        doc.attach_node(earlier, shadow, Some(0));
+        doc.attach_node(earlier, shadow, Some(0)).unwrap();
         assert_eq!(doc.node_by_named_id_in(shadow, "dup"), Some(earlier));
         assert_ne!(later, earlier);
     }
