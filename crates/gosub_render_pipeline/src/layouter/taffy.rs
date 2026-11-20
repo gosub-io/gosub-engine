@@ -1399,7 +1399,20 @@ impl TaffyLayouter {
             return Some(el.box_model.content_box.height as f32);
         }
         // From taffy: an anonymous line box, a blank line from a `<br>` say, has no layout element.
-        // An absolutely positioned child takes up no room.
+        // An absolutely positioned child takes up no room; a float, absolute in taffy, does.
+        let doc = &layout_tree.render_tree.doc;
+        let out_of_flow: Vec<TaffyNodeId> = layout_tree
+            .get_node_by_id(cell_layout_id)?
+            .children
+            .iter()
+            .filter(|&&child| {
+                layout_tree.get_node_by_id(child).is_some_and(|el| {
+                    let position = doc.computed_style(el.dom_node_id).box_group.position;
+                    matches!(position, CssPosition::Absolute | CssPosition::Fixed)
+                })
+            })
+            .filter_map(|child| self.layout_taffy_mapping.get(child).copied())
+            .collect();
         let cell = self.tree.layout(taffy_id).ok()?;
         let top = cell.border.top + cell.padding.top;
         let bottom = self
@@ -1407,11 +1420,7 @@ impl TaffyLayouter {
             .children(taffy_id)
             .unwrap_or_default()
             .into_iter()
-            .filter(|&child| {
-                self.tree
-                    .style(child)
-                    .is_ok_and(|style| style.position != taffy::Position::Absolute)
-            })
+            .filter(|child| !out_of_flow.contains(child))
             .filter_map(|child| self.tree.layout(child).ok())
             .map(|child| child.location.y + child.size.height + child.margin.bottom)
             .fold(top, f32::max);

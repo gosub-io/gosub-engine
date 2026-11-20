@@ -297,3 +297,22 @@ fn a_baseline_shift_outlives_the_cell_passes() {
     );
     assert_eq!(layouter.stale_baseline_shifts(), []);
 }
+
+/// A float takes up room in the cell when it is aligned: the cell is its block formatting context.
+#[test]
+fn a_float_counts_when_a_cell_is_aligned() {
+    let (layers, [cell, float]) = lay_out(
+        r#"<html><body>
+          <table style="height: 100px; line-height: 10px; border-spacing: 0"><tr>
+            <td id="cell" style="vertical-align: bottom; padding: 0"><div style="height: 0%"></div><div id="float" style="float: left; width: 10px; height: 50px"></div>x</td>
+          </tr></table>
+        </body></html>"#,
+        ["cell", "float"],
+    );
+    let el = layers.layout_tree.get_node_by_id(cell).expect("laid out");
+    let cell_box = el.box_model.border_box;
+    let text = border_box(&layers, el.children[2]);
+    let float = border_box(&layers, float);
+    assert_eq!(float.y + float.height, cell_box.y + cell_box.height);
+    assert_eq!(text.y, float.y);
+}
