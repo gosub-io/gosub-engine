@@ -52,7 +52,7 @@ fn tokenize_after_eof(first: &str, rest: &str) -> (Vec<String>, String, String, 
     let mut tokenizer = Tokenizer::new(&mut stream, None, logger.clone(), Location::default());
 
     read_until_eof(&mut tokenizer);
-    assert!(error_codes(&logger).contains(&"eof-in-tag".to_string()), "{first:?}");
+    assert!(error_codes(&logger).iter().any(|e| e == "eof-in-tag"), "{first:?}");
     let name = tokenizer.current_attr_name.clone();
     let value = tokenizer.current_attr_value.clone();
     let stored = tokenizer.current_attrs.len();
@@ -81,14 +81,14 @@ fn end_tag_attributes_are_not_moved_to_next_start_tag() {
 
     for (input, expected) in cases {
         let (tokens, errors) = tokenize(input);
-        assert!(tokens.contains(&"</p>".to_string()), "{input:?}: {tokens:?}");
+        assert!(tokens.iter().any(|t| t == "</p>"), "{input:?}: {tokens:?}");
         assert_eq!(tokens[tokens.len() - 2], expected, "{input:?}: {tokens:?}");
         assert!(
-            errors.contains(&"end-tag-with-attributes".to_string()),
+            errors.iter().any(|e| e == "end-tag-with-attributes"),
             "{input:?}: {errors:?}"
         );
         assert!(
-            !errors.contains(&"duplicate-attribute".to_string()),
+            !errors.iter().any(|e| e == "duplicate-attribute"),
             "{input:?}: {errors:?}"
         );
     }
@@ -106,10 +106,10 @@ fn self_closing_end_tag_with_attributes() {
     let (tokens, errors) = tokenize(r#"</p a="1"/><div b=2>"#);
     assert_eq!(tokens, ["</p>", r#"<div b="2">"#, "EOF"]);
     assert!(
-        errors.contains(&"end-tag-with-trailing-solidus".to_string()),
+        errors.iter().any(|e| e == "end-tag-with-trailing-solidus"),
         "{errors:?}"
     );
-    assert!(errors.contains(&"end-tag-with-attributes".to_string()), "{errors:?}");
+    assert!(errors.iter().any(|e| e == "end-tag-with-attributes"), "{errors:?}");
 
     let (tokens, _) = tokenize("</p a/><div a>");
     assert_eq!(tokens, ["</p>", r#"<div a="">"#, "EOF"]);
