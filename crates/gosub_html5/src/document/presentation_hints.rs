@@ -1,4 +1,4 @@
-//! HTML presentational hints: the attributes that mean a CSS declaration (HTML §15.3).
+//! HTML presentational hints: the attributes that mean a CSS declaration (HTML section 15.3).
 //!
 //! `<table cellspacing=4>` is `border-spacing: 4px` and `<img width=50>` is `width: 50px`. The
 //! mapping is part of HTML rather than of CSS, so it lives here: the style system asks the
@@ -19,7 +19,7 @@ use gosub_shared::microsyntax::{parse_dimension_value, DimensionValue};
 ///
 /// Nothing this module builds contains any of these characters; the check is here so that stays
 /// true of anything added later. `!` most of all: a presentational hint is never important
-/// (HTML §15.3.1), and the only way one could become important is by writing the word.
+/// (HTML section 15.3.1), and the only way one could become important is by writing the word.
 fn push(out: &mut String, property: &str, value: &str) {
     if value.is_empty() || value.contains(['!', ';', '{', '}', '"', '\'', '\\']) {
         return;
@@ -145,12 +145,12 @@ fn legacy_color(raw: &str) -> Option<String> {
     Some(out)
 }
 
-/// The elements whose `bgcolor` is a `background-color` (HTML §15.3.3 and §15.3.10).
+/// The elements whose `bgcolor` is a `background-color` (HTML sections 15.3.3 and 15.3.10).
 fn maps_bgcolor(tag: &str) -> bool {
     matches!(tag, "body" | "table" | "thead" | "tbody" | "tfoot" | "tr" | "td" | "th")
 }
 
-/// `align` on the elements that take it (HTML §15.3.3), as a `text-align` value.
+/// `align` on the elements that take it (HTML section 15.3.3), as a `text-align` value.
 ///
 /// On the block and table elements the attribute moves block-level descendants as well as text,
 /// which is what the `-webkit-` keywords are for; on a paragraph or a heading it is plain text
@@ -178,7 +178,7 @@ fn align(tag: &str, raw: &str) -> Option<&'static str> {
     }
 }
 
-/// `valign` on the table parts that take it (HTML §15.3.10), as a `vertical-align` value. The
+/// `valign` on the table parts that take it (HTML section 15.3.10), as a `vertical-align` value. The
 /// user-agent sheet's `vertical-align: inherit` on rows and cells carries a section's or a row's
 /// value down to its cells.
 fn valign(tag: &str, raw: &str) -> Option<&'static str> {
@@ -198,7 +198,7 @@ fn valign(tag: &str, raw: &str) -> Option<&'static str> {
     }
 }
 
-/// §15.3.8: a list's `type`, as a `list-style-type`. The numbering letters are case-sensitive -
+/// section 15.3.8: a list's `type`, as a `list-style-type`. The numbering letters are case-sensitive -
 /// `a` and `A` are two styles - and belong to `<ol>`; the bullet names are not, and belong to
 /// `<ul>`. An `<li>` takes either.
 fn list_type(tag: &str, raw: &str) -> Option<&'static str> {
@@ -239,7 +239,7 @@ pub fn hints_for<'a>(
     let mut out = String::new();
 
     // SVG has the same idea under another name: a presentation attribute is a declaration at
-    // specificity zero in the author origin (SVG 2 §6.6), and `width` is one of them - which is
+    // specificity zero in the author origin (SVG 2 section 6.6), and `width` is one of them - which is
     // what sizes the `<svg>` box an HTML page embeds. Its value is CSS rather than markup, but
     // for this attribute the two agree: a bare number is a length in px.
     if svg {
@@ -255,14 +255,14 @@ pub fn hints_for<'a>(
         return (!out.is_empty()).then_some(out);
     }
 
-    // §15.3.10: the table's own cell spacing, in px.
+    // section 15.3.10: the table's own cell spacing, in px.
     if tag == "table" {
         if let Some(spacing) = lookup("cellspacing").and_then(non_negative_integer) {
             push(&mut out, "border-spacing", &format!("{spacing}px"));
         }
     }
 
-    // §15.3.10: a cell's padding comes from the table it is in, not from the cell.
+    // section 15.3.10: a cell's padding comes from the table it is in, not from the cell.
     if in_table_cell {
         let padding = table_attr("cellpadding")
             .and_then(non_negative_integer)
@@ -288,7 +288,7 @@ pub fn hints_for<'a>(
         push(&mut out, "list-style-type", value);
     }
 
-    // §15.3.9, the dimension attributes: a replaced element's `width` and `height` are CSS ones.
+    // section 15.3.9, the dimension attributes: a replaced element's `width` and `height` are CSS ones.
     let dimension_attr = match tag {
         "img" | "embed" | "iframe" | "object" | "video" => true,
         "input" => lookup("type").is_some_and(|value| value.eq_ignore_ascii_case("image")),
@@ -301,7 +301,7 @@ pub fn hints_for<'a>(
         if let Some(height) = lookup("height").and_then(dimension) {
             push(&mut out, "height", &height);
         }
-        // §15.4.3: on img, video and the image button the pair is also a ratio, as long as
+        // section 15.4.3: on img, video and the image button the pair is also a ratio, as long as
         // neither is a percentage.
         if !matches!(tag, "embed" | "iframe" | "object") {
             let length = |name| match lookup(name).and_then(parse_dimension_value) {
@@ -313,7 +313,7 @@ pub fn hints_for<'a>(
             }
         }
     } else if matches!(tag, "table" | "td" | "th" | "col" | "colgroup" | "hr") {
-        // §15.3.6 and §15.3.10: the same attribute on the table family and on `<hr>`, where a
+        // sections 15.3.6 and 15.3.10: the same attribute on the table family and on `<hr>`, where a
         // zero is an error rather than a zero-width box.
         if let Some(width) = lookup("width").and_then(nonzero_dimension) {
             push(&mut out, "width", &width);

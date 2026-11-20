@@ -2058,7 +2058,7 @@ impl<'stream> Tokenizer<'stream> {
         }
     }
 
-    /// This macro reads a character from the input stream and optionally generates (tokenization)
+    /// Reads a character from the input stream and optionally generates (tokenization)
     /// errors if the character is not valid.
     fn read_char(&mut self) -> Character {
         let loc = self.get_location();
@@ -2077,8 +2077,6 @@ impl<'stream> Tokenizer<'stream> {
             }
             _ => {}
         }
-
-        // println!("stream_read(): {:?}", c);
 
         c
     }
