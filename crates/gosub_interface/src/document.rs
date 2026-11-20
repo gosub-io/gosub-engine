@@ -69,7 +69,7 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
         location: Location,
     ) -> NodeId;
 
-    /// Deep-clone a node (and its subtree). Returns the new root NodeId.
+    /// Deep-clone a node (and its subtree), unattached. Returns the new root NodeId.
     fn clone_node(&mut self, id: NodeId) -> NodeId;
 
     /// Shallow-copy a node: same type/data/attributes, no children, unattached.
