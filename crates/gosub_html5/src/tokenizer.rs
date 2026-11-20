@@ -5,6 +5,8 @@ mod character_reference;
 mod replacement_tables;
 
 #[cfg(test)]
+mod attribute_tests;
+#[cfg(test)]
 mod test_cases;
 
 use crate::errors::Error;
@@ -1039,6 +1041,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         StreamEnd => {
                             self.parse_error(ParserError::EofInTag, loc);
+                            self.clear_attribute_state();
                             self.state = State::Data;
                         }
                         _ => {
@@ -1069,6 +1072,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         StreamEnd => {
                             self.parse_error(ParserError::EofInTag, loc);
+                            self.clear_attribute_state();
                             self.state = State::Data;
                         }
                         _ => {
@@ -1091,6 +1095,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         StreamEnd => {
                             self.parse_error(ParserError::EofInTag, loc);
+                            self.clear_attribute_state();
                             self.state = State::Data;
                         }
                         _ => {
@@ -1112,6 +1117,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         StreamEnd => {
                             self.parse_error(ParserError::EofInTag, loc);
+                            self.clear_attribute_state();
                             self.state = State::Data;
                         }
                         _ => {
@@ -1145,6 +1151,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         StreamEnd => {
                             self.parse_error(ParserError::EofInTag, loc);
+                            self.clear_attribute_state();
                             self.state = State::Data;
                         }
                         _ => {
@@ -1169,6 +1176,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         StreamEnd => {
                             self.parse_error(ParserError::EofInTag, loc);
+                            self.clear_attribute_state();
                             self.state = State::Data;
                         }
                         _ => {
@@ -1193,6 +1201,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         StreamEnd => {
                             self.parse_error(ParserError::EofInTag, loc);
+                            self.clear_attribute_state();
                             self.state = State::Data;
                         }
                         _ => {
@@ -2266,6 +2275,13 @@ impl<'stream> Tokenizer<'stream> {
         }
     }
 
+    /// Drops any attribute that is still being collected. Used when the tag is dropped at EOF.
+    fn clear_attribute_state(&mut self) {
+        self.current_attr_name.clear();
+        self.current_attr_value.clear();
+        self.current_attrs.clear();
+    }
+
     /// This method will add current generated attributes to the current (start) token if needed.
     fn add_stored_attributes_to_current_token(&mut self) {
         if self.current_attrs.is_empty() {
@@ -2281,6 +2297,9 @@ impl<'stream> Tokenizer<'stream> {
                 self.stream_prev();
                 self.parse_error(ParserError::EndTagWithAttributes, self.get_location());
                 self.stream_next_n(1);
+                // An end tag never carries attributes, so drop them instead of leaving them
+                // for the next start tag.
+                self.current_attrs.clear();
             }
             Token::StartTag { attributes, .. } if attributes.is_empty() => {
                 *attributes = std::mem::take(&mut self.current_attrs);
