@@ -1120,6 +1120,9 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         self.refresh_named_id(node.id());
     }
 
+    /// Delete `node_id` from the arena, and its shadow root if it is a host. Their children stay,
+    /// each the root of its own detached tree, and the ids below `node_id` leave the document's
+    /// registry.
     pub fn delete_node_by_id(&mut self, node_id: NodeId) {
         // The host and its shadow root each name the other, so deleting either has to clear the
         // link the other way round or the survivor keeps naming a node that is gone. Done here
@@ -1751,6 +1754,25 @@ mod tests {
 
         doc.delete_node_by_id(parent);
         assert_eq!(doc.node_by_named_id("child"), None);
+    }
+
+    #[test]
+    fn removing_a_node_drops_the_ids_of_its_whole_subtree() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let div = element_with_id(&mut doc, "div", root, Some("outer"));
+        let p = element(&mut doc, "p", div);
+        let span = element_with_id(&mut doc, "span", p, Some("inner"));
+
+        Document::remove(&mut doc, div);
+        assert_eq!(doc.node_by_named_id("outer"), None);
+        assert_eq!(doc.node_by_named_id("inner"), None);
+        assert!(doc.node_by_id(div).is_none());
+
+        // The rest of the subtree is kept, as a detached tree rooted at `p`.
+        assert_eq!(doc.parent(p), None);
+        assert_eq!(doc.tree_root(span), p);
+        assert_eq!(doc.node_by_named_id_in(p, "inner"), Some(span));
     }
 
     #[test]
