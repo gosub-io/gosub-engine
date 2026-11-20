@@ -89,7 +89,7 @@ impl NodeImpl {
     pub fn new_element(location: Location, name: &str, namespace: Option<&str>, attributes: Attributes) -> Self {
         Self::new(
             location,
-            NodeDataTypeInternal::Element(ElementData::new(name, namespace, attributes, Default::default())),
+            NodeDataTypeInternal::Element(ElementData::new(name, namespace, attributes)),
         )
     }
 
