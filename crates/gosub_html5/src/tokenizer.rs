@@ -5,6 +5,8 @@ mod character_reference;
 mod replacement_tables;
 
 #[cfg(test)]
+mod attribute_tests;
+#[cfg(test)]
 mod test_cases;
 
 use crate::errors::Error;
@@ -12,7 +14,6 @@ use crate::node::HTML_NAMESPACE;
 use crate::parser::errors::{ErrorLogger, ParserError};
 use crate::tokenizer::state::State;
 use crate::tokenizer::token::Token;
-use cow_utils::CowUtils;
 use gosub_shared::attributes::Attributes;
 use gosub_shared::byte_stream::Character::{Ch, StreamEnd};
 use gosub_shared::byte_stream::{ByteStream, Character, Location, Stream};
@@ -1058,6 +1059,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         StreamEnd => {
                             self.parse_error(ParserError::EofInTag, loc);
+                            self.clear_attribute_state();
                             self.state = State::Data;
                         }
                         _ => {
@@ -1088,6 +1090,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         StreamEnd => {
                             self.parse_error(ParserError::EofInTag, loc);
+                            self.clear_attribute_state();
                             self.state = State::Data;
                         }
                         _ => {
@@ -1110,6 +1113,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         StreamEnd => {
                             self.parse_error(ParserError::EofInTag, loc);
+                            self.clear_attribute_state();
                             self.state = State::Data;
                         }
                         _ => {
@@ -1131,6 +1135,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         StreamEnd => {
                             self.parse_error(ParserError::EofInTag, loc);
+                            self.clear_attribute_state();
                             self.state = State::Data;
                         }
                         _ => {
@@ -1164,6 +1169,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         StreamEnd => {
                             self.parse_error(ParserError::EofInTag, loc);
+                            self.clear_attribute_state();
                             self.state = State::Data;
                         }
                         _ => {
@@ -1188,6 +1194,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         StreamEnd => {
                             self.parse_error(ParserError::EofInTag, loc);
+                            self.clear_attribute_state();
                             self.state = State::Data;
                         }
                         _ => {
@@ -1212,6 +1219,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         StreamEnd => {
                             self.parse_error(ParserError::EofInTag, loc);
+                            self.clear_attribute_state();
                             self.state = State::Data;
                         }
                         _ => {
@@ -1252,7 +1260,7 @@ impl<'stream> Tokenizer<'stream> {
                         continue;
                     }
 
-                    if Character::slice_to_string(self.stream.get_slice(7)).cow_to_uppercase() == "DOCTYPE" {
+                    if self.lookahead_eq_ignore_ascii_case("DOCTYPE") {
                         self.stream_next_n(7);
                         self.state = State::DOCTYPE;
                         continue;
@@ -1622,12 +1630,12 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         _ => {
                             self.stream_prev();
-                            if Character::slice_to_string(self.stream.get_slice(6)).cow_to_uppercase() == "PUBLIC" {
+                            if self.lookahead_eq_ignore_ascii_case("PUBLIC") {
                                 self.stream_next_n(6);
                                 self.state = State::AfterDOCTYPEPublicKeyword;
                                 continue;
                             }
-                            if Character::slice_to_string(self.stream.get_slice(6)).cow_to_uppercase() == "SYSTEM" {
+                            if self.lookahead_eq_ignore_ascii_case("SYSTEM") {
                                 self.stream_next_n(6);
                                 self.state = State::AfterDOCTYPESystemKeyword;
                                 continue;
@@ -2189,6 +2197,16 @@ impl<'stream> Tokenizer<'stream> {
         self.last_start_token == end_token
     }
 
+    /// Returns true when the next characters in the stream match the (ASCII) `keyword`, compared
+    /// ASCII case-insensitively. The stream position is not changed.
+    fn lookahead_eq_ignore_ascii_case(&mut self, keyword: &str) -> bool {
+        self.stream
+            .get_slice(keyword.len())
+            .iter()
+            .zip(keyword.chars())
+            .all(|(c, k)| matches!(c, Ch(c) if c.eq_ignore_ascii_case(&k)))
+    }
+
     /// Return the consumed string as a String
     #[must_use]
     pub fn get_consumed_str(&self) -> &str {
@@ -2275,6 +2293,13 @@ impl<'stream> Tokenizer<'stream> {
         }
     }
 
+    /// Drops any attribute that is still being collected. Used when the tag is dropped at EOF.
+    fn clear_attribute_state(&mut self) {
+        self.current_attr_name.clear();
+        self.current_attr_value.clear();
+        self.current_attrs.clear();
+    }
+
     /// This method will add current generated attributes to the current (start) token if needed.
     fn add_stored_attributes_to_current_token(&mut self) {
         if self.current_attrs.is_empty() {
@@ -2290,6 +2315,9 @@ impl<'stream> Tokenizer<'stream> {
                 self.stream_prev();
                 self.parse_error(ParserError::EndTagWithAttributes, self.get_location());
                 self.stream_next_n(1);
+                // An end tag never carries attributes, so drop them instead of leaving them
+                // for the next start tag.
+                self.current_attrs.clear();
             }
             Token::StartTag { attributes, .. } if attributes.is_empty() => {
                 *attributes = std::mem::take(&mut self.current_attrs);

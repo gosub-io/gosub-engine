@@ -12,7 +12,7 @@ use crate::document::presentation_hints;
 use crate::node::arena::NodeArena;
 use crate::node::data::comment::CommentData;
 use crate::node::data::doctype::DocTypeData;
-use crate::node::data::element::{ClassListImpl, ElementData};
+use crate::node::data::element::ElementData;
 use crate::node::node_impl::{NodeDataTypeInternal, NodeImpl};
 use crate::node::visitor::Visitor;
 use crate::node::HTML_NAMESPACE;
@@ -120,13 +120,9 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         attributes: Attributes,
         location: Location,
     ) -> NodeId {
-        let class_list = match attributes.get("class") {
-            Some(class_value) => ClassListImpl::from(class_value.as_str()),
-            None => ClassListImpl::default(),
-        };
         let node = NodeImpl::new(
             location,
-            NodeDataTypeInternal::Element(ElementData::new(name, namespace, attributes, class_list)),
+            NodeDataTypeInternal::Element(ElementData::new(name, namespace, attributes)),
         );
         self.register_node(node)
     }
@@ -158,9 +154,28 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         if self.refuses_copy(id) {
             return id;
         }
-        let Some(node) = self.arena.node(id) else { return id };
-        let cloned = NodeImpl::new_from_node(&node);
-        self.register_node(cloned)
+        let Some(root) = self.copy_node(id) else { return id };
+        // A stack rather than recursion: the parser builds trees deep enough to blow the call
+        // stack, and a clone has to cope with whatever it built.
+        let mut stack = vec![(id, root)];
+        while let Some((original, copy)) = stack.pop() {
+            for child in self.children(original).to_vec() {
+                let Some(child_copy) = self.copy_node(child) else {
+                    continue;
+                };
+                // Linked by hand, not with `attach_node`: the copy is a fresh leaf in a detached
+                // tree, so there is no cycle to check and no registry for its id. Asking for one
+                // walks every copied ancestor per node, which is quadratic down a deep chain.
+                if let Some(parent) = self.arena.node_ref_mut(copy) {
+                    parent.push(child_copy);
+                }
+                if let Some(node) = self.arena.node_ref_mut(child_copy) {
+                    node.parent = Some(copy);
+                }
+                stack.push((child, child_copy));
+            }
+        }
+        root
     }
 
     fn duplicate_node(&mut self, id: NodeId) -> NodeId {
@@ -235,14 +250,14 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
 
     fn attribute(&self, id: NodeId, name: &str) -> Option<&str> {
         match self.arena.node_ref(id)?.data {
-            NodeDataTypeInternal::Element(ref e) => e.attributes.get(name).map(String::as_str),
+            NodeDataTypeInternal::Element(ref e) => e.attribute(name).map(String::as_str),
             _ => None,
         }
     }
 
     fn attributes(&self, id: NodeId) -> Option<&Attributes> {
         match self.arena.node_ref(id)?.data {
-            NodeDataTypeInternal::Element(ref e) => Some(&e.attributes),
+            NodeDataTypeInternal::Element(ref e) => Some(e.attributes()),
             _ => None,
         }
     }
@@ -283,7 +298,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             return false;
         };
         match &node.data {
-            NodeDataTypeInternal::Element(e) => e.classlist().is_active(name),
+            NodeDataTypeInternal::Element(e) => e.classlist().contains(name),
             _ => false,
         }
     }
@@ -798,7 +813,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                 .arena
                 .node_ref(node_id)
                 .and_then(NodeImpl::get_element_data)
-                .is_some_and(|data| data.attributes.contains_key("id"))
+                .is_some_and(|data| data.attributes().contains_key("id"))
     }
 
     /// Bring `node_id`'s registration in line with its `id` attribute, after that changed.
@@ -820,7 +835,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             .arena
             .node_ref(node_id)
             .and_then(NodeImpl::get_element_data)
-            .and_then(|data| data.attributes.get("id"))
+            .and_then(|data| data.attribute("id"))
             .filter(|v| !v.is_empty())
             .cloned();
         let (Some(registry), Some(id_value)) = (registry, id_value) else {
@@ -875,7 +890,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             };
             let holds = node
                 .get_element_data()
-                .and_then(|data| data.attributes.get("id"))
+                .and_then(|data| data.attribute("id"))
                 .is_some_and(|v| v == name_id);
             if holds {
                 return Some(id);
@@ -1065,6 +1080,27 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             log::warn!("refusing to copy shadow root {node_id}");
         }
         is_shadow_root
+    }
+
+    /// One node of a `clone_node`: registered, unattached, no children yet.
+    ///
+    /// A template that holds its own contents points at itself, and the copied data still
+    /// points at the original - which would send the copy's contents into the original. Any
+    /// other target is a declarative shadow root, which belongs to the original alone.
+    fn copy_node(&mut self, node_id: NodeId) -> Option<NodeId> {
+        let holds_contents = self.holds_template_contents(node_id);
+        let copy = NodeImpl::new_from_node(self.arena.node_ref(node_id)?);
+        let copy_id = self.register_node(copy);
+        if let Some(data) = self
+            .arena
+            .node_ref_mut(copy_id)
+            .and_then(NodeImpl::get_element_data_mut)
+        {
+            if data.template_contents.is_some() {
+                data.template_contents = holds_contents.then_some(copy_id);
+            }
+        }
+        Some(copy_id)
     }
 
     fn refuses_tree_mutation(&self, what: &str, node_id: NodeId) -> bool {
@@ -1282,13 +1318,9 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         attributes: Attributes,
         location: Location,
     ) -> NodeImpl {
-        let class_list = match attributes.get("class") {
-            Some(class_value) => ClassListImpl::from(class_value.as_str()),
-            None => ClassListImpl::default(),
-        };
         NodeImpl::new(
             location,
-            NodeDataTypeInternal::Element(ElementData::new(name, namespace, attributes, class_list)),
+            NodeDataTypeInternal::Element(ElementData::new(name, namespace, attributes)),
         )
     }
 
@@ -1321,7 +1353,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             }
             NodeDataTypeInternal::Element(element) => {
                 let _ = write!(f, "{}<{}", buffer, element.name);
-                for (key, value) in &element.attributes {
+                for (key, value) in element.attributes() {
                     let _ = write!(f, " {key}={value}");
                 }
                 let _ = writeln!(f, ">");
@@ -1512,10 +1544,10 @@ mod tests {
         let data = n.get_element_data_mut().expect("element");
         match id {
             Some(id) => {
-                data.attributes.insert("id".to_string(), id.to_string());
+                data.add_attribute("id", id);
             }
             None => {
-                data.attributes.remove("id");
+                data.remove_attribute("id");
             }
         }
         doc.update_node(n);

@@ -19,6 +19,7 @@ log = { workspace = true, features = [] }
 nom = { workspace = true }
 nom_locate = "5.0.0"
 regex = { workspace = true }
+indexmap = "2.13.0"
 serde_json = { workspace = true, features = ["preserve_order"] }
 serde = { workspace = true, features = ["derive"] }
 cow-utils = { workspace = true }

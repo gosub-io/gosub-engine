@@ -5,122 +5,72 @@ use crate::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use core::fmt::{Debug, Formatter};
 use gosub_shared::attributes::Attributes;
 use gosub_shared::node::NodeId;
-use std::collections::hash_map::IntoIter;
-use std::collections::HashMap;
+use indexmap::IndexSet;
 use std::fmt;
 
-#[derive(Debug)]
+/// The classes of an element: the `class` attribute parsed as an ordered set of tokens.
+///
+/// The attribute is the source of truth. `ElementData` rebuilds this list on every write to
+/// `class`, and its class methods write the attribute back, so the two cannot drift apart.
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ClassListImpl {
-    class_map: HashMap<String, bool>,
+    classes: IndexSet<String>,
 }
 
 impl gosub_shared::memory::HeapSize for ClassListImpl {
     fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
-        self.class_map.heap_size(walk);
-    }
-}
-
-impl Clone for ClassListImpl {
-    fn clone(&self) -> Self {
-        Self {
-            class_map: self.class_map.clone(),
+        // Each entry also keeps its hash, and the table an index for it.
+        walk.bytes(self.classes.capacity() * (size_of::<String>() + 2 * size_of::<usize>()));
+        for class in &self.classes {
+            class.heap_size(walk);
         }
-    }
-}
-
-impl PartialEq for ClassListImpl {
-    fn eq(&self, other: &Self) -> bool {
-        self.class_map == other.class_map
-    }
-}
-
-impl Default for ClassListImpl {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
 impl ClassListImpl {
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            class_map: HashMap::new(),
-        }
+        Self::default()
     }
 
-    pub fn iter(&self) -> IntoIter<String, bool> {
-        self.class_map.clone().into_iter()
+    pub fn iter(&self) -> impl Iterator<Item = &str> {
+        self.classes.iter().map(String::as_str)
     }
 
     pub fn len(&self) -> usize {
-        self.class_map.len()
+        self.classes.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.class_map.is_empty()
+        self.classes.is_empty()
     }
 
     pub fn contains(&self, name: &str) -> bool {
-        self.class_map.contains_key(name)
-    }
-
-    pub fn add(&mut self, name: &str) {
-        if !self.contains(name) {
-            self.class_map.insert(name.to_owned(), true);
-        }
-    }
-
-    pub fn remove(&mut self, name: &str) {
-        self.class_map.remove(name);
-    }
-
-    pub fn toggle(&mut self, name: &str) {
-        if let Some(is_active) = self.class_map.get_mut(name) {
-            *is_active = !*is_active;
-        }
-    }
-
-    pub fn set_active(&mut self, name: &str, is_active: bool) {
-        if let Some(is_active_item) = self.class_map.get_mut(name) {
-            *is_active_item = is_active;
-        }
-    }
-
-    pub fn is_active(&self, name: &str) -> bool {
-        self.class_map.get(name).copied().unwrap_or(false)
-    }
-
-    pub fn replace(&mut self, old_class_name: &str, new_class_name: &str) {
-        if let Some(is_active) = self.class_map.remove(old_class_name) {
-            self.class_map.insert(new_class_name.to_owned(), is_active);
-        }
-    }
-
-    pub fn length(&self) -> usize {
-        self.class_map.len()
+        self.classes.contains(name)
     }
 
     pub fn as_vec(&self) -> Vec<String> {
-        self.class_map.keys().cloned().collect()
+        self.classes.iter().cloned().collect()
     }
 
-    pub fn active_classes(&self) -> Vec<String> {
-        self.class_map
-            .iter()
-            .filter(|(_, &active)| active)
-            .map(|(name, _)| name.clone())
-            .collect()
+    /// The ordered set serializer: the tokens joined by a single space.
+    fn serialize(&self) -> String {
+        self.iter().collect::<Vec<_>>().join(" ")
     }
 }
 
 impl From<&str> for ClassListImpl {
+    /// The ordered set parser: split on ASCII whitespace, drop duplicates, keep first order.
     fn from(class_string: &str) -> Self {
-        let class_map = class_string
-            .split_whitespace()
-            .map(|class| (class.to_owned(), true))
-            .collect();
-        ClassListImpl { class_map }
+        let classes = class_string.split_ascii_whitespace().map(str::to_owned).collect();
+        ClassListImpl { classes }
     }
+}
+
+/// A token `classList` accepts. The DOM throws on an empty token or one with whitespace in
+/// it; here such a token is ignored.
+fn is_valid_token(token: &str) -> bool {
+    !token.is_empty() && !token.bytes().any(|b| b.is_ascii_whitespace())
 }
 
 /// Data structure for element nodes
@@ -129,8 +79,11 @@ pub struct ElementData {
     pub node_id: Option<NodeId>,
     pub name: String,
     pub namespace: Option<String>,
-    pub attributes: Attributes,
-    pub class_list: ClassListImpl,
+    /// Written only through `add_attribute` and `remove_attribute`, which keep `class_list`
+    /// in step.
+    attributes: Attributes,
+    /// Derived from the `class` attribute; see `ClassListImpl`.
+    class_list: ClassListImpl,
     pub force_async: bool,
     /// Template contents: NodeId of the fragment root in the same arena (template elements only)
     pub template_contents: Option<NodeId>,
@@ -150,13 +103,17 @@ impl Debug for ElementData {
 }
 
 impl ElementData {
-    pub(crate) fn new(name: &str, namespace: Option<&str>, attributes: Attributes, classlist: ClassListImpl) -> Self {
+    pub(crate) fn new(name: &str, namespace: Option<&str>, attributes: Attributes) -> Self {
+        let class_list = attributes
+            .get("class")
+            .map(|value| ClassListImpl::from(value.as_str()))
+            .unwrap_or_default();
         Self {
             node_id: None,
             name: name.into(),
             namespace: Some(namespace.unwrap_or(HTML_NAMESPACE).into()),
             attributes,
-            class_list: classlist,
+            class_list,
             force_async: false,
             template_contents: None,
             shadow_root: None,
@@ -185,18 +142,6 @@ impl ElementData {
         &self.class_list
     }
 
-    pub fn classlist_mut(&mut self) -> &mut ClassListImpl {
-        &mut self.class_list
-    }
-
-    pub fn active_class_names(&self) -> Vec<String> {
-        self.class_list
-            .iter()
-            .filter(|(_, active)| *active)
-            .map(|(name, _)| name.clone())
-            .collect()
-    }
-
     pub fn attribute(&self, name: &str) -> Option<&String> {
         self.attributes.get(name)
     }
@@ -208,24 +153,89 @@ impl ElementData {
     pub fn add_attribute(&mut self, name: &str, value: &str) {
         self.attributes.insert(name.into(), value.into());
         if name == "class" {
-            self.class_list = ClassListImpl::new();
-            for class in value.split_whitespace() {
-                self.class_list.add(class);
-            }
+            self.class_list = ClassListImpl::from(value);
         }
     }
 
     pub fn remove_attribute(&mut self, name: &str) {
         if name == "class" {
-            if let Some(value) = self.attributes.get(name) {
-                self.class_list.remove(value);
-            }
+            self.class_list = ClassListImpl::new();
         }
         self.attributes.remove(name);
     }
 
+    /// `classList.add()`.
     pub fn add_class(&mut self, class_name: &str) {
-        self.class_list.add(class_name);
+        if !is_valid_token(class_name) {
+            return;
+        }
+        if !self.class_list.contains(class_name) {
+            self.class_list.classes.insert(class_name.to_owned());
+        }
+        self.update_class_attribute();
+    }
+
+    /// `classList.remove()`.
+    pub fn remove_class(&mut self, class_name: &str) {
+        if !is_valid_token(class_name) {
+            return;
+        }
+        self.class_list.classes.shift_remove(class_name);
+        self.update_class_attribute();
+    }
+
+    /// `classList.toggle()`: adds a missing class and removes a present one, unless `force`
+    /// says which way to go. Returns whether the class is present afterwards.
+    pub fn toggle_class(&mut self, class_name: &str, force: Option<bool>) -> bool {
+        if !is_valid_token(class_name) {
+            return false;
+        }
+        if self.class_list.contains(class_name) {
+            if force == Some(true) {
+                return true;
+            }
+            self.remove_class(class_name);
+            return false;
+        }
+        if force == Some(false) {
+            return false;
+        }
+        self.add_class(class_name);
+        true
+    }
+
+    /// `classList.replace()`. Returns false, and changes nothing, when `old` is not present.
+    pub fn replace_class(&mut self, old: &str, new: &str) -> bool {
+        if !is_valid_token(old) || !is_valid_token(new) {
+            return false;
+        }
+        let classes = &mut self.class_list.classes;
+        let Some(old_index) = classes.get_index_of(old) else {
+            return false;
+        };
+        // Whichever of `old` and `new` comes first becomes `new`; the other one goes.
+        match classes.get_index_of(new) {
+            Some(new_index) if new_index == old_index => {}
+            Some(new_index) if new_index < old_index => {
+                classes.shift_remove_index(old_index);
+            }
+            _ => {
+                classes.shift_remove(new);
+                classes.shift_remove_index(old_index);
+                classes.shift_insert(old_index, new.to_owned());
+            }
+        }
+        self.update_class_attribute();
+        true
+    }
+
+    /// The DOMTokenList update steps: write the set back to the `class` attribute. Nothing
+    /// is written when there is no attribute and the set is empty.
+    fn update_class_attribute(&mut self) {
+        if !self.attributes.contains_key("class") && self.class_list.is_empty() {
+            return;
+        }
+        self.attributes.insert("class".into(), self.class_list.serialize());
     }
 
     pub fn matches_tag_and_attrs_without_order(&self, other_data: &ElementData) -> bool {
@@ -299,62 +309,172 @@ impl ElementData {
 mod tests {
     use super::*;
 
-    #[test]
-    fn is_empty() {
-        let mut classes = ClassListImpl::new();
-        assert!(classes.is_empty());
-        classes.add("one");
-        assert!(!classes.is_empty());
+    fn element(class: Option<&str>) -> ElementData {
+        let mut attributes = Attributes::new();
+        if let Some(class) = class {
+            attributes.insert("class".into(), class.into());
+        }
+        ElementData::new("div", None, attributes)
+    }
+
+    fn classes(e: &ElementData) -> Vec<String> {
+        e.classlist().as_vec()
+    }
+
+    fn class_attr(e: &ElementData) -> Option<&str> {
+        e.attribute("class").map(String::as_str)
     }
 
     #[test]
-    fn count_classes() {
-        let mut classes = ClassListImpl::new();
-        classes.add("one");
-        classes.add("two");
-        assert_eq!(classes.len(), 2);
+    fn parse_keeps_order_and_drops_duplicates() {
+        let list = ClassListImpl::from("  b a\tb\n c\x0ca ");
+        assert_eq!(list.as_vec(), ["b", "a", "c"]);
+        assert_eq!(list.len(), 3);
+        assert!(!ClassListImpl::from(" \t ").contains(""));
+        assert!(ClassListImpl::from(" \t ").is_empty());
     }
 
     #[test]
-    fn contains_nonexistent_class() {
-        let classes = ClassListImpl::new();
-        assert!(!classes.contains("nope"));
+    fn parse_splits_on_ascii_whitespace_only() {
+        // U+00A0 and U+3000 are not ASCII whitespace, so they are part of the token.
+        let list = ClassListImpl::from("a\u{a0}b c\u{3000}d");
+        assert_eq!(list.as_vec(), ["a\u{a0}b", "c\u{3000}d"]);
+        assert!(!list.contains("a"));
     }
 
     #[test]
-    fn contains_valid_class() {
-        let mut classes = ClassListImpl::new();
-        classes.add("yep");
-        assert!(classes.contains("yep"));
+    fn new_derives_classes_from_the_attribute() {
+        assert_eq!(classes(&element(Some("x y"))), ["x", "y"]);
+        assert!(element(None).classlist().is_empty());
     }
 
     #[test]
-    fn add_class() {
-        let mut classlist = ClassListImpl::new();
-        classlist.add("yep");
-        assert!(classlist.is_active("yep"));
-
-        classlist.set_active("yep", false);
-        classlist.add("yep"); // should be ignored
-        assert!(!classlist.is_active("yep"));
+    fn set_class_attribute_replaces_classes() {
+        let mut e = element(Some("x y"));
+        e.add_attribute("class", "z");
+        assert_eq!(classes(&e), ["z"]);
+        e.add_attribute("class", "");
+        assert!(e.classlist().is_empty());
     }
 
     #[test]
-    fn remove_class() {
-        let mut classlist = ClassListImpl::new();
-        classlist.add("yep");
-        classlist.remove("yep");
-        assert!(!classlist.contains("yep"));
+    fn remove_class_attribute_clears_classes() {
+        let mut e = element(Some("x y"));
+        e.remove_attribute("class");
+        assert!(e.classlist().is_empty());
+        assert_eq!(class_attr(&e), None);
     }
 
     #[test]
-    fn toggle_class() {
-        let mut classlist = ClassListImpl::new();
-        classlist.add("yep");
-        assert!(classlist.is_active("yep"));
-        classlist.toggle("yep");
-        assert!(!classlist.is_active("yep"));
-        classlist.toggle("yep");
-        assert!(classlist.is_active("yep"));
+    fn remove_other_attribute_keeps_classes() {
+        let mut e = element(Some("x"));
+        e.add_attribute("id", "i");
+        e.remove_attribute("id");
+        assert_eq!(classes(&e), ["x"]);
+    }
+
+    #[test]
+    fn add_class_writes_the_attribute() {
+        let mut e = element(None);
+        e.add_class("z");
+        assert_eq!(class_attr(&e), Some("z"));
+        e.add_class("w");
+        assert_eq!(class_attr(&e), Some("z w"));
+        assert_eq!(classes(&e), ["z", "w"]);
+    }
+
+    #[test]
+    fn add_present_class_normalizes_the_attribute() {
+        let mut e = element(Some("  a  b a "));
+        e.add_class("a");
+        assert_eq!(class_attr(&e), Some("a b"));
+        assert_eq!(classes(&e), ["a", "b"]);
+    }
+
+    #[test]
+    fn add_invalid_token_changes_nothing() {
+        let mut e = element(Some(" a "));
+        e.add_class("");
+        e.add_class("b c");
+        e.add_class("b\t");
+        assert_eq!(class_attr(&e), Some(" a "));
+        assert_eq!(classes(&e), ["a"]);
+    }
+
+    #[test]
+    fn remove_class_writes_the_attribute() {
+        let mut e = element(Some("x y x"));
+        e.remove_class("x");
+        assert_eq!(class_attr(&e), Some("y"));
+        e.remove_class("y");
+        assert_eq!(class_attr(&e), Some(""));
+        assert!(e.classlist().is_empty());
+    }
+
+    #[test]
+    fn remove_class_without_attribute_adds_none() {
+        let mut e = element(None);
+        e.remove_class("x");
+        assert_eq!(class_attr(&e), None);
+    }
+
+    #[test]
+    fn toggle_adds_a_missing_class() {
+        let mut e = element(Some("x"));
+        assert!(e.toggle_class("y", None));
+        assert_eq!(class_attr(&e), Some("x y"));
+        assert!(!e.toggle_class("y", None));
+        assert_eq!(class_attr(&e), Some("x"));
+    }
+
+    #[test]
+    fn toggle_with_force() {
+        let mut e = element(None);
+        assert!(!e.toggle_class("x", Some(false)));
+        assert_eq!(class_attr(&e), None);
+        assert!(e.toggle_class("x", Some(true)));
+        assert!(e.toggle_class("x", Some(true)));
+        assert_eq!(class_attr(&e), Some("x"));
+        assert!(!e.toggle_class("x", Some(false)));
+        assert_eq!(class_attr(&e), Some(""));
+    }
+
+    #[test]
+    fn replace_class() {
+        let mut e = element(Some("a b c"));
+        assert!(e.replace_class("b", "z"));
+        assert_eq!(class_attr(&e), Some("a z c"));
+        assert!(!e.replace_class("missing", "q"));
+        assert_eq!(class_attr(&e), Some("a z c"));
+    }
+
+    #[test]
+    fn replace_class_with_one_already_present() {
+        // The first of old and new takes the new name; the other copy goes.
+        let mut e = element(Some("a b c"));
+        assert!(e.replace_class("c", "a"));
+        assert_eq!(class_attr(&e), Some("a b"));
+
+        let mut e = element(Some("a b c"));
+        assert!(e.replace_class("a", "c"));
+        assert_eq!(class_attr(&e), Some("c b"));
+    }
+
+    #[test]
+    fn replace_class_with_itself_only_normalizes() {
+        let mut e = element(Some(" a  b c "));
+        assert!(e.replace_class("b", "b"));
+        assert_eq!(class_attr(&e), Some("a b c"));
+    }
+
+    #[test]
+    fn clone_keeps_attribute_and_classes_together() {
+        let mut e = element(Some("x"));
+        let mut copy = e.clone();
+        copy.add_class("y");
+        e.remove_attribute("class");
+        assert_eq!(classes(&copy), ["x", "y"]);
+        assert_eq!(class_attr(&copy), Some("x y"));
+        assert!(e.classlist().is_empty());
     }
 }
