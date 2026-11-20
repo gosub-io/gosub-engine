@@ -95,22 +95,14 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         self.open_elements.iter().position(|&x| x == node_id)
     }
 
+    /// The last formatting element named `subject` after the last marker.
     fn find_format_element_index(&self, subject: &str) -> Option<(usize, NodeId)> {
         self.active_formatting_elements
             .iter()
             .enumerate()
             .rev()
-            .find_map(|(i, &elem)| {
-                if let ActiveElement::Node(node_id) = elem {
-                    if self.document.tag_name(node_id).unwrap_or_default() == subject {
-                        Some((i, node_id))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
+            .map_while(|(i, &elem)| elem.node_id().map(|node_id| (i, node_id)))
+            .find(|&(_, node_id)| self.document.tag_name(node_id).unwrap_or_default() == subject)
     }
 
     fn find_further_block_index(&self, format_ele_position: usize) -> Option<(usize, NodeId)> {
@@ -380,8 +372,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
             };
 
             // step 4.5
-            // find_format_element_index matched on the tag name, so it is `subject`
-            if !self.is_in_scope(subject, HTML_NAMESPACE, Scope::Regular) {
+            if !self.is_element_in_scope(format_elem_node_id, Scope::Regular) {
                 self.parse_error("format_element_node not in regular scope");
                 return;
             }
