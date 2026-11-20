@@ -77,10 +77,6 @@ impl NodeArena {
         }
     }
 
-    pub fn update_node(&mut self, node: NodeImpl) {
-        self.put(node.id(), node);
-    }
-
     pub fn register_node_with_node_id(&mut self, mut node: NodeImpl, node_id: NodeId) {
         assert!(!node.is_registered(), "Node is already attached to an arena");
         node.set_id(node_id);

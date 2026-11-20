@@ -6,7 +6,6 @@ use gosub_interface::config::HasDocument;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 
 pub mod document;
-pub mod errors;
 pub mod memory;
 pub mod node;
 pub mod parser;
@@ -18,7 +17,6 @@ pub mod parser;
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 pub mod testing;
 pub mod tokenizer;
-#[allow(dead_code)]
 pub mod writer;
 
 /// Parses the given HTML string and returns a handle to the resulting DOM tree.

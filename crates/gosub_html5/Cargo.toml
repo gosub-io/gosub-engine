@@ -13,7 +13,6 @@ gosub_css3 = { version = "0.1.1", registry = "gosub", path = "../gosub_css3", fe
 parking_lot = { workspace = true }
 phf = { version = "0.14.0", features = ["macros"] }
 lazy_static = { workspace = true }
-thiserror = { workspace = true }
 url = { workspace = true, features = [] }
 log = { workspace = true, features = [] }
 nom = { workspace = true }

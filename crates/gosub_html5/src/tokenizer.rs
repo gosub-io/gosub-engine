@@ -9,7 +9,6 @@ mod attribute_tests;
 #[cfg(test)]
 mod test_cases;
 
-use crate::errors::Error;
 use crate::node::HTML_NAMESPACE;
 use crate::parser::errors::{ErrorLogger, ParserError};
 use crate::tokenizer::state::State;
@@ -113,12 +112,7 @@ macro_rules! to_lowercase {
 impl<'stream> Tokenizer<'stream> {
     /// Creates a new tokenizer with the given input stream and additional options if any
     #[must_use]
-    pub fn new(
-        stream: &'stream mut ByteStream,
-        opts: Option<Options>,
-        error_logger: Rc<RefCell<ErrorLogger>>,
-        _start_location: Location,
-    ) -> Self {
+    pub fn new(stream: &'stream mut ByteStream, opts: Option<Options>, error_logger: Rc<RefCell<ErrorLogger>>) -> Self {
         Self {
             stream,
             state: opts.as_ref().map_or(State::Data, |o| o.initial_state),
@@ -326,7 +320,6 @@ impl<'stream> Tokenizer<'stream> {
                         Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::EndTag {
                                 name: String::new(),
-                                is_self_closing: false,
                                 location: self.last_token_location,
                             });
                             self.stream_prev();
@@ -394,7 +387,6 @@ impl<'stream> Tokenizer<'stream> {
                         Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::EndTag {
                                 name: String::new(),
-                                is_self_closing: false,
                                 location: self.last_token_location,
                             });
                             self.stream_prev();
@@ -481,7 +473,6 @@ impl<'stream> Tokenizer<'stream> {
                         Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::EndTag {
                                 name: String::new(),
-                                is_self_closing: false,
                                 location: self.last_token_location,
                             });
                             self.stream_prev();
@@ -576,7 +567,6 @@ impl<'stream> Tokenizer<'stream> {
                         Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::EndTag {
                                 name: format!("{}", to_lowercase!(ch)),
-                                is_self_closing: false,
                                 location: self.last_token_location,
                             });
 
@@ -774,7 +764,6 @@ impl<'stream> Tokenizer<'stream> {
                         Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::EndTag {
                                 name: String::new(),
-                                is_self_closing: false,
                                 location: self.last_token_location,
                             });
 
@@ -1177,7 +1166,6 @@ impl<'stream> Tokenizer<'stream> {
                         }
                     }
                 }
-                // State::CharacterReferenceInAttributeValue => {}
                 State::AfterAttributeValueQuoted => {
                     let loc = self.get_location();
                     let c = self.read_char();
@@ -2046,14 +2034,6 @@ impl<'stream> Tokenizer<'stream> {
                         }
                     }
                 }
-                State::CharacterReferenceInAttributeValue => {
-                    // Character references in attribute values are handled inline by the
-                    // attribute-value states; the tokenizer never transitions into this
-                    // state internally. It is only reachable when a caller seeds it via
-                    // the public `Options.initial_state`, which is not a valid entry
-                    // point, so error out instead of panicking on external input.
-                    return Err(Error::Parse(format!("cannot start tokenizing in state {:?}", self.state)).into());
-                }
             }
         }
     }
@@ -2184,13 +2164,6 @@ impl<'stream> Tokenizer<'stream> {
         self.state = state;
     }
 
-    /// Consumes the given string
-    #[allow(dead_code)]
-    pub(crate) fn consume_str(&mut self, s: &str) {
-        // Add s to the current token data
-        self.consumed.push_str(s);
-    }
-
     /// Return true when the given `end_token` matches the stored start token (ie: 'table' matches when
     /// `last_start_token` = 'table')
     fn is_appropriate_end_token(&self, end_token: &str) -> bool {
@@ -2247,32 +2220,6 @@ impl<'stream> Tokenizer<'stream> {
         if let Some(Token::DocType { force_quirks, .. }) = self.current_token.as_mut() {
             *force_quirks = quirky;
         }
-    }
-
-    /// Adds a new attribute to the current token
-    #[allow(dead_code)]
-    fn set_add_attribute_to_current_token(&mut self, name: &str, value: &str) {
-        if let Some(Token::StartTag { attributes, .. }) = self.current_token.as_mut() {
-            attributes.insert(name.into(), value.into());
-        }
-
-        self.current_attr_name.clear();
-    }
-
-    /// Sets the given name into the current token
-    #[allow(dead_code)]
-    fn set_name_in_current_token(&mut self, new_name: String) -> Result<()> {
-        let Some(token) = self.current_token.as_mut() else {
-            return Err(Error::Parse("trying to set the name without a current token".into()).into());
-        };
-        match token {
-            Token::StartTag { name, .. } | Token::EndTag { name, .. } => {
-                *name = new_name;
-            }
-            _ => return Err(Error::Parse("trying to set the name of a non start/end tag token".into()).into()),
-        }
-
-        Ok(())
     }
 
     /// This function checks to see if there is already an attribute name like the one in `current_attr_name`.
@@ -2361,7 +2308,7 @@ mod location_tests {
     fn located(html: &str, opts: Option<Options>, namespace: &'static str) -> Vec<(String, usize, usize)> {
         let mut stream = ByteStream::from_str(html, Encoding::UTF8);
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
-        let mut tokenizer = Tokenizer::new(&mut stream, opts, error_logger, Location::default());
+        let mut tokenizer = Tokenizer::new(&mut stream, opts, error_logger);
 
         let mut result = vec![];
         loop {

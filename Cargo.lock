@@ -3471,7 +3471,6 @@ dependencies = [
  "serde",
  "serde_json",
  "test-case",
- "thiserror 2.0.21",
  "url",
 ]
 
