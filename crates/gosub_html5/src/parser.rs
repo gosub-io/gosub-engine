@@ -2278,19 +2278,40 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             .unwrap_or(false)
     }
 
+    /// Whether `target` itself is in `scope`. Unlike `is_in_scope`, another element with the
+    /// same name above it does not count.
+    fn is_element_in_scope(&self, target: NodeId, scope: Scope) -> bool {
+        for &node_id in self.open_elements.iter().rev() {
+            if node_id == target {
+                return true;
+            }
+            if self.ends_scope(node_id, scope) {
+                return false;
+            }
+        }
+        false
+    }
+
     /// One step of the scope walk. `Some(true)` when `node_id` is the element looked for,
     /// `Some(false)` when it ends the scope, `None` to go on to the next entry down.
     fn scope_step(&self, node_id: NodeId, tag: &str, namespace: &str, scope: Scope) -> Option<bool> {
+        if self.document.node_type(node_id) == NodeType::ElementNode
+            && self.document.tag_name(node_id).unwrap_or_default() == tag
+            && self.document.namespace(node_id).unwrap_or(HTML_NAMESPACE) == namespace
+        {
+            return Some(true);
+        }
+        self.ends_scope(node_id, scope).then_some(false)
+    }
+
+    /// Whether `node_id` is one of the elements that end `scope`.
+    fn ends_scope(&self, node_id: NodeId, scope: Scope) -> bool {
         if self.document.node_type(node_id) != NodeType::ElementNode {
-            return Some(false);
+            return true;
         }
 
         let node_tag = self.document.tag_name(node_id).unwrap_or_default();
         let node_ns = self.document.namespace(node_id).unwrap_or(HTML_NAMESPACE);
-
-        if node_tag == tag && node_ns == namespace {
-            return Some(true);
-        }
 
         let default_html_scope = [
             "applet", "caption", "html", "table", "td", "th", "marquee", "object", "template",
@@ -2303,7 +2324,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     || (node_ns == MATHML_NAMESPACE && default_mathml_scope.contains(&node_tag))
                     || (node_ns == SVG_NAMESPACE && default_svg_scope.contains(&node_tag))
                 {
-                    return Some(false);
+                    return true;
                 }
             }
             Scope::ListItem => {
@@ -2312,7 +2333,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     || (node_ns == MATHML_NAMESPACE && default_mathml_scope.contains(&node_tag))
                     || (node_ns == SVG_NAMESPACE && default_svg_scope.contains(&node_tag))
                 {
-                    return Some(false);
+                    return true;
                 }
             }
             Scope::Button => {
@@ -2320,21 +2341,21 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     || (node_ns == MATHML_NAMESPACE && default_mathml_scope.contains(&node_tag))
                     || (node_ns == SVG_NAMESPACE && default_svg_scope.contains(&node_tag))
                 {
-                    return Some(false);
+                    return true;
                 }
             }
             Scope::Table => {
                 if node_ns == HTML_NAMESPACE && ["html", "template", "table"].contains(&node_tag) {
-                    return Some(false);
+                    return true;
                 }
             }
             Scope::Select => {
                 if !(node_ns == HTML_NAMESPACE && ["optgroup", "option"].contains(&node_tag)) {
-                    return Some(false);
+                    return true;
                 }
             }
         }
-        None
+        false
     }
 
     /// Closes a table cell and switches the insertion mode to `InRow`
