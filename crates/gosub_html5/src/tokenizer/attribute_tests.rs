@@ -4,7 +4,7 @@ use crate::parser::errors::ErrorLogger;
 use crate::tokenizer::state::State;
 use crate::tokenizer::token::Token;
 use crate::tokenizer::{Options, ParserData, Tokenizer};
-use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
+use gosub_shared::byte_stream::{ByteStream, Encoding};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -33,7 +33,7 @@ fn tokenize_in(input: &str, state: State, last_start_tag: &str) -> (Vec<String>,
         initial_state: state,
         last_start_tag: last_start_tag.to_string(),
     };
-    let mut tokenizer = Tokenizer::new(&mut stream, Some(opts), logger.clone(), Location::default());
+    let mut tokenizer = Tokenizer::new(&mut stream, Some(opts), logger.clone());
     let tokens = read_until_eof(&mut tokenizer);
     (tokens, error_codes(&logger))
 }
@@ -49,7 +49,7 @@ fn tokenize_after_eof(first: &str, rest: &str) -> (Vec<String>, String, String, 
     let mut stream = ByteStream::new(Encoding::UTF8, None);
     stream.read_from_str(first, Some(Encoding::UTF8));
     let logger = Rc::new(RefCell::new(ErrorLogger::new()));
-    let mut tokenizer = Tokenizer::new(&mut stream, None, logger.clone(), Location::default());
+    let mut tokenizer = Tokenizer::new(&mut stream, None, logger.clone());
 
     read_until_eof(&mut tokenizer);
     assert!(error_codes(&logger).iter().any(|e| e == "eof-in-tag"), "{first:?}");
@@ -120,7 +120,7 @@ fn end_tag_with_attributes_at_end_of_input() {
     for input in ["</p a=1>", "<div></div a=1>"] {
         let mut stream = ByteStream::from_str(input, Encoding::UTF8);
         let logger = Rc::new(RefCell::new(ErrorLogger::new()));
-        let mut tokenizer = Tokenizer::new(&mut stream, None, logger.clone(), Location::default());
+        let mut tokenizer = Tokenizer::new(&mut stream, None, logger.clone());
 
         let tokens = read_until_eof(&mut tokenizer);
         assert_eq!(tokens.last().map(String::as_str), Some("EOF"), "{input:?}");
