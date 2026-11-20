@@ -19,12 +19,13 @@
 
 use std::borrow::Borrow;
 use std::collections::hash_map::RandomState;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::sync::Arc;
 
 use crate::node::{Node, NodeType};
 use crate::stylesheet::CssValue;
+use crate::tokenizer::NumberKind;
 
 /// A pooled value, keyed by what it is, exactly.
 struct ExactValue {
@@ -301,11 +302,94 @@ fn hash_value<H: Hasher>(value: &CssValue, state: &mut H) {
     }
 }
 
+/// Write `nodes` to `out` as they were written, without locations. False when one of them is a
+/// node this does not know, so the value is not keyed.
+fn write_nodes(out: &mut Vec<u8>, nodes: &[Node]) -> bool {
+    fn text(out: &mut Vec<u8>, text: &str) {
+        out.extend_from_slice(&(text.len() as u64).to_le_bytes());
+        out.extend_from_slice(text.as_bytes());
+    }
+    fn number(out: &mut Vec<u8>, number: f64) {
+        out.extend_from_slice(&number.to_bits().to_le_bytes());
+    }
+    out.extend_from_slice(&(nodes.len() as u64).to_le_bytes());
+    nodes.iter().all(|node| match &node.node_type {
+        NodeType::Ident { value } => {
+            out.push(0);
+            text(out, value);
+            true
+        }
+        NodeType::String { value } => {
+            out.push(1);
+            text(out, value);
+            true
+        }
+        NodeType::Number { value, kind } => {
+            out.push(match kind {
+                NumberKind::Integer => 2,
+                NumberKind::Number => 3,
+            });
+            number(out, *value);
+            true
+        }
+        NodeType::Percentage { value } => {
+            out.push(4);
+            number(out, *value);
+            true
+        }
+        NodeType::Dimension { value, unit } => {
+            out.push(5);
+            number(out, *value);
+            text(out, unit);
+            true
+        }
+        NodeType::Hash { value } => {
+            out.push(6);
+            text(out, value);
+            true
+        }
+        NodeType::Operator {
+            value,
+            space_before,
+            space_after,
+        } => {
+            out.extend_from_slice(&[7, u8::from(*space_before), u8::from(*space_after)]);
+            text(out, value);
+            true
+        }
+        NodeType::Comma => {
+            out.push(8);
+            true
+        }
+        NodeType::Url { url } => {
+            out.push(9);
+            text(out, url);
+            true
+        }
+        NodeType::Function { name, arguments } => {
+            out.push(10);
+            text(out, name);
+            write_nodes(out, arguments)
+        }
+        NodeType::Calc { tokens } => {
+            out.push(11);
+            write_nodes(out, tokens)
+        }
+        _ => false,
+    })
+}
+
 /// The distinct values seen while parsing one stylesheet.
 #[derive(Default)]
 pub(crate) struct ValuePool {
     values: HashSet<ExactValue>,
     hasher: RandomState,
+    /// Values `find` cannot read off their nodes (those with a function in them), by how they
+    /// were written. Building one is a pure function of its nodes, so the same nodes always
+    /// build the same value.
+    built: HashMap<Box<[u8]>, Arc<CssValue>>,
+    /// Reused for the key of each lookup in `built`.
+    scratch: Vec<u8>,
 }
 
 impl ValuePool {
@@ -332,7 +416,7 @@ impl ValuePool {
     ///
     /// `alias` is what a lone keyword stands for instead, for a `display` alias. Units are folded
     /// to lowercase in place, as the conversion would.
-    pub(crate) fn find(&self, nodes: &mut [Node], alias: Option<&'static str>) -> Option<Arc<CssValue>> {
+    fn find(&self, nodes: &mut [Node], alias: Option<&'static str>) -> Option<Arc<CssValue>> {
         for node in nodes.iter_mut() {
             if let NodeType::Dimension { unit, .. } = &mut node.node_type {
                 unit.make_ascii_lowercase();
@@ -354,6 +438,43 @@ impl ValuePool {
         self.values
             .get(&key as &dyn PoolKey)
             .map(|pooled| Arc::clone(&pooled.value))
+    }
+
+    /// The pooled value `nodes` build, built with `build` only when it has not been seen.
+    pub(crate) fn get_or_build<E>(
+        &mut self,
+        mut nodes: Vec<Node>,
+        alias: Option<&'static str>,
+        build: impl FnOnce(Vec<Node>) -> Result<CssValue, E>,
+    ) -> Result<Arc<CssValue>, E> {
+        if let Some(found) = self.find(&mut nodes, alias) {
+            return Ok(found);
+        }
+        // Keyed only when `find` could not read it; a plain value is pooled already above.
+        let mut key = std::mem::take(&mut self.scratch);
+        key.clear();
+        let keyed = nodes.iter().any(|node| {
+            matches!(
+                node.node_type,
+                NodeType::Function { .. } | NodeType::Calc { .. } | NodeType::Url { .. }
+            )
+        }) && write_nodes(&mut key, &nodes);
+        let found = keyed.then(|| self.built.get(key.as_slice()).cloned()).flatten();
+        let value = match found {
+            Some(found) => Ok(found),
+            None => build(nodes).map(|value| {
+                // A keyword may have been through the caller's `display` alias, which the nodes
+                // do not say; it is not remembered by them.
+                let keyed = keyed && !matches!(value, CssValue::String(_));
+                let value = self.intern(value);
+                if keyed {
+                    self.built.insert(key.as_slice().into(), Arc::clone(&value));
+                }
+                value
+            }),
+        };
+        self.scratch = key;
+        value
     }
 
     /// How many distinct values the pool holds, for tests and diagnostics.
@@ -487,6 +608,57 @@ mod tests {
         assert!(pool
             .find(&mut nodes, Some("flex"))
             .is_some_and(|found| Arc::ptr_eq(&found, &flex)));
+    }
+
+    /// `rgb(<n>, 0, 0)` at `line`, and how many times the pool built it.
+    fn get_rgb(pool: &mut ValuePool, red: f64, line: usize, builds: &mut usize) -> Arc<CssValue> {
+        use crate::tokenizer::NumberKind;
+        let at = gosub_shared::byte_stream::Location::new(line, 1, 0);
+        let number = |value: f64| {
+            Node::new(
+                NodeType::Number {
+                    value,
+                    kind: NumberKind::Integer,
+                },
+                at,
+            )
+        };
+        let nodes = vec![Node::new(
+            NodeType::Function {
+                name: "rgb".into(),
+                arguments: vec![number(red), Node::new(NodeType::Comma, at), number(0.0)],
+            },
+            at,
+        )];
+        pool.get_or_build(nodes, None, |nodes| {
+            *builds += 1;
+            Ok::<_, ()>(build(nodes))
+        })
+        .expect("builds")
+    }
+
+    #[test]
+    fn a_function_written_again_is_not_built_again() {
+        let mut pool = ValuePool::default();
+        let mut builds = 0;
+        let first = get_rgb(&mut pool, 10.0, 1, &mut builds);
+        // Somewhere else in the sheet: where it was written is not part of what it is.
+        let again = get_rgb(&mut pool, 10.0, 7, &mut builds);
+        assert!(Arc::ptr_eq(&first, &again));
+        assert_eq!(builds, 1);
+
+        let other = get_rgb(&mut pool, 20.0, 1, &mut builds);
+        assert!(!Arc::ptr_eq(&first, &other));
+        assert_eq!(builds, 2);
+    }
+
+    #[test]
+    fn a_value_that_does_not_build_is_not_remembered() {
+        let mut pool = ValuePool::default();
+        let nodes = || vec![node(NodeType::Url { url: "a.png".into() })];
+        assert!(pool.get_or_build(nodes(), None, |_| Err(())).is_err());
+        let built = pool.get_or_build(nodes(), None, |nodes| Ok::<_, ()>(build(nodes)));
+        assert!(built.is_ok());
     }
 
     #[test]
