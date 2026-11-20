@@ -73,6 +73,10 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
 
     fn attach(&mut self, node: NodeId, parent: NodeId, position: Option<usize>);
     fn detach(&mut self, node: NodeId);
+    /// Delete `node` itself, and its shadow root if it is a host. Their children are not
+    /// deleted: each becomes the root of its own detached tree, and no id below `node` resolves
+    /// from the document any more. DOM `remove()` and `removeChild()` keep the node alive, so
+    /// they use `detach`.
     fn remove(&mut self, node: NodeId);
 
     /// Detach a node from its current parent and attach it to a new parent.
