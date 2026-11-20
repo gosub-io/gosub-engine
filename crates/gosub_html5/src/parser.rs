@@ -590,10 +590,11 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 self.tokenizer.insert_tokens_at_queue_start(tokens);
                 return;
             }
-            Token::Text { .. } if current_token.is_null() => {
+            Token::Text { text: value, .. } if current_token.is_null() => {
                 self.parse_error("null character not allowed in foreign content");
+                // A run of NULs arrives as one token; each NUL gets its own replacement
                 self.insert_text_element(&Token::Text {
-                    text: CHAR_REPLACEMENT.to_string(),
+                    text: CHAR_REPLACEMENT.to_string().repeat(value.chars().count()),
                     location: self.tokenizer.get_location(),
                 });
             }
@@ -5190,5 +5191,50 @@ mod foreign_content_tests {
         let body = find(&doc, NodeId::root(), "body").unwrap();
         let last = *doc.children(body).last().unwrap();
         assert_eq!(doc.text_value(last), Some("after"));
+    }
+
+    /// Text of the direct text children of `id`, joined.
+    fn text_of(doc: &DocumentImpl<Config>, id: NodeId) -> String {
+        doc.children(id).iter().filter_map(|&c| doc.text_value(c)).collect()
+    }
+
+    /// Every NUL in foreign content becomes its own U+FFFD, not one per run.
+    #[test]
+    fn each_null_in_foreign_content_becomes_a_replacement_character() {
+        let cases = [
+            ("<svg>a\0b", "svg", "a\u{FFFD}b"),
+            ("<svg>a\0\0b", "svg", "a\u{FFFD}\u{FFFD}b"),
+            ("<svg>a\0\0\0b", "svg", "a\u{FFFD}\u{FFFD}\u{FFFD}b"),
+            ("<svg>\0\0a", "svg", "\u{FFFD}\u{FFFD}a"),
+            ("<svg>a\0\0", "svg", "a\u{FFFD}\u{FFFD}"),
+            ("<svg>\0\0", "svg", "\u{FFFD}\u{FFFD}"),
+            ("<svg>\0\0 \0\0", "svg", "\u{FFFD}\u{FFFD} \u{FFFD}\u{FFFD}"),
+            ("<svg> \0\0 a", "svg", " \u{FFFD}\u{FFFD} a"),
+            ("<svg><![CDATA[a\0\0b]]>", "svg", "a\u{FFFD}\u{FFFD}b"),
+            ("<math>a\0\0b", "math", "a\u{FFFD}\u{FFFD}b"),
+            ("<math>\0\0 \0", "math", "\u{FFFD}\u{FFFD} \u{FFFD}"),
+            ("<svg><g>a\0\0b</g>", "g", "a\u{FFFD}\u{FFFD}b"),
+        ];
+        for (input, tag, expected) in cases {
+            let doc = crate::html_compile::<Config>(input);
+            let id = find(&doc, NodeId::root(), tag).unwrap();
+            assert_eq!(text_of(&doc, id), expected, "input {input:?}");
+        }
+    }
+
+    /// Text in an integration point is HTML content, where the in body rules drop NULs.
+    #[test]
+    fn nulls_in_integration_points_are_dropped() {
+        let cases = [
+            ("<math><mi>a\0\0b", "mi", "ab"),
+            ("<math><mi>\0", "mi", ""),
+            ("<svg><foreignObject>a\0\0b", "foreignObject", "ab"),
+            ("<svg><desc>a\0\0\0b", "desc", "ab"),
+        ];
+        for (input, tag, expected) in cases {
+            let doc = crate::html_compile::<Config>(input);
+            let id = find(&doc, NodeId::root(), tag).unwrap();
+            assert_eq!(text_of(&doc, id), expected, "input {input:?}");
+        }
     }
 }
