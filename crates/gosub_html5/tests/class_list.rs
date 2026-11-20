@@ -28,7 +28,7 @@ fn element(class: Option<&str>) -> (DocumentImpl<Config>, NodeId) {
         attributes.insert("class".into(), class.into());
     }
     let id = doc.create_element("p", Some(HTML_NAMESPACE), attributes, Location::default());
-    doc.attach(id, doc.root(), None);
+    assert_eq!(doc.attach(id, doc.root(), None), Ok(()));
     (doc, id)
 }
 
