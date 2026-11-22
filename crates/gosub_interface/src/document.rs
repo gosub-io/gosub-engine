@@ -94,7 +94,8 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     /// they use `detach`.
     fn remove(&mut self, node: NodeId);
 
-    /// Detach a node from its current parent and attach it to a new parent.
+    /// Move `node` to the end of `parent`'s children, from wherever it was - also when that is
+    /// `parent` already. A move that `attach` would refuse changes nothing.
     fn relocate_node(&mut self, node: NodeId, parent: NodeId);
 
     fn node_type(&self, id: NodeId) -> NodeType;

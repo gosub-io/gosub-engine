@@ -195,12 +195,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn relocate_node(&mut self, node: NodeId, parent: NodeId) {
-        if self.would_cycle(node, parent) {
-            return;
-        }
-        self.detach_node(node);
-        // The cycle is checked above; `attach_node` logs the other refusals.
-        let _ = self.attach_node(node, parent, None);
+        self.relocate_node(node, parent);
     }
 
     // ── node type ──────────────────────────────────────────────────────────
@@ -947,18 +942,10 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         }
     }
 
+    /// Move `node_id` to the end of `parent_id`'s children, as DOM `appendChild` does - also
+    /// when it is already one of them. A move `attach_node` refuses leaves the tree as it was.
     pub fn relocate_node(&mut self, node_id: NodeId, parent_id: NodeId) {
-        let Some(node) = self.arena.node_ref(node_id) else {
-            return;
-        };
-        if !node.registered {
-            return;
-        }
-        if node.parent == Some(parent_id) || self.would_cycle(node_id, parent_id) {
-            return;
-        }
-        self.detach_node(node_id);
-        // The cycle is checked above; `attach_node` logs the other refusals.
+        // `attach_node` detaches the node itself, once its checks have passed.
         let _ = self.attach_node(node_id, parent_id, None);
     }
 
@@ -2147,6 +2134,20 @@ mod tests {
         assert_eq!(doc.parent(outer), Some(root), "not left detached");
         assert_eq!(doc.attach_node(outer, outer, None), Err(AttachError::Cycle));
         assert!(doc.children(outer) == [inner]);
+    }
+
+    #[test]
+    fn relocating_a_node_to_its_own_parent_moves_it_to_the_end() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let a = element(&mut doc, "div", root);
+        let b = element(&mut doc, "div", root);
+
+        doc.relocate_node(a, root);
+        assert!(doc.children(root) == [b, a], "inherent");
+
+        Document::relocate_node(&mut doc, b, root);
+        assert!(doc.children(root) == [a, b], "through the trait");
     }
 
     #[test]
