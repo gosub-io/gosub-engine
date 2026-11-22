@@ -1896,10 +1896,17 @@ where
                 if !generates_box || display_none {
                     return Effects::default();
                 }
+                // The counter properties are not among those that apply to `::marker`
+                // (css-pseudo-4 §3.1.1); what its `content` reads still counts.
+                let declared = if kind == PseudoKind::Marker {
+                    Effects::default()
+                } else {
+                    counter_effects::<C::CssSystem>(&styles)
+                };
                 Effects {
                     generates_box: true,
                     uses: content.map(content_counter_names::<C::CssSystem>).unwrap_or_default(),
-                    ..counter_effects::<C::CssSystem>(&styles)
+                    ..declared
                 }
             }
         }

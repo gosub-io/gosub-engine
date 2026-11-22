@@ -481,3 +481,18 @@ fn a_marker_with_display_none_still_shows_its_number() {
     assert_eq!(marker(&a, "a").as_deref(), Some("1. "));
     assert_eq!(marker(&a, "b").as_deref(), Some("2. "));
 }
+
+#[test]
+fn counter_properties_do_not_apply_to_a_marker() {
+    let a = adapter(
+        r#"<style>
+            li::marker { counter-increment: list-item 10; counter-reset: list-item 5 }
+            #c::marker { content: counter(other) ". " }
+        </style>
+        <ol><li id="a">a</li><li id="b">b</li><li id="c">c</li></ol>"#,
+    );
+    assert_eq!(marker(&a, "a").as_deref(), Some("1. "));
+    assert_eq!(marker(&a, "b").as_deref(), Some("2. "));
+    // A counter its `content` names is still created for it.
+    assert_eq!(marker(&a, "c").as_deref(), Some("0. "));
+}
