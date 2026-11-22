@@ -12,7 +12,7 @@ use gosub_html5::tokenizer::{ParserData, Tokenizer};
 use gosub_interface::config::ModuleConfiguration;
 use gosub_interface::document::Document;
 use gosub_interface::node::QuirksMode;
-use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
+use gosub_shared::byte_stream::{ByteStream, Encoding};
 use std::cell::RefCell;
 use std::rc::Rc;
 use test_case::test_case;
@@ -30,7 +30,7 @@ impl ModuleConfiguration for Config {
 fn doctype(html: &str) -> (Option<String>, bool, Option<String>, Option<String>) {
     let mut stream = ByteStream::from_str(html, Encoding::UTF8);
     let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
-    let mut tokenizer = Tokenizer::new(&mut stream, None, error_logger, Location::default());
+    let mut tokenizer = Tokenizer::new(&mut stream, None, error_logger);
 
     match tokenizer.next_token(ParserData::default()).unwrap() {
         Token::DocType {

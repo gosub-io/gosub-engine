@@ -32,7 +32,7 @@ The tokenizer produces `Token`s (`token.rs`: start/end tags with attributes, tex
 -   **fragment parsing** (`parse_fragment`, used for `innerHTML`-style parsing) with a context element;
 -   a `scripting_enabled` option (`Html5ParserOptions`) that changes how `<noscript>` parses, matching the spec's scripting flag.
 
-The parser writes into the document through the small `TreeBuilder` trait (`parser/tree_builder.rs`: create element/text/comment, insert attribute). Two implementations exist: direct document mutation, and `DocumentTaskQueue` (`document/task_queue.rs`), which batches mutations as `DocumentTask`s to be committed at once — groundwork for decoupling parsing from DOM commits.
+The parser writes into the document directly through the `Document` trait (create element/text/comment, attach, set attribute).
 
 ## The DOM (`document/`, `node/`)
 
