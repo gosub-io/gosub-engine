@@ -6,19 +6,14 @@ use gosub_interface::config::HasDocument;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 
 pub mod document;
-pub mod errors;
 pub mod memory;
 pub mod node;
 pub mod parser;
-// Test-fixture harness for the WHATWG html5lib test suites, and the one exemption in this crate
-// that is meant to stay: a harness that swallows a malformed fixture makes tests pass for the
-// wrong reason, so panicking on one is the behaviour we want. Every consumer is a test, a bench
-// or a `#[cfg(test)]` module - nothing on a parsing path reaches it - though only this comment
-// says so. Gating the module on a `testing` feature would have the compiler say it instead.
+// Harness for the html5lib test suites. It panics on a malformed fixture on purpose.
+#[cfg(any(test, feature = "testing"))]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 pub mod testing;
 pub mod tokenizer;
-#[allow(dead_code)]
 pub mod writer;
 
 /// Parses the given HTML string and returns a handle to the resulting DOM tree.

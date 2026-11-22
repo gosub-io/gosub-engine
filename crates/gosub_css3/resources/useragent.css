@@ -301,6 +301,10 @@ li {
     display: list-item;
     text-align: -webkit-match-parent;
 }
+/* HTML §15.3.7: each list scopes its own `list-item` counter. */
+ol, ul, menu {
+    counter-reset: list-item;
+}
 /* css-lists-3 §3.1, HTML §15.3.8. `white-space: pre` keeps the space that ends a marker. */
 ::marker {
     unicode-bidi: isolate;

@@ -127,7 +127,7 @@ vello = "0.8.0"
 wasm-bindgen = "0.2.114"
 wasm-bindgen-futures = "0.4.64"
 web-sys = "0.3.91"
-windows-sys = "0.59"
+windows-sys = "0.61"
 winit = "0.30.12"
 [[example]]
 name = "html5-parser"
@@ -176,7 +176,7 @@ harness = false
 [dependencies]
 gosub_interface = { version = "0.1.1", path = "./crates/gosub_interface", features = [], registry = "gosub" }
 gosub_shared = { version = "0.1.1", path = "./crates/gosub_shared", features = [], registry = "gosub" }
-gosub_html5 = { version = "0.1.1", path = "./crates/gosub_html5", features = [], registry = "gosub" }
+gosub_html5 = { version = "0.1.1", path = "./crates/gosub_html5", features = ["testing"], registry = "gosub" }
 gosub_css3 = { version = "0.1.1", path = "./crates/gosub_css3", features = [], registry = "gosub" }
 # Dependencies are needed for gosub_engine itself, and some of the binaries in src/bin.
 anyhow = { workspace = true }

@@ -2170,6 +2170,15 @@ impl gosub_interface::css3::CssValue for CssValue {
         }
     }
 
+    #[expect(clippy::cast_possible_truncation, reason = "a whole f64 is saturated into an i64")]
+    fn as_integer(&self) -> Option<i64> {
+        match self {
+            CssValue::Number(num, _) if num.fract() == 0.0 => Some(*num as i64),
+            CssValue::Zero => Some(0),
+            _ => None,
+        }
+    }
+
     fn as_list(&self) -> Option<&[Self]> {
         if let CssValue::List(list) = &self {
             Some(list)

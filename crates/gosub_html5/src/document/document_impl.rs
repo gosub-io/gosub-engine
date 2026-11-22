@@ -14,7 +14,6 @@ use crate::node::data::comment::CommentData;
 use crate::node::data::doctype::DocTypeData;
 use crate::node::data::element::ElementData;
 use crate::node::node_impl::{NodeDataTypeInternal, NodeImpl};
-use crate::node::visitor::Visitor;
 use crate::node::HTML_NAMESPACE;
 use gosub_interface::config::HasDocument;
 use gosub_interface::node::{is_valid_shadow_host_name, NodeType, QuirksMode, ShadowRootInit};
@@ -62,7 +61,7 @@ impl<C: HasDocument> PartialEq for DocumentImpl<C> {
     }
 }
 
-// ── new Document<C> trait impl ──────────────────────────────────────────────
+// new Document<C> trait impl
 
 impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     /// Create an empty document with its root registered and scripting enabled by default.
@@ -79,12 +78,12 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             pending_stylesheets: Vec::new(),
             parse_errors: Vec::new(),
         };
-        let root = NodeImpl::new_document(Location::default(), QuirksMode::NoQuirks);
+        let root = NodeImpl::new_document(Location::default());
         doc.arena.register_node(root);
         doc
     }
 
-    // ── node creation ──────────────────────────────────────────────────────
+    // node creation
 
     fn create_element(
         &mut self,
@@ -160,7 +159,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         self.register_node(dup)
     }
 
-    // ── tree navigation ────────────────────────────────────────────────────
+    // tree navigation
 
     fn root(&self) -> NodeId {
         NodeId::root()
@@ -198,13 +197,13 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         self.relocate_node(node, parent);
     }
 
-    // ── node type ──────────────────────────────────────────────────────────
+    // node type
 
     fn node_type(&self, id: NodeId) -> NodeType {
         self.arena.node_ref(id).map_or(NodeType::DocumentNode, |n| n.type_of())
     }
 
-    // ── element data ───────────────────────────────────────────────────────
+    // element data
 
     fn tag_name(&self, id: NodeId) -> Option<&str> {
         match self.arena.node_ref(id)?.data {
@@ -308,7 +307,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         self.refresh_template_children(id);
     }
 
-    // ── shadow trees ───────────────────────────────────────────────────────
+    // shadow trees
 
     fn attach_shadow_root(&mut self, host: NodeId, init: ShadowRootInit, location: Location) -> Option<NodeId> {
         // The eligibility half of the spec's "attach a shadow root"; failing it is the
@@ -345,7 +344,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         Some(self.arena.node_ref(id)?.get_shadow_root_data()?.init)
     }
 
-    // ── text / comment / doctype ───────────────────────────────────────────
+    // text / comment / doctype
 
     fn text_value(&self, id: NodeId) -> Option<&str> {
         match self.arena.node_ref(id)?.data {
@@ -405,7 +404,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         }
     }
 
-    // ── document metadata ──────────────────────────────────────────────────
+    // document metadata
 
     fn url(&self) -> Option<Url> {
         self.url.clone()
@@ -449,13 +448,6 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         self.first_named_id_holder(root, name_id)
     }
 
-    fn named_id_held_by_other(&self, root: NodeId, name_id: &str, node: NodeId) -> bool {
-        self.named_id_elements
-            .get(&root)
-            .and_then(|ids| ids.get(name_id))
-            .is_some_and(|holders| holders.iter().any(|&n| n != node))
-    }
-
     fn node_count(&self) -> usize {
         self.arena.node_count()
     }
@@ -464,7 +456,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         self.arena.peek_next_id()
     }
 
-    // ── stylesheets ────────────────────────────────────────────────────────
+    // stylesheets
 
     fn stylesheets(&self) -> &[<C::CssSystem as CssSystem>::Stylesheet] {
         &self.stylesheets
@@ -494,7 +486,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         self.stylesheets.insert(position, sheet);
     }
 
-    // ── serialisation ──────────────────────────────────────────────────────
+    // serialisation
 
     fn write(&self) -> String {
         self.write_from_node(NodeId::root())
@@ -514,7 +506,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 }
 
-// ── Internal helpers (not part of Document trait) ───────────────────────────
+// Internal helpers (not part of Document trait)
 
 impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     /// Keep the errors [`Html5Parser::parse_document`](crate::parser::Html5Parser::parse_document)
@@ -756,16 +748,11 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         self.arena.node_ref_mut(node_id)
     }
 
-    /// Look up a node by its `id` attribute value, returning the node reference directly
-    pub fn get_node_by_named_id(&self, name_id: &str) -> Option<&NodeImpl> {
-        self.node_by_id(self.first_named_id_holder(NodeId::root(), name_id)?)
-    }
-
     /// Returns the root node reference, which every document built through
     /// `Document::new()` has.
     ///
-    /// `Option` rather than an `expect`, because both callers walk the tree and have something
-    /// sensible to do with a document that has no root: print nothing, visit nothing.
+    /// `Option` rather than an `expect`: the `Display` impl prints nothing for a document
+    /// without one.
     pub fn get_root(&self) -> Option<&NodeImpl> {
         self.arena.node_ref(NodeId::root())
     }
@@ -774,9 +761,6 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     pub fn register_node(&mut self, mut node: NodeImpl) -> NodeId {
         let node_id = self.arena.get_next_id();
         node.set_id(node_id);
-        if let Some(element_data) = node.get_element_data_mut() {
-            element_data.node_id = Some(node_id);
-        }
         // Not in the document tree yet, so its `id` is registered by `attach_node`.
         self.arena.register_node_with_node_id(node, node_id);
         node_id
@@ -807,9 +791,8 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         if self.would_cycle(node_id, parent_id) {
             return Err(AttachError::Cycle);
         }
-        // Guarded here rather than in the `Document` methods that call it: this one is public
-        // and inherent, so it wins over the trait method for anything holding a concrete
-        // `DocumentImpl` - a check on the trait side alone is simply stepped around.
+        // Checked here and not in the trait methods: this inherent method is public, so a caller
+        // with a concrete `DocumentImpl` reaches it directly.
         if self.refuses_tree_mutation("attach_node", node_id) {
             return Err(AttachError::ShadowRoot);
         }
@@ -870,19 +853,11 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         }
     }
 
-    /// Whether a generic tree mutation must leave `node` alone because it is a shadow root.
-    ///
-    /// A shadow root hangs off its host by a side pointer and never appears in a `children`
-    /// list. `attach_shadow_root` returns its raw id, though, so it is one call away from any
-    /// of the ordinary mutations - and attaching it would give it a parent and put it into
-    /// normal traversal, where it is both a shadow tree and a child of the element it shadows.
     /// Whether `node_id` must not be copied, because it is a shadow root.
     ///
-    /// A shadow root's data holds the id of its host, so copying it produces a second root
-    /// claiming the same host while the host still names the first - two roots, one host, and a
-    /// back pointer that agrees with neither. `ShadowRoot.cloneNode()` throws in the spec for
-    /// the same reason, so refusing is the faithful answer; the caller gets the original id
-    /// back, which is what the not-found path already returns.
+    /// A shadow root's data holds the id of its host, so a copy would be a second root for the
+    /// same host. `ShadowRoot.cloneNode()` throws in the spec; here the caller gets the original
+    /// id back, as on the not-found path.
     fn refuses_copy(&self, node_id: NodeId) -> bool {
         let is_shadow_root = self
             .arena
@@ -915,6 +890,11 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         Some(copy_id)
     }
 
+    /// Whether a generic tree mutation must leave `node_id` alone because it is a shadow root.
+    ///
+    /// A shadow root hangs off its host by a side pointer and never appears in a `children`
+    /// list. Attaching it would give it a parent and put it into normal traversal as a child of
+    /// the element it shadows.
     fn refuses_tree_mutation(&self, what: &str, node_id: NodeId) -> bool {
         let is_shadow_root = self
             .arena
@@ -949,41 +929,13 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         let _ = self.attach_node(node_id, parent_id, None);
     }
 
-    pub fn update_node(&mut self, node: NodeImpl) {
-        if !node.is_registered() {
-            log::warn!("Node is not registered to the arena");
-            return;
-        }
-        let node_id = node.id();
-        let held_contents = self.holds_template_contents(node_id);
-        self.arena.update_node(node);
-        if self.holds_template_contents(node_id) != held_contents {
-            self.refresh_template_children(node_id);
-        }
-        self.refresh_named_id(node_id);
-    }
-
-    pub fn update_node_ref(&mut self, node: &NodeImpl) {
-        if !node.is_registered() {
-            log::warn!("Node is not registered to the arena");
-            return;
-        }
-        let held_contents = self.holds_template_contents(node.id());
-        self.arena.update_node(node.clone());
-        if self.holds_template_contents(node.id()) != held_contents {
-            self.refresh_template_children(node.id());
-        }
-        self.refresh_named_id(node.id());
-    }
-
     /// Delete `node_id` from the arena, and its shadow root if it is a host. Their children stay,
     /// each the root of its own detached tree, and the ids below `node_id` leave the document's
     /// registry.
     pub fn delete_node_by_id(&mut self, node_id: NodeId) {
-        // The host and its shadow root each name the other, so deleting either has to clear the
-        // link the other way round or the survivor keeps naming a node that is gone. Done here
-        // rather than in `Document::remove` because this method is inherent and public, and so
-        // wins over the trait method for anything holding a concrete `DocumentImpl`.
+        // The host and its shadow root each name the other, so deleting either clears the link
+        // the other way round. Done here and not in `Document::remove` because this inherent
+        // method is public.
         //
         // Deleting the root drops the host's side pointer.
         if let Some(host) = self.shadow_host(node_id) {
@@ -1065,42 +1017,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         self.arena.nodes()
     }
 
-    // ── legacy node constructors (used by parser) ──────────────────────────
-
-    pub fn new_document_node(quirks_mode: QuirksMode, location: Location) -> NodeImpl {
-        NodeImpl::new_document(location, quirks_mode)
-    }
-
-    pub fn new_doctype_node(
-        name: &str,
-        public_id: Option<&str>,
-        system_id: Option<&str>,
-        location: Location,
-    ) -> NodeImpl {
-        NodeImpl::new_doctype(location, name, public_id.unwrap_or(""), system_id.unwrap_or(""))
-    }
-
-    pub fn new_comment_node(comment: &str, location: Location) -> NodeImpl {
-        NodeImpl::new_comment(location, comment)
-    }
-
-    pub fn new_text_node(value: &str, location: Location) -> NodeImpl {
-        NodeImpl::new_text(location, value)
-    }
-
-    pub fn new_element_node(
-        name: &str,
-        namespace: Option<&str>,
-        attributes: Attributes,
-        location: Location,
-    ) -> NodeImpl {
-        NodeImpl::new(
-            location,
-            NodeDataTypeInternal::Element(ElementData::new(name, namespace, attributes)),
-        )
-    }
-
-    // ── display helper ─────────────────────────────────────────────────────
+    // display helper
 
     pub fn print_tree(&self, node: &NodeImpl, prefix: String, last: bool, f: &mut Formatter) {
         let mut buffer = prefix.clone();
@@ -1177,7 +1094,7 @@ impl<C: HasDocument<Document = Self>> Display for DocumentImpl<C> {
     }
 }
 
-// ── Tree iterator ────────────────────────────────────────────────────────────
+// Tree iterator
 
 pub struct TreeIterator<'a, C: HasDocument> {
     current_node_id: Option<NodeId>,
@@ -1212,32 +1129,6 @@ impl<C: HasDocument> Iterator for TreeIterator<'_, C> {
         }
         None
     }
-}
-
-// ── Document tree walk ───────────────────────────────────────────────────────
-
-pub fn walk_document_tree<C: HasDocument<Document = DocumentImpl<C>>>(
-    doc: &DocumentImpl<C>,
-    visitor: &mut dyn Visitor,
-) {
-    if let Some(root) = doc.get_root() {
-        internal_visit(doc, root, visitor);
-    }
-}
-
-fn internal_visit<C: HasDocument<Document = DocumentImpl<C>>>(
-    doc: &DocumentImpl<C>,
-    node: &NodeImpl,
-    visitor: &mut dyn Visitor,
-) {
-    visitor.document_enter(node);
-    for &child_id in node.children() {
-        let Some(child) = doc.node_by_id(child_id) else {
-            continue;
-        };
-        internal_visit(doc, child, visitor);
-    }
-    visitor.document_leave(node);
 }
 
 #[cfg(test)]
@@ -1276,9 +1167,7 @@ mod tests {
         if let Some(id) = id {
             attributes.insert("id".to_string(), id.to_string());
         }
-        let node =
-            DocumentImpl::<Config>::new_element_node(name, Some(HTML_NAMESPACE), attributes, Location::default());
-        doc.register_node(node)
+        doc.create_element(name, Some(HTML_NAMESPACE), attributes, Location::default())
     }
 
     /// `state` read against `doc` as a style pass reads it.
@@ -1560,20 +1449,12 @@ mod tests {
         assert_eq!(snapshot(&doc, &state).selected_option::<Config>(&doc, select), Some(b));
     }
 
-    /// Change `node`'s `id` attribute in place and run the mutation hook, the way a DOM
-    /// `setAttribute` does.
+    /// Change `node`'s `id` attribute the way a DOM `setAttribute` / `removeAttribute` does.
     fn set_id(doc: &mut DocumentImpl<Config>, node: NodeId, id: Option<&str>) {
-        let mut n = doc.node_by_id(node).expect("node").clone();
-        let data = n.get_element_data_mut().expect("element");
         match id {
-            Some(id) => {
-                data.add_attribute("id", id);
-            }
-            None => {
-                data.remove_attribute("id");
-            }
+            Some(id) => doc.set_attribute(node, "id", id),
+            None => doc.remove_attribute(node, "id"),
         }
-        doc.update_node(n);
     }
 
     #[test]
@@ -1648,32 +1529,6 @@ mod tests {
         doc.set_template_contents(tpl, fragment);
         assert_eq!(doc.node_by_named_id("inside"), Some(child));
         assert!(doc.node_by_named_id("deeper").is_some());
-    }
-
-    #[test]
-    fn updating_a_node_into_a_template_drops_its_children_ids() {
-        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
-        let root = doc.root();
-        let tpl = element_with_id(&mut doc, "template", root, Some("tpl"));
-        let child = element_with_id(&mut doc, "div", tpl, Some("inside"));
-
-        let mut node = doc.node_by_id(tpl).expect("template").clone();
-        node.get_element_data_mut().expect("element").set_template_contents(tpl);
-        doc.update_node(node);
-        assert_eq!(doc.node_by_named_id("inside"), None);
-        assert_eq!(doc.node_by_named_id("tpl"), Some(tpl), "the template keeps its own id");
-
-        let mut node = doc.node_by_id(tpl).expect("template").clone();
-        let fragment = detached_element(&mut doc, "div", None);
-        node.get_element_data_mut()
-            .expect("element")
-            .set_template_contents(fragment);
-        doc.update_node_ref(&node);
-        assert_eq!(
-            doc.node_by_named_id("inside"),
-            Some(child),
-            "and back out through update_node_ref"
-        );
     }
 
     #[test]
@@ -1890,7 +1745,6 @@ mod tests {
         let earlier = detached_element(&mut doc, "div", Some("dup"));
         doc.attach_node(earlier, root, Some(0)).unwrap();
         assert_eq!(doc.node_by_named_id("dup"), Some(earlier));
-        assert_eq!(doc.get_node_by_named_id("dup").map(NodeImpl::id), Some(earlier));
         assert_ne!(later, earlier);
 
         // An ancestor comes before its descendants.
@@ -2071,18 +1925,6 @@ mod tests {
         touched.set_attribute(a, "id", "x");
         assert!(plain == touched);
         assert_eq!(touched.node_by_named_id("x"), Some(a));
-    }
-
-    #[test]
-    fn an_element_replaced_by_a_non_element_drops_its_id() {
-        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
-        let root = doc.root();
-        let div = element_with_id(&mut doc, "div", root, Some("x"));
-
-        let mut node = doc.node_by_id(div).expect("div is registered").clone();
-        node.data = NodeDataTypeInternal::Text(crate::node::data::text::TextData::with_value("t"));
-        doc.update_node(node);
-        assert_eq!(doc.node_by_named_id("x"), None);
     }
 
     #[test]

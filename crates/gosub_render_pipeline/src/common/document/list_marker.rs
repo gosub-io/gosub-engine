@@ -1,4 +1,5 @@
-//! The text of a list item's `::marker`: its `list-style-type` applied to its ordinal.
+//! Counter values written in a counter style: a list item's `::marker` text, and what
+//! `counter()` and `counters()` put into `content`.
 //!
 //! The counter styles are the predefined ones of css-counter-styles-3 §6, each with the symbols
 //! and suffix that section gives it. A style that cannot write a number - roman past 3999, an
@@ -9,31 +10,60 @@ use gosub_interface::style::ListStyleType;
 
 /// The marker text, suffix included (`"3. "`, `"• "`), or `None` for `list-style-type: none`.
 #[must_use]
-pub fn marker_text(style: &ListStyleType, ordinal: i64) -> Option<String> {
+pub fn marker_text(style: &ListStyleType, value: i64) -> Option<String> {
     // The symbolic styles end in a space, the numeric ones in a full stop and a space.
-    let symbol = |symbol: char| Some(format!("{symbol} "));
-    let numbered = |text: String| Some(format!("{text}. "));
+    let suffix = match style {
+        ListStyleType::None => return None,
+        ListStyleType::String(text) => return Some(text.to_string()),
+        ListStyleType::Disc
+        | ListStyleType::Circle
+        | ListStyleType::Square
+        | ListStyleType::DisclosureOpen
+        | ListStyleType::DisclosureClosed => " ",
+        _ => ". ",
+    };
+    Some(format!("{}{suffix}", counter_text(style, value)))
+}
+
+/// Whether the marker text of `style` depends on the counter value at all: a bullet or a
+/// `<string>` reads the same on every item.
+#[must_use]
+pub fn reads_value(style: &ListStyleType) -> bool {
+    !matches!(
+        style,
+        ListStyleType::None
+            | ListStyleType::String(_)
+            | ListStyleType::Disc
+            | ListStyleType::Circle
+            | ListStyleType::Square
+            | ListStyleType::DisclosureOpen
+            | ListStyleType::DisclosureClosed
+    )
+}
+
+/// A counter value in a counter style, without the suffix a marker adds: what `counter()` and
+/// `counters()` write. `none` writes nothing.
+#[must_use]
+pub fn counter_text(style: &ListStyleType, value: i64) -> String {
+    let symbol = |symbol: char| symbol.to_string();
     match style {
-        ListStyleType::None => None,
-        ListStyleType::String(text) => Some(text.to_string()),
+        ListStyleType::None => String::new(),
+        ListStyleType::String(text) => text.to_string(),
         ListStyleType::Disc => symbol('\u{2022}'),
         ListStyleType::Circle => symbol('\u{25E6}'),
         ListStyleType::Square => symbol('\u{25AA}'),
         ListStyleType::DisclosureOpen => symbol('\u{25BE}'),
         ListStyleType::DisclosureClosed => symbol('\u{25B8}'),
-        ListStyleType::Decimal => numbered(ordinal.to_string()),
-        ListStyleType::DecimalLeadingZero => numbered(decimal_leading_zero(ordinal)),
-        ListStyleType::LowerRoman => numbered(roman(ordinal).unwrap_or_else(|| ordinal.to_string())),
-        ListStyleType::UpperRoman => numbered(roman(ordinal).map_or_else(
-            || ordinal.to_string(),
-            |text| text.cow_to_ascii_uppercase().into_owned(),
-        )),
-        ListStyleType::LowerAlpha => numbered(alphabetic(ordinal, &LATIN).unwrap_or_else(|| ordinal.to_string())),
-        ListStyleType::UpperAlpha => numbered(alphabetic(ordinal, &LATIN).map_or_else(
-            || ordinal.to_string(),
-            |text| text.cow_to_ascii_uppercase().into_owned(),
-        )),
-        ListStyleType::LowerGreek => numbered(alphabetic(ordinal, &GREEK).unwrap_or_else(|| ordinal.to_string())),
+        ListStyleType::Decimal => value.to_string(),
+        ListStyleType::DecimalLeadingZero => decimal_leading_zero(value),
+        ListStyleType::LowerRoman => roman(value).unwrap_or_else(|| value.to_string()),
+        ListStyleType::UpperRoman => {
+            roman(value).map_or_else(|| value.to_string(), |text| text.cow_to_ascii_uppercase().into_owned())
+        }
+        ListStyleType::LowerAlpha => alphabetic(value, &LATIN).unwrap_or_else(|| value.to_string()),
+        ListStyleType::UpperAlpha => alphabetic(value, &LATIN)
+            .map_or_else(|| value.to_string(), |text| text.cow_to_ascii_uppercase().into_owned()),
+        ListStyleType::LowerGreek => alphabetic(value, &GREEK).unwrap_or_else(|| value.to_string()),
     }
 }
 
@@ -145,5 +175,14 @@ mod tests {
         assert_eq!(text(ListStyleType::LowerGreek, 24), "ω. ");
         assert_eq!(text(ListStyleType::LowerGreek, 25), "αα. ");
         assert_eq!(text(ListStyleType::LowerAlpha, 0), "0. ");
+    }
+
+    #[test]
+    fn a_counter_has_no_marker_suffix() {
+        assert_eq!(counter_text(&ListStyleType::Decimal, 12), "12");
+        assert_eq!(counter_text(&ListStyleType::UpperRoman, 4), "IV");
+        assert_eq!(counter_text(&ListStyleType::Disc, 3), "\u{2022}");
+        assert_eq!(counter_text(&ListStyleType::LowerAlpha, -1), "-1");
+        assert_eq!(counter_text(&ListStyleType::None, 3), "");
     }
 }

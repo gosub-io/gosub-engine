@@ -2903,12 +2903,22 @@ impl TaffyLayouter {
 
     // Process node and turn it into a taffy node. It will recursively process any children and takes care to wrap any multiple inline elements
     // into an anonymous taffy block element. This way we can sort of emulate inline elements within taffy.
-    /// Take an outside marker out of flow and end it where the item's content box starts
-    /// (css-lists-3 §3.1). Taffy places an absolutely positioned child against its parent, which
-    /// is the list item here, whatever the CSS containing block would be; a marker's position is
-    /// the item's to give, so that is the box it belongs against. With no vertical inset it keeps
-    /// the static position, at the top of the content box, which is where the first line starts.
-    fn hang_outside_marker(&mut self, marker: TaffyNodeId) {
+    /// Take an outside marker out of flow and end it where the item's border box starts
+    /// (css-lists-3 §3.1), so the item's border and padding stay between marker and text, as in
+    /// Firefox. Taffy places an absolutely positioned child against its parent's padding box,
+    /// which is the list item here, whatever the CSS containing block would be; a marker's
+    /// position is the item's to give, so that is the box it belongs against. The right margin
+    /// takes it past the item's left border. With no vertical inset it keeps the static position,
+    /// at the top of the content box, which is where the first line starts.
+    fn hang_outside_marker(&mut self, item: TaffyNodeId, marker: TaffyNodeId) {
+        // Borders reach taffy as lengths only.
+        let item_border_left = self
+            .tree
+            .style(item)
+            .map_or(0.0, |style| match style.border.left.expand() {
+                taffy::ExpandedLengthPercentage::Length(px) => px,
+                _ => 0.0,
+            });
         let Ok(style) = self.tree.style(marker) else {
             return;
         };
@@ -2920,6 +2930,7 @@ impl TaffyLayouter {
             top: LengthPercentageAuto::auto(),
             bottom: LengthPercentageAuto::auto(),
         };
+        style.margin.right = LengthPercentageAuto::length(item_border_left);
         if let Err(e) = self.tree.set_style(marker, style) {
             log::warn!("Failed to set the marker's style: {:?}", e);
         }
@@ -3129,7 +3140,7 @@ impl TaffyLayouter {
                 if let Some((marker_id, marker_taffy_id)) =
                     self.generate_taffy_element(layout_tree, *child_id, depth + 1)
                 {
-                    self.hang_outside_marker(marker_taffy_id);
+                    self.hang_outside_marker(leaf_id, marker_taffy_id);
                     if let Err(e) = self.tree.add_child(leaf_id, marker_taffy_id) {
                         log::warn!("Failed to add child to taffy tree: {:?}", e);
                     }
