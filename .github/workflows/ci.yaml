@@ -32,17 +32,31 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: ${{ matrix.rust_version }}
+      # Dependencies at opt-level 2, the workspace stays at 0: the deps come from the
+      # cache, so this costs build time only on a cache miss, and the heavy layout and
+      # soak tests run several times faster. Debug assertions and overflow checks are
+      # untouched. The `-optdeps` cache keys keep these builds apart from opt-level 0 ones.
+      - name: Optimise dependencies
+        shell: bash
+        run: printf '[profile.dev.package."*"]\nopt-level = 2\n' >> "${CARGO_HOME:-$HOME/.cargo}/config.toml"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: test-${{ matrix.rust_version }}
+          shared-key: test-${{ matrix.rust_version }}-optdeps
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Install dependencies
+      - name: Refresh the apt index
         run: |
           sudo grep -rlZ -e dl.google.com -e packages.microsoft.com \
             /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f
           sudo apt update -y
-          sudo apt install -y sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev \
-            libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev
+      # Restored from the actions cache instead of installed on every job; bump
+      # `version` to force a fresh install. On a miss the action installs without
+      # refreshing the index itself (it only does so under nektos/act), hence the
+      # update above.
+      - name: Install dependencies
+        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
+        with:
+          packages: sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev
+          version: 1
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: nextest
@@ -68,13 +82,20 @@ jobs:
         with:
           shared-key: wpt
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Install dependencies
+      - name: Refresh the apt index
         run: |
           sudo grep -rlZ -e dl.google.com -e packages.microsoft.com \
             /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f
           sudo apt update -y
-          sudo apt install -y sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev \
-            libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev
+      # Restored from the actions cache instead of installed on every job; bump
+      # `version` to force a fresh install. On a miss the action installs without
+      # refreshing the index itself (it only does so under nektos/act), hence the
+      # update above.
+      - name: Install dependencies
+        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
+        with:
+          packages: sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev
+          version: 1
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: nextest
@@ -143,13 +164,20 @@ jobs:
         with:
           shared-key: clippy-${{ matrix.rust_version }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Install dependencies
+      - name: Refresh the apt index
         run: |
           sudo grep -rlZ -e dl.google.com -e packages.microsoft.com \
             /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f
           sudo apt update -y
-          sudo apt install -y sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev \
-            libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev
+      # Restored from the actions cache instead of installed on every job; bump
+      # `version` to force a fresh install. On a miss the action installs without
+      # refreshing the index itself (it only does so under nektos/act), hence the
+      # update above.
+      - name: Install dependencies
+        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
+        with:
+          packages: sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev
+          version: 1
       - name: Run Clippy
         run: cargo clippy --locked --all --all-targets -- -D warnings
 
@@ -161,17 +189,28 @@ jobs:
         with:
           toolchain: stable
           components: clippy
+      # As in `test`.
+      - name: Optimise dependencies
+        shell: bash
+        run: printf '[profile.dev.package."*"]\nopt-level = 2\n' >> "${CARGO_HOME:-$HOME/.cargo}/config.toml"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: all-features
+          shared-key: all-features-optdeps
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Install dependencies
+      - name: Refresh the apt index
         run: |
           sudo grep -rlZ -e dl.google.com -e packages.microsoft.com \
             /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f
           sudo apt update -y
-          sudo apt install -y sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev \
-            libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev
+      # Restored from the actions cache instead of installed on every job; bump
+      # `version` to force a fresh install. On a miss the action installs without
+      # refreshing the index itself (it only does so under nektos/act), hence the
+      # update above.
+      - name: Install dependencies
+        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
+        with:
+          packages: sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev
+          version: 1
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: nextest
@@ -187,31 +226,38 @@ jobs:
         run: cargo nextest run --locked --all --all-features --no-fail-fast
 
   # The process-isolation crates on the platforms the Linux jobs above never
-  # see. Ported from the proof of concept's CI, which type-checked darwin and
+  # see, in one job per OS so a run holds one macOS and one Windows runner, not
+  # three of each (macOS runners are scarce and runs queued behind each other).
+  #
+  # Test: the platforms whose sandbox backend can be *run*, not only
+  # type-checked: the Seatbelt (macOS) and mitigation-policy (Windows) probes in
+  # gosub_sandbox, gosub_ipc's transport tests, and the engine's
+  # network/decoder-process scenarios. Linux is covered by `test`.
+  #
+  # Check: ported from the proof of concept's CI, which type-checked darwin and
   # windows-msvc rows for the same reason: `target_os` seams and PoC-imported
   # platform backends break silently when only Linux ever compiles them (two
-  # such breaks sat unnoticed on the branch until a cross-check ran).
+  # such breaks sat unnoticed on the branch until a cross-check ran). Each
+  # target is checked twice: default features, and isolation off
+  # (`multi-process`/`process-isolation` disabled - what wasm and any platform
+  # without a sandbox build; the engine keeps its bundled sqlite so the check
+  # does not become a test of the runner's system libraries).
   #
   # Scoped to the two isolation crates and the engine on purpose. The workspace
   # as a whole cannot build here - V8 has no prebuilt for these rows and the GUI
   # crates want GTK - and these are the crates whose behaviour differs per
-  # platform. Native runners, so no cross `cc`; each row runs twice: default
-  # features, and isolation off (`multi-process`/`process-isolation` disabled -
-  # what wasm and any platform without a sandbox build; the engine keeps its
-  # bundled sqlite so the row does not become a test of the runner's system
-  # libraries).
-  cross-compile:
-    name: check (${{ matrix.target }}, isolation ${{ matrix.isolation }})
+  # platform. Native runners, so no cross `cc`. Every step runs even when an
+  # earlier one failed, as they did when they were separate jobs.
+  native:
+    name: native (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-latest, target: aarch64-apple-darwin, isolation: enabled }
-          - { os: macos-latest, target: aarch64-apple-darwin, isolation: disabled }
-          - { os: windows-latest, target: x86_64-pc-windows-msvc, isolation: enabled }
-          - { os: windows-latest, target: x86_64-pc-windows-msvc, isolation: disabled }
+          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -219,46 +265,25 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
+      # As in `test`.
+      - name: Optimise dependencies
+        shell: bash
+        run: printf '[profile.dev.package."*"]\nopt-level = 2\n' >> "${CARGO_HOME:-$HOME/.cargo}/config.toml"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: cross-${{ matrix.target }}-${{ matrix.isolation }}
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Check (isolation enabled)
-        if: matrix.isolation == 'enabled'
-        run: cargo check --locked -p gosub_ipc -p gosub_sandbox -p gosub_engine --all-targets --target ${{ matrix.target }}
-      - name: Check (isolation disabled)
-        if: matrix.isolation == 'disabled'
-        run: cargo check --locked -p gosub_ipc -p gosub_sandbox -p gosub_engine --all-targets --target ${{ matrix.target }} --no-default-features --features gosub_engine/sqlite_cookie_store
-
-  # The platforms whose sandbox backend can be *run*, not only type-checked:
-  # the Seatbelt (macOS) and mitigation-policy (Windows) probes in
-  # gosub_sandbox, gosub_ipc's transport tests, and the engine's
-  # network/decoder-process scenarios.
-  # Linux is covered by `test`. Also from the proof of concept's CI.
-  native-tests:
-    name: test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ macos-latest, windows-latest ]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          shared-key: native-${{ matrix.os }}
+          shared-key: native-${{ matrix.os }}-optdeps
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: nextest
       - name: Test
         run: cargo nextest run --locked -p gosub_ipc -p gosub_sandbox -p gosub_engine --no-fail-fast
+      - name: Check (isolation enabled)
+        if: ${{ !cancelled() }}
+        run: cargo check --locked -p gosub_ipc -p gosub_sandbox -p gosub_engine --all-targets --target ${{ matrix.target }}
+      - name: Check (isolation disabled)
+        if: ${{ !cancelled() }}
+        run: cargo check --locked -p gosub_ipc -p gosub_sandbox -p gosub_engine --all-targets --target ${{ matrix.target }} --no-default-features --features gosub_engine/sqlite_cookie_store
 
   fmt:
     runs-on: ubuntu-24.04
