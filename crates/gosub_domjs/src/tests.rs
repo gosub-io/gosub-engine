@@ -82,6 +82,31 @@ fn append_child_that_would_cycle_throws() {
 }
 
 #[test]
+fn append_child_that_would_cycle_leaves_the_tree_alone() {
+    let value = eval(
+        "<div id=outer><p id=inner></p></div>",
+        "const outer = document.getElementById('outer');
+         const inner = document.getElementById('inner');
+         for (const [parent, child] of [[inner, outer], [outer, outer]]) {
+             try { parent.appendChild(child); } catch (e) {}
+         }
+         [outer.parentNode.nodeName, String(document.getElementById('outer') === outer),
+          String(inner.parentNode === outer), outer.outerHTML].join('|')",
+    );
+    assert_eq!(value, r#"BODY|true|true|<div id="outer"><p id="inner"></p></div>"#);
+}
+
+#[test]
+fn removing_the_first_of_two_duplicate_ids_finds_the_second() {
+    let value = eval(
+        "<div id=a></div><p id=a></p>",
+        "document.getElementById('a').remove();
+         document.getElementById('a').nodeName",
+    );
+    assert_eq!(value, "P");
+}
+
+#[test]
 fn node_wrappers_have_stable_identity() {
     let same = eval(
         "<div id=parent><span id=child></span></div>",

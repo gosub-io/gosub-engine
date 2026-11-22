@@ -51,7 +51,7 @@ pub struct DocumentImpl<C: HasDocument> {
     edits: parking_lot::RwLock<HashMap<NodeId, ControlEditState>>,
     /// Checkboxes/radios the user has toggled; absent = the `checked` attribute.
     checked: parking_lot::RwLock<HashMap<NodeId, bool>>,
-    /// `<select>` → option the user picked; absent = the `selected` attribute.
+    /// `<select>` -> option the user picked; absent = the `selected` attribute.
     selected: parking_lot::RwLock<HashMap<NodeId, NodeId>>,
     open_select: parking_lot::RwLock<Option<OpenSelect>>,
     /// Controls the user resized, with their border-box size.
@@ -83,7 +83,7 @@ impl<C: HasDocument> PartialEq for DocumentImpl<C> {
     }
 }
 
-// ── new Document<C> trait impl ──────────────────────────────────────────────
+// new Document<C> trait impl
 
 impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     /// Create an empty document with its root registered and scripting enabled by default.
@@ -112,7 +112,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         doc
     }
 
-    // ── node creation ──────────────────────────────────────────────────────
+    // node creation
 
     fn create_element(
         &mut self,
@@ -188,7 +188,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         self.register_node(dup)
     }
 
-    // ── tree navigation ────────────────────────────────────────────────────
+    // tree navigation
 
     fn root(&self) -> NodeId {
         NodeId::root()
@@ -227,13 +227,13 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         let _ = self.attach_node(node, parent, None);
     }
 
-    // ── node type ──────────────────────────────────────────────────────────
+    // node type
 
     fn node_type(&self, id: NodeId) -> NodeType {
         self.arena.node_ref(id).map_or(NodeType::DocumentNode, |n| n.type_of())
     }
 
-    // ── element data ───────────────────────────────────────────────────────
+    // element data
 
     fn tag_name(&self, id: NodeId) -> Option<&str> {
         match self.arena.node_ref(id)?.data {
@@ -337,7 +337,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         self.refresh_template_children(id);
     }
 
-    // ── shadow trees ───────────────────────────────────────────────────────
+    // shadow trees
 
     fn attach_shadow_root(&mut self, host: NodeId, init: ShadowRootInit, location: Location) -> Option<NodeId> {
         // The eligibility half of the spec's "attach a shadow root"; failing it is the
@@ -374,7 +374,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         Some(self.arena.node_ref(id)?.get_shadow_root_data()?.init)
     }
 
-    // ── text / comment / doctype ───────────────────────────────────────────
+    // text / comment / doctype
 
     fn text_value(&self, id: NodeId) -> Option<&str> {
         match self.arena.node_ref(id)?.data {
@@ -434,7 +434,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         }
     }
 
-    // ── document metadata ──────────────────────────────────────────────────
+    // document metadata
 
     fn url(&self) -> Option<Url> {
         self.url.clone()
@@ -486,7 +486,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         self.arena.peek_next_id()
     }
 
-    // ── stylesheets ────────────────────────────────────────────────────────
+    // stylesheets
 
     fn stylesheets(&self) -> &[<C::CssSystem as CssSystem>::Stylesheet] {
         &self.stylesheets
@@ -516,7 +516,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         self.stylesheets.insert(position, sheet);
     }
 
-    // ── serialisation ──────────────────────────────────────────────────────
+    // serialisation
 
     fn write(&self) -> String {
         self.write_from_node(NodeId::root())
@@ -579,8 +579,11 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn selected_option(&self, select: NodeId) -> Option<NodeId> {
-        if let Some(opt) = self.selected.read().get(&select) {
-            return Some(*opt);
+        // The pick only counts while the option is still one of the select's options; moved
+        // out, the select falls back to its default. Moved back, the pick returns.
+        let picked = self.selected.read().get(&select).copied();
+        if let Some(opt) = picked.filter(|&opt| self.is_option_of(opt, select)) {
+            return Some(opt);
         }
         // Default: the `selected` attribute, else the first option.
         let mut first = None;
@@ -609,7 +612,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 }
 
-// ── Internal helpers (not part of Document trait) ───────────────────────────
+// Internal helpers (not part of Document trait)
 
 impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     /// Keep the errors [`Html5Parser::parse_document`](crate::parser::Html5Parser::parse_document)
@@ -659,16 +662,49 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         let mut f = self.focus.write();
         f.node = node;
         f.visible = visible;
-        f.chain.clear();
-        if let Some(mut id) = node {
-            loop {
-                f.chain.insert(id);
-                match self.arena.node_ref(id).and_then(|n| n.parent) {
-                    Some(parent) => id = parent,
-                    None => break,
-                }
+        f.chain = self.ancestors_and_self(node);
+    }
+
+    /// Rebuild the `:focus-within` chain after `moved` was detached or attached, if the chain
+    /// ran through it. The focus itself stays where it is.
+    fn refresh_focus_chain(&self, moved: NodeId) {
+        let focused = {
+            let f = self.focus.read();
+            if !f.chain.contains(&moved) {
+                return;
             }
+            f.node
+        };
+        self.focus.write().chain = self.ancestors_and_self(focused);
+    }
+
+    /// `node` and every ancestor of it, up to the root of its tree.
+    fn ancestors_and_self(&self, node: Option<NodeId>) -> std::collections::HashSet<NodeId> {
+        let mut chain = std::collections::HashSet::new();
+        let mut current = node;
+        while let Some(id) = current {
+            chain.insert(id);
+            current = self.arena.node_ref(id).and_then(|n| n.parent);
         }
+        chain
+    }
+
+    /// Whether `option` is in `select`'s list of options, which is the case when `select` is its
+    /// nearest ancestor select (<https://html.spec.whatwg.org/#option-element-nearest-ancestor-select>).
+    fn is_option_of(&self, option: NodeId, select: NodeId) -> bool {
+        let mut seen_optgroup = false;
+        let mut current = self.parent(option);
+        while let Some(ancestor) = current {
+            match self.tag_name(ancestor) {
+                Some("datalist" | "hr" | "option") => return false,
+                Some("optgroup") if seen_optgroup => return false,
+                Some("optgroup") => seen_optgroup = true,
+                Some("select") => return ancestor == select,
+                _ => {}
+            }
+            current = self.parent(ancestor);
+        }
+        false
     }
 
     /// `None` reverts to the `selected` attribute.
@@ -991,9 +1027,8 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         if self.would_cycle(node_id, parent_id) {
             return Err(AttachError::Cycle);
         }
-        // Guarded here rather than in the `Document` methods that call it: this one is public
-        // and inherent, so it wins over the trait method for anything holding a concrete
-        // `DocumentImpl` - a check on the trait side alone is simply stepped around.
+        // Checked here and not in the trait methods: this inherent method is public, so a caller
+        // with a concrete `DocumentImpl` reaches it directly.
         if self.refuses_tree_mutation("attach_node", node_id) {
             return Err(AttachError::ShadowRoot);
         }
@@ -1018,10 +1053,12 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         if is_leaf {
             // Most attaches are the parser adding a leaf: skip the ancestor walk when it has no id.
             self.refresh_named_id(node_id);
+            self.refresh_focus_chain(node_id);
             return Ok(());
         }
         let registry = self.registry_of(node_id);
         self.refresh_named_ids(node_id, registry);
+        self.refresh_focus_chain(node_id);
         Ok(())
     }
 
@@ -1054,19 +1091,11 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         }
     }
 
-    /// Whether a generic tree mutation must leave `node` alone because it is a shadow root.
-    ///
-    /// A shadow root hangs off its host by a side pointer and never appears in a `children`
-    /// list. `attach_shadow_root` returns its raw id, though, so it is one call away from any
-    /// of the ordinary mutations - and attaching it would give it a parent and put it into
-    /// normal traversal, where it is both a shadow tree and a child of the element it shadows.
     /// Whether `node_id` must not be copied, because it is a shadow root.
     ///
-    /// A shadow root's data holds the id of its host, so copying it produces a second root
-    /// claiming the same host while the host still names the first - two roots, one host, and a
-    /// back pointer that agrees with neither. `ShadowRoot.cloneNode()` throws in the spec for
-    /// the same reason, so refusing is the faithful answer; the caller gets the original id
-    /// back, which is what the not-found path already returns.
+    /// A shadow root's data holds the id of its host, so a copy would be a second root for the
+    /// same host. `ShadowRoot.cloneNode()` throws in the spec; here the caller gets the original
+    /// id back, as on the not-found path.
     fn refuses_copy(&self, node_id: NodeId) -> bool {
         let is_shadow_root = self
             .arena
@@ -1099,6 +1128,11 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         Some(copy_id)
     }
 
+    /// Whether a generic tree mutation must leave `node_id` alone because it is a shadow root.
+    ///
+    /// A shadow root hangs off its host by a side pointer and never appears in a `children`
+    /// list. Attaching it would give it a parent and put it into normal traversal as a child of
+    /// the element it shadows.
     fn refuses_tree_mutation(&self, what: &str, node_id: NodeId) -> bool {
         let is_shadow_root = self
             .arena
@@ -1123,6 +1157,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                 node.set_parent(None);
                 self.refresh_named_ids(node_id, None);
             }
+            self.refresh_focus_chain(node_id);
         }
     }
 
@@ -1145,10 +1180,9 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     /// each the root of its own detached tree, and the ids below `node_id` leave the document's
     /// registry.
     pub fn delete_node_by_id(&mut self, node_id: NodeId) {
-        // The host and its shadow root each name the other, so deleting either has to clear the
-        // link the other way round or the survivor keeps naming a node that is gone. Done here
-        // rather than in `Document::remove` because this method is inherent and public, and so
-        // wins over the trait method for anything holding a concrete `DocumentImpl`.
+        // The host and its shadow root each name the other, so deleting either clears the link
+        // the other way round. Done here and not in `Document::remove` because this inherent
+        // method is public.
         //
         // Deleting the root drops the host's side pointer.
         if let Some(host) = self.shadow_host(node_id) {
@@ -1258,7 +1292,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         self.arena.nodes()
     }
 
-    // ── display helper ─────────────────────────────────────────────────────
+    // display helper
 
     pub fn print_tree(&self, node: &NodeImpl, prefix: String, last: bool, f: &mut Formatter) {
         let mut buffer = prefix.clone();
@@ -1335,7 +1369,7 @@ impl<C: HasDocument<Document = Self>> Display for DocumentImpl<C> {
     }
 }
 
-// ── Tree iterator ────────────────────────────────────────────────────────────
+// Tree iterator
 
 pub struct TreeIterator<'a, C: HasDocument> {
     current_node_id: Option<NodeId>,
@@ -1470,6 +1504,177 @@ mod tests {
         assert_eq!(doc.children(parent), &[kids[4], kids[3], kids[1]]);
         doc.attach_node(kids[1], parent, Some(0)).unwrap();
         assert_eq!(doc.children(parent), &[kids[1], kids[4], kids[3]]);
+    }
+
+    /// html > (old > input, new): the input focused.
+    fn focused_input(doc: &mut DocumentImpl<Config>) -> (NodeId, NodeId, NodeId) {
+        let root = doc.root();
+        let old = element(doc, "div", root);
+        let new = element(doc, "section", root);
+        let input = element(doc, "input", old);
+        doc.set_focused_node(Some(input), true);
+        (old, new, input)
+    }
+
+    #[test]
+    fn moving_the_focused_element_moves_focus_within() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (old, new, input) = focused_input(&mut doc);
+        assert!(doc.is_focus_within(old));
+
+        doc.attach_node(input, new, None).unwrap();
+
+        assert!(!doc.is_focus_within(old), "the old parent no longer holds the focus");
+        assert!(doc.is_focus_within(new));
+        assert!(doc.is_focus_within(input));
+        assert!(doc.is_focus_within(doc.root()));
+        assert_eq!(doc.focused_node(), Some(input), "the focus stays on the element");
+    }
+
+    #[test]
+    fn moving_an_ancestor_of_the_focused_element_moves_focus_within() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (old, new, input) = focused_input(&mut doc);
+        let wrapper = element(&mut doc, "div", old);
+        doc.attach_node(input, wrapper, None).unwrap();
+
+        doc.attach_node(wrapper, new, Some(0)).unwrap();
+
+        assert!(!doc.is_focus_within(old));
+        assert!(doc.is_focus_within(new));
+        assert!(doc.is_focus_within(wrapper));
+    }
+
+    #[test]
+    fn relocating_the_focused_element_moves_focus_within() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (old, new, input) = focused_input(&mut doc);
+
+        Document::relocate_node(&mut doc, input, new);
+
+        assert!(!doc.is_focus_within(old));
+        assert!(doc.is_focus_within(new));
+    }
+
+    #[test]
+    fn detaching_the_focused_element_takes_focus_within_out_of_the_document() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (old, _, input) = focused_input(&mut doc);
+
+        doc.detach_node(input);
+
+        assert!(!doc.is_focus_within(old));
+        assert!(!doc.is_focus_within(doc.root()));
+        assert!(doc.is_focus_within(input));
+    }
+
+    #[test]
+    fn moving_an_unrelated_node_leaves_focus_within_alone() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (old, new, input) = focused_input(&mut doc);
+        let other = element(&mut doc, "p", new);
+
+        doc.attach_node(other, old, None).unwrap();
+
+        assert!(doc.is_focus_within(old));
+        assert!(doc.is_focus_within(input));
+        assert!(!doc.is_focus_within(new));
+        assert!(!doc.is_focus_within(other));
+    }
+
+    /// html > select > (a, b, c), with `b` picked.
+    fn picked_option(doc: &mut DocumentImpl<Config>) -> (NodeId, NodeId, NodeId) {
+        let root = doc.root();
+        let select = element(doc, "select", root);
+        let a = element(doc, "option", select);
+        let b = element(doc, "option", select);
+        element(doc, "option", select);
+        doc.set_selected_option(select, Some(b));
+        (select, a, b)
+    }
+
+    #[test]
+    fn a_picked_option_detached_from_its_select_is_no_longer_its_choice() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (select, a, b) = picked_option(&mut doc);
+
+        doc.detach_node(b);
+
+        assert_eq!(doc.selected_option(select), Some(a), "back to the first option");
+        assert!(doc.is_checked(a));
+        assert!(!doc.is_checked(b));
+    }
+
+    #[test]
+    fn a_picked_option_moved_to_another_select_is_no_longer_the_first_ones_choice() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (select, a, b) = picked_option(&mut doc);
+        let root = doc.root();
+        let other = element(&mut doc, "select", root);
+        let first = element(&mut doc, "option", other);
+
+        doc.attach_node(b, other, None).unwrap();
+
+        assert_eq!(doc.selected_option(select), Some(a));
+        assert_eq!(doc.selected_option(other), Some(first));
+        assert!(!doc.is_checked(b));
+    }
+
+    #[test]
+    fn a_picked_option_moved_within_its_select_stays_picked() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (select, _, b) = picked_option(&mut doc);
+        let group = element(&mut doc, "optgroup", select);
+
+        doc.attach_node(b, select, None).unwrap();
+        assert_eq!(doc.selected_option(select), Some(b), "moved to the end");
+
+        doc.attach_node(b, group, None).unwrap();
+        assert_eq!(doc.selected_option(select), Some(b), "moved into an optgroup");
+        assert!(doc.is_checked(b));
+    }
+
+    #[test]
+    fn a_picked_option_moved_into_a_wrapper_in_its_select_stays_picked() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (select, _, b) = picked_option(&mut doc);
+        let wrapper = element(&mut doc, "div", select);
+
+        doc.attach_node(b, wrapper, None).unwrap();
+
+        assert_eq!(doc.selected_option(select), Some(b));
+    }
+
+    #[test]
+    fn a_picked_option_moved_where_it_stops_being_an_option_of_its_select_is_dropped() {
+        // A datalist, hr or option in between, or a second optgroup, ends the select's options.
+        let tags: [&[&str]; 4] = [&["datalist"], &["hr"], &["option"], &["optgroup", "optgroup"]];
+        for path in tags {
+            let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+            let (select, a, b) = picked_option(&mut doc);
+            let mut parent = select;
+            for tag in path {
+                parent = element(&mut doc, tag, parent);
+            }
+
+            doc.attach_node(b, parent, None).unwrap();
+
+            assert_eq!(doc.selected_option(select), Some(a), "{path:?}");
+        }
+    }
+
+    #[test]
+    fn a_picked_option_moved_out_and_back_is_picked_again() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (select, a, b) = picked_option(&mut doc);
+        let root = doc.root();
+        let elsewhere = element(&mut doc, "div", root);
+
+        doc.attach_node(b, elsewhere, None).unwrap();
+        assert_eq!(doc.selected_option(select), Some(a));
+
+        doc.attach_node(b, select, None).unwrap();
+        assert_eq!(doc.selected_option(select), Some(b));
     }
 
     /// Change `node`'s `id` attribute the way a DOM `setAttribute` / `removeAttribute` does.

@@ -53,7 +53,7 @@ fn find<C: HasDocument>(doc: &C::Document, tag: &str) -> Option<NodeId> {
     walk::<C>(doc, doc.root(), tag)
 }
 
-// ── the shadow tree is built, and lives off the host ─────────────────────────
+// the shadow tree is built, and lives off the host
 
 #[test]
 fn a_declarative_template_becomes_a_shadow_root() {
@@ -141,7 +141,7 @@ fn nested_shadow_roots_each_hang_off_their_own_host() {
     );
 }
 
-// ── everything that must fall back to an inert template ──────────────────────
+// everything that must fall back to an inert template
 
 #[test]
 fn a_template_without_the_attribute_is_untouched() {
@@ -226,7 +226,7 @@ fn fragment_parsing_never_builds_shadow_roots() {
     assert_eq!(doc.shadow_root(host), None);
 }
 
-// ── serialisation round-trips ────────────────────────────────────────────────
+// serialisation round-trips
 
 #[test]
 fn a_shadow_root_is_written_back_out_as_its_template() {
@@ -250,7 +250,7 @@ fn the_boolean_declarative_attributes_survive_a_round_trip() {
     );
 }
 
-// ── a shadow root is not an ordinary node ────────────────────────────────────
+// a shadow root is not an ordinary node
 
 #[test]
 fn a_shadow_root_cannot_be_attached_into_the_ordinary_tree() {
@@ -340,9 +340,8 @@ fn a_shadow_root_cannot_be_copied() {
 
 #[test]
 fn a_cloned_host_does_not_share_the_original_shadow_tree() {
-    // The side pointer lives in the element's data, which a shallow clone copies. Left in place
-    // the clone would share the original's root while `shadow_host(root)` still named the
-    // original - two hosts for one root, and a back pointer that contradicts one of them.
+    // The side pointer lives in the element's data, which a clone copies. Left in place, the
+    // clone would share the original's shadow root.
     let mut doc = parse("<div><template shadowrootmode=open><span>s</span></template></div>");
     let host = find::<Config>(&doc, "div").unwrap();
     let root = doc.shadow_root(host).expect("declarative shadow root");
@@ -357,7 +356,7 @@ fn a_cloned_host_does_not_share_the_original_shadow_tree() {
     );
 }
 
-// ── serialization ────────────────────────────────────────────────────────────
+// serialization
 
 #[test]
 fn a_shadow_root_serializes_as_its_contents() {
