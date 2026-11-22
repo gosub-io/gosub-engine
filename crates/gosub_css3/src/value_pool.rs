@@ -631,7 +631,13 @@ mod tests {
         let nodes = vec![Node::new(
             NodeType::Function {
                 name: "rgb".into(),
-                arguments: vec![number(red), Node::new(NodeType::Comma, at), number(0.0)],
+                arguments: vec![
+                    number(red),
+                    Node::new(NodeType::Comma, at),
+                    number(0.0),
+                    Node::new(NodeType::Comma, at),
+                    number(0.0),
+                ],
             },
             at,
         )];
@@ -647,6 +653,7 @@ mod tests {
         let mut pool = ValuePool::default();
         let mut builds = 0;
         let first = get_rgb(&mut pool, 10.0, 1, &mut builds);
+        assert!(matches!(*first, CssValue::Color(_)));
         // Somewhere else in the sheet: where it was written is not part of what it is.
         let again = get_rgb(&mut pool, 10.0, 7, &mut builds);
         assert!(Arc::ptr_eq(&first, &again));
@@ -655,15 +662,6 @@ mod tests {
         let other = get_rgb(&mut pool, 20.0, 1, &mut builds);
         assert!(!Arc::ptr_eq(&first, &other));
         assert_eq!(builds, 2);
-    }
-
-    #[test]
-    fn a_value_that_does_not_build_is_not_remembered() {
-        let mut pool = ValuePool::default();
-        let nodes = || vec![node(NodeType::Url { url: "a.png".into() })];
-        assert!(pool.get_or_build(nodes(), None, |_| Err(())).is_err());
-        let built = pool.get_or_build(nodes(), None, |nodes| Ok::<_, ()>(build(nodes)));
-        assert!(built.is_ok());
     }
 
     #[test]
@@ -685,6 +683,15 @@ mod tests {
         }
         assert_eq!(builds, 2);
         assert!(pool.built.is_empty());
+    }
+
+    #[test]
+    fn a_value_that_does_not_build_is_not_remembered() {
+        let mut pool = ValuePool::default();
+        let nodes = || vec![node(NodeType::Url { url: "a.png".into() })];
+        assert!(pool.get_or_build(nodes(), None, |_| Err(())).is_err());
+        let built = pool.get_or_build(nodes(), None, |nodes| Ok::<_, ()>(build(nodes)));
+        assert!(built.is_ok());
     }
 
     #[test]
