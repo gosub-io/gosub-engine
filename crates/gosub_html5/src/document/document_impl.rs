@@ -1,6 +1,7 @@
 use core::fmt::Debug;
 use gosub_interface::css3::CssSystem;
 use gosub_interface::document::{AttachError, ControlEditState, Document, DocumentType, OpenSelect, PendingStylesheet};
+use gosub_interface::interaction::InteractionState;
 use gosub_shared::attributes::Attributes;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -44,29 +45,10 @@ pub struct DocumentImpl<C: HasDocument> {
     /// Links whose bytes have not arrived. Filled in after the parse; see
     /// [`Document::add_pending_stylesheet`].
     pending_stylesheets: Vec<PendingStylesheet>,
-    hovered_nodes: parking_lot::RwLock<std::collections::HashSet<NodeId>>,
-    focus: parking_lot::RwLock<FocusState>,
-    /// Text controls the user has typed into; absent = still showing the markup value.
-    edits: parking_lot::RwLock<HashMap<NodeId, ControlEditState>>,
-    /// Checkboxes/radios the user has toggled; absent = the `checked` attribute.
-    checked: parking_lot::RwLock<HashMap<NodeId, bool>>,
-    /// `<select>` → option the user picked; absent = the `selected` attribute.
-    selected: parking_lot::RwLock<HashMap<NodeId, NodeId>>,
-    open_select: parking_lot::RwLock<Option<OpenSelect>>,
-    /// Controls the user resized, with their border-box size.
-    sizes: parking_lot::RwLock<HashMap<NodeId, (f64, f64)>>,
+    interaction: parking_lot::RwLock<InteractionState>,
     /// The errors the HTML parser reported building this document, for whoever wants to show
     /// them; see [`DocumentImpl::set_parse_errors`].
     parse_errors: Vec<ParseError>,
-}
-
-#[derive(Debug, Default)]
-struct FocusState {
-    node: Option<NodeId>,
-    /// `node` and its ancestors, for `:focus-within`.
-    chain: std::collections::HashSet<NodeId>,
-    /// Whether the focus ring shows (`:focus-visible`).
-    visible: bool,
 }
 
 impl<C: HasDocument> PartialEq for DocumentImpl<C> {
@@ -97,13 +79,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             scripting_enabled: true,
             stylesheets: Vec::new(),
             pending_stylesheets: Vec::new(),
-            hovered_nodes: parking_lot::RwLock::new(std::collections::HashSet::new()),
-            focus: parking_lot::RwLock::new(FocusState::default()),
-            edits: parking_lot::RwLock::new(HashMap::new()),
-            checked: parking_lot::RwLock::new(HashMap::new()),
-            selected: parking_lot::RwLock::new(HashMap::new()),
-            open_select: parking_lot::RwLock::new(None),
-            sizes: parking_lot::RwLock::new(HashMap::new()),
+            interaction: parking_lot::RwLock::new(InteractionState::default()),
             parse_errors: Vec::new(),
         };
         let root = NodeImpl::new_document(Location::default(), QuirksMode::NoQuirks);
@@ -542,28 +518,28 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn is_hovered(&self, id: NodeId) -> bool {
-        self.hovered_nodes.read().contains(&id)
+        self.interaction.read().hovered.contains(&id)
     }
 
     fn is_focused(&self, id: NodeId) -> bool {
-        self.focus.read().node == Some(id)
+        self.interaction.read().focus == Some(id)
     }
 
     fn is_focus_visible(&self, id: NodeId) -> bool {
-        let f = self.focus.read();
-        f.visible && f.node == Some(id)
+        let ix = self.interaction.read();
+        ix.focus_visible && ix.focus == Some(id)
     }
 
     fn is_focus_within(&self, id: NodeId) -> bool {
-        self.focus.read().chain.contains(&id)
+        self.interaction.read().focus_chain.contains(&id)
     }
 
     fn focused_node(&self) -> Option<NodeId> {
-        self.focus.read().node
+        self.interaction.read().focus
     }
 
     fn control_edit_state(&self, id: NodeId) -> Option<ControlEditState> {
-        self.edits.read().get(&id).cloned()
+        self.interaction.read().edits.get(&id).cloned()
     }
 
     fn is_checked(&self, id: NodeId) -> bool {
@@ -578,7 +554,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             }
             return false;
         }
-        match self.checked.read().get(&id) {
+        match self.interaction.read().checked.get(&id) {
             Some(c) => *c,
             None => self.attribute(id, "checked").is_some(),
         }
@@ -587,7 +563,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     fn selected_option(&self, select: NodeId) -> Option<NodeId> {
         // The pick only counts while the option is still one of the select's options; moved
         // out, the select falls back to its default. Moved back, the pick returns.
-        let picked = self.selected.read().get(&select).copied();
+        let picked = self.interaction.read().selected.get(&select).copied();
         if let Some(opt) = picked.filter(|&opt| self.is_option_of(opt, select)) {
             return Some(opt);
         }
@@ -610,11 +586,11 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn open_select(&self) -> Option<OpenSelect> {
-        *self.open_select.read()
+        self.interaction.read().open_select
     }
 
     fn control_size(&self, id: NodeId) -> Option<(f64, f64)> {
-        self.sizes.read().get(&id).copied()
+        self.interaction.read().sizes.get(&id).copied()
     }
 }
 
@@ -650,38 +626,29 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     }
 
     pub fn set_hovered_nodes(&self, leaf: Option<NodeId>) {
-        let mut set = self.hovered_nodes.write();
-        set.clear();
-        if let Some(mut id) = leaf {
-            loop {
-                set.insert(id);
-                match self.arena.node_ref(id).and_then(|n| n.parent) {
-                    Some(parent) => id = parent,
-                    None => break,
-                }
-            }
-        }
+        self.interaction.write().hovered = self.ancestors_and_self(leaf);
     }
 
     /// Move focus to `node` (`None` blurs); `visible` = show the focus ring.
     pub fn set_focused_node(&self, node: Option<NodeId>, visible: bool) {
-        let mut f = self.focus.write();
-        f.node = node;
-        f.visible = visible;
-        f.chain = self.ancestors_and_self(node);
+        let chain = self.ancestors_and_self(node);
+        let mut ix = self.interaction.write();
+        ix.focus = node;
+        ix.focus_visible = visible;
+        ix.focus_chain = chain;
     }
 
     /// Rebuild the `:focus-within` chain after `moved` was detached or attached, if the chain
     /// ran through it. The focus itself stays where it is.
     fn refresh_focus_chain(&self, moved: NodeId) {
         let focused = {
-            let f = self.focus.read();
-            if !f.chain.contains(&moved) {
+            let ix = self.interaction.read();
+            if !ix.focus_chain.contains(&moved) {
                 return;
             }
-            f.node
+            ix.focus
         };
-        self.focus.write().chain = self.ancestors_and_self(focused);
+        self.interaction.write().focus_chain = self.ancestors_and_self(focused);
     }
 
     /// `node` and every ancestor of it, up to the root of its tree.
@@ -715,58 +682,26 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
 
     /// `None` reverts to the `selected` attribute.
     pub fn set_selected_option(&self, select: NodeId, option: Option<NodeId>) {
-        let mut map = self.selected.write();
-        match option {
-            Some(o) => {
-                map.insert(select, o);
-            }
-            None => {
-                map.remove(&select);
-            }
-        }
+        self.interaction.write().set_selected(select, option);
     }
 
     /// `None` reverts to the stylesheet size.
     pub fn set_control_size(&self, id: NodeId, size: Option<(f64, f64)>) {
-        let mut map = self.sizes.write();
-        match size {
-            Some(s) => {
-                map.insert(id, s);
-            }
-            None => {
-                map.remove(&id);
-            }
-        }
+        self.interaction.write().set_size(id, size);
     }
 
     pub fn set_open_select(&self, state: Option<OpenSelect>) {
-        *self.open_select.write() = state;
+        self.interaction.write().open_select = state;
     }
 
     /// `None` reverts to the `checked` attribute.
     pub fn set_checked(&self, id: NodeId, checked: Option<bool>) {
-        let mut map = self.checked.write();
-        match checked {
-            Some(c) => {
-                map.insert(id, c);
-            }
-            None => {
-                map.remove(&id);
-            }
-        }
+        self.interaction.write().set_checked(id, checked);
     }
 
     /// `None` reverts to the markup value.
     pub fn set_control_edit_state(&self, id: NodeId, state: Option<ControlEditState>) {
-        let mut edits = self.edits.write();
-        match state {
-            Some(s) => {
-                edits.insert(id, s);
-            }
-            None => {
-                edits.remove(&id);
-            }
-        }
+        self.interaction.write().set_edit(id, state);
     }
 
     /// The root of the tree `node_id` is in: follow parents until there are none. A shadow root
@@ -1272,25 +1207,21 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     /// `focused_node()` / `selected_option()` keep handing out a deleted id. Deliberately *not*
     /// done in `detach_node`: relocation detaches before reattaching, and must keep the state.
     fn clear_interaction_state(&self, node_id: NodeId) {
-        self.hovered_nodes.write().remove(&node_id);
-        {
-            let mut focus = self.focus.write();
-            focus.chain.remove(&node_id);
-            if focus.node == Some(node_id) {
-                focus.node = None;
-                focus.visible = false;
-            }
+        let mut ix = self.interaction.write();
+        ix.hovered.remove(&node_id);
+        ix.focus_chain.remove(&node_id);
+        if ix.focus == Some(node_id) {
+            ix.focus = None;
+            ix.focus_visible = false;
         }
-        self.edits.write().remove(&node_id);
-        self.checked.write().remove(&node_id);
-        self.sizes.write().remove(&node_id);
+        ix.edits.remove(&node_id);
+        ix.checked.remove(&node_id);
+        ix.sizes.remove(&node_id);
         // Also drop entries that *point at* the node: a deleted `<option>`.
-        self.selected
-            .write()
+        ix.selected
             .retain(|select, option| *select != node_id && *option != node_id);
-        let mut open = self.open_select.write();
-        if open.as_ref().is_some_and(|o| o.select == node_id) {
-            *open = None;
+        if ix.open_select.as_ref().is_some_and(|o| o.select == node_id) {
+            ix.open_select = None;
         }
     }
 
