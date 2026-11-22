@@ -3,8 +3,7 @@
 Five crates make up Gosub's scripting story. **Status up front: a first slice is wired.**
 With the cargo feature `js`, `gosub_engine` runs `TabCommand::ExecuteScript` in V8 for a
 page that lives in the engine's own process and answers with `ScriptResult` or
-`JavaScriptError` (see [Scripts in a tab](#scripts-in-a-tab)). Inline scripts run during the parse; external ones do not yet (their sources are
-prefetched by the [resource pipeline](resource-pipeline.md) and go no further). Without `js` nothing links V8.
+`JavaScriptError` (see [Scripts in a tab](#scripts-in-a-tab)). Page scripts run during the parse: inline, `<script src>`, `defer` and `async`. Without `js` nothing links V8.
 `gosub_html5` has no JS dependency. The other consumer is the `run-js` component tool
 (`src/bin/run-js.rs`, see [binaries.md](binaries.md)).
 
@@ -103,9 +102,18 @@ parser a host that forwards to the script thread of the document being loaded
 `ExecuteScript` sees what the page's scripts left. A failing page script is a
 `JavaScriptError` event.
 
+External scripts come through `Html5ParserOptions::script_sources` (`ScriptSource`, the
+counterpart of `StylesheetSource`). A blocking `<script src>` is fetched and run at its
+end tag; `defer` and `async` scripts are collected and run in document order once the
+document is parsed (`async` does not run earlier yet). In the engine the parse's
+`ParseSheetGate` is the source: every `<script src>` the document scan finds is fetched
+once into a per-parse map, and the parser takes it from there, or fetches a `src` the scan
+missed. A script that cannot be loaded is logged and skipped. Script text is read as
+UTF-8; a `charset` is not looked at.
+
 Not there yet: a page that lives in a renderer process (nothing runs there, and
-`ExecuteScript` answers with an error), external scripts, and every DOM binding - there is
-no `document`.
+`ExecuteScript` answers with an error), modules, `integrity`, the MIME type check on a
+fetched script, and every DOM binding - there is no `document`.
 
 ## What wiring it up would take
 

@@ -100,6 +100,9 @@ pub struct HtmlParseConfig {
     /// Where the host comes from that runs the document's inline scripts as they are parsed.
     /// `None` runs nothing.
     pub scripts: Option<std::sync::Arc<dyn ScriptHostSource>>,
+    /// Where the parse gets the text of a `<script src>` from. `None` leaves external
+    /// scripts alone.
+    pub script_sources: Option<std::sync::Arc<dyn gosub_html5::parser::ScriptSource>>,
 }
 
 impl Default for HtmlParseConfig {
@@ -114,6 +117,7 @@ impl Default for HtmlParseConfig {
             settled_referrer_policy: None,
             scripting_enabled: true,
             scripts: None,
+            script_sources: None,
         }
     }
 }
@@ -261,6 +265,7 @@ where
     let stylesheets = cfg.stylesheets.clone();
     let scripting_enabled = cfg.scripting_enabled;
     let scripts = cfg.scripts.clone();
+    let script_sources = cfg.script_sources.clone();
     let parse = move || -> Result<EngineDocument<C>, DocumentError> {
         let _scope = timing_scope.map(gosub_shared::timing::enter_scope);
 
@@ -276,6 +281,7 @@ where
             stylesheets,
             scripting_enabled,
             scripts: scripts.map(|source| source.host()),
+            script_sources,
         };
         match Html5Parser::<C>::parse_document(&mut stream, &mut doc, Some(options)) {
             Ok(errors) => doc.set_parse_errors(errors),

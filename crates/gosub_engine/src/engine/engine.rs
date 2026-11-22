@@ -6676,6 +6676,129 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// Serves `page` at `/` and `console.log('<name>')` at `/<name>.js` (404 for
+    /// `/missing.js`), loads the page in a tab, and returns what its scripts logged and how
+    /// often each path was requested.
+    #[cfg(feature = "js")]
+    async fn served_page_output(page: &'static str) -> (Vec<String>, HashMap<String, usize>) {
+        use crate::events::NavigationEvent;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let requests = Arc::new(Mutex::new(HashMap::<String, usize>::new()));
+        let counted = requests.clone();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let counted = counted.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let Some(path) = req.split_whitespace().nth(1).map(str::to_owned) else {
+                        return;
+                    };
+                    *counted.lock().entry(path.clone()).or_default() += 1;
+
+                    let script = path.strip_prefix('/').and_then(|p| p.strip_suffix(".js"));
+                    let (status, ctype, body) = match script {
+                        Some("missing") => ("404 Not Found", "text/plain", "gone".to_owned()),
+                        // one with a byte order mark, which is not part of the script
+                        Some("bom") => ("200 OK", "text/javascript", "\u{feff}console.log('bom')".to_owned()),
+                        Some(name) => ("200 OK", "text/javascript", format!("console.log('{name}')")),
+                        None if path == "/" => ("200 OK", "text/html", page.to_owned()),
+                        None => ("404 Not Found", "text/plain", "gone".to_owned()),
+                    };
+                    let response = format!(
+                        "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(response.as_bytes()).await;
+                });
+            }
+        });
+
+        let (mut engine, mut events, tab) = script_tab(true).await;
+        tab.navigate(format!("http://127.0.0.1:{port}/"))
+            .await
+            .expect("navigate");
+
+        let mut output = Vec::new();
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::ConsoleMessage { text, origin, .. }) => {
+                        // a line is from the script that wrote it
+                        let file = origin.rsplit('/').next().unwrap_or_default();
+                        assert!(
+                            file.is_empty() || file == format!("{text}.js"),
+                            "{text} logged from {origin}"
+                        );
+                        output.push(text);
+                    }
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    }) => break,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("the page did not load");
+
+        engine.shutdown().await.expect("shutdown");
+        let requests = requests.lock().clone();
+        (output, requests)
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn external_scripts_run_in_order_and_are_fetched_once() {
+        let page = "<html><head>\
+            <script defer src=\"/defer1.js\"></script>\
+            <script>console.log('inline1')</script>\
+            <script src=\"/block1.js\"></script>\
+            <script async src=\"/async1.js\"></script>\
+            </head><body>\
+            <script src=\"/missing.js\"></script>\
+            <script src=\"/bom.js\"></script>\
+            <script>console.log('inline2')</script>\
+            <script defer src=\"/defer2.js\"></script>\
+            </body></html>";
+
+        let (output, requests) = served_page_output(page).await;
+
+        assert_eq!(
+            output,
+            ["inline1", "block1", "bom", "inline2", "defer1", "async1", "defer2"]
+        );
+        for path in [
+            "/defer1.js",
+            "/block1.js",
+            "/async1.js",
+            "/missing.js",
+            "/bom.js",
+            "/defer2.js",
+        ] {
+            assert_eq!(requests.get(path), Some(&1), "{path}: {requests:?}");
+        }
+    }
+
+    /// A `src` the document scan does not see is fetched when the parser gets to it.
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn a_script_the_scan_missed_is_fetched_by_the_parse() {
+        // the same file twice: the second element is not in the scan's map any more
+        let page = "<script src=\"/twice.js\"></script><script src=\"/twice.js\"></script>";
+
+        let (output, requests) = served_page_output(page).await;
+
+        assert_eq!(output, ["twice", "twice"]);
+        assert!(requests.get("/twice.js").is_some_and(|n| *n >= 1), "{requests:?}");
+    }
+
     #[cfg(not(feature = "js"))]
     #[tokio::test]
     async fn execute_script_without_the_js_feature_is_an_error() {

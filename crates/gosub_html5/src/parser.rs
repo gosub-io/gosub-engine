@@ -141,6 +141,16 @@ impl ActiveElement {
     }
 }
 
+/// A script element the parser runs.
+enum Script {
+    Inline(String),
+    External {
+        url: String,
+        /// `defer` or `async`: it does not hold up the parse.
+        deferred: bool,
+    },
+}
+
 /// The JavaScript MIME type essences.
 const JAVASCRIPT_MIME_TYPES: [&str; 16] = [
     "application/ecmascript",
@@ -184,6 +194,9 @@ pub struct Html5ParserOptions {
     /// Runs the document's inline classic scripts, each when its end tag is seen. `None`
     /// means no script runs.
     pub scripts: Option<Box<dyn ScriptHost + Send>>,
+    /// Where the text of a `<script src>` comes from. `None` means external scripts do not
+    /// run. Only asked when `scripts` is set.
+    pub script_sources: Option<Arc<dyn ScriptSource>>,
 }
 
 /// Somewhere the parser can get a linked stylesheet from, when it has to have one *now*.
@@ -199,12 +212,23 @@ pub trait StylesheetSource: Send + Sync + std::fmt::Debug {
     fn fetch_blocking(&self, urls: &[String]) -> Vec<Option<Vec<u8>>>;
 }
 
+/// Somewhere the parser can get an external script from, when it is time to run it.
+///
+/// Like [`StylesheetSource`]: the parser does not fetch, it asks and blocks.
+pub trait ScriptSource: Send + Sync + std::fmt::Debug {
+    /// Block until the script at `url` has been fetched, and answer with its text.
+    ///
+    /// `None` for a script that could not be had; it must not hang instead.
+    fn fetch_blocking(&self, url: &str) -> Option<String>;
+}
+
 impl ParserOptions for Html5ParserOptions {
     fn new(scripting: bool) -> Self {
         Self {
             scripting_enabled: scripting,
             stylesheets: None,
             scripts: None,
+            script_sources: None,
         }
     }
 }
@@ -215,6 +239,7 @@ impl Default for Html5ParserOptions {
             scripting_enabled: true,
             stylesheets: None,
             scripts: None,
+            script_sources: None,
         }
     }
 }
@@ -268,6 +293,10 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     current_script_blocks: bool,
     /// What runs the document's scripts, if anything does.
     script_host: Option<Box<dyn ScriptHost + Send>>,
+    script_source: Option<Arc<dyn ScriptSource>>,
+    /// URLs of the `defer` and `async` scripts seen so far, in document order. They run
+    /// when the document has been parsed.
+    deferred_scripts: Vec<String>,
     /// Pending table character tokens
     pending_table_character_tokens: String,
     /// Location of the first pending table character token
@@ -416,7 +445,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     ) -> Self {
         let scripting_enabled = options.as_ref().is_none_or(|o| o.scripting_enabled);
         document.set_scripting_enabled(scripting_enabled);
-        let (stylesheet_source, script_host) = options.map_or((None, None), |o| (o.stylesheets, o.scripts));
+        let (stylesheet_source, script_host, script_source) =
+            options.map_or((None, None, None), |o| (o.stylesheets, o.scripts, o.script_sources));
         Self {
             tokenizer,
             insertion_mode: InsertionMode::Initial,
@@ -434,6 +464,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             scripting_enabled,
             stylesheet_source,
             script_host,
+            script_source,
+            deferred_scripts: Vec::new(),
             frameset_ok: true,
             foster_parenting: false,
             script_already_started: false,
@@ -480,6 +512,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             scripting_enabled: true,
             stylesheet_source: None,
             script_host: None,
+            script_source: None,
+            deferred_scripts: Vec::new(),
             frameset_ok: true,
             foster_parenting: false,
             script_already_started: false,
@@ -605,6 +639,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
         let parse_us = wall.duration().saturating_sub(parser.blocked_on_css_us.get());
         timing::record(gosub_shared::timing::Timing::DecodeHtml, parse_us, Some(context));
+
+        parser.run_deferred_scripts();
 
         ret
     }
@@ -4323,8 +4359,9 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     /// Does nothing without a [`StylesheetSource`]: the sheets stay pending and whoever
     /// drives the parse resolves them afterwards, which is what happens for a document with
     /// no blocking scripts in it.
-    /// Runs the script element whose end tag was just seen, if it is one this parser runs:
-    /// an inline classic script, in a document whose scripts run. Returns whether it ran.
+    /// Runs the script element whose end tag was just seen, if it is one this parser runs
+    /// now: a classic script, inline or blocking, in a document whose scripts run. A `defer`
+    /// or `async` script is kept for the end of the parse. Returns whether a script ran.
     ///
     /// A script that fails does not stop the parse; the host reports its own errors.
     fn run_script(&mut self, script: NodeId) -> bool {
@@ -4335,27 +4372,65 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         if self.open_elements.iter().any(|&id| node_tag!(self, id) == "template") {
             return false;
         }
-        let Some(source) = self.inline_classic_source(script) else {
+
+        match self.classic_script(script) {
+            Some(Script::Inline(source)) => {
+                // The tokenizer is just past the end tag; the source starts as many lines
+                // up as it has line breaks.
+                let end_line = u32::try_from(self.tokenizer.get_location().line).unwrap_or(0);
+                let line_breaks = u32::try_from(source.matches('\n').count()).unwrap_or(0);
+                let origin = ScriptOrigin {
+                    url: self.document.url().map(|url| url.to_string()).unwrap_or_default(),
+                    line: end_line.saturating_sub(1).saturating_sub(line_breaks),
+                };
+                self.execute_script(&source, &origin)
+            }
+            Some(Script::External { url, deferred: false }) => self.run_external_script(&url),
+            Some(Script::External { url, deferred: true }) => {
+                self.deferred_scripts.push(url);
+                false
+            }
+            None => false,
+        }
+    }
+
+    /// Fetches and runs an external script. One that cannot be loaded is skipped.
+    fn run_external_script(&mut self, url: &str) -> bool {
+        let Some(source) = self
+            .script_source
+            .as_ref()
+            .and_then(|source| source.fetch_blocking(url))
+        else {
+            warn!("Could not load script from {url}");
             return false;
         };
 
-        // The tokenizer is just past the end tag; the source starts as many lines up as it
-        // has line breaks.
-        let end_line = u32::try_from(self.tokenizer.get_location().line).unwrap_or(0);
-        let line_breaks = u32::try_from(source.matches('\n').count()).unwrap_or(0);
         let origin = ScriptOrigin {
-            url: self.document.url().map(|url| url.to_string()).unwrap_or_default(),
-            line: end_line.saturating_sub(1).saturating_sub(line_breaks),
+            url: url.to_owned(),
+            line: 0,
         };
+        self.execute_script(&source, &origin)
+    }
 
+    fn execute_script(&mut self, source: &str, origin: &ScriptOrigin) -> bool {
         let Some(host) = self.script_host.as_mut() else {
             return false;
         };
-        if let Err(e) = host.execute(&source, &origin) {
+        if let Err(e) = host.execute(source, origin) {
             log::debug!("script in {} failed: {e}", origin.url);
         }
 
         true
+    }
+
+    /// Runs the `defer` and `async` scripts, in document order, now that the document has
+    /// been parsed. `async` scripts do not run earlier than this yet.
+    fn run_deferred_scripts(&mut self) {
+        for url in std::mem::take(&mut self.deferred_scripts) {
+            if self.run_external_script(&url) {
+                self.script_checkpoint();
+            }
+        }
     }
 
     /// The promise jobs a script queued run once no script is on the stack.
@@ -4367,20 +4442,35 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         }
     }
 
-    /// The text of a script element, if it is an inline classic script with something in it.
-    /// An element with a `src` (`href` in SVG) is external, and not run here.
-    fn inline_classic_source(&self, script: NodeId) -> Option<String> {
+    /// What there is to run for a script element: `None` when it is not a classic script,
+    /// has nothing in it, or is external with nowhere to get it from.
+    fn classic_script(&self, script: NodeId) -> Option<Script> {
         let attributes = self.document.attributes(script);
         let attribute = |name: &str| attributes.and_then(|a| a.get(name)).map(String::as_str);
 
-        if ["src", "href", "xlink:href"]
-            .iter()
-            .any(|name| attribute(name).is_some())
-        {
-            return None;
-        }
         if !is_classic_script_type(attribute("type"), attribute("language")) {
             return None;
+        }
+        // an SVG script names its file with `href`; those are not loaded yet
+        if attribute("href").is_some() || attribute("xlink:href").is_some() {
+            return None;
+        }
+
+        if let Some(src) = attribute("src") {
+            self.script_source.as_ref()?;
+            if src.is_empty() {
+                return None;
+            }
+            // resolved the way a stylesheet link is
+            let url = match Url::parse(src) {
+                Ok(url) => url,
+                Err(_) => self.document.url()?.join(src).ok()?,
+            };
+
+            return Some(Script::External {
+                url: url.to_string(),
+                deferred: attribute("defer").is_some() || attribute("async").is_some(),
+            });
         }
 
         let source: String = self
@@ -4390,7 +4480,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             .filter_map(|&child| self.document.text_value(child))
             .collect();
 
-        (!source.is_empty()).then_some(source)
+        (!source.is_empty()).then_some(Script::Inline(source))
     }
 
     fn settle_stylesheets(&mut self) {
@@ -5653,6 +5743,7 @@ mod script_tests {
             scripting_enabled,
             stylesheets: None,
             scripts: Some(Box::new(Recorder(Arc::clone(&calls)))),
+            script_sources: None,
         };
 
         let mut stream = ByteStream::from_str(html, Encoding::UTF8);
@@ -5810,6 +5901,7 @@ mod script_tests {
             scripting_enabled: true,
             stylesheets: None,
             scripts: Some(Box::new(Recorder(Arc::clone(&calls)))),
+            script_sources: None,
         };
 
         // the way innerHTML parses: a fresh document, with the context element made in it
@@ -5827,6 +5919,163 @@ mod script_tests {
         assert_eq!(
             sources("<script>if (a < b && c) { d('</p>') } // <!-- x</script>"),
             ["if (a < b && c) { d('</p>') } // <!-- x"]
+        );
+    }
+
+    /// Serves `/<name>.js` as `<name>()`, except `missing.js`. Records what was asked for.
+    #[derive(Debug, Default)]
+    struct Files(Mutex<Vec<String>>);
+
+    impl ScriptSource for Files {
+        fn fetch_blocking(&self, url: &str) -> Option<String> {
+            self.0.lock().push(url.to_owned());
+            let name = url.strip_prefix("https://example.test/")?.strip_suffix(".js")?;
+
+            (name != "missing").then(|| format!("{name}()"))
+        }
+    }
+
+    /// The scripts the parser ran for `html` as (source, url), and the URLs it fetched.
+    fn external(html: &str) -> (Vec<(String, String)>, Vec<String>) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let files = Arc::new(Files::default());
+        let options = Html5ParserOptions {
+            scripting_enabled: true,
+            stylesheets: None,
+            scripts: Some(Box::new(Recorder(Arc::clone(&calls)))),
+            script_sources: Some(Arc::clone(&files) as Arc<dyn ScriptSource>),
+        };
+
+        let mut stream = ByteStream::from_str(html, Encoding::UTF8);
+        let url = Url::parse("https://example.test/dir/page.html").unwrap();
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(Some(url));
+        let _ = Html5Parser::<Config>::parse_document(&mut stream, &mut doc, Some(options));
+
+        let ran = calls
+            .lock()
+            .iter()
+            .filter_map(|call| match call {
+                Call::Execute { source, url, line } => {
+                    assert!(
+                        *line == 0 || !url.ends_with(".js"),
+                        "an external script starts on line 0"
+                    );
+                    Some((source.clone(), url.clone()))
+                }
+                Call::Checkpoint => None,
+            })
+            .collect();
+        let fetched = files.0.lock().clone();
+
+        (ran, fetched)
+    }
+
+    fn ran(html: &str) -> Vec<String> {
+        external(html).0.into_iter().map(|(source, _)| source).collect()
+    }
+
+    #[test]
+    fn a_blocking_external_script_runs_where_it_stands() {
+        let (ran, fetched) =
+            external("<script>before()</script><script src=\"/a.js\"></script><script>after()</script>");
+
+        assert_eq!(
+            ran,
+            [
+                ("before()".to_owned(), "https://example.test/dir/page.html".to_owned()),
+                ("a()".to_owned(), "https://example.test/a.js".to_owned()),
+                ("after()".to_owned(), "https://example.test/dir/page.html".to_owned()),
+            ]
+        );
+        assert_eq!(fetched, ["https://example.test/a.js"]);
+    }
+
+    #[test]
+    fn a_src_is_resolved_against_the_document() {
+        let (_, fetched) = external(
+            "<script src=\"rel.js\"></script><script src=\"../up.js\"></script>\
+             <script src=\"https://example.test/abs.js\"></script>",
+        );
+
+        assert_eq!(
+            fetched,
+            [
+                "https://example.test/dir/rel.js",
+                "https://example.test/up.js",
+                "https://example.test/abs.js"
+            ]
+        );
+    }
+
+    #[test]
+    fn defer_and_async_scripts_run_after_the_parse_in_document_order() {
+        let html = "<script defer src=\"/d1.js\"></script><script>inline1()</script>\
+                    <script async src=\"/a1.js\"></script><script src=\"/block.js\"></script>\
+                    <script defer src=\"/d2.js\"></script><script>inline2()</script>";
+
+        assert_eq!(ran(html), ["inline1()", "block()", "inline2()", "d1()", "a1()", "d2()"]);
+    }
+
+    #[test]
+    fn each_script_is_followed_by_a_checkpoint() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let options = Html5ParserOptions {
+            scripting_enabled: true,
+            stylesheets: None,
+            scripts: Some(Box::new(Recorder(Arc::clone(&calls)))),
+            script_sources: Some(Arc::new(Files::default())),
+        };
+        let mut stream = ByteStream::from_str(
+            "<script src=\"/a.js\"></script><script defer src=\"/d.js\"></script>",
+            Encoding::UTF8,
+        );
+        let url = Url::parse("https://example.test/").unwrap();
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(Some(url));
+        let _ = Html5Parser::<Config>::parse_document(&mut stream, &mut doc, Some(options));
+
+        let kinds: Vec<bool> = calls.lock().iter().map(|call| *call == Call::Checkpoint).collect();
+        assert_eq!(kinds, [false, true, false, true]);
+    }
+
+    #[test]
+    fn a_script_that_cannot_be_loaded_is_skipped() {
+        assert_eq!(
+            ran(
+                "<script src=\"/missing.js\"></script><script defer src=\"/missing.js\"></script>\
+                 <script src=\"/a.js\"></script><script defer src=\"/d.js\"></script>"
+            ),
+            ["a()", "d()"]
+        );
+    }
+
+    #[test]
+    fn the_text_of_an_external_script_element_is_not_run() {
+        assert_eq!(ran("<script src=\"/a.js\">inline()</script>"), ["a()"]);
+        assert_eq!(ran("<script src=\"/missing.js\">inline()</script>"), [] as [&str; 0]);
+    }
+
+    #[test]
+    fn external_scripts_that_are_not_fetched() {
+        for html in [
+            "<script src=\"\"></script>",
+            "<script type=\"module\" src=\"/a.js\"></script>",
+            "<script type=\"text/plain\" src=\"/a.js\"></script>",
+            "<template><script src=\"/a.js\"></script></template>",
+            "<svg><script href=\"/a.js\"></script></svg>",
+        ] {
+            let (ran, fetched) = external(html);
+            assert!(
+                ran.is_empty() && fetched.is_empty(),
+                "{html}: ran {ran:?}, fetched {fetched:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn defer_on_an_inline_script_changes_nothing() {
+        assert_eq!(
+            ran("<script defer>first()</script><script async>second()</script><script src=\"/a.js\"></script>"),
+            ["first()", "second()", "a()"]
         );
     }
 }
