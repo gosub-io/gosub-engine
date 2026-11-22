@@ -6,6 +6,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
 use url::Url;
 
 use crate::document::presentation_hints;
@@ -31,10 +32,11 @@ pub struct DocumentImpl<C: HasDocument> {
     pub(crate) arena: NodeArena,
     /// Elements by `id`, per tree: keyed by the tree's root, the document or a shadow root.
     /// Every holder of a duplicate id is included; lookups find the first by walking the tree.
-    named_id_elements: HashMap<NodeId, HashMap<String, HashSet<NodeId>>>,
+    named_id_elements: HashMap<NodeId, HashMap<Arc<str>, HashSet<NodeId>>>,
     /// Reverse index of `named_id_elements`: the tree and id each node is registered under.
-    /// Kept in sync so unregistering a node does not require scanning the whole map.
-    named_ids_by_node: HashMap<NodeId, (NodeId, String)>,
+    /// Kept in sync so unregistering a node does not require scanning the whole map. Shares
+    /// the id with the key in `named_id_elements`.
+    named_ids_by_node: HashMap<NodeId, (NodeId, Arc<str>)>,
     pub doctype: DocumentType,
     pub quirks_mode: QuirksMode,
     /// The parser's scripting flag determines whether `noscript` text is serialized literally.
@@ -822,21 +824,31 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     /// other value is the element's ID as written, whitespace included
     /// (<https://dom.spec.whatwg.org/#concept-id>).
     fn register_named_id(&mut self, node_id: NodeId, registry: Option<NodeId>) {
-        self.unregister_named_id(node_id);
-        let id_value = self
-            .arena
-            .node_ref(node_id)
-            .and_then(NodeImpl::get_element_data)
-            .and_then(|data| data.attribute("id"))
-            .filter(|v| !v.is_empty())
-            .cloned();
+        let id_value = registry.and_then(|_| {
+            self.arena
+                .node_ref(node_id)
+                .and_then(NodeImpl::get_element_data)
+                .and_then(|data| data.attribute("id"))
+                .filter(|v| !v.is_empty())
+        });
         let (Some(registry), Some(id_value)) = (registry, id_value) else {
+            self.unregister_named_id(node_id);
             return;
         };
+        // Registered like this already, as for a subtree moved within its tree.
+        if self
+            .named_ids_by_node
+            .get(&node_id)
+            .is_some_and(|(r, v)| *r == registry && **v == **id_value)
+        {
+            return;
+        }
+        let id_value: Arc<str> = Arc::from(id_value.as_str());
+        self.unregister_named_id(node_id);
         self.named_id_elements
             .entry(registry)
             .or_default()
-            .entry(id_value.clone())
+            .entry(Arc::clone(&id_value))
             .or_default()
             .insert(node_id);
         self.named_ids_by_node.insert(node_id, (registry, id_value));
@@ -1816,6 +1828,58 @@ mod tests {
     fn shadow_root_of(doc: &mut DocumentImpl<Config>, host: NodeId) -> NodeId {
         doc.attach_shadow_root(host, ShadowRootInit::new(ShadowRootMode::Open), Location::default())
             .expect("div can host a shadow root")
+    }
+
+    /// Moving a subtree with duplicate ids within the document, out of it, into a shadow tree
+    /// and back keeps every holder registered once, under the tree it is in.
+    #[test]
+    fn moving_a_subtree_with_duplicate_ids_keeps_them_current() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let first = element_with_id(&mut doc, "div", root, Some("dup"));
+        let box_ = element_with_id(&mut doc, "div", root, None);
+        let inner = element_with_id(&mut doc, "p", box_, Some("dup"));
+        let deeper = element_with_id(&mut doc, "span", inner, Some("other"));
+        let registered = |doc: &DocumentImpl<Config>| {
+            let mut v: Vec<_> = doc
+                .named_ids_by_node
+                .iter()
+                .map(|(n, (r, id))| (n.as_usize(), r.as_usize(), id.to_string()))
+                .collect();
+            v.sort();
+            v
+        };
+
+        // Within the document: before the first holder, then back after it.
+        doc.attach_node(box_, root, Some(0)).unwrap();
+        assert_eq!(doc.node_by_named_id("dup"), Some(inner));
+        assert_eq!(doc.node_by_named_id("other"), Some(deeper));
+        doc.attach_node(box_, root, None).unwrap();
+        assert_eq!(doc.node_by_named_id("dup"), Some(first));
+        let in_document = registered(&doc);
+        assert_eq!(in_document.len(), 3);
+
+        // Out of the document: only the first holder is left.
+        doc.detach_node(box_);
+        assert_eq!(doc.node_by_named_id("dup"), Some(first));
+        assert_eq!(doc.node_by_named_id("other"), None);
+        assert_eq!(
+            registered(&doc),
+            [(first.as_usize(), root.as_usize(), "dup".to_string())]
+        );
+
+        // Into a shadow tree, then back into the document.
+        let host = element_with_id(&mut doc, "div", root, None);
+        let shadow = shadow_root_of(&mut doc, host);
+        doc.attach_node(box_, shadow, None).unwrap();
+        assert_eq!(doc.node_by_named_id_in(shadow, "dup"), Some(inner));
+        assert_eq!(doc.node_by_named_id_in(shadow, "other"), Some(deeper));
+        assert_eq!(doc.node_by_named_id("other"), None);
+        doc.attach_node(box_, root, None).unwrap();
+        assert_eq!(doc.node_by_named_id_in(shadow, "dup"), None);
+        assert_eq!(doc.node_by_named_id("other"), Some(deeper));
+        assert_eq!(registered(&doc), in_document);
+        assert!(!doc.named_id_elements.contains_key(&shadow));
     }
 
     #[test]
