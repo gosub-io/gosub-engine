@@ -297,6 +297,9 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     /// URLs of the `defer` and `async` scripts seen so far, in document order. They run
     /// when the document has been parsed.
     deferred_scripts: Vec<String>,
+    /// Time spent running scripts and waiting for external ones, in microseconds: not part
+    /// of the time the parse itself took.
+    script_us: u64,
     /// Pending table character tokens
     pending_table_character_tokens: String,
     /// Location of the first pending table character token
@@ -466,6 +469,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             script_host,
             script_source,
             deferred_scripts: Vec::new(),
+            script_us: 0,
             frameset_ok: true,
             foster_parenting: false,
             script_already_started: false,
@@ -514,6 +518,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             script_host: None,
             script_source: None,
             deferred_scripts: Vec::new(),
+            script_us: 0,
             frameset_ok: true,
             foster_parenting: false,
             script_already_started: false,
@@ -632,12 +637,16 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         let mut parser = Html5Parser::<C>::init(tokenizer, document, error_logger, options);
 
         // Bytes to DOM only. The time spent waiting for stylesheets at a blocking script is
-        // recorded under `script.blocked_on_css` and taken back out here.
+        // recorded under `script.blocked_on_css` and taken back out here, as is the time the
+        // scripts themselves took.
         let mut wall = Timer::new(Some(context.clone()));
         let ret = parser.do_parse();
         wall.end();
 
-        let parse_us = wall.duration().saturating_sub(parser.blocked_on_css_us.get());
+        let parse_us = wall
+            .duration()
+            .saturating_sub(parser.blocked_on_css_us.get())
+            .saturating_sub(parser.script_us);
         timing::record(gosub_shared::timing::Timing::DecodeHtml, parse_us, Some(context));
 
         parser.run_deferred_scripts();
@@ -4373,6 +4382,15 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             return false;
         }
 
+        let mut spent = Timer::new(None);
+        let ran = self.run_classic_script(script);
+        spent.end();
+        self.script_us += spent.duration();
+
+        ran
+    }
+
+    fn run_classic_script(&mut self, script: NodeId) -> bool {
         match self.classic_script(script) {
             Some(Script::Inline(source)) => {
                 // The tokenizer is just past the end tag; the source starts as many lines
@@ -4426,6 +4444,10 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     /// Runs the `defer` and `async` scripts, in document order, now that the document has
     /// been parsed. `async` scripts do not run earlier than this yet.
     fn run_deferred_scripts(&mut self) {
+        // they wait for the stylesheets of the document, as a blocking script does
+        if !self.deferred_scripts.is_empty() {
+            self.settle_stylesheets();
+        }
         for url in std::mem::take(&mut self.deferred_scripts) {
             if self.run_external_script(&url) {
                 self.script_checkpoint();
@@ -4452,11 +4474,12 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             return None;
         }
         // an SVG script names its file with `href`; those are not loaded yet
-        if attribute("href").is_some() || attribute("xlink:href").is_some() {
+        let in_svg = node_ns!(self, script) == Some(SVG_NAMESPACE);
+        if in_svg && (attribute("href").is_some() || attribute("xlink:href").is_some()) {
             return None;
         }
 
-        if let Some(src) = attribute("src") {
+        if let Some(src) = attribute("src").filter(|_| !in_svg) {
             self.script_source.as_ref()?;
             if src.is_empty() {
                 return None;
@@ -5707,8 +5730,14 @@ mod script_tests {
 
     #[derive(Clone, Debug, PartialEq)]
     enum Call {
-        Execute { source: String, url: String, line: u32 },
+        Execute {
+            source: String,
+            url: String,
+            line: u32,
+        },
         Checkpoint,
+        /// The stylesheets the parser asked for.
+        Sheets(Vec<String>),
     }
 
     /// Records what the parser asks of it. A source that starts with `throw` fails.
@@ -5761,7 +5790,7 @@ mod script_tests {
             .into_iter()
             .filter_map(|call| match call {
                 Call::Execute { source, .. } => Some(source),
-                Call::Checkpoint => None,
+                _ => None,
             })
             .collect()
     }
@@ -5962,7 +5991,7 @@ mod script_tests {
                     );
                     Some((source.clone(), url.clone()))
                 }
-                Call::Checkpoint => None,
+                _ => None,
             })
             .collect();
         let fetched = files.0.lock().clone();
@@ -6069,6 +6098,59 @@ mod script_tests {
                 "{html}: ran {ran:?}, fetched {fetched:?}"
             );
         }
+    }
+
+    #[test]
+    fn href_only_names_a_file_on_an_svg_script() {
+        assert_eq!(ran("<script href=\"/a.js\">inline()</script>"), ["inline()"]);
+        assert_eq!(
+            ran("<svg><script href=\"/a.js\">inline()</script></svg>"),
+            [] as [&str; 0]
+        );
+        // and `src` only on an HTML one
+        assert_eq!(ran("<svg><script src=\"/a.js\">inSvg()</script></svg>"), ["inSvg()"]);
+    }
+
+    /// Records the stylesheets asked for in the same log as the scripts, and has none.
+    #[derive(Debug)]
+    struct Sheets(Arc<Mutex<Vec<Call>>>);
+
+    impl StylesheetSource for Sheets {
+        fn fetch_blocking(&self, urls: &[String]) -> Vec<Option<Vec<u8>>> {
+            self.0.lock().push(Call::Sheets(urls.to_vec()));
+            vec![None; urls.len()]
+        }
+    }
+
+    #[test]
+    fn deferred_scripts_wait_for_the_stylesheets() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let options = Html5ParserOptions {
+            scripting_enabled: true,
+            stylesheets: Some(Arc::new(Sheets(Arc::clone(&calls)))),
+            scripts: Some(Box::new(Recorder(Arc::clone(&calls)))),
+            script_sources: Some(Arc::new(Files::default())),
+        };
+        let mut stream = ByteStream::from_str(
+            "<script defer src=\"/d.js\"></script><link rel=\"stylesheet\" href=\"/late.css\">",
+            Encoding::UTF8,
+        );
+        let url = Url::parse("https://example.test/").unwrap();
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(Some(url));
+        let _ = Html5Parser::<Config>::parse_document(&mut stream, &mut doc, Some(options));
+
+        assert_eq!(
+            *calls.lock(),
+            [
+                Call::Sheets(vec!["https://example.test/late.css".to_owned()]),
+                Call::Execute {
+                    source: "d()".to_owned(),
+                    url: "https://example.test/d.js".to_owned(),
+                    line: 0
+                },
+                Call::Checkpoint,
+            ]
+        );
     }
 
     #[test]
