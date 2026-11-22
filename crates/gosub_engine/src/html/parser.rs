@@ -60,6 +60,11 @@ pub enum DocumentError {
     Cancelled,
 }
 
+/// Hands a parse the host that runs its document's scripts.
+pub trait ScriptHostSource: Send + Sync + std::fmt::Debug {
+    fn host(&self) -> Box<dyn gosub_interface::script::ScriptHost + Send>;
+}
+
 /// Configuration for parsing a main document (see [`parse_main_document_stream`]).
 #[derive(Debug, Clone)]
 pub struct HtmlParseConfig {
@@ -92,6 +97,9 @@ pub struct HtmlParseConfig {
     pub settled_referrer_policy: Option<std::sync::Arc<std::sync::OnceLock<ReferrerPolicy>>>,
     /// Parse as a document whose scripts run. Off, `<noscript>` content is markup.
     pub scripting_enabled: bool,
+    /// Where the host comes from that runs the document's inline scripts as they are parsed.
+    /// `None` runs nothing.
+    pub scripts: Option<std::sync::Arc<dyn ScriptHostSource>>,
 }
 
 impl Default for HtmlParseConfig {
@@ -105,6 +113,7 @@ impl Default for HtmlParseConfig {
             referrer_policy: ReferrerPolicy::default(),
             settled_referrer_policy: None,
             scripting_enabled: true,
+            scripts: None,
         }
     }
 }
@@ -251,6 +260,7 @@ where
     let timing_scope = cfg.timing_scope;
     let stylesheets = cfg.stylesheets.clone();
     let scripting_enabled = cfg.scripting_enabled;
+    let scripts = cfg.scripts.clone();
     let parse = move || -> Result<EngineDocument<C>, DocumentError> {
         let _scope = timing_scope.map(gosub_shared::timing::enter_scope);
 
@@ -265,6 +275,7 @@ where
         let options = gosub_html5::parser::Html5ParserOptions {
             stylesheets,
             scripting_enabled,
+            scripts: scripts.map(|source| source.host()),
         };
         match Html5Parser::<C>::parse_document(&mut stream, &mut doc, Some(options)) {
             Ok(errors) => doc.set_parse_errors(errors),

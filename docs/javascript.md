@@ -3,9 +3,8 @@
 Five crates make up Gosub's scripting story. **Status up front: a first slice is wired.**
 With the cargo feature `js`, `gosub_engine` runs `TabCommand::ExecuteScript` in V8 for a
 page that lives in the engine's own process and answers with `ScriptResult` or
-`JavaScriptError` (see [Scripts in a tab](#scripts-in-a-tab)). Page scripts do not run yet:
-`<script>` elements are parsed into the DOM and (their sources prefetched by the
-[resource pipeline](resource-pipeline.md)) go no further. Without `js` nothing links V8.
+`JavaScriptError` (see [Scripts in a tab](#scripts-in-a-tab)). Inline scripts run during the parse; external ones do not yet (their sources are
+prefetched by the [resource pipeline](resource-pipeline.md) and go no further). Without `js` nothing links V8.
 `gosub_html5` has no JS dependency. The other consumer is the `run-js` component tool
 (`src/bin/run-js.rs`, see [binaries.md](binaries.md)).
 
@@ -93,8 +92,20 @@ by hand against the `gosub_webexecutor` traits. Each line goes out as
 `EngineEvent::ConsoleMessage` (level, text, URL of the document) and into the engine's log
 under the target `console`. Arguments are stringified as `String(value)` does it.
 
-Not there yet: a page that lives in a renderer process (`ExecuteScript` answers with an
-error), and every DOM binding.
+Inline classic scripts run while the page is parsed. `Html5ParserOptions::scripts` takes a
+`ScriptHost`; the parser calls it at each `</script>` (HTML and SVG) with the element's
+text, after the stylesheets before it have settled, and runs a microtask checkpoint when
+no script is left on the stack. Not run: a script with a `src`, a `type` that is not
+JavaScript (modules included), a script in a `<template>` or a fragment, and anything when
+scripting is disabled. A script that fails does not stop the parse. The engine hands the
+parser a host that forwards to the script thread of the document being loaded
+(`ParserScripts`); that thread becomes the tab's when the navigation commits, so
+`ExecuteScript` sees what the page's scripts left. A failing page script is a
+`JavaScriptError` event.
+
+Not there yet: a page that lives in a renderer process (nothing runs there, and
+`ExecuteScript` answers with an error), external scripts, and every DOM binding - there is
+no `document`.
 
 ## What wiring it up would take
 

@@ -6535,6 +6535,147 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// Loads `html` and returns what its scripts wrote to the console and the errors they
+    /// ended with, as they came.
+    #[cfg(feature = "js")]
+    async fn page_script_output(javascript_enabled: bool, html: &str) -> Vec<String> {
+        use crate::events::{NavigationEvent, TabCommand};
+
+        let (mut engine, mut events, tab) = script_tab(javascript_enabled).await;
+        tab.send(TabCommand::LoadHtml {
+            html: html.to_owned(),
+            base_url: "https://example.test/page.html".into(),
+        })
+        .await
+        .expect("load");
+
+        let mut output = Vec::new();
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::ConsoleMessage { text, origin, .. }) => {
+                        assert_eq!(origin, "https://example.test/page.html");
+                        output.push(text);
+                    }
+                    Ok(EngineEvent::JavaScriptError {
+                        message, line, column, ..
+                    }) => output.push(format!("{message} @{line}:{column}")),
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    }) => break,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("the page did not load");
+
+        // what the scripts left behind is what a later ExecuteScript sees
+        if javascript_enabled {
+            let left =
+                script_value(script_answer(&tab, &mut events, "typeof left === 'undefined' ? null : left").await);
+            if !left.is_null() {
+                output.push(format!("left: {left}"));
+            }
+        }
+
+        engine.shutdown().await.expect("shutdown");
+        output
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn inline_scripts_run_while_the_page_is_parsed() {
+        let html = "<html><head><script>console.log(1 + 1); var left = 'head'</script></head>\
+                    <body><p>text</p><script>console.log('second'); left += ' body'</script></body></html>";
+
+        assert_eq!(
+            page_script_output(true, html).await,
+            ["2", "second", "left: \"head body\""]
+        );
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn an_inline_script_that_fails_is_reported_and_the_next_one_runs() {
+        let html = "<html>\n<body>\n<script>\n  missing()\n</script>\n<script>console.log('after')</script>";
+
+        assert_eq!(
+            page_script_output(true, html).await,
+            ["ReferenceError: missing is not defined @4:3", "after"]
+        );
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn promise_jobs_of_an_inline_script_run_before_the_next_script() {
+        let html = "<script>Promise.resolve().then(() => console.log('job')); console.log('script')</script>\
+                    <script>console.log('next')</script>";
+
+        assert_eq!(page_script_output(true, html).await, ["script", "job", "next"]);
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn inline_scripts_do_not_run_with_javascript_disabled() {
+        let html = "<script>console.log('ran')</script><noscript><p>off</p></noscript>";
+
+        assert_eq!(page_script_output(false, html).await, [] as [&str; 0]);
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn a_runaway_inline_script_is_terminated_and_the_page_loads() {
+        use crate::events::TabCommand;
+
+        let (mut engine, mut events, tab) = script_tab(true).await;
+        engine
+            .settings()
+            .set_transient("scripting.max_run_ms", gosub_config::settings::Setting::UInt(200))
+            .expect("setting");
+        tab.send(TabCommand::LoadHtml {
+            html: "<script>for (;;) {}</script><script>var after = 1</script>".to_owned(),
+            base_url: "https://example.test/".into(),
+        })
+        .await
+        .expect("load");
+
+        let (message, ..) = script_error(
+            tokio::time::timeout(Duration::from_secs(20), async {
+                loop {
+                    match events.recv().await {
+                        Ok(ev @ EngineEvent::JavaScriptError { .. }) => return ev,
+                        Ok(_) => continue,
+                        Err(e) => panic!("event stream closed: {e}"),
+                    }
+                }
+            })
+            .await
+            .expect("the script was not terminated"),
+        );
+        assert_eq!(message, "script execution was terminated");
+        // the parse went on to the second script, and the page committed
+        let finished = wait_for(&mut events, |ev| {
+            matches!(
+                ev,
+                EngineEvent::Navigation {
+                    event: crate::events::NavigationEvent::Finished { .. },
+                    ..
+                }
+            )
+        })
+        .await;
+        assert!(finished, "the page did not load");
+        assert_eq!(
+            script_value(script_answer(&tab, &mut events, "after").await),
+            serde_json::json!(1.0)
+        );
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
     #[cfg(not(feature = "js"))]
     #[tokio::test]
     async fn execute_script_without_the_js_feature_is_an_error() {

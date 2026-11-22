@@ -275,6 +275,9 @@ pub struct TabWorker<C: RenderConfiguration> {
     services: EffectiveTabServices,
     /// The script thread of the current document, started by its first script.
     script: Option<Arc<crate::engine::script::ScriptThread>>,
+    /// The script thread of the document a navigation is loading: its parser runs the inline
+    /// scripts there. It becomes `script` when that navigation commits.
+    pending_script: Option<(NavigationId, Arc<crate::engine::script::ScriptThread>)>,
     /// The current document was handed to a renderer process as source: there is no page
     /// here to run a script in.
     document_in_renderer: bool,
@@ -470,6 +473,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             zone_id,
             services,
             script: None,
+            pending_script: None,
             document_in_renderer: false,
             zone_context,
             sink,
@@ -893,7 +897,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     .map(|a| a.cancel.clone());
                 match (doc, source) {
                     (Some(doc), source) => {
-                        self.script = None;
+                        // the thread the document's own scripts ran on, if it had any to run
+                        self.script = self
+                            .pending_script
+                            .take()
+                            .filter(|(pending, _)| *pending == nav_id)
+                            .map(|(_, thread)| thread);
                         self.document_in_renderer = false;
                         self.context.set_document(Arc::clone(&doc), source);
                         self.context.set_document_referrer_policy(referrer_policy);
@@ -909,6 +918,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     // its first render (see `apply_remote_document_meta`).
                     (None, Some(source)) => {
                         self.script = None;
+                        self.pending_script = None;
                         self.document_in_renderer = true;
                         self.context.set_document_source(final_url.clone(), source);
                         self.context.set_document_referrer_policy(referrer_policy);
@@ -1910,7 +1920,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             url: self.script_origin(),
             line: 0,
         };
-        let limit = Duration::from_millis(self.zone_context.config_store.get_uint("scripting.max_run_ms") as u64);
+        let limit = self.script_time_limit();
         let tab_id = self.tab_id;
         let event_tx = self.zone_context.event_tx.clone();
         tokio::spawn(async move {
@@ -1946,6 +1956,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
             return Ok(Arc::clone(thread));
         }
 
+        let thread = self.new_script_thread();
+        self.script = Some(Arc::clone(&thread));
+
+        Ok(thread)
+    }
+
+    /// A script thread for a document, with its console wired to this tab.
+    fn new_script_thread(&self) -> Arc<crate::engine::script::ScriptThread> {
+        use crate::engine::script;
+
         let limits = script::ScriptLimits {
             heap_bytes: self
                 .zone_context
@@ -1955,22 +1975,52 @@ impl<C: RenderConfiguration> TabWorker<C> {
         };
         let tab_id = self.tab_id;
         let event_tx = self.zone_context.event_tx.clone();
-        let origin = self.script_origin();
+        // the thread keeps this at the URL of the script that is running
+        let origin = Arc::new(parking_lot::Mutex::new(String::new()));
+        let running = Arc::clone(&origin);
         let console: script::ConsoleSink = Arc::new(move |level, text| {
             script::log_console(level, &text);
             let _ = event_tx.send(EngineEvent::ConsoleMessage {
                 tab_id,
                 level,
                 text,
-                origin: origin.clone(),
+                origin: running.lock().clone(),
             });
         });
-        let thread = script::ScriptThread::spawn(Box::new(move || script::page_host(limits, console)))
-            .map_err(|e| script::unavailable(&format!("no script thread: {e}")))?;
-        let thread = Arc::new(thread);
-        self.script = Some(Arc::clone(&thread));
 
-        Ok(thread)
+        Arc::new(script::ScriptThread::new(
+            Box::new(move || script::page_host(limits, console)),
+            origin,
+        ))
+    }
+
+    /// What the parser of the document `nav_id` loads runs its inline scripts through, and
+    /// `None` when they do not run. The script thread behind it becomes the tab's when the
+    /// navigation commits.
+    fn document_scripts(&mut self, nav_id: NavigationId) -> Option<Arc<dyn crate::html::ScriptHostSource>> {
+        use crate::engine::script;
+
+        self.pending_script = None;
+        if !cfg!(feature = "js") || !self.javascript_enabled() {
+            return None;
+        }
+
+        let thread = self.new_script_thread();
+        self.pending_script = Some((nav_id, Arc::clone(&thread)));
+
+        let tab_id = self.tab_id;
+        let event_tx = self.zone_context.event_tx.clone();
+        Some(Arc::new(script::ParserScripts {
+            thread,
+            limit: self.script_time_limit(),
+            on_error: Arc::new(move |error| {
+                let _ = event_tx.send(script_error_event(tab_id, error.clone()));
+            }),
+        }))
+    }
+
+    fn script_time_limit(&self) -> Duration {
+        Duration::from_millis(self.zone_context.config_store.get_uint("scripting.max_run_ms") as u64)
     }
 
     /// Hand a finished frame to the zone's compositor sink and ring the wakeup.
@@ -2495,6 +2545,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // (it re-parses there); otherwise skip the copy.
         let capture_source = self.remote_render_available();
         let scripting = self.javascript_enabled();
+        let scripts = self.document_scripts(nav_id);
 
         let span = tracing::info_span!(
             "tab_nav",
@@ -2571,6 +2622,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 capture_source,
                 capture_source,
                 scripting,
+                scripts,
             );
 
             // The URL a source-only document lands on: the response's, after redirects.
@@ -2840,6 +2892,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // Same rule as navigate(): keep the source only when a renderer process may re-parse it.
         let capture_source = self.remote_render_available();
         let scripting = self.javascript_enabled();
+        let scripts = self.document_scripts(nav_id);
         // The engine's own pages are parsed here too: they are the ones allowed to
         // fall back to in-process rendering, which needs a document. `LoadHtml`
         // content is the embedder's page and goes to the renderer like any other.
@@ -2930,6 +2983,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 capture_source,
                 source_only,
                 scripting,
+                scripts,
             );
 
             match hooks.html.parse_bytes(req, handle, meta, html.as_bytes()).await {

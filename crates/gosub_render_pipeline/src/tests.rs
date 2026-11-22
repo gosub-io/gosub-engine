@@ -2355,6 +2355,7 @@ mod rendertree_from_engine {
         let options = gosub_html5::parser::Html5ParserOptions {
             scripting_enabled: true,
             stylesheets: Some(Arc::new(DiskSheets)),
+            scripts: None,
         };
         let _ = gosub_html5::parser::Html5Parser::<Config>::parse_document(&mut stream, &mut doc, Some(options));
         doc

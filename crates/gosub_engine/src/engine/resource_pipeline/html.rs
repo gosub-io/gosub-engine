@@ -142,6 +142,8 @@ pub struct HtmlPipelineImpl<C: RenderConfiguration> {
     source_only: bool,
     /// Whether the document's scripts may run (see `HtmlParseConfig::scripting_enabled`).
     scripting: bool,
+    /// What runs the document's inline scripts during the parse, if anything.
+    scripts: Option<Arc<dyn crate::html::ScriptHostSource>>,
     /// What the last parse's web font load kept back; see [`HtmlPipeline::take_deferred_fonts`].
     deferred_fonts: super::webfonts::DeferredFonts,
 }
@@ -156,6 +158,12 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
     /// Parse for a page whose scripts do not run.
     pub fn scripting(mut self, on: bool) -> Self {
         self.scripting = on;
+        self
+    }
+
+    /// Run the document's inline scripts through hosts from `scripts`.
+    pub fn scripts(mut self, scripts: Option<Arc<dyn crate::html::ScriptHostSource>>) -> Self {
+        self.scripts = scripts;
         self
     }
 
@@ -185,6 +193,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             capture_source,
             source_only: false,
             scripting: true,
+            scripts: None,
             deferred_fonts: super::webfonts::DeferredFonts::default(),
         }
     }
@@ -252,6 +261,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             referrer_policy: header_policy,
             settled_referrer_policy: Some(settled_policy.clone()),
             scripting_enabled: self.scripting,
+            scripts: self.scripts.clone(),
         };
 
         let io_tx = self.io_tx.clone();

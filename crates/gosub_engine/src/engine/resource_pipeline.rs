@@ -55,6 +55,7 @@ impl<C: RenderConfiguration> ResourcePipelines<C> {
         capture_source: bool,
         source_only: bool,
         scripting: bool,
+        scripts: Option<Arc<dyn crate::html::ScriptHostSource>>,
     ) -> Self {
         // A renderer process that will re-parse the document is also the only
         // process that should parse it: keep just the source here. Not for the
@@ -74,6 +75,7 @@ impl<C: RenderConfiguration> ResourcePipelines<C> {
                 )
                 .source_only(source_only)
                 .scripting(scripting)
+                .scripts(scripts)
                 .media_environment(media_environment),
             ),
             css: Box::new(CssPipelineImpl {}),

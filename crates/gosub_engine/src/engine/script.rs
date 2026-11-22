@@ -67,7 +67,7 @@ struct Job {
     id: u64,
     source: String,
     origin: ScriptOrigin,
-    reply: oneshot::Sender<ScriptResult>,
+    reply: Box<dyn FnOnce(ScriptResult) + Send>,
 }
 
 struct Shared {
@@ -76,51 +76,85 @@ struct Shared {
     running: Mutex<u64>,
     /// Set once the host exists.
     terminator: std::sync::OnceLock<ScriptTerminator>,
+    /// URL of the script that is running, or ran last.
+    origin: Arc<Mutex<String>>,
 }
 
-/// The script thread of one page. Dropping it ends the thread once the script it is running
-/// returns.
+enum Queue {
+    /// No script yet, so no thread and no host.
+    Idle(Option<HostFactory>),
+    Started(mpsc::Sender<Job>),
+}
+
+/// The script thread of one page. It starts with the first script. Dropping this ends the
+/// thread once the script it is running returns.
 pub(crate) struct ScriptThread {
-    jobs: mpsc::Sender<Job>,
+    queue: Mutex<Queue>,
     shared: Arc<Shared>,
     next_id: std::sync::atomic::AtomicU64,
 }
 
 impl ScriptThread {
-    /// `make` runs on the new thread. If it fails, every script fails with its error.
-    pub(crate) fn spawn(make: HostFactory) -> std::io::Result<Self> {
-        let (jobs, queue) = mpsc::channel::<Job>();
-        let shared = Arc::new(Shared {
-            running: Mutex::new(0),
-            terminator: std::sync::OnceLock::new(),
-        });
-
-        let thread_shared = Arc::clone(&shared);
-        std::thread::Builder::new()
-            .name("gosub-script".to_owned())
-            .spawn(move || run_jobs(make, &queue, &thread_shared))?;
-
-        Ok(Self {
-            jobs,
-            shared,
+    /// `make` runs on the script thread. If it fails, every script fails with its error.
+    /// `origin` is kept at the URL of the script that is running.
+    pub(crate) fn new(make: HostFactory, origin: Arc<Mutex<String>>) -> Self {
+        Self {
+            queue: Mutex::new(Queue::Idle(Some(make))),
+            shared: Arc::new(Shared {
+                running: Mutex::new(0),
+                terminator: std::sync::OnceLock::new(),
+                origin,
+            }),
             next_id: std::sync::atomic::AtomicU64::new(1),
-        })
+        }
     }
 
-    /// Runs `source`, then the promise jobs it queued. A script still running after `limit`
-    /// is terminated.
-    pub(crate) async fn execute(&self, source: String, origin: ScriptOrigin, limit: Duration) -> ScriptResult {
+    /// Queues a script and returns its id. `reply` gets the result on the script thread.
+    fn submit(
+        &self,
+        source: String,
+        origin: ScriptOrigin,
+        reply: Box<dyn FnOnce(ScriptResult) + Send>,
+    ) -> Result<u64, ScriptError> {
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let (reply, mut result) = oneshot::channel();
         let job = Job {
             id,
             source,
             origin,
             reply,
         };
-        if self.jobs.send(job).is_err() {
-            return Err(unavailable("the script thread is gone"));
+
+        let mut queue = self.queue.lock();
+        if let Queue::Idle(make) = &mut *queue {
+            let make = make
+                .take()
+                .ok_or_else(|| unavailable("the script thread did not start"))?;
+            let (jobs, incoming) = mpsc::channel::<Job>();
+            let shared = Arc::clone(&self.shared);
+            std::thread::Builder::new()
+                .name("gosub-script".to_owned())
+                .spawn(move || run_jobs(make, &incoming, &shared))
+                .map_err(|e| unavailable(&format!("no script thread: {e}")))?;
+            *queue = Queue::Started(jobs);
         }
+
+        match &*queue {
+            Queue::Started(jobs) if jobs.send(job).is_ok() => Ok(id),
+            _ => Err(unavailable("the script thread is gone")),
+        }
+    }
+
+    /// Runs `source`, then the promise jobs it queued. A script still running after `limit`
+    /// is terminated.
+    pub(crate) async fn execute(&self, source: String, origin: ScriptOrigin, limit: Duration) -> ScriptResult {
+        let (reply, mut result) = oneshot::channel();
+        let id = self.submit(
+            source,
+            origin,
+            Box::new(move |result| {
+                let _ = reply.send(result);
+            }),
+        )?;
 
         let mut wait = limit;
         loop {
@@ -130,6 +164,30 @@ impl ScriptThread {
                 // Asked again until the script has ended: a request can arrive just before
                 // the script starts, where the host drops it.
                 Err(_) => {
+                    self.terminate(id);
+                    wait = TERMINATE_RETRY;
+                }
+            }
+        }
+    }
+
+    /// [`execute`](Self::execute) for a thread that may block: the HTML parser's.
+    pub(crate) fn execute_blocking(&self, source: String, origin: ScriptOrigin, limit: Duration) -> ScriptResult {
+        let (reply, result) = mpsc::channel();
+        let id = self.submit(
+            source,
+            origin,
+            Box::new(move |result| {
+                let _ = reply.send(result);
+            }),
+        )?;
+
+        let mut wait = limit;
+        loop {
+            match result.recv_timeout(wait) {
+                Ok(result) => return result,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return Err(unavailable("the script thread is gone")),
+                Err(mpsc::RecvTimeoutError::Timeout) => {
                     self.terminate(id);
                     wait = TERMINATE_RETRY;
                 }
@@ -154,6 +212,7 @@ fn run_jobs(make: HostFactory, queue: &mpsc::Receiver<Job>, shared: &Shared) {
     }
 
     for job in queue {
+        shared.origin.lock().clone_from(&job.origin.url);
         *shared.running.lock() = job.id;
         let result = match &mut host {
             Ok(host) => run(host.as_mut(), &job),
@@ -161,7 +220,7 @@ fn run_jobs(make: HostFactory, queue: &mpsc::Receiver<Job>, shared: &Shared) {
         };
         *shared.running.lock() = 0;
 
-        let _ = job.reply.send(result);
+        (job.reply)(result);
     }
 }
 
@@ -170,6 +229,51 @@ fn run(host: &mut dyn ScriptHost, job: &Job) -> ScriptResult {
     host.microtask_checkpoint()?;
 
     Ok(value)
+}
+
+/// A page's script thread as the HTML parser sees it: a host that runs each inline script
+/// there and waits for it. `on_error` gets the scripts that fail.
+#[derive(Clone)]
+pub(crate) struct ParserScripts {
+    pub thread: Arc<ScriptThread>,
+    /// How long one script may run.
+    pub limit: Duration,
+    pub on_error: Arc<dyn Fn(&ScriptError) + Send + Sync>,
+}
+
+impl std::fmt::Debug for ParserScripts {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ParserScripts").field("limit", &self.limit).finish()
+    }
+}
+
+impl ScriptHost for ParserScripts {
+    fn execute(&mut self, source: &str, origin: &ScriptOrigin) -> ScriptResult {
+        let result = self
+            .thread
+            .execute_blocking(source.to_owned(), origin.clone(), self.limit);
+        if let Err(e) = &result {
+            (self.on_error)(e);
+        }
+
+        result
+    }
+
+    /// Nothing to do: the script thread runs a script's promise jobs right after it.
+    fn microtask_checkpoint(&mut self) -> Result<(), ScriptError> {
+        Ok(())
+    }
+
+    /// The thread ends a script that runs past the limit; nothing else stops one.
+    fn terminator(&self) -> ScriptTerminator {
+        ScriptTerminator::noop()
+    }
+}
+
+impl crate::html::ScriptHostSource for ParserScripts {
+    fn host(&self) -> Box<dyn ScriptHost + Send> {
+        Box::new(self.clone())
+    }
 }
 
 /// `ScriptValue` as the JSON an embedder gets. JSON has no undefined and no NaN or
@@ -224,13 +328,15 @@ mod tests {
     fn stub_thread() -> (ScriptThread, Arc<AtomicUsize>) {
         let checkpoints = Arc::new(AtomicUsize::new(0));
         let counted = Arc::clone(&checkpoints);
-        let thread = ScriptThread::spawn(Box::new(move || {
-            Ok(Box::new(StubHost {
-                stop: Arc::new(AtomicBool::new(false)),
-                checkpoints: counted,
-            }) as Box<dyn ScriptHost>)
-        }))
-        .unwrap();
+        let thread = ScriptThread::new(
+            Box::new(move || {
+                Ok(Box::new(StubHost {
+                    stop: Arc::new(AtomicBool::new(false)),
+                    checkpoints: counted,
+                }) as Box<dyn ScriptHost>)
+            }),
+            Arc::default(),
+        );
 
         (thread, checkpoints)
     }
@@ -285,7 +391,7 @@ mod tests {
 
     #[tokio::test]
     async fn without_a_host_every_script_fails_with_the_reason() {
-        let thread = ScriptThread::spawn(Box::new(|| Err(unavailable("no engine")))).unwrap();
+        let thread = ScriptThread::new(Box::new(|| Err(unavailable("no engine"))), Arc::default());
 
         for _ in 0..2 {
             let error = thread
@@ -295,6 +401,58 @@ mod tests {
             assert_eq!(error.kind, ScriptErrorKind::Unavailable);
             assert_eq!(error.message, "no engine");
         }
+    }
+
+    #[test]
+    fn the_parsers_host_runs_scripts_on_the_thread_and_reports_the_failures() {
+        let (thread, checkpoints) = stub_thread();
+        let origin_cell = Arc::clone(&thread.shared.origin);
+        let failures = Arc::new(AtomicUsize::new(0));
+        let failed = Arc::clone(&failures);
+        let source = ParserScripts {
+            thread: Arc::new(thread),
+            limit: Duration::from_millis(50),
+            on_error: Arc::new(move |_| {
+                failed.fetch_add(1, Ordering::SeqCst);
+            }),
+        };
+        let mut host = crate::html::ScriptHostSource::host(&source);
+        let origin = ScriptOrigin {
+            url: "https://example.test/page".to_owned(),
+            line: 3,
+        };
+
+        assert_eq!(host.execute("abc", &origin), Ok(ScriptValue::Number(3.0)));
+        assert_eq!(*origin_cell.lock(), "https://example.test/page");
+        // the thread ran the promise jobs; the parser's own checkpoint adds nothing
+        assert_eq!(host.microtask_checkpoint(), Ok(()));
+        assert_eq!(checkpoints.load(Ordering::SeqCst), 1);
+        assert_eq!(failures.load(Ordering::SeqCst), 0);
+
+        // over the limit: terminated, and reported
+        assert_eq!(
+            host.execute("spin", &origin).map_err(|e| e.kind),
+            Err(ScriptErrorKind::Terminated)
+        );
+        assert_eq!(failures.load(Ordering::SeqCst), 1);
+        assert_eq!(host.execute("ab", &origin), Ok(ScriptValue::Number(2.0)));
+    }
+
+    #[test]
+    fn no_thread_starts_before_the_first_script() {
+        let made = Arc::new(AtomicBool::new(false));
+        let seen = Arc::clone(&made);
+        let thread = ScriptThread::new(
+            Box::new(move || {
+                seen.store(true, Ordering::SeqCst);
+                Err(unavailable("unused"))
+            }),
+            Arc::default(),
+        );
+
+        assert!(matches!(&*thread.queue.lock(), Queue::Idle(Some(_))));
+        let _ = thread.execute_blocking("1".to_owned(), ScriptOrigin::default(), LONG);
+        assert!(made.load(Ordering::SeqCst));
     }
 
     #[test]
