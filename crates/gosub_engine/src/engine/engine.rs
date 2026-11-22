@@ -6484,6 +6484,57 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn console_output_reaches_the_embedder() {
+        use gosub_interface::script::ConsoleLevel;
+
+        let (mut engine, mut events, tab) = script_tab(true).await;
+        load_html(&tab, &mut events, "<html><body></body></html>").await;
+
+        tab.send(crate::events::TabCommand::ExecuteScript {
+            source: "console.log('a', 1); console.warn('careful'); 7".to_owned(),
+        })
+        .await
+        .expect("send script");
+
+        // the lines come before the result of the script that wrote them
+        let mut seen = Vec::new();
+        let result = tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::ConsoleMessage {
+                        tab_id,
+                        level,
+                        text,
+                        origin,
+                    }) => {
+                        assert_eq!(tab_id, tab.tab_id);
+                        seen.push((level, text, origin));
+                    }
+                    Ok(EngineEvent::ScriptResult { result, .. }) => return result,
+                    Ok(EngineEvent::JavaScriptError { message, .. }) => panic!("script failed: {message}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("no answer to the script");
+
+        assert_eq!(result, serde_json::json!(7.0));
+        let origin = "https://example.test/".to_owned();
+        assert_eq!(
+            seen,
+            [
+                (ConsoleLevel::Log, "a 1".to_owned(), origin.clone()),
+                (ConsoleLevel::Warn, "careful".to_owned(), origin),
+            ]
+        );
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
     #[cfg(not(feature = "js"))]
     #[tokio::test]
     async fn execute_script_without_the_js_feature_is_an_error() {

@@ -1907,10 +1907,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         };
 
         let origin = ScriptOrigin {
-            url: self
-                .current_url
-                .as_ref()
-                .map_or_else(|| "about:blank".to_owned(), Url::to_string),
+            url: self.script_origin(),
             line: 0,
         };
         let limit = Duration::from_millis(self.zone_context.config_store.get_uint("scripting.max_run_ms") as u64);
@@ -1926,6 +1923,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
             };
             let _ = event_tx.send(event);
         });
+    }
+
+    /// What scripts of the current document are named after: its URL.
+    fn script_origin(&self) -> String {
+        self.current_url
+            .as_ref()
+            .map_or_else(|| "about:blank".to_owned(), Url::to_string)
     }
 
     /// The script thread of the current document, started when there is none yet.
@@ -1949,7 +1953,19 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 .get_uint("scripting.heap_limit_mb")
                 .saturating_mul(1024 * 1024),
         };
-        let thread = script::ScriptThread::spawn(Box::new(move || script::page_host(limits)))
+        let tab_id = self.tab_id;
+        let event_tx = self.zone_context.event_tx.clone();
+        let origin = self.script_origin();
+        let console: script::ConsoleSink = Arc::new(move |level, text| {
+            script::log_console(level, &text);
+            let _ = event_tx.send(EngineEvent::ConsoleMessage {
+                tab_id,
+                level,
+                text,
+                origin: origin.clone(),
+            });
+        });
+        let thread = script::ScriptThread::spawn(Box::new(move || script::page_host(limits, console)))
             .map_err(|e| script::unavailable(&format!("no script thread: {e}")))?;
         let thread = Arc::new(thread);
         self.script = Some(Arc::clone(&thread));

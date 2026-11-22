@@ -88,8 +88,13 @@ another document. V8 runs jitless there.
 | `scripting.max_run_ms` | A script still running after this long is terminated. |
 | `scripting.heap_limit_mb` | Heap size per page at which a script is ended. |
 
+`console` is on the global object: `gosub_jsapi`'s console, bound in `script/console.rs`
+by hand against the `gosub_webexecutor` traits. Each line goes out as
+`EngineEvent::ConsoleMessage` (level, text, URL of the document) and into the engine's log
+under the target `console`. Arguments are stringified as `String(value)` does it.
+
 Not there yet: a page that lives in a renderer process (`ExecuteScript` answers with an
-error), `console`, and every DOM binding.
+error), and every DOM binding.
 
 ## What wiring it up would take
 

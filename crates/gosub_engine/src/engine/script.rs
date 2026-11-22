@@ -9,12 +9,19 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use gosub_interface::script::{ScriptError, ScriptErrorKind, ScriptHost, ScriptOrigin, ScriptTerminator, ScriptValue};
+use gosub_interface::script::{
+    ConsoleLevel, ScriptError, ScriptErrorKind, ScriptHost, ScriptOrigin, ScriptTerminator, ScriptValue,
+};
 use parking_lot::Mutex;
 use tokio::sync::oneshot;
 
 #[cfg(feature = "js")]
+mod console;
+#[cfg(feature = "js")]
 mod v8;
+
+/// Where a page's console output goes. Called on the script thread.
+pub(crate) type ConsoleSink = Arc<dyn Fn(ConsoleLevel, String) + Send + Sync>;
 
 /// How often a script that is over its time limit is told to stop, until it has.
 const TERMINATE_RETRY: Duration = Duration::from_millis(50);
@@ -32,17 +39,28 @@ pub(crate) struct ScriptLimits {
 
 /// The engine's script host, or why there is none.
 #[cfg(feature = "js")]
-pub(crate) fn page_host(limits: ScriptLimits) -> Result<Box<dyn ScriptHost>, ScriptError> {
-    Ok(Box::new(v8::V8ScriptHost::new(limits)?))
+pub(crate) fn page_host(limits: ScriptLimits, console: ConsoleSink) -> Result<Box<dyn ScriptHost>, ScriptError> {
+    Ok(Box::new(v8::V8ScriptHost::new(limits, console)?))
 }
 
 #[cfg(not(feature = "js"))]
-pub(crate) fn page_host(_limits: ScriptLimits) -> Result<Box<dyn ScriptHost>, ScriptError> {
+pub(crate) fn page_host(_limits: ScriptLimits, _console: ConsoleSink) -> Result<Box<dyn ScriptHost>, ScriptError> {
     Err(unavailable("this build has no JavaScript engine (cargo feature `js`)"))
 }
 
 pub(crate) fn unavailable(why: &str) -> ScriptError {
     ScriptError::new(ScriptErrorKind::Unavailable, why)
+}
+
+/// A page's console line in the engine's own log.
+#[cfg_attr(not(feature = "js"), allow(dead_code))] // nothing writes to a console without an engine
+pub(crate) fn log_console(level: ConsoleLevel, text: &str) {
+    match level {
+        ConsoleLevel::Debug => log::debug!(target: "console", "{text}"),
+        ConsoleLevel::Log | ConsoleLevel::Info => log::info!(target: "console", "{text}"),
+        ConsoleLevel::Warn => log::warn!(target: "console", "{text}"),
+        ConsoleLevel::Error => log::error!(target: "console", "{text}"),
+    }
 }
 
 struct Job {
@@ -295,7 +313,9 @@ mod tests {
     #[cfg(not(feature = "js"))]
     #[test]
     fn a_build_without_js_has_no_host() {
-        let error = page_host(ScriptLimits { heap_bytes: 1 << 20 }).err().unwrap();
+        let error = page_host(ScriptLimits { heap_bytes: 1 << 20 }, Arc::new(|_, _| {}))
+            .err()
+            .unwrap();
         assert_eq!(error.kind, ScriptErrorKind::Unavailable);
     }
 }
