@@ -614,7 +614,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 return;
             }
             Token::Text { text: value, .. } if current_token.is_null() => {
-                self.parse_error("null character not allowed in foreign content");
+                self.null_parse_errors(value, loc, "null character not allowed in foreign content");
                 // A run of NULs arrives as one token; each NUL gets its own replacement
                 self.insert_text_element(&Token::Text {
                     text: CHAR_REPLACEMENT.to_string().repeat(value.chars().count()),
@@ -1255,8 +1255,12 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                         let tokens = self.split_mixed_token(value, *location);
                         self.tokenizer.insert_tokens_at_queue_start(tokens);
                     }
-                    Token::Text { .. } if current_token.is_null() => {
-                        self.parse_error("null character not allowed in in table text insertion mode");
+                    Token::Text { text: value, location } if current_token.is_null() => {
+                        self.null_parse_errors(
+                            value,
+                            *location,
+                            "null character not allowed in in table text insertion mode",
+                        );
                         // ignore token
                     }
                     Token::Text { text: value, location } => {
@@ -2001,6 +2005,16 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             .add_error(self.current_token.get_location(), message);
     }
 
+    /// One parse error per NUL in `text`, a run of NULs that starts at `location`. The spec sees
+    /// each NUL as its own character token.
+    fn null_parse_errors(&self, text: &str, location: Location, message: &str) {
+        let mut location = location;
+        for _ in text.chars() {
+            self.error_logger.borrow_mut().add_error(location, message);
+            location = location_after(location, "\0");
+        }
+    }
+
     /// Create a new node that is not connected or attached to the document arena
     /// Create and register a new node in the document arena, returning its NodeId.
     fn create_node(&mut self, token: &Token, namespace: &str) -> NodeId {
@@ -2365,8 +2379,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 let tokens = self.split_mixed_token_null(value, *location);
                 self.tokenizer.insert_tokens_at_queue_start(tokens);
             }
-            Token::Text { .. } if token.is_null() => {
-                self.parse_error("null character not allowed in in body insertion mode");
+            Token::Text { text: value, location } if token.is_null() => {
+                self.null_parse_errors(value, *location, "null character not allowed in in body insertion mode");
                 // ignore token
             }
             Token::Text { .. } => {
@@ -3586,8 +3600,12 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 let tokens = self.split_mixed_token(value, *location);
                 self.tokenizer.insert_tokens_at_queue_start(tokens);
             }
-            Token::Text { .. } if token.is_null() => {
-                self.parse_error("null character not allowed in in select insertion mode");
+            Token::Text { text: value, location } if token.is_null() => {
+                self.null_parse_errors(
+                    value,
+                    *location,
+                    "null character not allowed in in select insertion mode",
+                );
                 // ignore token
             }
             Token::Text { .. } => {
@@ -5402,6 +5420,60 @@ mod text_location_tests {
     #[test]
     fn null_in_foreign_content() {
         assert_eq!(location_of("<svg>\0</svg>", "\u{fffd}"), (1, 6));
+    }
+
+    const FOREIGN_NULL: &str = "null character not allowed in foreign content";
+    const BODY_NULL: &str = "null character not allowed in in body insertion mode";
+    const SELECT_NULL: &str = "null character not allowed in in select insertion mode";
+    const TABLE_TEXT_NULL: &str = "null character not allowed in in table text insertion mode";
+
+    #[test]
+    fn each_null_in_a_run_is_its_own_parse_error() {
+        assert_eq!(errors_at("<svg>a\0\0\0b", FOREIGN_NULL), vec![(1, 7), (1, 8), (1, 9)]);
+        assert_eq!(errors_at("<svg>\0\0\0", FOREIGN_NULL), vec![(1, 6), (1, 7), (1, 8)]);
+        assert_eq!(errors_at("<math>a\0\0\0b", FOREIGN_NULL), vec![(1, 8), (1, 9), (1, 10)]);
+        assert_eq!(errors_at("<body>a\0\0\0b", BODY_NULL), vec![(1, 8), (1, 9), (1, 10)]);
+        assert_eq!(
+            errors_at("<select>a\0\0\0b", SELECT_NULL),
+            vec![(1, 10), (1, 11), (1, 12)]
+        );
+        assert_eq!(
+            errors_at("<table>\0\0\0", TABLE_TEXT_NULL),
+            vec![(1, 8), (1, 9), (1, 10)]
+        );
+    }
+
+    #[test]
+    fn each_null_in_a_run_is_its_own_parse_error_in_content_that_goes_through_in_body() {
+        assert_eq!(errors_at("<template>\0\0", BODY_NULL), vec![(1, 11), (1, 12)]);
+        assert_eq!(errors_at("<math><mi>\0\0", BODY_NULL), vec![(1, 11), (1, 12)]);
+        assert_eq!(errors_at("<svg><foreignObject>\0\0", BODY_NULL), vec![(1, 21), (1, 22)]);
+    }
+
+    #[test]
+    fn null_runs_split_by_other_text_each_count() {
+        assert_eq!(
+            errors_at("<select> \0\0 \0", SELECT_NULL),
+            vec![(1, 10), (1, 11), (1, 13)]
+        );
+        assert_eq!(errors_at("<body>\0\na\0", BODY_NULL), vec![(1, 7), (2, 2)]);
+    }
+
+    #[test]
+    fn a_single_null_is_still_one_parse_error() {
+        assert_eq!(errors_at("<svg>a\0b", FOREIGN_NULL), vec![(1, 7)]);
+        assert_eq!(errors_at("<table>\0", TABLE_TEXT_NULL), vec![(1, 8)]);
+    }
+
+    #[test]
+    fn nulls_in_cdata_are_tree_builder_errors_only() {
+        assert_eq!(errors_at("<svg><![CDATA[\0\0]]>", FOREIGN_NULL), vec![(1, 15), (1, 16)]);
+        assert!(errors_at("<svg><![CDATA[\0\0]]>", "unexpected-null-character").is_empty());
+    }
+
+    #[test]
+    fn tokenizer_null_errors_are_unchanged() {
+        assert_eq!(errors_at("<body>a\0\0\0b", "unexpected-null-character").len(), 3);
     }
 
     #[test]
