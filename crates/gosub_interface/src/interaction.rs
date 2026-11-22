@@ -50,6 +50,27 @@ impl InteractionState {
     pub fn set_size(&mut self, id: NodeId, size: Option<(f64, f64)>) {
         set_or_remove(&mut self.sizes, id, size);
     }
+
+    /// Forget every entry naming a node `doc` no longer has. Node ids are not reused, so such
+    /// an entry can never match again; without this the maps grow for the page's lifetime.
+    /// Detached nodes stay: they may come back.
+    pub fn prune<C: HasDocument>(&mut self, doc: &C::Document) {
+        let live = |id: &NodeId| doc.contains(*id);
+        if !self.hover_leaf.as_ref().is_none_or(live) {
+            self.hover_leaf = None;
+        }
+        if !self.focus.as_ref().is_none_or(live) {
+            self.focus = None;
+            self.focus_visible = false;
+        }
+        self.edits.retain(|id, _| live(id));
+        self.checked.retain(|id, _| live(id));
+        self.selected.retain(|select, option| live(select) && live(option));
+        self.sizes.retain(|id, _| live(id));
+        if !self.open_select.as_ref().is_none_or(|o| live(&o.select)) {
+            self.open_select = None;
+        }
+    }
 }
 
 fn set_or_remove<V>(map: &mut HashMap<NodeId, V>, id: NodeId, value: Option<V>) {

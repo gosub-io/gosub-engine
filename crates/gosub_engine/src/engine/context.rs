@@ -1096,9 +1096,16 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     }
 
     /// Hand the adapter the interaction state as it is now, read against the tree as it is now:
-    /// what this pass styles and paints with.
-    fn sync_interaction(&self) {
-        if let (Some(adapter), Some(doc)) = (&self.document_adapter, &self.document) {
+    /// what this pass styles and paints with. Entries for deleted nodes are dropped here.
+    /// Every pass goes through here first: [`Self::refresh_pipeline_cache`] for the tiles
+    /// (full, raster window, paint-only) and [`Self::rebuild_scene_cache_if_needed`] for the
+    /// GPU scene.
+    fn sync_interaction(&mut self) {
+        let Some(doc) = &self.document else {
+            return;
+        };
+        self.interaction.prune::<C>(doc);
+        if let Some(adapter) = &self.document_adapter {
             adapter.set_interaction(InteractionSnapshot::new::<C>(&self.interaction, doc));
         }
     }
@@ -2178,6 +2185,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         // the cached layout the way the tile path does, but a GPU re-paint is cheap and avoids
         // the partial-repaint bookkeeping; revisit if it proves hot.
         if !self.damage.is_none() {
+            self.sync_interaction();
             let media_env = self.media_environment();
             // Release the previous scene's handle on the retained layout tree before laying out.
             // It is the other owner, and a geometry-only pass has to be sole owner or

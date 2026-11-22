@@ -1099,3 +1099,65 @@ fn autofocus_yields_to_focus_already_moved() {
     assert!(!ctx.flush_autofocus());
     assert_eq!(ctx.focused_node(), Some(a));
 }
+
+/// The typed value of `node` in the snapshot the last pass painted with.
+fn painted_value(ctx: &Ctx, node: NodeId) -> Option<String> {
+    let ll = ctx.active_layer_list().unwrap_or_else(|| unreachable!("rendered"));
+    ll.layout_tree
+        .render_tree
+        .doc
+        .interaction()
+        .control_edit_state(node)
+        .map(|s| s.value.clone())
+}
+
+#[test]
+fn typing_repaints_without_a_relayout_and_paints_what_was_typed() {
+    let mut ctx = page(r#"<input id="t" value="ab">"#);
+    click(&mut ctx, "t");
+    let node = by_id(&ctx, "t");
+    ctx.edit_key("c", false, false, false);
+    assert_eq!(ctx.damage.level(), DamageLevel::Paint, "typing is paint-only");
+    render(&mut ctx);
+    assert_eq!(painted_value(&ctx, node).as_deref(), Some("abc"));
+}
+
+#[test]
+fn the_gpu_scene_paints_what_was_typed() {
+    let mut ctx = page(r#"<input id="t" value="ab">"#);
+    ctx.pipeline_cache = None;
+    ctx.invalidate_render();
+    ctx.rebuild_scene_cache_if_needed();
+    let (x, y) = center(&ctx, by_id(&ctx, "t"));
+    ctx.focus_at(x, y);
+    ctx.rebuild_scene_cache_if_needed();
+    let node = by_id(&ctx, "t");
+    ctx.edit_key("c", false, false, false);
+    ctx.rebuild_scene_cache_if_needed();
+    assert_eq!(painted_value(&ctx, node).as_deref(), Some("abc"));
+}
+
+#[test]
+fn a_pass_forgets_the_state_of_a_deleted_control() {
+    let mut ctx = page(r#"<input id="t" value="ab"><input type="checkbox" id="c">"#);
+    click(&mut ctx, "c");
+    click(&mut ctx, "t");
+    type_text(&mut ctx, "c");
+    let (t, c) = (by_id(&ctx, "t"), by_id(&ctx, "c"));
+    assert!(ctx.interaction.edits.contains_key(&t) && ctx.interaction.checked.contains_key(&c));
+
+    // Nothing else may hold the document while it is edited in place.
+    ctx.document_adapter = None;
+    ctx.pipeline_cache = None;
+    ctx.scene_cache = None;
+    ctx.retained_layout = None;
+    let doc = ctx.document.as_mut().and_then(Arc::get_mut).expect("sole owner");
+    doc.delete_node_by_id(t);
+    doc.delete_node_by_id(c);
+    ctx.invalidate_render();
+    render(&mut ctx);
+
+    assert_eq!(ctx.interaction.focus, None, "focus goes with its node");
+    assert!(ctx.interaction.edits.is_empty());
+    assert!(ctx.interaction.checked.is_empty());
+}

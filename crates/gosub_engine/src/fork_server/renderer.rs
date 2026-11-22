@@ -828,8 +828,10 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         self.input.has_capture() || self.interaction_snapshot().open_select().is_some()
     }
 
-    /// Hand the adapter the interaction state as it is now, read against the tree as it is now.
-    fn sync_interaction(&self) {
+    /// Hand the adapter the interaction state as it is now, read against the tree as it is now,
+    /// dropping entries for deleted nodes. Every pass and re-layout goes through here first.
+    fn sync_interaction(&mut self) {
+        self.interaction.prune::<C>(&self.doc);
         self.adapter
             .set_interaction(InteractionSnapshot::new::<C>(&self.interaction, &self.doc));
     }
@@ -1570,6 +1572,59 @@ mod tests {
         });
         let bounds = bounds.expect("a focus effect with bounds");
         assert!((bounds.x - 100.0).abs() < 1.0, "{bounds:?}");
+    }
+
+    /// A key typed into a laid-out field repaints it with the new value, without a re-layout.
+    #[test]
+    fn a_retained_page_paints_what_was_typed() {
+        use crate::html::{DefaultRenderConfig, RenderConfiguration};
+        type Fonts = <DefaultRenderConfig as RenderConfiguration>::FontSystem;
+        let fonts: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(Fonts::default()));
+        let known = HashSet::new();
+        let mut page = RetainedPage::<DefaultRenderConfig>::build(
+            PageRequest {
+                html: "<!DOCTYPE html><body style=\"margin:0\"><input id=\"i\" value=\"ab\" \
+style=\"width:100px;height:40px\"></body>",
+                page_url: "https://example.test/",
+                viewport_width: 800.0,
+                viewport_height: 600.0,
+                known_tiles: &known,
+                hovered_node: None,
+                dpr: 1,
+                media: MediaPrefs::default(),
+            },
+            fonts,
+            Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
+            Arc::new(crate::net::resource_loader::NoResourceLoader),
+        );
+        page.render(Some((0.0, 0.0)), &known);
+        page.input(
+            (0.0, 0.0),
+            &known,
+            InputEvent::PointerDown {
+                x: 50.0,
+                y: 20.0,
+                button: MouseButton::Left,
+            },
+        );
+        let node = page.doc.node_by_named_id("i").expect("the field");
+        let layer_list = Arc::clone(&page.layer_list);
+
+        page.input(
+            (0.0, 0.0),
+            &known,
+            InputEvent::KeyDown {
+                key: "c".into(),
+                modifiers: 0,
+            },
+        );
+
+        assert!(
+            Arc::ptr_eq(&layer_list, &page.layer_list),
+            "typing does not lay out again"
+        );
+        let painted = page.adapter.interaction();
+        assert_eq!(painted.control_edit_state(node).map(|s| s.value.as_str()), Some("abc"));
     }
 
     /// The broker's deferred loader for one image: "not yet" until it has landed.
