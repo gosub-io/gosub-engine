@@ -1889,8 +1889,11 @@ where
                 } else {
                     content.is_some_and(content_generates_box::<C::CssSystem>)
                 };
-                let display = styles.computed_style(Some(&owner_style)).box_group.display;
-                if !generates_box || display == Display::None {
+                let pseudo_style = styles.computed_style(Some(&owner_style));
+                // A marker is inline whatever its `display` says (see `build_computed_style`), so only
+                // `content` takes its box away.
+                let display_none = kind != PseudoKind::Marker && pseudo_style.box_group.display == Display::None;
+                if !generates_box || display_none {
                     return Effects::default();
                 }
                 Effects {

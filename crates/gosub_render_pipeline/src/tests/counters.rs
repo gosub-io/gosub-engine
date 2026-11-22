@@ -473,3 +473,11 @@ fn an_element_that_never_renders_does_not_count() {
     );
     assert_eq!(text(&a, "out"), "0");
 }
+
+#[test]
+fn a_marker_with_display_none_still_shows_its_number() {
+    // The marker stays inline whatever `display` says, so it still has the item's number.
+    let a = adapter(r#"<style>li::marker { display: none }</style><ol><li id="a">a</li><li id="b">b</li></ol>"#);
+    assert_eq!(marker(&a, "a").as_deref(), Some("1. "));
+    assert_eq!(marker(&a, "b").as_deref(), Some("2. "));
+}
