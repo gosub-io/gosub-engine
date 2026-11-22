@@ -29,6 +29,14 @@ pub const CHAR_FF: char = '\u{000C}';
 pub const CHAR_SPACE: char = '\u{0020}';
 pub const CHAR_REPLACEMENT: char = '\u{FFFD}';
 
+/// True for the ASCII bytes that `read_char` passes on without a parse error: printable
+/// characters plus TAB, LF, FF and CR. The bulk scans in the states stop at anything else,
+/// so NUL, control characters and non-ASCII still go through `read_char`.
+#[inline]
+fn is_plain_ascii(b: u8) -> bool {
+    matches!(b, b'\t' | b'\n' | 0x0C | b'\r' | 0x20..=0x7E)
+}
+
 /// The tokenizer will read the input stream and emit tokens that can be used by the parser.
 pub struct Tokenizer<'tokens> {
     /// HTML character input stream
@@ -186,6 +194,10 @@ impl<'stream> Tokenizer<'stream> {
 
             match self.state {
                 State::Data => {
+                    let run = self
+                        .stream
+                        .scan_ascii_while(|b| is_plain_ascii(b) && b != b'&' && b != b'<');
+                    self.consumed.push_str(run);
                     let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
@@ -211,6 +223,10 @@ impl<'stream> Tokenizer<'stream> {
                     self.state = State::Data;
                 }
                 State::RCDATA => {
+                    let run = self
+                        .stream
+                        .scan_ascii_while(|b| is_plain_ascii(b) && b != b'&' && b != b'<');
+                    self.consumed.push_str(run);
                     let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
@@ -232,6 +248,8 @@ impl<'stream> Tokenizer<'stream> {
                     self.state = State::RCDATA;
                 }
                 State::RAWTEXT => {
+                    let run = self.stream.scan_ascii_while(|b| is_plain_ascii(b) && b != b'<');
+                    self.consumed.push_str(run);
                     let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
@@ -247,6 +265,8 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::ScriptData => {
+                    let run = self.stream.scan_ascii_while(|b| is_plain_ascii(b) && b != b'<');
+                    self.consumed.push_str(run);
                     let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
@@ -262,6 +282,8 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::PLAINTEXT => {
+                    let run = self.stream.scan_ascii_while(is_plain_ascii);
+                    self.consumed.push_str(run);
                     let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
@@ -347,6 +369,13 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::TagName => {
+                    if let Some(Token::StartTag { name, .. } | Token::EndTag { name, .. }) = &mut self.current_token {
+                        let start = name.len();
+                        name.push_str(self.stream.scan_ascii_while(|b| {
+                            is_plain_ascii(b) && !matches!(b, b'\t' | b'\n' | 0x0C | b' ' | b'/' | b'>')
+                        }));
+                        name[start..].make_ascii_lowercase();
+                    }
                     let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
@@ -659,6 +688,10 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::ScriptDataEscaped => {
+                    let run = self
+                        .stream
+                        .scan_ascii_while(|b| is_plain_ascii(b) && b != b'-' && b != b'<');
+                    self.consumed.push_str(run);
                     let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
@@ -856,6 +889,10 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::ScriptDataDoubleEscaped => {
+                    let run = self
+                        .stream
+                        .scan_ascii_while(|b| is_plain_ascii(b) && b != b'-' && b != b'<');
+                    self.consumed.push_str(run);
                     let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
@@ -994,6 +1031,15 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::AttributeName => {
+                    let start = self.current_attr_name.len();
+                    self.current_attr_name.push_str(self.stream.scan_ascii_while(|b| {
+                        is_plain_ascii(b)
+                            && !matches!(
+                                b,
+                                b'\t' | b'\n' | 0x0C | b' ' | b'/' | b'>' | b'=' | b'"' | b'\'' | b'<'
+                            )
+                    }));
+                    self.current_attr_name[start..].make_ascii_lowercase();
                     let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
@@ -1089,6 +1135,10 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::AttributeValueDoubleQuoted => {
+                    let run = self
+                        .stream
+                        .scan_ascii_while(|b| is_plain_ascii(b) && b != b'"' && b != b'&');
+                    self.current_attr_value.push_str(run);
                     let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
@@ -1111,6 +1161,10 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::AttributeValueSingleQuoted => {
+                    let run = self
+                        .stream
+                        .scan_ascii_while(|b| is_plain_ascii(b) && b != b'\'' && b != b'&');
+                    self.current_attr_value.push_str(run);
                     let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
@@ -1133,6 +1187,14 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::AttributeValueUnquoted => {
+                    let run = self.stream.scan_ascii_while(|b| {
+                        is_plain_ascii(b)
+                            && !matches!(
+                                b,
+                                b'\t' | b'\n' | 0x0C | b' ' | b'&' | b'>' | b'"' | b'\'' | b'<' | b'=' | b'`'
+                            )
+                    });
+                    self.current_attr_value.push_str(run);
                     let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
@@ -1218,6 +1280,9 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::BogusComment => {
+                    if let Some(Token::Comment { comment, .. }) = &mut self.current_token {
+                        comment.push_str(self.stream.scan_ascii_while(|b| is_plain_ascii(b) && b != b'>'));
+                    }
                     let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
@@ -1325,6 +1390,12 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::Comment => {
+                    if let Some(Token::Comment { comment, .. }) = &mut self.current_token {
+                        comment.push_str(
+                            self.stream
+                                .scan_ascii_while(|b| is_plain_ascii(b) && b != b'<' && b != b'-'),
+                        );
+                    }
                     let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
@@ -1993,6 +2064,8 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::CDATASection => {
+                    let run = self.stream.scan_ascii_while(|b| is_plain_ascii(b) && b != b']');
+                    self.consumed.push_str(run);
                     let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
@@ -2441,6 +2514,116 @@ mod location_tests {
         assert_eq!(html("<p><!---->"), vec![t("<!---->", 1, 4)]);
         assert_eq!(html("<p><!-->"), vec![t("<!---->", 1, 4)]);
         assert_eq!(html("<p>\n  <!--x"), vec![t("\n  ", 1, 4), t("<!--x-->", 2, 3)]);
+    }
+
+    /// Tokenizes `html` and returns every token (without location) and every error as
+    /// `message@line:column`.
+    fn tokens_and_errors(html: &str, state: State) -> (Vec<String>, Vec<String>) {
+        let mut stream = ByteStream::from_str(html, Encoding::UTF8);
+        let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
+        let opts = Options {
+            initial_state: state,
+            last_start_tag: String::new(),
+        };
+        let mut tokenizer = Tokenizer::new(&mut stream, Some(opts), error_logger.clone());
+        let mut tokens = vec![];
+        loop {
+            let token = tokenizer.next_token(ParserData::default()).unwrap();
+            if token.is_eof() {
+                break;
+            }
+            tokens.push(format!("{token:?}").split(", location").next().unwrap().to_string());
+        }
+        let errors = error_logger
+            .borrow()
+            .get_errors()
+            .iter()
+            .map(|e| format!("{}@{}:{}", e.message, e.location.line, e.location.column))
+            .collect();
+        (tokens, errors)
+    }
+
+    #[test]
+    fn bulk_scans_stop_at_characters_that_need_attention() {
+        // Control characters, NUL and non-ASCII break a run and are still reported
+        let (tokens, errors) = tokens_and_errors("ab\x01c\0d\u{e9}\u{fffe}e\r\nf\x7f", State::Data);
+        assert_eq!(
+            tokens,
+            vec!["Text { text: \"ab\\u{1}c\\0d\u{e9}\\u{fffe}e\\nf\\u{7f}\""]
+        );
+        assert_eq!(
+            errors,
+            vec![
+                "control-character-in-input-stream@1:3",
+                "unexpected-null-character@1:5",
+                "noncharacter-in-input-stream@1:8",
+                "control-character-in-input-stream@2:2",
+            ]
+        );
+
+        // Same in the other text states, with their own replacement of NUL
+        for state in [State::RCDATA, State::RAWTEXT, State::ScriptData, State::PLAINTEXT] {
+            let (tokens, errors) = tokens_and_errors("ab\x01c\0d", state);
+            assert_eq!(tokens, vec!["Text { text: \"ab\\u{1}c\u{fffd}d\""], "{state:?}");
+            assert_eq!(
+                errors,
+                vec!["control-character-in-input-stream@1:3", "unexpected-null-character@1:5"],
+                "{state:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn bulk_scans_in_tags_and_comments() {
+        let (tokens, errors) = tokens_and_errors(
+            "<DiV\x01x CLASS=\"a&amp;b\x01\" Data-X='c&lt;d' u=e&gt;f\x01g\u{e9}h>",
+            State::Data,
+        );
+        assert_eq!(
+            tokens,
+            vec![
+                "StartTag { name: \"div\\u{1}x\", is_self_closing: false, attributes: Attributes { entries: \
+                 {\"class\": \"a&b\\u{1}\", \"data-x\": \"c<d\", \"u\": \"e>f\\u{1}g\u{e9}h\"} }"
+            ]
+        );
+        assert_eq!(
+            errors,
+            vec![
+                "control-character-in-input-stream@1:5",
+                "control-character-in-input-stream@1:22",
+                "control-character-in-input-stream@1:49",
+            ]
+        );
+
+        // Text and tag name runs stop at the '<', '/' and whitespace that end them
+        let (tokens, _) = tokens_and_errors("x<a/><B\tc>y</b >", State::Data);
+        assert_eq!(
+            tokens,
+            vec![
+                r#"Text { text: "x""#,
+                r#"StartTag { name: "a", is_self_closing: true, attributes: Attributes { entries: {} }"#,
+                r#"StartTag { name: "b", is_self_closing: false, attributes: Attributes { entries: {"c": ""} }"#,
+                r#"Text { text: "y""#,
+                r#"EndTag { name: "b""#,
+            ]
+        );
+
+        let (tokens, errors) = tokens_and_errors("<!--a<b-c\x01--><!x\0y>", State::Data);
+        assert_eq!(
+            tokens,
+            vec![
+                r#"Comment { comment: "a<b-c\u{1}""#,
+                "Comment { comment: \"x\u{fffd}y\""
+            ]
+        );
+        assert_eq!(
+            errors,
+            vec![
+                "control-character-in-input-stream@1:10",
+                "incorrectly-opened-comment@1:16",
+                "unexpected-null-character@1:17",
+            ]
+        );
     }
 
     #[test]
