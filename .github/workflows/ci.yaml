@@ -294,6 +294,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: cargo check --locked -p gosub_ipc -p gosub_sandbox -p gosub_engine --all-targets --target ${{ matrix.target }} --no-default-features --features gosub_engine/sqlite_cookie_store
 
+  # fmt and cargo-deny share a job: neither needs a build, so a job of their own
+  # each is mostly runner setup. The job keeps the name `fmt`, which branch
+  # protection requires, so a deny failure now blocks a merge as well. deny runs
+  # even when fmt failed, as it did in its own job.
   fmt:
     runs-on: ubuntu-24.04
     steps:
@@ -304,11 +308,8 @@ jobs:
           components: rustfmt
       - name: Run fmt
         run: cargo fmt --check --all
-
-  deny:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - name: Run cargo-deny
+        if: ${{ !cancelled() }}
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
