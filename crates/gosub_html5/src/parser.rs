@@ -4259,10 +4259,9 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             if last_group != group && !found.is_empty() {
                 let next_location = location_after(location, &found);
                 tokens.push(Token::Text {
-                    text: found.clone(),
+                    text: std::mem::take(&mut found),
                     location,
                 });
-                found.clear();
                 location = next_location;
             }
 
@@ -4271,10 +4270,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         }
 
         if !found.is_empty() {
-            tokens.push(Token::Text {
-                text: found.clone(),
-                location,
-            });
+            tokens.push(Token::Text { text: found, location });
         }
 
         tokens
