@@ -585,8 +585,11 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn selected_option(&self, select: NodeId) -> Option<NodeId> {
-        if let Some(opt) = self.selected.read().get(&select) {
-            return Some(*opt);
+        // The pick only counts while the option is still one of the select's options; moved
+        // out, the select falls back to its default. Moved back, the pick returns.
+        let picked = self.selected.read().get(&select).copied();
+        if let Some(opt) = picked.filter(|&opt| self.is_option_of(opt, select)) {
+            return Some(opt);
         }
         // Default: the `selected` attribute, else the first option.
         let mut first = None;
@@ -665,16 +668,49 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         let mut f = self.focus.write();
         f.node = node;
         f.visible = visible;
-        f.chain.clear();
-        if let Some(mut id) = node {
-            loop {
-                f.chain.insert(id);
-                match self.arena.node_ref(id).and_then(|n| n.parent) {
-                    Some(parent) => id = parent,
-                    None => break,
-                }
+        f.chain = self.ancestors_and_self(node);
+    }
+
+    /// Rebuild the `:focus-within` chain after `moved` was detached or attached, if the chain
+    /// ran through it. The focus itself stays where it is.
+    fn refresh_focus_chain(&self, moved: NodeId) {
+        let focused = {
+            let f = self.focus.read();
+            if !f.chain.contains(&moved) {
+                return;
             }
+            f.node
+        };
+        self.focus.write().chain = self.ancestors_and_self(focused);
+    }
+
+    /// `node` and every ancestor of it, up to the root of its tree.
+    fn ancestors_and_self(&self, node: Option<NodeId>) -> std::collections::HashSet<NodeId> {
+        let mut chain = std::collections::HashSet::new();
+        let mut current = node;
+        while let Some(id) = current {
+            chain.insert(id);
+            current = self.arena.node_ref(id).and_then(|n| n.parent);
         }
+        chain
+    }
+
+    /// Whether `option` is in `select`'s list of options, which is the case when `select` is its
+    /// nearest ancestor select (<https://html.spec.whatwg.org/#option-element-nearest-ancestor-select>).
+    fn is_option_of(&self, option: NodeId, select: NodeId) -> bool {
+        let mut seen_optgroup = false;
+        let mut current = self.parent(option);
+        while let Some(ancestor) = current {
+            match self.tag_name(ancestor) {
+                Some("datalist" | "hr" | "option") => return false,
+                Some("optgroup") if seen_optgroup => return false,
+                Some("optgroup") => seen_optgroup = true,
+                Some("select") => return ancestor == select,
+                _ => {}
+            }
+            current = self.parent(ancestor);
+        }
+        false
     }
 
     /// `None` reverts to the `selected` attribute.
@@ -1022,10 +1058,12 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         if is_leaf {
             // Most attaches are the parser adding a leaf: skip the ancestor walk when it has no id.
             self.refresh_named_id(node_id);
+            self.refresh_focus_chain(node_id);
             return Ok(());
         }
         let registry = self.registry_of(node_id);
         self.refresh_named_ids(node_id, registry);
+        self.refresh_focus_chain(node_id);
         Ok(())
     }
 
@@ -1127,6 +1165,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                 node.set_parent(None);
                 self.refresh_named_ids(node_id, None);
             }
+            self.refresh_focus_chain(node_id);
         }
     }
 
@@ -1535,6 +1574,177 @@ mod tests {
 
         doc.delete_node_by_id(select);
         assert!(doc.open_select().is_none(), "the open dropdown closes with its select");
+    }
+
+    /// html > (old > input, new): the input focused.
+    fn focused_input(doc: &mut DocumentImpl<Config>) -> (NodeId, NodeId, NodeId) {
+        let root = doc.root();
+        let old = element(doc, "div", root);
+        let new = element(doc, "section", root);
+        let input = element(doc, "input", old);
+        doc.set_focused_node(Some(input), true);
+        (old, new, input)
+    }
+
+    #[test]
+    fn moving_the_focused_element_moves_focus_within() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (old, new, input) = focused_input(&mut doc);
+        assert!(doc.is_focus_within(old));
+
+        doc.attach_node(input, new, None).unwrap();
+
+        assert!(!doc.is_focus_within(old), "the old parent no longer holds the focus");
+        assert!(doc.is_focus_within(new));
+        assert!(doc.is_focus_within(input));
+        assert!(doc.is_focus_within(doc.root()));
+        assert_eq!(doc.focused_node(), Some(input), "the focus stays on the element");
+    }
+
+    #[test]
+    fn moving_an_ancestor_of_the_focused_element_moves_focus_within() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (old, new, input) = focused_input(&mut doc);
+        let wrapper = element(&mut doc, "div", old);
+        doc.attach_node(input, wrapper, None).unwrap();
+
+        doc.attach_node(wrapper, new, Some(0)).unwrap();
+
+        assert!(!doc.is_focus_within(old));
+        assert!(doc.is_focus_within(new));
+        assert!(doc.is_focus_within(wrapper));
+    }
+
+    #[test]
+    fn relocating_the_focused_element_moves_focus_within() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (old, new, input) = focused_input(&mut doc);
+
+        Document::relocate_node(&mut doc, input, new);
+
+        assert!(!doc.is_focus_within(old));
+        assert!(doc.is_focus_within(new));
+    }
+
+    #[test]
+    fn detaching_the_focused_element_takes_focus_within_out_of_the_document() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (old, _, input) = focused_input(&mut doc);
+
+        doc.detach_node(input);
+
+        assert!(!doc.is_focus_within(old));
+        assert!(!doc.is_focus_within(doc.root()));
+        assert!(doc.is_focus_within(input));
+    }
+
+    #[test]
+    fn moving_an_unrelated_node_leaves_focus_within_alone() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (old, new, input) = focused_input(&mut doc);
+        let other = element(&mut doc, "p", new);
+
+        doc.attach_node(other, old, None).unwrap();
+
+        assert!(doc.is_focus_within(old));
+        assert!(doc.is_focus_within(input));
+        assert!(!doc.is_focus_within(new));
+        assert!(!doc.is_focus_within(other));
+    }
+
+    /// html > select > (a, b, c), with `b` picked.
+    fn picked_option(doc: &mut DocumentImpl<Config>) -> (NodeId, NodeId, NodeId) {
+        let root = doc.root();
+        let select = element(doc, "select", root);
+        let a = element(doc, "option", select);
+        let b = element(doc, "option", select);
+        element(doc, "option", select);
+        doc.set_selected_option(select, Some(b));
+        (select, a, b)
+    }
+
+    #[test]
+    fn a_picked_option_detached_from_its_select_is_no_longer_its_choice() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (select, a, b) = picked_option(&mut doc);
+
+        doc.detach_node(b);
+
+        assert_eq!(doc.selected_option(select), Some(a), "back to the first option");
+        assert!(doc.is_checked(a));
+        assert!(!doc.is_checked(b));
+    }
+
+    #[test]
+    fn a_picked_option_moved_to_another_select_is_no_longer_the_first_ones_choice() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (select, a, b) = picked_option(&mut doc);
+        let root = doc.root();
+        let other = element(&mut doc, "select", root);
+        let first = element(&mut doc, "option", other);
+
+        doc.attach_node(b, other, None).unwrap();
+
+        assert_eq!(doc.selected_option(select), Some(a));
+        assert_eq!(doc.selected_option(other), Some(first));
+        assert!(!doc.is_checked(b));
+    }
+
+    #[test]
+    fn a_picked_option_moved_within_its_select_stays_picked() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (select, _, b) = picked_option(&mut doc);
+        let group = element(&mut doc, "optgroup", select);
+
+        doc.attach_node(b, select, None).unwrap();
+        assert_eq!(doc.selected_option(select), Some(b), "moved to the end");
+
+        doc.attach_node(b, group, None).unwrap();
+        assert_eq!(doc.selected_option(select), Some(b), "moved into an optgroup");
+        assert!(doc.is_checked(b));
+    }
+
+    #[test]
+    fn a_picked_option_moved_into_a_wrapper_in_its_select_stays_picked() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (select, _, b) = picked_option(&mut doc);
+        let wrapper = element(&mut doc, "div", select);
+
+        doc.attach_node(b, wrapper, None).unwrap();
+
+        assert_eq!(doc.selected_option(select), Some(b));
+    }
+
+    #[test]
+    fn a_picked_option_moved_where_it_stops_being_an_option_of_its_select_is_dropped() {
+        // A datalist, hr or option in between, or a second optgroup, ends the select's options.
+        let tags: [&[&str]; 4] = [&["datalist"], &["hr"], &["option"], &["optgroup", "optgroup"]];
+        for path in tags {
+            let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+            let (select, a, b) = picked_option(&mut doc);
+            let mut parent = select;
+            for tag in path {
+                parent = element(&mut doc, tag, parent);
+            }
+
+            doc.attach_node(b, parent, None).unwrap();
+
+            assert_eq!(doc.selected_option(select), Some(a), "{path:?}");
+        }
+    }
+
+    #[test]
+    fn a_picked_option_moved_out_and_back_is_picked_again() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (select, a, b) = picked_option(&mut doc);
+        let root = doc.root();
+        let elsewhere = element(&mut doc, "div", root);
+
+        doc.attach_node(b, elsewhere, None).unwrap();
+        assert_eq!(doc.selected_option(select), Some(a));
+
+        doc.attach_node(b, select, None).unwrap();
+        assert_eq!(doc.selected_option(select), Some(b));
     }
 
     /// Change `node`'s `id` attribute in place and run the mutation hook, the way a DOM
