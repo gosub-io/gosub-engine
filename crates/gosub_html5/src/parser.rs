@@ -4378,7 +4378,9 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             return false;
         }
         // the contents of a template belong to a document that runs nothing
-        if self.open_elements.iter().any(|&id| node_tag!(self, id) == "template") {
+        let in_template =
+            |id: &NodeId| node_tag!(self, *id) == "template" && node_ns!(self, *id) == Some(HTML_NAMESPACE);
+        if self.open_elements.iter().any(in_template) {
             return false;
         }
 
@@ -6106,6 +6108,11 @@ mod script_tests {
         assert_eq!(
             ran("<svg><script href=\"/a.js\">inline()</script></svg>"),
             [] as [&str; 0]
+        );
+        // an SVG `template` is not a template
+        assert_eq!(
+            ran("<svg><template><script>inSvg()</script></template></svg>"),
+            ["inSvg()"]
         );
         // and `src` only on an HTML one
         assert_eq!(ran("<svg><script src=\"/a.js\">inSvg()</script></svg>"), ["inSvg()"]);

@@ -94,7 +94,8 @@ under the target `console`. Arguments are stringified as `String(value)` does it
 Inline classic scripts run while the page is parsed. `Html5ParserOptions::scripts` takes a
 `ScriptHost`; the parser calls it at each `</script>` (HTML and SVG) with the element's
 text, after the stylesheets before it have settled, and runs a microtask checkpoint when
-no script is left on the stack. Not run: a script with a `src`, a `type` that is not
+no script is left on the stack. Not run as inline: a script with a `src` (see below).
+Not run at all: a `type` that is not
 JavaScript (modules included), a script in a `<template>` or a fragment, and anything when
 scripting is disabled. A script that fails does not stop the parse. The engine hands the
 parser a host that forwards to the script thread of the document being loaded
