@@ -1,13 +1,16 @@
+use crate::common::document::counters::{self, CounterTable, CounterTree, Effects, Item};
 use crate::common::document::list_marker;
 use crate::common::document::node::{AttrMap, ElementData, Node, NodeType};
+use crate::rendertree_builder::tree::INVISIBLE_ELEMENTS;
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem, CssValue};
 use gosub_interface::document::Document as _;
 use gosub_interface::node::NodeType as GosubNodeType;
-use gosub_interface::style::{Color, ComputedStyle, Display, Paint, Prop};
+use gosub_interface::style::{Color, ComputedStyle, Display, ListStyleType, Paint, Prop};
 use gosub_shared::node::NodeId;
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::cell::Cell;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -140,7 +143,7 @@ const ALL_ROLES: [u64; 6] = [
 
 /// Which generated box of its owner a pseudo node belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum PseudoKind {
+pub(crate) enum PseudoKind {
     Before,
     After,
     Marker,
@@ -519,26 +522,48 @@ fn content_token_to_string(s: &str) -> Option<String> {
     }
 }
 
-/// Counter state (counter-reset/-increment scoping) is not tracked yet, so counters resolve to
-/// empty text - generated boxes still appear, just without the number.
-fn resolve_content_function<S: CssSystem>(name: &str, _args: &[S::Value]) -> String {
-    if matches!(name, "counter" | "counters") {
-        log::debug!("content: {name}() is not yet supported; rendering empty");
+/// The values of every counter of a name a generated box is in the scope of, outermost first.
+type CounterValues<'a> = &'a dyn Fn(&str) -> Vec<i64>;
+
+/// `counter(name, style?)` and `counters(name, string, style?)` (css-lists-3 §4.7). A counter
+/// the box is not in the scope of reads as 0: the walk created it there, with that value.
+fn resolve_content_function<S: CssSystem>(name: &str, args: &[S::Value], counters: CounterValues) -> String {
+    let args: Vec<&S::Value> = args.iter().filter(|arg| !arg.is_comma()).collect();
+    let text = |i: usize| args.get(i).and_then(|arg| arg.as_string());
+    let style = |i: usize| text(i).map_or(ListStyleType::Decimal, ListStyleType::from_name);
+    let Some(counter) = text(0) else {
+        return String::new();
+    };
+    let mut values = counters(counter);
+    if values.is_empty() {
+        values.push(0);
     }
-    String::new()
+    // Function names are ASCII case-insensitive; the counter's own name is not.
+    if name.eq_ignore_ascii_case("counter") {
+        list_marker::counter_text(&style(1), values[values.len() - 1])
+    } else if name.eq_ignore_ascii_case("counters") {
+        let style = style(2);
+        let parts: Vec<String> = values
+            .iter()
+            .map(|&value| list_marker::counter_text(&style, value))
+            .collect();
+        parts.join(text(1).unwrap_or(""))
+    } else {
+        String::new()
+    }
 }
 
-fn content_value_to_string<S: CssSystem>(v: &S::Value) -> Option<String> {
+fn content_value_to_string<S: CssSystem>(v: &S::Value, counters: CounterValues) -> Option<String> {
     if let Some(s) = v.as_string() {
         return content_token_to_string(s);
     }
     if let Some((name, args)) = v.as_function() {
-        return Some(resolve_content_function::<S>(name, args));
+        return Some(resolve_content_function::<S>(name, args, counters));
     }
     if let Some(list) = v.as_list() {
         let mut out = String::new();
         for item in list {
-            if let Some(part) = content_value_to_string::<S>(item) {
+            if let Some(part) = content_value_to_string::<S>(item, counters) {
                 out.push_str(&part);
             }
         }
@@ -548,7 +573,7 @@ fn content_value_to_string<S: CssSystem>(v: &S::Value) -> Option<String> {
 }
 
 /// `None` => generate no box (`content: none | normal`); `Some("")` => an empty box.
-fn resolve_content<S: CssSystem>(p: &S::Property) -> Option<String> {
+fn resolve_content<S: CssSystem>(p: &S::Property, counters: CounterValues) -> Option<String> {
     // A single string/keyword token.
     if let Some(s) = p.as_string() {
         return content_token_to_string(s);
@@ -557,7 +582,7 @@ fn resolve_content<S: CssSystem>(p: &S::Property) -> Option<String> {
     if let Some(list) = p.as_list() {
         let mut out = String::new();
         for v in list {
-            if let Some(part) = content_value_to_string::<S>(v) {
+            if let Some(part) = content_value_to_string::<S>(v, counters) {
                 out.push_str(&part);
             }
         }
@@ -565,15 +590,104 @@ fn resolve_content<S: CssSystem>(p: &S::Property) -> Option<String> {
     }
     // A bare function value.
     if let Some((name, args)) = p.as_function() {
-        return Some(resolve_content_function::<S>(name, args));
+        return Some(resolve_content_function::<S>(name, args, counters));
     }
     None
+}
+
+/// Whether a `content` value generates a box: the same answer [`resolve_content`] gives,
+/// without resolving the counters it reads.
+fn content_generates_box<S: CssSystem>(p: &S::Property) -> bool {
+    match p.as_string() {
+        Some(token) => content_token_to_string(token).is_some(),
+        None => p.as_list().is_some() || p.as_function().is_some(),
+    }
+}
+
+/// The counters `counter()` and `counters()` in a `content` value name.
+fn content_counter_names<S: CssSystem>(p: &S::Property) -> Vec<Arc<str>> {
+    fn named<S: CssSystem>(name: &str, args: &[S::Value], out: &mut Vec<Arc<str>>) {
+        if name.eq_ignore_ascii_case("counter") || name.eq_ignore_ascii_case("counters") {
+            if let Some(counter) = args.first().and_then(|arg| arg.as_string()) {
+                out.push(Arc::from(counter));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    if let Some((name, args)) = p.as_function() {
+        named::<S>(name, args, &mut out);
+    }
+    for v in p.as_list().unwrap_or_default() {
+        if let Some((name, args)) = v.as_function() {
+            named::<S>(name, args, &mut out);
+        }
+    }
+    out
+}
+
+/// A `counter-reset`, `counter-increment` or `counter-set` value: each counter name, whether it
+/// was written `reversed(name)`, and the integer after it if there is one. `none` is empty.
+fn counter_entries<S: CssSystem>(p: Option<&S::Property>) -> Vec<(Arc<str>, bool, Option<i64>)> {
+    let Some(p) = p else {
+        return Vec::new();
+    };
+    let name = |text: Option<&str>, function: Option<(&str, &[S::Value])>| match (text, function) {
+        (Some(name), _) if name != "none" => Some((Arc::from(name), false)),
+        (_, Some((function, [inner]))) if function.eq_ignore_ascii_case("reversed") => {
+            inner.as_string().map(|name| (Arc::from(name), true))
+        }
+        _ => None,
+    };
+    let Some(list) = p.as_list() else {
+        return name(p.as_string(), p.as_function())
+            .map(|(name, reversed)| vec![(name, reversed, None)])
+            .unwrap_or_default();
+    };
+    let mut out: Vec<(Arc<str>, bool, Option<i64>)> = Vec::new();
+    for v in list {
+        if let Some(integer) = v.as_integer() {
+            if let Some(last) = out.last_mut() {
+                last.2 = Some(integer);
+            }
+        } else if let Some((name, reversed)) = name(v.as_string(), v.as_function()) {
+            out.push((name, reversed, None));
+        }
+    }
+    out
+}
+
+/// What a computed property map does to counters; `generates_box` and the rest are the
+/// caller's to fill in.
+fn counter_effects<S: CssSystem>(map: &S::PropertyMap) -> Effects {
+    let get = |name| <_ as CssPropertyMap<S>>::get(map, name);
+    let pairs = |name, default| {
+        counter_entries::<S>(get(name))
+            .into_iter()
+            .map(|(name, _, value)| (name, value.unwrap_or(default)))
+            .collect()
+    };
+    Effects {
+        reset: counter_entries::<S>(get("counter-reset"))
+            .into_iter()
+            // A counter that is not reversed starts at 0 when no value is given (§4.1).
+            .map(|(name, reversed, value)| (name, reversed, value.or((!reversed).then_some(0))))
+            .collect(),
+        increment: pairs("counter-increment", 1),
+        set: pairs("counter-set", 0),
+        ..Effects::default()
+    }
 }
 
 // ── GosubDocumentAdapter ──────────────────────────────────────────────────────
 
 /// A node's computed property map as held by the style cache.
 type CachedStyles<C> = Arc<<<C as gosub_interface::config::HasCssSystem>::CssSystem as CssSystem>::PropertyMap>;
+
+/// The pseudo-boxes built so far, by owner and kind; `None` means "no generated box".
+type PseudoBoxes<C> = HashMap<
+    (NodeId, PseudoKind),
+    Option<Arc<PseudoBox<<<C as gosub_interface::config::HasCssSystem>::CssSystem as CssSystem>::PropertyMap>>>,
+>;
 
 /// Adapts any `gosub_interface::document::Document<C>` into a `PipelineDocument`.
 /// Which slottables ended up in which `<slot>`, for every shadow tree in the document.
@@ -678,9 +792,15 @@ where
     #[allow(clippy::type_complexity)]
     pseudo_cache:
         Mutex<HashMap<(NodeId, PseudoKind), Option<Arc<PseudoBox<<C::CssSystem as CssSystem>::PropertyMap>>>>>,
-    /// The ordinal of every list item among a parent's children, keyed by that parent: one walk
-    /// of the list numbers all of it, instead of each item counting the ones before it.
-    ordinal_cache: Mutex<HashMap<NodeId, Arc<HashMap<NodeId, i64>>>>,
+    /// The cascaded map of each `::before` / `::after` / `::marker`, apart from the box built
+    /// from it: the counter walk reads every pseudo-element's counter properties, and building
+    /// the box needs the counters.
+    #[allow(clippy::type_complexity)]
+    pseudo_style_cache: Mutex<HashMap<(NodeId, PseudoKind), Option<CachedStyles<C>>>>,
+    /// Every counter of the document, resolved in one walk the first time a box reads one.
+    counters: Mutex<Option<Arc<CounterTable>>>,
+    /// The pseudo-boxes whose text read a counter. Any restyle can renumber them, wherever it is.
+    counter_readers: Mutex<HashSet<(NodeId, PseudoKind)>>,
     /// `parent()` resolves anonymous-wrapper parents by scanning the real parent's child
     /// list; `get_style` calls it per inherited property, which made style resolution
     /// quadratic in table size. Keyed on the (possibly synthetic) id.
@@ -788,7 +908,9 @@ where
             style_cache: Mutex::new(HashMap::new()),
             computed_cache: Mutex::new(HashMap::new()),
             pseudo_cache: Mutex::new(HashMap::new()),
-            ordinal_cache: Mutex::new(HashMap::new()),
+            pseudo_style_cache: Mutex::new(HashMap::new()),
+            counters: Mutex::new(None),
+            counter_readers: Mutex::new(HashSet::new()),
             parent_cache: Mutex::new(HashMap::new()),
             slots,
         }
@@ -840,6 +962,43 @@ where
             self.push_flattened(child, &mut out);
         }
         out
+    }
+
+    /// The children of `id` in the flattened element tree: a host's shadow tree, a slot's
+    /// assigned nodes (or its fallback content). Nothing is spliced away and no pseudo-box is
+    /// built, so the counter walk can call it while a pseudo-box is waiting on the counters.
+    fn element_tree_children(&self, id: NodeId) -> &[NodeId] {
+        if self.is_slot(id) {
+            if let Some(assigned) = self.slots.assigned.get(&id).filter(|assigned| !assigned.is_empty()) {
+                return assigned;
+            }
+        }
+        self.doc.children(self.doc.shadow_root(id).unwrap_or(id))
+    }
+
+    /// Appends `node` to the counter walk's items, or - when the box tree splices it away -
+    /// what takes its place there: a `display: contents` element's `::before`, children and
+    /// `::after`, a slot's content. Counters follow the boxes here, as every engine does (WPT
+    /// css-lists/counter-order-display-contents). Unlike [`Self::push_flattened`] it builds no
+    /// pseudo-box.
+    fn push_counted(&self, node: NodeId, out: &mut Vec<Item>) {
+        if self.doc.node_type(node) != GosubNodeType::ElementNode {
+            return;
+        }
+        if !self.is_spliced_away(node) {
+            out.push(Item::Element(node));
+            return;
+        }
+        let contents = self.is_spliced_contents(node);
+        if contents {
+            out.push(Item::Pseudo(node, PseudoKind::Before));
+        }
+        for &child in self.element_tree_children(node) {
+            self.push_counted(child, out);
+        }
+        if contents {
+            out.push(Item::Pseudo(node, PseudoKind::After));
+        }
     }
 
     /// Whether a `<slot>` keeps a box of its own instead of being spliced away.
@@ -968,6 +1127,44 @@ where
         owner: NodeId,
         kind: PseudoKind,
     ) -> Option<Arc<PseudoBox<<C::CssSystem as CssSystem>::PropertyMap>>> {
+        let styles = self.pseudo_styles(owner, kind)?;
+        let content_prop = <_ as CssPropertyMap<C::CssSystem>>::get(&*styles, "content");
+
+        let read = Cell::new(false);
+        let table = std::cell::OnceCell::new();
+        let counters = |name: &str| {
+            read.set(true);
+            table.get_or_init(|| self.counter_table()).values(owner, kind, name)
+        };
+        let text = if kind == PseudoKind::Marker {
+            self.marker_content::<C::CssSystem>(owner, content_prop, &counters)
+        } else {
+            // Resolve `content` into generated text. `none`/`normal` means no box at all.
+            content_prop.and_then(|content| resolve_content::<C::CssSystem>(content, &counters))
+        };
+        if read.get() {
+            self.counter_readers.lock().insert((owner, kind));
+        }
+        let text = text?;
+
+        // `content: ""` (and any all-empty result) generates a box but no text child.
+        let text = if text.is_empty() { None } else { Some(text) };
+
+        Some(Arc::new(PseudoBox { styles, text }))
+    }
+
+    /// The cascaded properties of a pseudo-element, computed; `None` when it has none, which
+    /// for `::before` and `::after` means no rule targets it. Cached.
+    fn pseudo_styles(&self, owner: NodeId, kind: PseudoKind) -> Option<CachedStyles<C>> {
+        if let Some(cached) = self.pseudo_style_cache.lock().get(&(owner, kind)) {
+            return cached.clone();
+        }
+        let result = self.compute_pseudo_styles(owner, kind);
+        self.pseudo_style_cache.lock().insert((owner, kind), result.clone());
+        result
+    }
+
+    fn compute_pseudo_styles(&self, owner: NodeId, kind: PseudoKind) -> Option<CachedStyles<C>> {
         // Pseudo-elements only hang off real elements.
         if self.doc.node_type(owner) != GosubNodeType::ElementNode {
             return None;
@@ -989,79 +1186,59 @@ where
         for (_, prop) in prop_map.iter_mut() {
             prop.compute_value();
         }
-
-        let content_prop = <_ as CssPropertyMap<C::CssSystem>>::get(&prop_map, "content");
-        let text = if kind == PseudoKind::Marker {
-            self.marker_content::<C::CssSystem>(owner, content_prop)?
-        } else {
-            // Resolve `content` into generated text. `none`/`normal` means no box at all.
-            resolve_content::<C::CssSystem>(content_prop?)?
-        };
-
-        // `content: ""` (and any all-empty result) generates a box but no text child.
-        let text = if text.is_empty() { None } else { Some(text) };
-
-        Some(Arc::new(PseudoBox {
-            styles: Arc::new(prop_map),
-            text,
-        }))
+        Some(Arc::new(prop_map))
     }
 
     /// What a list item's marker says: the `::marker`'s own `content` when it has one, else its
-    /// `list-style-type` applied to the item's ordinal. `None` when there is no marker to show.
-    fn marker_content<S: CssSystem>(&self, owner: NodeId, content: Option<&S::Property>) -> Option<String> {
+    /// `list-style-type` applied to the item's `list-item` counter. `None` when there is no
+    /// marker to show.
+    fn marker_content<S: CssSystem>(
+        &self,
+        owner: NodeId,
+        content: Option<&S::Property>,
+        counters: CounterValues,
+    ) -> Option<String> {
         if let Some(content) = content {
             match content.as_string() {
                 Some("none") => return None,
                 Some("normal") => {}
-                _ => return resolve_content::<S>(content),
+                _ => return resolve_content::<S>(content, counters),
             }
         }
         let style = self.cached_computed_style(owner);
-        let ordinal = self.ordinal(owner);
-        list_marker::marker_text(&style.inherited.list_style_type, ordinal)
+        let list_style_type = &style.inherited.list_style_type;
+        // A bullet needs no number; asking for one would resolve every counter in the document
+        // and make the marker one more box any restyle throws away.
+        let value = if list_marker::reads_value(list_style_type) {
+            counters(counters::LIST_ITEM).last().copied().unwrap_or(0)
+        } else {
+            0
+        };
+        list_marker::marker_text(list_style_type, value)
     }
 
-    /// The value of a list item's `list-item` counter: HTML's ordinal value (§4.4.8), counted
-    /// among the list items that share its parent.
-    ///
-    /// The parent's `start` and `reversed` set where the count begins and which way it goes, an
-    /// item's `value` moves it. Counters in general (`counter-reset`, `counter-increment`) are not
-    /// modelled, so the count does not reach through other elements nesting the items.
-    fn ordinal(&self, item: NodeId) -> i64 {
-        let Some(parent) = self.flat_parent(item) else {
-            return 1;
-        };
-        if let Some(ordinals) = self.ordinal_cache.lock().get(&parent) {
-            return ordinals.get(&item).copied().unwrap_or(1);
-        }
-        let items: Vec<NodeId> = self
-            .flat_children(parent)
-            .into_iter()
-            .filter(|&child| {
-                self.doc.node_type(child) == GosubNodeType::ElementNode
-                    && self.cached_computed_style(child).box_group.list_item
-            })
-            .collect();
-        let integer = |id: NodeId, name: &str| self.doc.attribute(id, name).and_then(|v| v.trim().parse::<i64>().ok());
-        let is_ol = self.doc.tag_name(parent) == Some("ol");
-        let reversed = is_ol && self.doc.attribute(parent, "reversed").is_some();
-        let step = if reversed { -1 } else { 1 };
-        let start = is_ol
-            .then(|| integer(parent, "start"))
-            .flatten()
-            .unwrap_or(if reversed { items.len() as i64 } else { 1 });
+    /// Whether the document's counters have been resolved since the last restyle.
+    #[cfg(test)]
+    pub(crate) fn counters_resolved(&self) -> bool {
+        self.counters.lock().is_some()
+    }
 
-        let mut ordinals = HashMap::with_capacity(items.len());
-        let mut next = start;
-        for child in items {
-            let value = integer(child, "value").unwrap_or(next);
-            ordinals.insert(child, value);
-            next = value.saturating_add(step);
+    /// The document's counters, resolved on first use.
+    fn counter_table(&self) -> Arc<CounterTable> {
+        if let Some(table) = self.counters.lock().as_ref() {
+            return table.clone();
         }
-        let result = ordinals.get(&item).copied().unwrap_or(1);
-        self.ordinal_cache.lock().insert(parent, Arc::new(ordinals));
-        result
+        // Not held during the walk: it reads styles, which take their own locks.
+        let table = Arc::new(counters::resolve(self, self.doc.root()));
+        self.counters.lock().get_or_insert(table).clone()
+    }
+
+    /// Forget the counters, and every pseudo-box whose text was made from them.
+    fn drop_counters(&self, pseudo_cache: &mut PseudoBoxes<C>) {
+        *self.counters.lock() = None;
+        for key in self.counter_readers.lock().drain() {
+            pseudo_cache.remove(&key);
+        }
     }
 
     /// Drop every cached style below `id` (not `id` itself), pseudo-boxes included.
@@ -1069,8 +1246,9 @@ where
         let mut cache = self.style_cache.lock();
         let mut computed_cache = self.computed_cache.lock();
         let mut pseudo_cache = self.pseudo_cache.lock();
-        // A restyled item can stop or start being one, which renumbers its whole list.
-        self.ordinal_cache.lock().clear();
+        let mut pseudo_style_cache = self.pseudo_style_cache.lock();
+        // A restyled element can change any counter after it in the document.
+        self.drop_counters(&mut pseudo_cache);
         let mut stack: Vec<NodeId> = self.doc.children(id).to_vec();
         while let Some(node) = stack.pop() {
             cache.remove(&node);
@@ -1080,6 +1258,7 @@ where
             }
             for kind in PseudoKind::ALL {
                 pseudo_cache.remove(&(node, kind));
+                pseudo_style_cache.remove(&(node, kind));
             }
             stack.extend_from_slice(self.doc.children(node));
         }
@@ -1648,6 +1827,94 @@ where
     }
 }
 
+impl<C> CounterTree for GosubDocumentAdapter<C>
+where
+    C: HasDocument + Send + Sync + 'static,
+    C::Document: Send + Sync,
+    <C::CssSystem as CssSystem>::PropertyMap: Send + Sync,
+{
+    fn items(&self, element: NodeId) -> Vec<Item> {
+        let mut out = Vec::new();
+        let is_element = self.doc.node_type(element) == GosubNodeType::ElementNode;
+        if is_element {
+            // The marker comes before `::before` (css-pseudo-4 §3.1), `::after` is the last child.
+            if self.cached_computed_style(element).box_group.list_item {
+                out.push(Item::Pseudo(element, PseudoKind::Marker));
+            }
+            out.push(Item::Pseudo(element, PseudoKind::Before));
+        }
+        for &child in self.element_tree_children(element) {
+            self.push_counted(child, &mut out);
+        }
+        if is_element {
+            out.push(Item::Pseudo(element, PseudoKind::After));
+        }
+        out
+    }
+
+    fn effects(&self, item: Item) -> Effects {
+        match item {
+            Item::Element(id) => {
+                // The render tree drops these by name, whatever their style says, and with them
+                // their pseudo-elements.
+                let none = self.is_display_none(id)
+                    || self
+                        .doc
+                        .tag_name(id)
+                        .is_some_and(|tag| INVISIBLE_ELEMENTS.contains(&tag));
+                let generates_box = !none && !self.is_spliced_away(id);
+                if !generates_box {
+                    return Effects {
+                        descend: !none,
+                        ..Effects::default()
+                    };
+                }
+                Effects {
+                    generates_box,
+                    descend: true,
+                    list_item: self.cached_computed_style(id).box_group.list_item,
+                    ..counter_effects::<C::CssSystem>(&self.cached_styles(id))
+                }
+            }
+            Item::Pseudo(owner, kind) => {
+                let Some(styles) = self.pseudo_styles(owner, kind) else {
+                    return Effects::default();
+                };
+                let content = <_ as CssPropertyMap<C::CssSystem>>::get(&*styles, "content");
+                let owner_style = self.cached_computed_style(owner);
+                let marker_default =
+                    kind == PseudoKind::Marker && content.is_none_or(|content| content.as_string() == Some("normal"));
+                let generates_box = if marker_default {
+                    owner_style.inherited.list_style_type != ListStyleType::None
+                } else {
+                    content.is_some_and(content_generates_box::<C::CssSystem>)
+                };
+                let pseudo_style = styles.computed_style(Some(&owner_style));
+                // A marker is inline whatever its `display` says (see `build_computed_style`), so only
+                // `content` takes its box away.
+                let display_none = kind != PseudoKind::Marker && pseudo_style.box_group.display == Display::None;
+                if !generates_box || display_none {
+                    return Effects::default();
+                }
+                // The counter properties are not among those that apply to `::marker`
+                // (css-pseudo-4 §3.1.1); what its `content` reads still counts.
+                let declared = if kind == PseudoKind::Marker {
+                    Effects::default()
+                } else {
+                    counter_effects::<C::CssSystem>(&styles)
+                };
+                Effects {
+                    generates_box: true,
+                    // A `::before` or `::after` can be a list item too; a marker is never one.
+                    list_item: kind != PseudoKind::Marker && pseudo_style.box_group.list_item,
+                    uses: content.map(content_counter_names::<C::CssSystem>).unwrap_or_default(),
+                    ..declared
+                }
+            }
+        }
+    }
+}
+
 impl<C> PipelineDocument for GosubDocumentAdapter<C>
 where
     C: HasDocument + Send + Sync + 'static,
@@ -1788,7 +2055,9 @@ where
         self.style_cache.lock().clear();
         self.computed_cache.lock().clear();
         self.pseudo_cache.lock().clear();
-        self.ordinal_cache.lock().clear();
+        self.pseudo_style_cache.lock().clear();
+        *self.counters.lock() = None;
+        self.counter_readers.lock().clear();
         self.parent_cache.lock().clear();
     }
 
@@ -1797,8 +2066,9 @@ where
             let mut cache = self.style_cache.lock();
             let mut computed_cache = self.computed_cache.lock();
             let mut pseudo_cache = self.pseudo_cache.lock();
-            // A restyled element can stop or start being a list item, which renumbers its list.
-            self.ordinal_cache.lock().clear();
+            let mut pseudo_style_cache = self.pseudo_style_cache.lock();
+            // A restyled element can change any counter after it in the document.
+            self.drop_counters(&mut pseudo_cache);
             ids.iter()
                 .map(|id| {
                     computed_cache.remove(id);
@@ -1809,6 +2079,7 @@ where
                     // Drop every pseudo-box belonging to this owner.
                     for kind in PseudoKind::ALL {
                         pseudo_cache.remove(&(*id, kind));
+                        pseudo_style_cache.remove(&(*id, kind));
                     }
                     (*id, cache.remove(id))
                 })

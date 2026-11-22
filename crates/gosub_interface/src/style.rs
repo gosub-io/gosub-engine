@@ -413,6 +413,34 @@ pub enum ListStyleType {
     String(Arc<str>),
 }
 
+impl ListStyleType {
+    /// The counter style a `<counter-style-name>` refers to. Names are ASCII case-insensitive,
+    /// and one this engine does not define is `decimal`.
+    #[must_use]
+    pub fn from_name(name: &str) -> Self {
+        const NAMES: [(&str, ListStyleType); 14] = [
+            ("none", ListStyleType::None),
+            ("disc", ListStyleType::Disc),
+            ("circle", ListStyleType::Circle),
+            ("square", ListStyleType::Square),
+            ("decimal-leading-zero", ListStyleType::DecimalLeadingZero),
+            ("lower-roman", ListStyleType::LowerRoman),
+            ("upper-roman", ListStyleType::UpperRoman),
+            ("lower-alpha", ListStyleType::LowerAlpha),
+            ("lower-latin", ListStyleType::LowerAlpha),
+            ("upper-alpha", ListStyleType::UpperAlpha),
+            ("upper-latin", ListStyleType::UpperAlpha),
+            ("lower-greek", ListStyleType::LowerGreek),
+            ("disclosure-open", ListStyleType::DisclosureOpen),
+            ("disclosure-closed", ListStyleType::DisclosureClosed),
+        ];
+        NAMES
+            .into_iter()
+            .find(|(known, _)| known.eq_ignore_ascii_case(name))
+            .map_or(ListStyleType::Decimal, |(_, style)| style)
+    }
+}
+
 /// `list-style-position`: whether the marker sits outside the item's box or starts its first
 /// line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

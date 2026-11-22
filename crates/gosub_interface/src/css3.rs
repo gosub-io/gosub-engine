@@ -292,6 +292,10 @@ pub trait CssValue: Sized {
     /// [`crate::used`].
     fn used_color(&self, current: Color) -> Option<Color>;
     fn as_number(&self) -> Option<f32>;
+    /// The value as an `<integer>`, exactly: `as_number` goes through an `f32`, which cannot
+    /// hold every integer a counter can (`counter-reset: x 16777217`). `None` for anything that
+    /// is not a whole number.
+    fn as_integer(&self) -> Option<i64>;
     fn as_list(&self) -> Option<&[Self]>;
 
     fn as_function(&self) -> Option<(&str, &[Self])>;
