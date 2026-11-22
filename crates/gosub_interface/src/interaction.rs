@@ -3,16 +3,15 @@
 
 use crate::document::{ControlEditState, OpenSelect};
 use gosub_shared::node::NodeId;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// The user-interaction state of one page.
 #[derive(Debug, Clone, Default)]
 pub struct InteractionState {
-    /// The hovered node and its ancestors.
-    pub hovered: HashSet<NodeId>,
+    /// The node under the pointer. Its ancestors are hovered too; they are found from the tree
+    /// when asked, so they follow it when it changes.
+    pub hover_leaf: Option<NodeId>,
     pub focus: Option<NodeId>,
-    /// `focus` and its ancestors, for `:focus-within`.
-    pub focus_chain: HashSet<NodeId>,
     /// Whether the focus ring shows (`:focus-visible`).
     pub focus_visible: bool,
     /// Text controls the user has typed into; absent = still showing the markup value.

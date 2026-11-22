@@ -518,7 +518,8 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn is_hovered(&self, id: NodeId) -> bool {
-        self.interaction.read().hovered.contains(&id)
+        let leaf = self.interaction.read().hover_leaf;
+        self.is_ancestor_or_self(id, leaf)
     }
 
     fn is_focused(&self, id: NodeId) -> bool {
@@ -531,7 +532,8 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn is_focus_within(&self, id: NodeId) -> bool {
-        self.interaction.read().focus_chain.contains(&id)
+        let focus = self.interaction.read().focus;
+        self.is_ancestor_or_self(id, focus)
     }
 
     fn focused_node(&self) -> Option<NodeId> {
@@ -626,40 +628,26 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     }
 
     pub fn set_hovered_nodes(&self, leaf: Option<NodeId>) {
-        self.interaction.write().hovered = self.ancestors_and_self(leaf);
+        self.interaction.write().hover_leaf = leaf;
     }
 
     /// Move focus to `node` (`None` blurs); `visible` = show the focus ring.
     pub fn set_focused_node(&self, node: Option<NodeId>, visible: bool) {
-        let chain = self.ancestors_and_self(node);
         let mut ix = self.interaction.write();
         ix.focus = node;
         ix.focus_visible = visible;
-        ix.focus_chain = chain;
     }
 
-    /// Rebuild the `:focus-within` chain after `moved` was detached or attached, if the chain
-    /// ran through it. The focus itself stays where it is.
-    fn refresh_focus_chain(&self, moved: NodeId) {
-        let focused = {
-            let ix = self.interaction.read();
-            if !ix.focus_chain.contains(&moved) {
-                return;
-            }
-            ix.focus
-        };
-        self.interaction.write().focus_chain = self.ancestors_and_self(focused);
-    }
-
-    /// `node` and every ancestor of it, up to the root of its tree.
-    fn ancestors_and_self(&self, node: Option<NodeId>) -> std::collections::HashSet<NodeId> {
-        let mut chain = std::collections::HashSet::new();
+    /// Whether `id` is `node` or one of its ancestors, in the tree as it is now.
+    fn is_ancestor_or_self(&self, id: NodeId, node: Option<NodeId>) -> bool {
         let mut current = node;
-        while let Some(id) = current {
-            chain.insert(id);
-            current = self.arena.node_ref(id).and_then(|n| n.parent);
+        while let Some(n) = current {
+            if n == id {
+                return true;
+            }
+            current = self.arena.node_ref(n).and_then(|n| n.parent);
         }
-        chain
+        false
     }
 
     /// Whether `option` is in `select`'s list of options, which is the case when `select` is its
@@ -993,12 +981,10 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         if is_leaf {
             // Most attaches are the parser adding a leaf: skip the ancestor walk when it has no id.
             self.refresh_named_id(node_id);
-            self.refresh_focus_chain(node_id);
             return Ok(());
         }
         let registry = self.registry_of(node_id);
         self.refresh_named_ids(node_id, registry);
-        self.refresh_focus_chain(node_id);
         Ok(())
     }
 
@@ -1100,7 +1086,6 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                 node.set_parent(None);
                 self.refresh_named_ids(node_id, None);
             }
-            self.refresh_focus_chain(node_id);
         }
     }
 
@@ -1208,8 +1193,9 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     /// done in `detach_node`: relocation detaches before reattaching, and must keep the state.
     fn clear_interaction_state(&self, node_id: NodeId) {
         let mut ix = self.interaction.write();
-        ix.hovered.remove(&node_id);
-        ix.focus_chain.remove(&node_id);
+        if ix.hover_leaf == Some(node_id) {
+            ix.hover_leaf = None;
+        }
         if ix.focus == Some(node_id) {
             ix.focus = None;
             ix.focus_visible = false;
@@ -1581,6 +1567,26 @@ mod tests {
         assert!(doc.is_focus_within(input));
         assert!(!doc.is_focus_within(new));
         assert!(!doc.is_focus_within(other));
+    }
+
+    #[test]
+    fn moving_an_ancestor_of_the_hovered_node_moves_hover() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let old = element(&mut doc, "div", root);
+        let new = element(&mut doc, "section", root);
+        let wrapper = element(&mut doc, "div", old);
+        let leaf = element(&mut doc, "span", wrapper);
+        doc.set_hovered_nodes(Some(leaf));
+        assert!(doc.is_hovered(old));
+
+        doc.attach_node(wrapper, new, None).unwrap();
+
+        assert!(!doc.is_hovered(old), "the old parent is no longer under the pointer");
+        assert!(doc.is_hovered(new));
+        assert!(doc.is_hovered(wrapper));
+        assert!(doc.is_hovered(leaf));
+        assert!(doc.is_hovered(root));
     }
 
     /// html > select > (a, b, c), with `b` picked.
