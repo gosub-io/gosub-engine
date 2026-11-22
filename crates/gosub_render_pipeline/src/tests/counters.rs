@@ -496,3 +496,16 @@ fn counter_properties_do_not_apply_to_a_marker() {
     // A counter its `content` names is still created for it.
     assert_eq!(marker(&a, "c").as_deref(), Some("0. "));
 }
+
+#[test]
+fn a_generated_list_item_counts() {
+    let a = adapter(
+        r#"<style>
+            div { counter-reset: list-item }
+            p::before { display: list-item; list-style-type: none; content: counter(list-item) " " }
+        </style>
+        <div><p id="a">a</p><p id="b">b</p></div>"#,
+    );
+    assert_eq!(text(&a, "a"), "1 a");
+    assert_eq!(text(&a, "b"), "2 b");
+}

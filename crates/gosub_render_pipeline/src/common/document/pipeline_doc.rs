@@ -1905,6 +1905,8 @@ where
                 };
                 Effects {
                     generates_box: true,
+                    // A `::before` or `::after` can be a list item too; a marker is never one.
+                    list_item: kind != PseudoKind::Marker && pseudo_style.box_group.list_item,
                     uses: content.map(content_counter_names::<C::CssSystem>).unwrap_or_default(),
                     ..declared
                 }
