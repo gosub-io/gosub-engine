@@ -177,12 +177,18 @@ mod tests {
     fn a_running_script_is_terminated_and_the_host_runs_again() {
         let mut host = host();
         let terminator = host.terminator();
+        let ended = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let seen = std::sync::Arc::clone(&ended);
+        // asked until it has worked: a request before the script starts is dropped
         let stopper = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(100));
-            terminator.terminate();
+            while !seen.load(std::sync::atomic::Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(50));
+                terminator.terminate();
+            }
         });
 
         let error = host.execute("for (;;) {}", &origin()).unwrap_err();
+        ended.store(true, std::sync::atomic::Ordering::SeqCst);
         assert_eq!(error.kind, ScriptErrorKind::Terminated);
         stopper.join().unwrap();
         assert_eq!(host.execute("1 + 1", &origin()), Ok(ScriptValue::Number(2.0)));
