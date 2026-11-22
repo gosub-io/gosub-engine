@@ -51,8 +51,8 @@ unsafe impl GlobalAlloc for CountingAllocator {
         unsafe { System.alloc_zeroed(layout) }
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        ALLOC_OPS.fetch_add(1, Ordering::Relaxed);
         if new_size > layout.size() {
-            ALLOC_OPS.fetch_add(1, Ordering::Relaxed);
             ALLOC_BYTES.fetch_add((new_size - layout.size()) as u64, Ordering::Relaxed);
         }
         unsafe { System.realloc(ptr, layout, new_size) }
