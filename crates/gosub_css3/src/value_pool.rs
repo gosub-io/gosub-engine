@@ -379,6 +379,10 @@ fn write_nodes(out: &mut Vec<u8>, nodes: &[Node]) -> bool {
     })
 }
 
+/// Longest key `built` keeps. A longer one is mostly a `data:` URL, which rarely repeats and
+/// would only be held a second time.
+const MAX_BUILT_KEY: usize = 1024;
+
 /// The distinct values seen while parsing one stylesheet.
 #[derive(Default)]
 pub(crate) struct ValuePool {
@@ -458,7 +462,8 @@ impl ValuePool {
                 node.node_type,
                 NodeType::Function { .. } | NodeType::Calc { .. } | NodeType::Url { .. }
             )
-        }) && write_nodes(&mut key, &nodes);
+        }) && write_nodes(&mut key, &nodes)
+            && key.len() <= MAX_BUILT_KEY;
         let found = keyed.then(|| self.built.get(key.as_slice()).cloned()).flatten();
         let value = match found {
             Some(found) => Ok(found),
@@ -659,6 +664,27 @@ mod tests {
         assert!(pool.get_or_build(nodes(), None, |_| Err(())).is_err());
         let built = pool.get_or_build(nodes(), None, |nodes| Ok::<_, ()>(build(nodes)));
         assert!(built.is_ok());
+    }
+
+    #[test]
+    fn a_long_key_is_not_remembered() {
+        let mut pool = ValuePool::default();
+        let url = "x".repeat(MAX_BUILT_KEY);
+        let nodes = || {
+            vec![node(NodeType::Url {
+                url: url.as_str().into(),
+            })]
+        };
+        let mut builds = 0;
+        for _ in 0..2 {
+            pool.get_or_build(nodes(), None, |nodes| {
+                builds += 1;
+                Ok::<_, ()>(build(nodes))
+            })
+            .expect("builds");
+        }
+        assert_eq!(builds, 2);
+        assert!(pool.built.is_empty());
     }
 
     #[test]
