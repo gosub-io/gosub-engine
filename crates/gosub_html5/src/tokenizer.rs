@@ -18,6 +18,7 @@ use gosub_shared::byte_stream::Character::{Ch, StreamEnd};
 use gosub_shared::byte_stream::{ByteStream, Character, Location, Stream};
 use gosub_shared::types::Result;
 use std::cell::{Ref, RefCell};
+use std::collections::VecDeque;
 use std::rc::Rc;
 
 /// Constants that are not directly captured as visible chars
@@ -56,7 +57,7 @@ pub struct Tokenizer<'tokens> {
     /// Temporary buffer
     pub temporary_buffer: String,
     /// Queue of emitted tokens. Needed because we can generate multiple tokens during iteration
-    pub token_queue: Vec<Token>,
+    pub token_queue: VecDeque<Token>,
     /// The last emitted start token (or empty if none)
     pub last_start_token: String,
     /// Last token location
@@ -71,10 +72,9 @@ pub struct Tokenizer<'tokens> {
 
 impl Tokenizer<'_> {
     pub(crate) fn insert_tokens_at_queue_start(&mut self, first_tokens: Vec<Token>) {
-        let mut new_queue = first_tokens;
-        new_queue.append(&mut self.token_queue);
-
-        self.token_queue = new_queue;
+        for token in first_tokens.into_iter().rev() {
+            self.token_queue.push_front(token);
+        }
     }
 }
 
@@ -129,7 +129,7 @@ impl<'stream> Tokenizer<'stream> {
             consumed_pos: 0,
             consumed: String::new(),
             current_token: None,
-            token_queue: vec![],
+            token_queue: VecDeque::new(),
             current_attr_name: String::new(),
             current_attr_value: String::new(),
             current_attrs: Attributes::new(),
@@ -149,13 +149,12 @@ impl<'stream> Tokenizer<'stream> {
     pub fn next_token(&mut self, parser_data: ParserData) -> Result<Token> {
         self.consume_stream(parser_data)?;
 
-        if self.token_queue.is_empty() {
-            return Ok(Token::Eof {
+        match self.token_queue.pop_front() {
+            Some(token) => Ok(token),
+            None => Ok(Token::Eof {
                 location: self.get_location(),
-            });
+            }),
         }
-
-        Ok(self.token_queue.remove(0))
     }
 
     /// Returns the error logger
@@ -2213,13 +2212,13 @@ impl<'stream> Tokenizer<'stream> {
 
         // If there is any consumed data, emit this first as a text token
         if self.has_consumed_data() {
-            self.token_queue.push(Token::Text {
+            self.token_queue.push_back(Token::Text {
                 text: std::mem::take(&mut self.consumed),
                 location: self.stream.location_at(self.consumed_pos),
             });
         }
 
-        self.token_queue.push(token);
+        self.token_queue.push_back(token);
     }
 
     // Consumes the given character
@@ -2624,6 +2623,37 @@ mod location_tests {
                 "unexpected-null-character@1:17",
             ]
         );
+    }
+
+    #[test]
+    fn tokens_inserted_at_queue_start_come_first_in_order() {
+        let mut stream = ByteStream::from_str("<c><d>", Encoding::UTF8);
+        let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
+        let mut tokenizer = Tokenizer::new(&mut stream, None, error_logger);
+        let tag = |name: &str| Token::StartTag {
+            name: name.to_string(),
+            is_self_closing: false,
+            attributes: Attributes::new(),
+            location: Location::default(),
+        };
+
+        let mut names = vec![];
+        let mut next = |tokenizer: &mut Tokenizer| {
+            let mut token = tokenizer.next_token(ParserData::default()).unwrap();
+            token.set_location(Location::default());
+            names.push(token.to_string());
+        };
+
+        next(&mut tokenizer);
+        tokenizer.insert_tokens_at_queue_start(vec![tag("a"), tag("b")]);
+        next(&mut tokenizer);
+        tokenizer.insert_tokens_at_queue_start(vec![tag("x")]);
+        next(&mut tokenizer);
+        next(&mut tokenizer);
+        next(&mut tokenizer);
+        next(&mut tokenizer);
+
+        assert_eq!(names, vec!["<c>", "<a>", "<x>", "<b>", "<d>", "EOF"]);
     }
 
     #[test]
