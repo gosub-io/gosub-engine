@@ -125,9 +125,9 @@ pub struct ByteStream {
     /// `set_encoding` can re-interpret the source without the caller re-supplying it.
     /// Empty while `raw_in_text` is set.
     raw: Vec<u8>,
-    /// The source is `text` itself: a stream made from a `&str` decodes it straight into
-    /// `text` instead of keeping a second copy. Whatever needs the raw bytes reads them
-    /// from there, newlines already normalized.
+    /// The source is `text` itself: a stream made from a `&str` that decoding left unchanged
+    /// (no CR to normalize) keeps no second copy, and whatever needs the raw bytes reads them
+    /// from `text`.
     raw_in_text: bool,
     /// First byte of `raw` not yet transcoded into `text`. Lets `append_str` resume
     /// transcoding instead of re-scanning the whole buffer (O(n) total, not O(n^2)).
@@ -413,10 +413,17 @@ impl ByteStream {
         // Close before transcoding so the buffer is processed exactly once.
         stream.closed = true;
         if encoding == Encoding::UTF8 {
-            // Decoded straight from `s`, so the input is not held twice.
+            // Decoded straight from `s`. When that changed nothing, `text` is the source and the
+            // input is not held twice; a normalized newline means the original is kept, as a
+            // re-decode in another encoding reads different bytes.
             stream.text.reserve_exact(s.len());
             stream.transcode_utf8_from(s.as_bytes(), 0);
-            stream.raw_in_text = true;
+            if stream.text == s.as_bytes() {
+                stream.raw_in_text = true;
+            } else {
+                stream.raw = Vec::from(s.as_bytes());
+                stream.raw_processed = stream.raw.len();
+            }
         } else {
             stream.raw = Vec::from(s.as_bytes());
             stream.transcode_pending();
@@ -1198,10 +1205,20 @@ mod test {
 
     #[test]
     fn from_str_holds_the_input_once() {
-        let stream = ByteStream::from_str("a\r\nb", Encoding::UTF8);
+        let stream = ByteStream::from_str("a\nb", Encoding::UTF8);
         assert!(stream.raw.is_empty());
         assert_eq!(stream.text, b"a\nb");
         assert_eq!(stream.line_starts, vec![0, 2]);
+    }
+
+    #[test]
+    fn from_str_keeps_the_input_when_newlines_were_normalized() {
+        let mut stream = ByteStream::from_str("a\r\nb", Encoding::UTF8);
+        assert_eq!(stream.text, b"a\nb");
+        stream.set_encoding(Encoding::UTF16LE);
+        assert_eq!(stream.read_and_next(), Ch('\u{0d61}'));
+        assert_eq!(stream.read_and_next(), Ch('\u{620a}'));
+        assert!(stream.eof());
     }
 
     #[test]
