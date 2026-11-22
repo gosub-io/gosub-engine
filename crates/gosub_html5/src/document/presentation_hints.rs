@@ -71,6 +71,37 @@ fn non_negative_integer(raw: &str) -> Option<u32> {
     digits.parse().ok()
 }
 
+/// An integer, as HTML's rules for parsing one read it: leading whitespace, an optional sign,
+/// then the digits, and whatever follows is ignored. Saturates rather than fail on a number too
+/// long for an `i64`; the counter it ends up in is clamped far below that anyway.
+fn integer(raw: &str) -> Option<i64> {
+    let raw = raw.trim_start_matches([' ', '\t', '\n', '\u{0c}', '\r']);
+    let (negative, raw) = match raw.as_bytes().first() {
+        Some(b'-') => (true, &raw[1..]),
+        Some(b'+') => (false, &raw[1..]),
+        _ => (false, raw),
+    };
+    let digits = raw.bytes().take_while(u8::is_ascii_digit);
+    let mut value: i64 = 0;
+    let mut any = false;
+    for digit in digits {
+        any = true;
+        value = value.saturating_mul(10).saturating_add(i64::from(digit - b'0'));
+    }
+    any.then_some(if negative { -value } else { value })
+}
+
+/// HTML §15.3.8: an `<ol>`'s `start` and `reversed` as the `counter-reset` of its `list-item`
+/// counter, which its items then count from.
+fn list_counter_reset(start: Option<i64>, reversed: bool) -> Option<String> {
+    match (start, reversed) {
+        (Some(start), true) => Some(format!("reversed(list-item) {}", start.saturating_add(1))),
+        (None, true) => Some("reversed(list-item)".to_string()),
+        (Some(start), false) => Some(format!("list-item {}", start.saturating_sub(1))),
+        (None, false) => None,
+    }
+}
+
 /// HTML's "rules for parsing a legacy colour value", which answer `bgcolor`.
 ///
 /// It is not the CSS colour parser and is not meant to be: `bgcolor="chucknorris"` is a real
@@ -287,6 +318,17 @@ pub fn hints_for<'a>(
     if let Some(value) = lookup("type").and_then(|raw| list_type(tag, raw)) {
         push(&mut out, "list-style-type", value);
     }
+    if tag == "ol" {
+        let start = lookup("start").and_then(integer);
+        if let Some(value) = list_counter_reset(start, lookup("reversed").is_some()) {
+            push(&mut out, "counter-reset", &value);
+        }
+    }
+    if tag == "li" {
+        if let Some(value) = lookup("value").and_then(integer) {
+            push(&mut out, "counter-set", &format!("list-item {value}"));
+        }
+    }
 
     // §15.3.9, the dimension attributes: a replaced element's `width` and `height` are CSS ones.
     let dimension_attr = match tag {
@@ -345,6 +387,46 @@ mod tests {
         assert_eq!(hint("ul", "a"), None);
         assert_eq!(hint("ol", "disc"), None);
         assert_eq!(hint("input", "1"), None);
+    }
+
+    #[test]
+    fn start_reversed_and_value_map_onto_the_list_item_counter() {
+        let attrs = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| *value)
+        };
+        let hint = |tag: &str, pairs: &'static [(&'static str, &'static str)]| {
+            hints_for(tag, false, attrs(pairs), none, false)
+        };
+        assert_eq!(
+            hint("ol", &[("start", "5")]).as_deref(),
+            Some("counter-reset:list-item 4")
+        );
+        assert_eq!(
+            hint("ol", &[("start", " -3x")]).as_deref(),
+            Some("counter-reset:list-item -4")
+        );
+        assert_eq!(
+            hint("ol", &[("reversed", "")]).as_deref(),
+            Some("counter-reset:reversed(list-item)")
+        );
+        assert_eq!(
+            hint("ol", &[("reversed", ""), ("start", "10")]).as_deref(),
+            Some("counter-reset:reversed(list-item) 11")
+        );
+        // A start that does not parse is no start; without `reversed` there is then no hint.
+        assert_eq!(hint("ol", &[("start", "x")]), None);
+        assert_eq!(
+            hint("ol", &[("reversed", ""), ("start", "x")]).as_deref(),
+            Some("counter-reset:reversed(list-item)")
+        );
+        assert_eq!(
+            hint("li", &[("value", "+7")]).as_deref(),
+            Some("counter-set:list-item 7")
+        );
+        assert_eq!(hint("li", &[("value", "")]), None);
+        // Only the elements HTML maps them on.
+        assert_eq!(hint("ul", &[("start", "5"), ("reversed", "")]), None);
+        assert_eq!(hint("p", &[("value", "5")]), None);
     }
 
     #[test]
