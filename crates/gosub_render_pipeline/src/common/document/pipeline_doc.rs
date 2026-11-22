@@ -1,6 +1,7 @@
 use crate::common::document::counters::{self, CounterTable, CounterTree, Effects, Item};
 use crate::common::document::list_marker;
 use crate::common::document::node::{AttrMap, ElementData, Node, NodeType};
+use crate::rendertree_builder::tree::INVISIBLE_ELEMENTS;
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem, CssValue};
 use gosub_interface::document::Document as _;
@@ -1854,7 +1855,13 @@ where
     fn effects(&self, item: Item) -> Effects {
         match item {
             Item::Element(id) => {
-                let none = self.is_display_none(id);
+                // The render tree drops these by name, whatever their style says, and with them
+                // their pseudo-elements.
+                let none = self.is_display_none(id)
+                    || self
+                        .doc
+                        .tag_name(id)
+                        .is_some_and(|tag| INVISIBLE_ELEMENTS.contains(&tag));
                 let generates_box = !none && !self.is_spliced_away(id);
                 if !generates_box {
                     return Effects {

@@ -460,3 +460,16 @@ fn bullets_do_not_resolve_the_counters() {
     assert_eq!(marker(&a, "b").as_deref(), Some("2. "));
     assert!(a.counters_resolved());
 }
+
+#[test]
+fn an_element_that_never_renders_does_not_count() {
+    // `head` gets no computed style at all, so no `display: none` either; the render tree drops
+    // it by name, and the counters have to as well.
+    let a = adapter(
+        r#"<html style="counter-reset: x"><head><style>
+            head::before, title::before { content: ""; counter-increment: x }
+            #out::before { content: counter(x) }
+        </style><title>t</title></head><body><p id="out"></p></body></html>"#,
+    );
+    assert_eq!(text(&a, "out"), "0");
+}
