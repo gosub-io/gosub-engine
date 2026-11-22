@@ -40,17 +40,30 @@ debug_parser_verbose = []
 testing = []
 
 
+# These use `gosub_html5::testing`. The self dev-dependency above turns `testing` on in the
+# workspace, but `cargo package` drops it, so the packaged crate needs `--features testing`.
+[[test]]
+name = "fragment_form_pointer"
+required-features = ["testing"]
+
+[[test]]
+name = "shadow_dom"
+required-features = ["testing"]
+
 [[bench]]
 name = "tokenizer"
 harness = false
+required-features = ["testing"]
 
 [[bench]]
 name = "tree_construction"
 harness = false
+required-features = ["testing"]
 
 [[bench]]
 name = "html_parser"
 harness = false
+required-features = ["testing"]
 
 # Mirrors the workspace lints, except unsafe_code is "deny" instead of "forbid":
 # the html_parser bench installs a counting GlobalAlloc, which requires unsafe
