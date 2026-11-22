@@ -898,11 +898,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 match (doc, source) {
                     (Some(doc), source) => {
                         // the thread the document's own scripts ran on, if it had any to run
-                        self.script = self
-                            .pending_script
-                            .take()
-                            .filter(|(pending, _)| *pending == nav_id)
-                            .map(|(_, thread)| thread);
+                        self.script = adopt_pending(&mut self.pending_script, nav_id);
                         self.document_in_renderer = false;
                         self.context.set_document(Arc::clone(&doc), source);
                         self.context.set_document_referrer_policy(referrer_policy);
@@ -3764,6 +3760,16 @@ fn same_origin(from: &Url, url: &Url) -> bool {
     from == url || from.origin() == url.origin()
 }
 
+/// Takes what is pending for `nav_id`. What is pending for another navigation stays: a
+/// result that was overtaken must not take the newer document's script thread away.
+fn adopt_pending<T>(pending: &mut Option<(NavigationId, T)>, nav_id: NavigationId) -> Option<T> {
+    if pending.as_ref().is_some_and(|(id, _)| *id == nav_id) {
+        pending.take().map(|(_, value)| value)
+    } else {
+        None
+    }
+}
+
 fn script_error_event(tab_id: TabId, error: ScriptError) -> EngineEvent {
     EngineEvent::JavaScriptError {
         tab_id,
@@ -3775,6 +3781,17 @@ fn script_error_event(tab_id: TabId, error: ScriptError) -> EngineEvent {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_overtaken_navigation_leaves_the_pending_script_thread() {
+        let (older, newer) = (super::NavigationId::new(), super::NavigationId::new());
+        let mut pending = Some((newer, "thread"));
+
+        assert_eq!(super::adopt_pending(&mut pending, older), None);
+        assert_eq!(pending, Some((newer, "thread")));
+        assert_eq!(super::adopt_pending(&mut pending, newer), Some("thread"));
+        assert_eq!(pending, None);
+    }
+
     mod same_origin {
         use super::super::same_origin;
         use url::Url;
