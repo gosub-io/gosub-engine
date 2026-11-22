@@ -32,7 +32,7 @@ pub(crate) enum BookMark<NodeId> {
     InsertAfter(NodeId),
 }
 
-// ── free helper functions (work purely from the Document trait) ─────────────
+// free helper functions (work purely from the Document trait)
 
 /// Returns true when the element identified by `id` is a "special" element
 /// (as defined in the HTML parsing spec).
@@ -82,7 +82,7 @@ pub(crate) fn matches_tag_and_attrs_without_order<C: HasDocument>(doc: &C::Docum
     doc.attributes(a) == doc.attributes(b)
 }
 
-// ── impl block ──────────────────────────────────────────────────────────────
+// impl block
 
 impl<C: HasDocument> Html5Parser<'_, C> {
     fn find_position_in_active_format(&self, node_id: NodeId) -> Option<usize> {
