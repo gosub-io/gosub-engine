@@ -1210,6 +1210,9 @@ impl<C: RenderConfiguration> InputHost for RetainedPage<C> {
     }
 
     fn damage_nodes(&mut self, nodes: &[NodeId]) {
+        // The adapter restyles these nodes right away, so it has to see the focus the caller
+        // just moved, not the one from the last pass.
+        self.sync_interaction();
         self.adapter.invalidate_style_for_nodes(nodes);
     }
 
@@ -1487,6 +1490,49 @@ mod tests {
         let mut page = build("https://example.test/#p");
         assert!(page.flush_autofocus().is_none());
         assert_eq!(page.interaction_snapshot().focused_node(), None);
+    }
+
+    /// Moving focus restyles both controls with the new focus: `:focus` leaves the one that lost
+    /// it and lands on the one that got it, and a pass afterwards keeps it that way.
+    #[test]
+    fn moving_focus_restyles_both_controls() {
+        use crate::html::{DefaultRenderConfig, RenderConfiguration};
+        use gosub_interface::style::Color;
+        type Fonts = <DefaultRenderConfig as RenderConfiguration>::FontSystem;
+        let fonts: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(Fonts::default()));
+        let known = HashSet::new();
+        let mut page = RetainedPage::<DefaultRenderConfig>::build(
+            PageRequest {
+                html: "<!DOCTYPE html><style>input:focus { color: rgb(255, 0, 0) }</style>\
+<input id=\"a\"><input id=\"b\">",
+                page_url: "https://example.test/",
+                viewport_width: 800.0,
+                viewport_height: 600.0,
+                known_tiles: &known,
+                hovered_node: None,
+                dpr: 1,
+                media: MediaPrefs::default(),
+            },
+            fonts,
+            Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
+            Arc::new(crate::net::resource_loader::NoResourceLoader),
+        );
+        page.render(Some((0.0, 0.0)), &known);
+        let a = page.doc.node_by_named_id("a").expect("input a");
+        let b = page.doc.node_by_named_id("b").expect("input b");
+        let red = |page: &RetainedPage<DefaultRenderConfig>, id| {
+            page.adapter.computed_style(id).inherited.color == Color::rgba(255, 0, 0, 255)
+        };
+
+        assert!(page.with_input(|input, host| input.set_focus(host, Some(a), true)));
+        assert!(red(&page, a) && !red(&page, b));
+        page.render(Some((0.0, 0.0)), &known);
+        assert!(red(&page, a) && !red(&page, b), "after a pass");
+
+        assert!(page.with_input(|input, host| input.set_focus(host, Some(b), true)));
+        assert!(!red(&page, a) && red(&page, b));
+        page.render(Some((0.0, 0.0)), &known);
+        assert!(!red(&page, a) && red(&page, b), "after a pass");
     }
 
     /// A viewport with no width yet keeps every column, so what the broker holds stays there.

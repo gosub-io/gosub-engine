@@ -4412,6 +4412,40 @@ mod tests {
             assert_eq!(ctx.focused_node(), None);
         }
 
+        /// Moving focus restyles both controls with the new focus once the next pass runs, as
+        /// the out-of-process renderer does (`moving_focus_restyles_both_controls` there).
+        #[test]
+        fn moving_focus_restyles_both_controls() {
+            use gosub_interface::style::Color;
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 500,
+            });
+            let html = r#"<!DOCTYPE html><style>input:focus { color: rgb(255, 0, 0) }</style>
+                <input id="a"><input id="b">"#;
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            let a = doc.node_by_named_id("a").expect("input a");
+            let b = doc.node_by_named_id("b").expect("input b");
+            ctx.set_document(Arc::new(doc), None);
+            ctx.rebuild_pipeline_cache_if_needed();
+            let red = |ctx: &BrowsingContext<DefaultRenderConfig>, id| {
+                let adapter = ctx.document_adapter.as_ref().expect("an adapter after a pass");
+                adapter.computed_style(id).inherited.color == Color::rgba(255, 0, 0, 255)
+            };
+
+            assert!(ctx.set_focus(Some(a), true));
+            ctx.rebuild_pipeline_cache_if_needed();
+            assert!(red(&ctx, a) && !red(&ctx, b));
+
+            assert!(ctx.set_focus(Some(b), true));
+            ctx.rebuild_pipeline_cache_if_needed();
+            assert!(!red(&ctx, a) && red(&ctx, b));
+        }
+
         /// Regression: a layer whose elements sit entirely outside the page box (fixed
         /// element pushed far off-screen - a common accessibility/hiding pattern) used to
         /// underflow the tiler's tile-count arithmetic and panic the tab worker.
