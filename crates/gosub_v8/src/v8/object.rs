@@ -148,6 +148,9 @@ impl WebObject for V8Object {
             .call(try_catch, recv.into(), &args)
             .map(|v| V8Value::from_value(self.ctx.clone(), Global::new(try_catch, v)))
         else {
+            if let Some(e) = self.ctx.take_termination(try_catch.has_terminated()) {
+                return Err(e.into());
+            }
             return Err(V8Ctx::report_exception(try_catch).into());
         };
 

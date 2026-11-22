@@ -11,6 +11,7 @@ use v8::{CreateParams, Exception, Global, Isolate, Local, PinScope, Value};
 pub use array::*;
 pub use compile::*;
 pub use context::*;
+pub use control::*;
 pub use function::*;
 use gosub_shared::types::Result;
 use gosub_webexecutor::js::WebRuntime;
@@ -20,6 +21,7 @@ pub use value::*;
 mod array;
 mod compile;
 mod context;
+mod control;
 mod function;
 mod object;
 mod value;
@@ -40,8 +42,13 @@ impl Default for V8Engine {
 const MAX_V8_INIT_SECONDS: u64 = 10;
 
 impl V8Engine {
-    #[allow(clippy::panic)] // deliberate fail-fast: a hung V8 initialization cannot be recovered from
     pub fn initialize() {
+        Self::initialize_with(&V8Options::default());
+    }
+
+    /// Returns false when V8 was already initialized, in which case `options` had no effect.
+    #[allow(clippy::panic)] // deliberate fail-fast: a hung V8 initialization cannot be recovered from
+    pub fn initialize_with(options: &V8Options) -> bool {
         let mut wait_time = MAX_V8_INIT_SECONDS * 1000;
 
         if V8_INITIALIZING.load(Ordering::SeqCst) {
@@ -52,17 +59,42 @@ impl V8Engine {
                     panic!("V8 initialization timed out after {MAX_V8_INIT_SECONDS} seconds");
                 }
             }
-            return;
+            return false;
         }
+
+        let mut applied = false;
 
         V8_INITIALIZED.call_once(|| {
             V8_INITIALIZING.store(true, Ordering::SeqCst);
-            //https://github.com/denoland/rusty_v8/issues/1381
-            let platform = v8::new_unprotected_default_platform(0, false).make_shared();
+
+            let mut flags = options.flags.clone();
+            if options.jitless {
+                flags.push("--jitless".to_owned());
+            }
+            if options.single_threaded {
+                flags.push("--single-threaded".to_owned());
+            }
+            if !flags.is_empty() {
+                v8::V8::set_flags_from_string(&flags.join(" "));
+            }
+
+            // V8 otherwise opens /dev/urandom for every isolate and context
+            v8::V8::set_entropy_source(|buf| getrandom::fill(buf).is_ok());
+
+            let platform = if options.single_threaded {
+                v8::new_single_threaded_default_platform(false)
+            } else {
+                //https://github.com/denoland/rusty_v8/issues/1381
+                v8::new_unprotected_default_platform(0, false)
+            }
+            .make_shared();
             v8::V8::initialize_platform(platform);
             v8::V8::initialize();
             V8_INITIALIZING.store(false, Ordering::SeqCst);
+            applied = true;
         });
+
+        applied
     }
 
     pub fn new() -> Self {
@@ -150,7 +182,15 @@ impl V8Context {
     }
 
     pub fn new(params: CreateParams) -> Result<Self> {
-        let ctx = V8Ctx::new(params);
+        Self::new_with(params, &V8ContextOptions::default())
+    }
+
+    pub fn with_options(options: &V8ContextOptions) -> Result<Self> {
+        Self::new_with(Default::default(), options)
+    }
+
+    fn new_with(params: CreateParams, options: &V8ContextOptions) -> Result<Self> {
+        let ctx = V8Ctx::new(params, options);
         Ok(Self {
             ctx: Rc::new(RefCell::new(ctx)),
         })
