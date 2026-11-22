@@ -3704,7 +3704,7 @@ impl TaffyLayouter {
                         // (css-sizing-3 §5.2.2, compressible replaced elements).
                         taffy_style.item_is_replaced = true;
                         // A drag-resized control keeps the size the user gave it (border box).
-                        if let Some((w, h)) = layout_tree.render_tree.doc.control_size(dom_node.node_id) {
+                        if let Some((w, h)) = layout_tree.render_tree.doc.interaction().control_size(dom_node.node_id) {
                             taffy_style.box_sizing = taffy::BoxSizing::BorderBox;
                             taffy_style.size = Size {
                                 width: Dimension::from_length(w as f32),
@@ -4995,7 +4995,7 @@ impl TaffyLayouter {
     /// (above it when there is no room below), sized to the widest option.
     fn attach_select_popup(&self, layout_tree: &mut LayoutTree) {
         let doc = Arc::clone(&layout_tree.render_tree.doc);
-        let Some(open) = doc.open_select() else {
+        let Some(open) = doc.interaction().open_select() else {
             return;
         };
         let select_id = open.select;
@@ -5030,8 +5030,7 @@ impl TaffyLayouter {
 
         let (sx, st, sb) = SELECT_POPUP_SHADOW;
         let chrome = pad_y * 2.0 + 2.0;
-        let (open_above, visible_rows) =
-            crate::layouter::popup_placement(anchor, (open.viewport_top, open.viewport_height), rows.len());
+        let (open_above, visible_rows) = crate::layouter::popup_placement(anchor, open.viewport, rows.len());
         let scrolls = rows.len() > visible_rows;
         // Text inset 10px each side, room for the checkmark and the scrollbar.
         let width = anchor

@@ -81,6 +81,8 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     fn parent(&self, id: NodeId) -> Option<NodeId>;
     fn children(&self, id: NodeId) -> &[NodeId];
     fn next_sibling(&self, id: NodeId) -> Option<NodeId>;
+    /// Whether `id` is a node of this document, attached or not. False once it is removed.
+    fn contains(&self, id: NodeId) -> bool;
 
     /// Insert `node` under `parent`, at `position` or last, moving it from where it was. On an
     /// error nothing changes.
@@ -263,48 +265,6 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     /// [`Document::write_xml_from_node`] with the attributes `attrs` gives for each element set
     /// on it, replacing any attribute of the same name.
     fn write_svg_from_node(&self, id: NodeId, attrs: &dyn Fn(NodeId) -> Vec<(&'static str, String)>) -> String;
-
-    fn is_hovered(&self, _id: NodeId) -> bool {
-        false
-    }
-
-    // Interaction state read by the `:focus`/`:checked` selectors and the painter.
-
-    fn is_focused(&self, _id: NodeId) -> bool {
-        false
-    }
-    /// Focused and the ring should show (keyboard focus, or a text-entry control).
-    fn is_focus_visible(&self, _id: NodeId) -> bool {
-        false
-    }
-    /// The focused element or one of its ancestors.
-    fn is_focus_within(&self, _id: NodeId) -> bool {
-        false
-    }
-    fn focused_node(&self) -> Option<NodeId> {
-        None
-    }
-    /// Live checkedness; the `checked` attribute is only the default.
-    fn is_checked(&self, id: NodeId) -> bool {
-        self.attribute(id, "checked").is_some()
-    }
-    /// What has been typed into a text control; `None` = untouched (shows its markup value).
-    fn control_edit_state(&self, _id: NodeId) -> Option<ControlEditState> {
-        None
-    }
-    /// The chosen `<option>` of a `<select>` (the `selected` attribute or the first option until
-    /// the user picks another). `None` = not tracked, use the markup.
-    fn selected_option(&self, _select: NodeId) -> Option<NodeId> {
-        None
-    }
-    /// Border-box size the user dragged a resizable control (`<textarea>`) to.
-    fn control_size(&self, _id: NodeId) -> Option<(f64, f64)> {
-        None
-    }
-    /// The open `<select>` dropdown, if any.
-    fn open_select(&self) -> Option<OpenSelect> {
-        None
-    }
 }
 
 /// An open `<select>` dropdown. Row indices count every popup row (options and group labels).

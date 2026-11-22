@@ -1,7 +1,7 @@
 use core::fmt::Debug;
 use gosub_interface::css3::CssSystem;
 use gosub_interface::document::{AttachError, ControlEditState, Document, DocumentType, OpenSelect, PendingStylesheet};
-use gosub_interface::interaction::InteractionState;
+use gosub_interface::interaction::{InteractionSnapshot, InteractionState};
 use gosub_shared::attributes::Attributes;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -179,6 +179,10 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
 
     fn next_sibling(&self, id: NodeId) -> Option<NodeId> {
         self.get_next_sibling(id)
+    }
+
+    fn contains(&self, id: NodeId) -> bool {
+        self.arena.node_ref(id).is_some()
     }
 
     fn attach(&mut self, node: NodeId, parent: NodeId, position: Option<usize>) -> Result<(), AttachError> {
@@ -516,35 +520,57 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     fn write_svg_from_node(&self, node_id: NodeId, attrs: &dyn Fn(NodeId) -> Vec<(&'static str, String)>) -> String {
         crate::writer::DocumentWriter::write_svg_from_node::<C>(node_id, self, attrs)
     }
+}
 
-    fn is_hovered(&self, id: NodeId) -> bool {
+// ── Internal helpers (not part of Document trait) ───────────────────────────
+
+impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
+    /// Keep the errors [`Html5Parser::parse_document`](crate::parser::Html5Parser::parse_document)
+    /// returned for this document. The parser hands them back rather than storing them, so a
+    /// caller that discards them has none to show.
+    pub fn set_parse_errors(&mut self, errors: Vec<ParseError>) {
+        self.parse_errors = errors;
+    }
+
+    /// The errors kept by [`Self::set_parse_errors`], in the order the parser met them.
+    #[must_use]
+    pub fn parse_errors(&self) -> &[ParseError] {
+        &self.parse_errors
+    }
+
+    /// The interaction state read against the tree as it is now, for a style or paint pass.
+    pub fn interaction_snapshot(&self) -> InteractionSnapshot {
+        InteractionSnapshot::new::<C>(&self.interaction.read(), self)
+    }
+
+    pub fn is_hovered(&self, id: NodeId) -> bool {
         let leaf = self.interaction.read().hover_leaf;
         self.is_ancestor_or_self(id, leaf)
     }
 
-    fn is_focused(&self, id: NodeId) -> bool {
+    pub fn is_focused(&self, id: NodeId) -> bool {
         self.interaction.read().focus == Some(id)
     }
 
-    fn is_focus_visible(&self, id: NodeId) -> bool {
+    pub fn is_focus_visible(&self, id: NodeId) -> bool {
         let ix = self.interaction.read();
         ix.focus_visible && ix.focus == Some(id)
     }
 
-    fn is_focus_within(&self, id: NodeId) -> bool {
+    pub fn is_focus_within(&self, id: NodeId) -> bool {
         let focus = self.interaction.read().focus;
         self.is_ancestor_or_self(id, focus)
     }
 
-    fn focused_node(&self) -> Option<NodeId> {
+    pub fn focused_node(&self) -> Option<NodeId> {
         self.interaction.read().focus
     }
 
-    fn control_edit_state(&self, id: NodeId) -> Option<ControlEditState> {
+    pub fn control_edit_state(&self, id: NodeId) -> Option<ControlEditState> {
         self.interaction.read().edits.get(&id).cloned()
     }
 
-    fn is_checked(&self, id: NodeId) -> bool {
+    pub fn is_checked(&self, id: NodeId) -> bool {
         // `option:checked` = the select's chosen option.
         if self.tag_name(id) == Some("option") {
             let mut cur = self.parent(id);
@@ -562,7 +588,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         }
     }
 
-    fn selected_option(&self, select: NodeId) -> Option<NodeId> {
+    pub fn selected_option(&self, select: NodeId) -> Option<NodeId> {
         // The pick only counts while the option is still one of the select's options; moved
         // out, the select falls back to its default. Moved back, the pick returns.
         let picked = self.interaction.read().selected.get(&select).copied();
@@ -587,29 +613,12 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         first
     }
 
-    fn open_select(&self) -> Option<OpenSelect> {
+    pub fn open_select(&self) -> Option<OpenSelect> {
         self.interaction.read().open_select
     }
 
-    fn control_size(&self, id: NodeId) -> Option<(f64, f64)> {
+    pub fn control_size(&self, id: NodeId) -> Option<(f64, f64)> {
         self.interaction.read().sizes.get(&id).copied()
-    }
-}
-
-// ── Internal helpers (not part of Document trait) ───────────────────────────
-
-impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
-    /// Keep the errors [`Html5Parser::parse_document`](crate::parser::Html5Parser::parse_document)
-    /// returned for this document. The parser hands them back rather than storing them, so a
-    /// caller that discards them has none to show.
-    pub fn set_parse_errors(&mut self, errors: Vec<ParseError>) {
-        self.parse_errors = errors;
-    }
-
-    /// The errors kept by [`Self::set_parse_errors`], in the order the parser met them.
-    #[must_use]
-    pub fn parse_errors(&self) -> &[ParseError] {
-        &self.parse_errors
     }
 
     /// The `<table>` a cell sits in, if it sits in one at all.

@@ -381,6 +381,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         // Stages 1-3, from the document kept beside the pipeline's view of it.
         let doc = Arc::new(doc);
         let adapter = Arc::new(GosubDocumentAdapter::<C>::new(Arc::clone(&doc)));
+        adapter.set_interaction(doc.interaction_snapshot());
         let (layer_list, layer_ids, page_width, page_height, render_tree_us, layout_us, layouter) =
             lay_out::<C>(&adapter, &fonts, &media_store, viewport_width, viewport_height);
         let style_fingerprint = C::CssSystem::style_environment_fingerprint(doc.stylesheets());
@@ -751,6 +752,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
     /// Returns the cost in microseconds and whether the shortcut was taken.
     fn lay_out_again(&mut self, relayout: Relayout) -> (u64, bool) {
         let started = std::time::Instant::now();
+        self.sync_interaction();
         // Process-wide state another tab's navigate may have moved since.
         apply_media_prefs(self.dpr, self.media);
         gosub_css3::stylesheet::set_layout_viewport(self.viewport_width as f32, self.viewport_height as f32);
@@ -821,6 +823,11 @@ impl<C: RenderConfiguration> RetainedPage<C> {
     /// under the wheel.
     fn holds_pointer(&self) -> bool {
         self.input.has_capture() || self.doc.open_select().is_some()
+    }
+
+    /// Hand the adapter the interaction state as it is now, read against the tree as it is now.
+    fn sync_interaction(&self) {
+        self.adapter.set_interaction(self.doc.interaction_snapshot());
     }
 
     /// The input layer, run against this page as its host. Taken out for the
@@ -923,6 +930,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         use gosub_render_pipeline::painter::Painter;
 
         let started = std::time::Instant::now();
+        self.sync_interaction();
         let mut timings = std::mem::take(&mut self.build_timings);
         let lap = |name: &str, timings: &mut Vec<(String, u64)>, since: &mut u64| {
             let now = started.elapsed().as_micros() as u64;

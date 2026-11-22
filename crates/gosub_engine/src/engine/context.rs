@@ -1080,12 +1080,21 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             None => {
                 let doc = self.document.as_ref()?;
                 let adapter = Arc::new(GosubDocumentAdapter::<C>::new(Arc::clone(doc)));
+                adapter.set_interaction(doc.interaction_snapshot());
                 self.document_adapter = Some(Arc::clone(&adapter));
                 adapter
             }
         };
 
         Some(adapter)
+    }
+
+    /// Hand the adapter the interaction state as it is now, read against the tree as it is now:
+    /// what this pass styles and paints with.
+    fn sync_interaction(&self) {
+        if let (Some(adapter), Some(doc)) = (&self.document_adapter, &self.document) {
+            adapter.set_interaction(doc.interaction_snapshot());
+        }
     }
 
     /// Drop exactly as much of the cached computed styles as the accumulated damage requires.
@@ -2022,6 +2031,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// Shared by [`Self::rebuild_pipeline_cache_if_needed`] and
     /// [`Self::rebuild_render_list_if_needed`] so both backends make the same choice.
     fn refresh_pipeline_cache(&mut self) {
+        self.sync_interaction();
         let level = self.damage.level();
         if level.needs_geometry() {
             self.rebuild_full_pipeline();
