@@ -2743,8 +2743,9 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     let node_id = self.form_element;
                     self.form_element = None;
 
-                    let Some(node_id) = node_id.filter(|_| self.is_in_scope(name, HTML_NAMESPACE, Scope::Regular))
-                    else {
+                    // The pointer's own element, not any form: another form can be in scope
+                    // while the pointer's form is not.
+                    let Some(node_id) = node_id.filter(|&id| self.is_element_in_scope(id, Scope::Regular)) else {
                         self.parse_error("end tag not in scope");
                         // ignore token
                         return;
