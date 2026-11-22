@@ -4,7 +4,7 @@ use crate::node::data::document::DocumentData;
 use crate::node::data::element::ElementData;
 use crate::node::data::shadow_root::ShadowRootData;
 use crate::node::data::text::TextData;
-use gosub_interface::node::{NodeType, QuirksMode, ShadowRootInit};
+use gosub_interface::node::{NodeType, ShadowRootInit};
 use gosub_shared::attributes::Attributes;
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
@@ -73,8 +73,8 @@ impl NodeImpl {
     }
 
     #[must_use]
-    pub fn new_document(location: Location, quirks_mode: QuirksMode) -> Self {
-        Self::new(location, NodeDataTypeInternal::Document(DocumentData::new(quirks_mode)))
+    pub fn new_document(location: Location) -> Self {
+        Self::new(location, NodeDataTypeInternal::Document(DocumentData))
     }
 
     #[must_use]
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn new_document() {
-        let node = NodeImpl::new_document(Location::default(), QuirksMode::NoQuirks);
+        let node = NodeImpl::new_document(Location::default());
         assert_eq!(node.id, NodeId::default());
         assert_eq!(node.parent, None);
         assert!(node.children.is_empty());
@@ -321,7 +321,7 @@ mod tests {
 
     #[test]
     fn type_of() {
-        let node = NodeImpl::new_document(Location::default(), QuirksMode::NoQuirks);
+        let node = NodeImpl::new_document(Location::default());
         assert_eq!(node.type_of(), NodeType::DocumentNode);
         let node = NodeImpl::new_text(Location::default(), "test");
         assert_eq!(node.type_of(), NodeType::TextNode);
@@ -365,7 +365,7 @@ mod tests {
 
     #[test]
     fn type_of_node() {
-        let node = NodeImpl::new_document(Location::default(), QuirksMode::NoQuirks);
+        let node = NodeImpl::new_document(Location::default());
         assert_eq!(node.type_of(), NodeType::DocumentNode);
         let node = NodeImpl::new_text(Location::default(), "test");
         assert_eq!(node.type_of(), NodeType::TextNode);

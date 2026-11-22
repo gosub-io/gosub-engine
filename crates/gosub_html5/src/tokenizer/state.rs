@@ -64,9 +64,6 @@ pub enum State {
     CDATASectionBracket,
     CDATASectionEnd,
 
-    /// 8.2.4.41 Character reference in attribute value state
-    CharacterReferenceInAttributeValue,
-
     /// 8.2.4.2 Character reference in data state
     CharacterReferenceInData,
 

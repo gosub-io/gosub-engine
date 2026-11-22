@@ -76,7 +76,6 @@ fn is_valid_token(token: &str) -> bool {
 /// Data structure for element nodes
 #[derive(PartialEq, Clone)]
 pub struct ElementData {
-    pub node_id: Option<NodeId>,
     pub name: String,
     pub namespace: Option<String>,
     /// Written only through `add_attribute` and `remove_attribute`, which keep `class_list`
@@ -84,7 +83,6 @@ pub struct ElementData {
     attributes: Attributes,
     /// Derived from the `class` attribute; see `ClassListImpl`.
     class_list: ClassListImpl,
-    pub force_async: bool,
     /// Template contents: NodeId of the fragment root in the same arena (template elements only)
     pub template_contents: Option<NodeId>,
     /// Shadow root: NodeId of the shadow tree root in the same arena, for a shadow host.
@@ -109,12 +107,10 @@ impl ElementData {
             .map(|value| ClassListImpl::from(value.as_str()))
             .unwrap_or_default();
         Self {
-            node_id: None,
             name: name.into(),
             namespace: Some(namespace.unwrap_or(HTML_NAMESPACE).into()),
             attributes,
             class_list,
-            force_async: false,
             template_contents: None,
             shadow_root: None,
         }

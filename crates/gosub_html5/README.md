@@ -20,8 +20,8 @@ recovery), the tree builder implements the 23 insertion modes, and the result is
 |--------|------|
 | `tokenizer` | WHATWG tokenizer state machine, tokens, named character references |
 | `parser` | Tree construction: insertion modes, quirks handling, foreign content |
-| `document` | `DocumentImpl` + `NodeArena` storage, builder, fragments, task queue |
-| `node` | `NodeImpl` node payloads, arena, element data, visitors |
+| `document` | `DocumentImpl` + `NodeArena` storage, builder, presentation hints |
+| `node` | `NodeImpl` node payloads, arena, element data |
 | `writer` | DOM → HTML serialization |
 | `testing` | Harness for the vendored WHATWG html5lib-tests suite |
 

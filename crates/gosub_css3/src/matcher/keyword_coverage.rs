@@ -100,6 +100,9 @@ const PROPERTIES: &[(&str, Prop, Field)] = &[
     ("caption-side", Prop::CaptionSide, |s| {
         format!("{:?}", s.inherited.caption_side)
     }),
+    ("empty-cells", Prop::EmptyCells, |s| {
+        format!("{:?}", s.inherited.empty_cells)
+    }),
     ("border-collapse", Prop::BorderCollapse, |s| {
         format!("{:?}", s.inherited.border_collapse)
     }),

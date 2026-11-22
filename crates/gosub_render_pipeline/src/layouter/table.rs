@@ -5,7 +5,7 @@ use crate::common::document::pipeline_doc::PipelineDocument;
 use crate::common::geo::{Coordinate, Rect};
 use crate::layouter::box_model::{BoxModel, Edges};
 use crate::layouter::float::float_side;
-use crate::layouter::taffy::{TaffyLayouter, MAX_LAYOUT_DEPTH};
+use crate::layouter::taffy::{CellHeight, TaffyLayouter, MAX_LAYOUT_DEPTH};
 use crate::layouter::{
     CollapsedCellBorders, CollapsedSlot, ElementContext, LayoutElementId, LayoutElementNode, LayoutTree, TableLayer,
 };
@@ -59,6 +59,18 @@ impl<'a> PipelineTableTree<'a> {
             relaid: HashSet::new(),
             layers: HashMap::new(),
             contains_table_cache: RefCell::new(HashMap::new()),
+        }
+    }
+
+    /// Whether percentage heights under the cell resolve against it: its own `height` is a
+    /// length, or its table's is a length or a percentage (css-tables-3 §3.10.6).
+    fn percent_heights_resolve(&self, id: DomNodeId) -> bool {
+        matches!(self.css_length(id, CssProp::Height), CssLength::Px(_)) || {
+            let mut cur = self.doc.parent(id);
+            while let Some(node) = cur.filter(|&node| self.table_role(node) != TableRole::Table) {
+                cur = self.doc.parent(node);
+            }
+            cur.is_some_and(|table| !matches!(self.css_length(table, CssProp::Height), CssLength::Auto))
         }
     }
 
@@ -630,10 +642,16 @@ impl TableTree for PipelineTableTree<'_> {
             })
             .unwrap_or(0.0);
         let is_cell = self.table_role(id) == TableRole::Cell;
-        if let Some(content_h) =
-            self.layouter
-                .relayout_cell(self.layout_tree, layout_id, (available_width + extras) as f32, is_cell)
-        {
+        let height = CellHeight::Measure {
+            specified: self.percent_heights_resolve(id),
+        };
+        if let Some(content_h) = self.layouter.relayout_cell(
+            self.layout_tree,
+            layout_id,
+            (available_width + extras) as f32,
+            is_cell,
+            height,
+        ) {
             self.relaid.insert(id);
             return f64::from(content_h);
         }
@@ -644,6 +662,42 @@ impl TableTree for PipelineTableTree<'_> {
             .get(&layout_id)
             .map(|el| el.box_model.content_box.height)
             .unwrap_or(0.0)
+    }
+
+    /// Only a cell with a percentage height under it that resolves is laid out again: in flow,
+    /// when its own `height` or its table's counts as specified (css-tables-3 §3.10.6), and
+    /// absolutely positioned, always.
+    fn layout_cell_at_height(&mut self, id: DomNodeId, inner_width: f64, inner_height: f64) -> Option<f64> {
+        if !self.relaid.contains(&id) {
+            return None;
+        }
+        let &layout_id = self.dom_to_layout.get(&id)?;
+        let specified = self.percent_heights_resolve(id);
+        let percent = |value: LengthPercentageAuto| matches!(value, LengthPercentageAuto::Percent(_));
+        let has_percent_child = self.doc.children(id).into_iter().any(|child| {
+            let style = self.doc.computed_style(child);
+            percent(style.size.height) || percent(style.size.min_height) || percent(style.size.max_height)
+        });
+        let (in_flow, out_of_flow) = self.layouter.percent_heights_under_cell(self.layout_tree, layout_id);
+        if !(specified && (has_percent_child || in_flow)) && !out_of_flow {
+            return None;
+        }
+
+        let bm = &self.layout_tree.arena.get(&layout_id)?.box_model;
+        let width = inner_width + bm.border.left + bm.border.right + bm.padding.left + bm.padding.right;
+        let height = inner_height + bm.border.top + bm.border.bottom + bm.padding.top + bm.padding.bottom;
+        self.layouter
+            .relayout_cell(
+                self.layout_tree,
+                layout_id,
+                width as f32,
+                true,
+                CellHeight::Final {
+                    height: height as f32,
+                    specified,
+                },
+            )
+            .map(f64::from)
     }
 
     /// Resolves `vertical-align` for a cell by walking up to the table: the
@@ -801,12 +855,11 @@ fn subtree_min_content_width(
             if root {
                 return from_children;
             }
-            // An explicit width is as unbreakable as an image: the box will be that wide
-            // whatever its words are.
+            // An explicit width is as unbreakable as an image: the box is that wide whatever its
+            // content, and wider content overflows it (css-sizing-3 §5.2).
             let style = doc.computed_style(el.dom_node_id);
-            let explicit = style.has(Prop::Width) && style.size.width.to_px().is_some_and(|w| w > 0.0);
-            if explicit {
-                from_children.max(el.box_model.border_box.width as f32)
+            if style.has(Prop::Width) && style.size.width.to_px().is_some() {
+                el.box_model.border_box.width as f32
             } else {
                 from_children
             }

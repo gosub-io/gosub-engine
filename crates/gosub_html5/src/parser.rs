@@ -13,7 +13,7 @@ use crate::parser::attr_replacements::{
 };
 use crate::parser::errors::{ErrorLogger, ParserError};
 use crate::parser::helper::{
-    is_html_integration_point, is_mathml_integration_point, is_special, matches_tag_and_attrs_without_order,
+    is_html_integration_point, is_mathml_text_integration_point, is_special, matches_tag_and_attrs_without_order,
 };
 use crate::parser::open_elements::OpenElements;
 use crate::tokenizer::state::State;
@@ -38,9 +38,9 @@ use url::Url;
 mod attr_replacements;
 pub mod errors;
 mod open_elements;
-pub mod query;
 mod quirks;
-pub mod tree_builder;
+#[cfg(test)]
+mod tree_construction_tests;
 
 // ------------------------------------------------------------
 
@@ -200,7 +200,9 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     frameset_ok: bool,
     /// Foster parenting flag
     foster_parenting: bool,
-    /// If true, the script engine has already started
+    /// If true, the script engine has already started. This and `script_nesting_level`,
+    /// `parser_pause_flag` and `insertion_point` are kept for script execution and
+    /// `document.write`; they are set but not read yet.
     script_already_started: bool,
     /// Microseconds this parse spent waiting for stylesheets, at a blocking script or at an
     /// `@import`. Subtracted from `decode.html`, which measures bytes to DOM only. A `Cell`
@@ -398,9 +400,9 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
     /// Create a parser for tests with scripting enabled on both the parser and the supplied document.
     /// Regular users should use the `parse_document()` and `parse_fragment()` functions instead.
-    pub fn new_parser(stream: &'a mut ByteStream, document: &'a mut C::Document, start_location: Location) -> Self {
+    pub fn new_parser(stream: &'a mut ByteStream, document: &'a mut C::Document) -> Self {
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
-        let tokenizer = Tokenizer::new(stream, None, error_logger.clone(), start_location);
+        let tokenizer = Tokenizer::new(stream, None, error_logger.clone());
         document.set_scripting_enabled(true);
 
         Self {
@@ -461,7 +463,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         // 3.
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
 
-        let tokenizer = Tokenizer::new(stream, None, error_logger.clone(), start_location);
+        let tokenizer = Tokenizer::new(stream, None, error_logger.clone());
         let mut parser = Html5Parser::<C>::init(tokenizer, document, error_logger, options);
 
         // Fragment parsing is what `innerHTML` runs on, and that must not build shadow roots.
@@ -533,7 +535,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
         let context = document.url().map_or_else(|| "unknown".to_string(), |u| u.to_string());
 
-        let tokenizer = Tokenizer::new(stream, None, error_logger.clone(), Location::default());
+        let tokenizer = Tokenizer::new(stream, None, error_logger.clone());
         let mut parser = Html5Parser::<C>::init(tokenizer, document, error_logger, options);
 
         // Bytes to DOM only. The time spent waiting for stylesheets at a blocking script is
@@ -716,7 +718,11 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     }
                 }
             }
-            Token::EndTag { name, .. } if name == "script" => {
+            Token::EndTag { name, .. }
+                if name == "script"
+                    && node_tag!(self, current_node_id!(self)) == "script"
+                    && node_ns!(self, current_node_id!(self)) == Some(SVG_NAMESPACE) =>
+            {
                 handle_as_script_endtag = true;
             }
             Token::EndTag { name, .. } => {
@@ -1009,7 +1015,6 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     }
                     Token::EndTag { name, .. } if name == "noscript" => {
                         self.pop_check("noscript");
-                        self.check_last_element("head");
                         self.insertion_mode = InsertionMode::InHead;
                     }
                     Token::Text { text: value, location } if current_token.is_mixed() => {
@@ -1052,7 +1057,6 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     self.parse_error("anything else not allowed in after head insertion mode");
 
                     self.pop_check("noscript");
-                    self.check_last_element("head");
 
                     self.insertion_mode = InsertionMode::InHead;
                     self.reprocess_token = true;
@@ -1902,23 +1906,6 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         }
     }
 
-    /// Pops the last element from the open elements until we reach $name
-    #[allow(dead_code)]
-    fn pop_until(&mut self, name: &str) {
-        loop {
-            if self.open_elements.is_empty() {
-                break;
-            }
-
-            if node_tag!(self, current_node_id!(self)) == name {
-                self.open_elements.pop();
-                break;
-            }
-
-            self.open_elements.pop();
-        }
-    }
-
     /// Pops the last element from the open elements until we reach any of the elements in $arr
     fn pop_until_any(&mut self, arr: &[&str]) {
         while !self.open_elements.is_empty() {
@@ -1944,10 +1931,6 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         if self.document.tag_name(node_id).unwrap_or_default() != name {
             self.parse_error(&format!("{name} tag should be popped from open elements"));
         }
-    }
-
-    fn check_last_element(&self, _name: &str) {
-        // Invariant check removed to prevent panics on malformed input.
     }
 
     /// Returns true when the open elements have $name
@@ -2247,19 +2230,40 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             .unwrap_or(false)
     }
 
+    /// Whether `target` itself is in `scope`. Unlike `is_in_scope`, another element with the
+    /// same name above it does not count.
+    fn is_element_in_scope(&self, target: NodeId, scope: Scope) -> bool {
+        for &node_id in self.open_elements.iter().rev() {
+            if node_id == target {
+                return true;
+            }
+            if self.ends_scope(node_id, scope) {
+                return false;
+            }
+        }
+        false
+    }
+
     /// One step of the scope walk. `Some(true)` when `node_id` is the element looked for,
     /// `Some(false)` when it ends the scope, `None` to go on to the next entry down.
     fn scope_step(&self, node_id: NodeId, tag: &str, namespace: &str, scope: Scope) -> Option<bool> {
+        if self.document.node_type(node_id) == NodeType::ElementNode
+            && self.document.tag_name(node_id).unwrap_or_default() == tag
+            && self.document.namespace(node_id).unwrap_or(HTML_NAMESPACE) == namespace
+        {
+            return Some(true);
+        }
+        self.ends_scope(node_id, scope).then_some(false)
+    }
+
+    /// Whether `node_id` is one of the elements that end `scope`.
+    fn ends_scope(&self, node_id: NodeId, scope: Scope) -> bool {
         if self.document.node_type(node_id) != NodeType::ElementNode {
-            return Some(false);
+            return true;
         }
 
         let node_tag = self.document.tag_name(node_id).unwrap_or_default();
         let node_ns = self.document.namespace(node_id).unwrap_or(HTML_NAMESPACE);
-
-        if node_tag == tag && node_ns == namespace {
-            return Some(true);
-        }
 
         let default_html_scope = [
             "applet", "caption", "html", "table", "td", "th", "marquee", "object", "template",
@@ -2272,7 +2276,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     || (node_ns == MATHML_NAMESPACE && default_mathml_scope.contains(&node_tag))
                     || (node_ns == SVG_NAMESPACE && default_svg_scope.contains(&node_tag))
                 {
-                    return Some(false);
+                    return true;
                 }
             }
             Scope::ListItem => {
@@ -2281,7 +2285,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     || (node_ns == MATHML_NAMESPACE && default_mathml_scope.contains(&node_tag))
                     || (node_ns == SVG_NAMESPACE && default_svg_scope.contains(&node_tag))
                 {
-                    return Some(false);
+                    return true;
                 }
             }
             Scope::Button => {
@@ -2289,21 +2293,21 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     || (node_ns == MATHML_NAMESPACE && default_mathml_scope.contains(&node_tag))
                     || (node_ns == SVG_NAMESPACE && default_svg_scope.contains(&node_tag))
                 {
-                    return Some(false);
+                    return true;
                 }
             }
             Scope::Table => {
                 if node_ns == HTML_NAMESPACE && ["html", "template", "table"].contains(&node_tag) {
-                    return Some(false);
+                    return true;
                 }
             }
             Scope::Select => {
                 if !(node_ns == HTML_NAMESPACE && ["optgroup", "option"].contains(&node_tag)) {
-                    return Some(false);
+                    return true;
                 }
             }
         }
-        None
+        false
     }
 
     /// Closes a table cell and switches the insertion mode to `InRow`
@@ -2898,9 +2902,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 self.frameset_ok = false;
                 self.insertion_mode = InsertionMode::InTable;
             }
-            Token::EndTag {
-                name, is_self_closing, ..
-            } if name == "br" => {
+            Token::EndTag { name, .. } if name == "br" => {
                 self.parse_error("br end tag not allowed");
                 self.reconstruct_formatting();
 
@@ -2913,7 +2915,6 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 self.insert_html_element(&mut br);
 
                 self.open_elements.pop();
-                self.acknowledge_closing_tag(*is_self_closing);
                 self.frameset_ok = false;
             }
             Token::StartTag {
@@ -4091,13 +4092,14 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             return DispatcherMode::Html;
         }
 
-        if is_mathml_integration_point::<C>(self.document, acn_id)
+        if is_mathml_text_integration_point::<C>(self.document, acn_id)
+            && self.current_token.is_any_start_tag()
             && (!self.current_token.is_start_tag("mglyph") && !self.current_token.is_start_tag("malignmark"))
         {
             return DispatcherMode::Html;
         }
 
-        if is_mathml_integration_point::<C>(self.document, acn_id) && self.current_token.is_text_token() {
+        if is_mathml_text_integration_point::<C>(self.document, acn_id) && self.current_token.is_text_token() {
             return DispatcherMode::Html;
         }
 
@@ -4130,7 +4132,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
         loop {
             let cn_id = current_node_id!(self);
-            if is_mathml_integration_point::<C>(self.document, cn_id)
+            if is_mathml_text_integration_point::<C>(self.document, cn_id)
                 || is_html_integration_point::<C>(self.document, cn_id)
                 || self.document.namespace(cn_id) == Some(HTML_NAMESPACE)
             {
@@ -4600,7 +4602,7 @@ mod test {
     fn is_in_scope() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
 
         node_create!(parser, "html");
         node_create!(parser, "div");
@@ -4616,7 +4618,7 @@ mod test {
     fn split_mixed_token_locations() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let parser = Parser::new_parser(&mut stream, &mut document);
 
         let locations = |tokens: Vec<Token>| {
             tokens
@@ -4649,7 +4651,7 @@ mod test {
     fn is_in_scope_empty_stack() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
 
         parser.open_elements.clear();
         assert!(!parser.is_in_scope("p", HTML_NAMESPACE, Scope::Regular));
@@ -4662,7 +4664,7 @@ mod test {
     fn is_in_scope_non_existing_node() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
         node_create!(parser, "html");
         node_create!(parser, "div");
         node_create!(parser, "p");
@@ -4678,7 +4680,7 @@ mod test {
     fn is_in_scope_1() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
         node_create!(parser, "html");
         node_create!(parser, "div");
         node_create!(parser, "table");
@@ -4716,7 +4718,7 @@ mod test {
     fn is_in_scope_2() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
         node_create!(parser, "html");
         node_create!(parser, "body");
         node_create!(parser, "ul");
@@ -4735,7 +4737,7 @@ mod test {
     fn is_in_scope_3() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
         node_create!(parser, "html");
         node_create!(parser, "body");
         node_create!(parser, "div");
@@ -4754,7 +4756,7 @@ mod test {
     fn is_in_scope_4() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
         node_create!(parser, "html");
         node_create!(parser, "body");
         node_create!(parser, "table");
@@ -4775,7 +4777,7 @@ mod test {
     fn is_in_scope_5() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
         node_create!(parser, "html");
         node_create!(parser, "body");
         node_create!(parser, "div");
@@ -4795,7 +4797,7 @@ mod test {
     fn is_in_scope_6() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
         node_create!(parser, "html");
         node_create!(parser, "body");
         node_create!(parser, "div");
@@ -4815,7 +4817,7 @@ mod test {
     fn is_in_scope_7() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
         node_create!(parser, "html");
         node_create!(parser, "body");
         node_create!(parser, "div");
@@ -4834,7 +4836,7 @@ mod test {
     fn is_in_scope_8() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
         node_create!(parser, "html");
         node_create!(parser, "body");
         node_create!(parser, "select");
@@ -4917,9 +4919,9 @@ mod test {
 
         // Whitespace makes an id non-conforming but it is still the element's id. An empty id
         // is no id at all.
-        assert!(doc.get_node_by_named_id("my id").is_some());
-        assert!(doc.get_node_by_named_id("my").is_none());
-        assert!(doc.get_node_by_named_id("").is_none());
+        assert!(doc.node_by_named_id("my id").is_some());
+        assert!(doc.node_by_named_id("my").is_none());
+        assert!(doc.node_by_named_id("").is_none());
     }
 
     #[test]
@@ -4934,9 +4936,9 @@ mod test {
         let _ = Parser::parse_document(&mut stream, &mut doc, None);
 
         // we are expecting the div (ID: 4) and p would be ignored
-        let div = doc.get_node_by_named_id("myid").unwrap();
-        assert_eq!(div.id, NodeId::from(4usize));
-        assert_eq!(div.get_element_data().unwrap().name(), "div");
+        let div = doc.node_by_named_id("myid").unwrap();
+        assert_eq!(div, NodeId::from(4usize));
+        assert_eq!(doc.tag_name(div), Some("div"));
     }
 
     #[test]
@@ -4950,11 +4952,11 @@ mod test {
         let _ = Parser::parse_document(&mut stream, &mut doc, None);
 
         assert!(
-            doc.get_node_by_named_id("t").is_some(),
+            doc.node_by_named_id("t").is_some(),
             "the template itself is in the tree"
         );
-        assert!(doc.get_node_by_named_id("inside").is_none());
-        assert!(doc.get_node_by_named_id("deep").is_none());
+        assert!(doc.node_by_named_id("inside").is_none());
+        assert!(doc.node_by_named_id("deep").is_none());
     }
 
     #[test]
@@ -4967,8 +4969,8 @@ mod test {
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
         let _ = Parser::parse_document(&mut stream, &mut doc, None);
 
-        let found = doc.get_node_by_named_id("dup").unwrap();
-        assert_eq!(found.get_element_data().unwrap().name(), "div");
+        let found = doc.node_by_named_id("dup").unwrap();
+        assert_eq!(doc.tag_name(found), Some("div"));
     }
 
     /// Answers with a fixed stylesheet and records what it was asked for.

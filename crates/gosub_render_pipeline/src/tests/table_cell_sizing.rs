@@ -187,7 +187,7 @@ fn border_box_cell_child_fills_the_content_box() {
         content_box(&layers, cell),
         border_box(&layers, child),
     );
-    assert_eq!(cell.width, 200.0, "cell {cell:?}");
+    assert_eq!((cell.width, cell.height), (200.0, 100.0), "cell {cell:?}");
     assert_eq!(
         (child.x, child.width, child.height),
         (inner.x, inner.width, 70.0),

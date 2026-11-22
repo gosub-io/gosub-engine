@@ -2,12 +2,6 @@ use crate::tokenizer::CHAR_NUL;
 use gosub_shared::attributes::Attributes;
 use gosub_shared::byte_stream::Location;
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct Attribute {
-    pub name: String,
-    pub value: String,
-}
-
 /// The different token structures that can be emitted by the tokenizer
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token {
@@ -26,7 +20,6 @@ pub enum Token {
     },
     EndTag {
         name: String,
-        is_self_closing: bool,
         location: Location,
     },
     Comment {
@@ -180,9 +173,7 @@ impl std::fmt::Display for Token {
                 result.push('>');
                 write!(f, "{result}")
             }
-            Token::EndTag {
-                name, is_self_closing, ..
-            } => write!(f, "</{}{}>", name, if *is_self_closing { "/" } else { "" }),
+            Token::EndTag { name, .. } => write!(f, "</{name}>"),
             Token::Eof { .. } => write!(f, "EOF"),
         }
     }
@@ -257,7 +248,6 @@ mod tests {
         assert_eq!(token.get_location(), Location::new(2, 4, 10));
         let token = Token::EndTag {
             name: "html".to_string(),
-            is_self_closing: false,
             location: Location::new(3, 6, 17),
         };
         assert_eq!(token.get_location(), Location::new(3, 6, 17));
@@ -298,7 +288,6 @@ mod tests {
         assert_eq!(token.get_location(), Location::new(2, 4, 10));
         let mut token = Token::EndTag {
             name: "html".to_string(),
-            is_self_closing: false,
             location: Location::default(),
         };
         token.set_location(Location::new(3, 6, 17));
@@ -430,7 +419,6 @@ mod tests {
     fn test_token_display_end_tag() {
         let token = Token::EndTag {
             name: "html".to_string(),
-            is_self_closing: false,
             location: Location::default(),
         };
         assert_eq!(format!("{token}"), "</html>");
