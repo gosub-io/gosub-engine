@@ -1299,7 +1299,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::MarkupDeclarationOpen => {
-                    if Character::slice_to_string(self.stream.get_slice(2)) == "--" {
+                    if self.stream.lookahead_bytes(2) == b"--" {
                         self.current_token = Some(Token::Comment {
                             comment: String::new(),
                             location: self.last_token_location,
@@ -1318,7 +1318,7 @@ impl<'stream> Tokenizer<'stream> {
                         continue;
                     }
 
-                    if Character::slice_to_string(self.stream.get_slice(7)) == "[CDATA[" {
+                    if self.stream.lookahead_bytes(7) == b"[CDATA[" {
                         self.stream_next_n(6);
                         let pos = self.stream.tell_bytes();
                         self.stream_next_n(1);
@@ -2246,10 +2246,8 @@ impl<'stream> Tokenizer<'stream> {
     /// ASCII case-insensitively. The stream position is not changed.
     fn lookahead_eq_ignore_ascii_case(&mut self, keyword: &str) -> bool {
         self.stream
-            .get_slice(keyword.len())
-            .iter()
-            .zip(keyword.chars())
-            .all(|(c, k)| matches!(c, Ch(c) if c.eq_ignore_ascii_case(&k)))
+            .lookahead_bytes(keyword.len())
+            .eq_ignore_ascii_case(keyword.as_bytes())
     }
 
     /// Return the consumed string as a String

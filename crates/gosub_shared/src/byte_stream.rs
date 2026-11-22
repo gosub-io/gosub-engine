@@ -438,6 +438,16 @@ impl ByteStream {
         }
     }
 
+    /// Returns up to `len` bytes of the decoded text from the current position, without
+    /// advancing. These are bytes, not characters: anything non-ASCII shows up as bytes
+    /// >= 0x80, so this is for matching ASCII keywords without building a slice.
+    pub fn lookahead_bytes(&self, len: usize) -> &[u8] {
+        // A mark restored after a re-decode can leave text_pos past the end
+        let start = self.text_pos.min(self.text.len());
+        let end = start.saturating_add(len).min(self.text.len());
+        &self.text[start..end]
+    }
+
     /// Take a snapshot of the current position for later restoration.
     pub fn mark(&self) -> StreamMark {
         StreamMark {
@@ -1132,6 +1142,26 @@ mod test {
         }
         // Past the end clamps to the end.
         assert_eq!(stream.location_at(100), expected(text.len()));
+    }
+
+    #[test]
+    fn test_lookahead_bytes() {
+        let mut stream = ByteStream::from_str("<!\u{e9}-", Encoding::UTF8);
+        assert_eq!(stream.lookahead_bytes(2), b"<!");
+        assert_eq!(stream.lookahead_bytes(0), b"");
+        stream.next_n(2);
+        // A non-ASCII character comes back as its UTF-8 bytes
+        assert_eq!(stream.lookahead_bytes(3), "\u{e9}-".as_bytes());
+        // Near the end the slice is cut short, and the position is unchanged
+        assert_eq!(stream.lookahead_bytes(10), "\u{e9}-".as_bytes());
+        assert_eq!(stream.tell_bytes(), 2);
+        stream.next_n(2);
+        assert_eq!(stream.lookahead_bytes(usize::MAX), b"");
+
+        // A position past the end of the text reads as nothing
+        let mut short = ByteStream::from_str("<", Encoding::UTF8);
+        short.reset_to_mark(stream.mark());
+        assert_eq!(short.lookahead_bytes(2), b"");
     }
 
     #[test]

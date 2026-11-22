@@ -328,21 +328,15 @@ impl Tokenizer<'_> {
     /// Finds the longest entity from the current position in the stream. Returns the entity
     /// name OR None when no entity has been found.
     fn find_entity(&mut self) -> Option<&'static str> {
-        let chars = self.stream.get_slice(*LONGEST_ENTITY_LENGTH);
+        let bytes = self.stream.lookahead_bytes(*LONGEST_ENTITY_LENGTH);
 
         // Entity names are ASCII alphanumerics with an optional trailing ';', so only a
         // prefix of that run can match.
-        let mut candidate = String::with_capacity(chars.len());
-        for c in chars {
-            match c {
-                Ch(ch) if ch.is_ascii_alphanumeric() => candidate.push(ch),
-                Ch(';') => {
-                    candidate.push(';');
-                    break;
-                }
-                _ => break,
-            }
+        let mut len = bytes.iter().take_while(|b| b.is_ascii_alphanumeric()).count();
+        if bytes.get(len) == Some(&b';') {
+            len += 1;
         }
+        let candidate = std::str::from_utf8(&bytes[..len]).unwrap_or_default();
 
         (1..=candidate.len())
             .rev()
