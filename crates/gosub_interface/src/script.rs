@@ -37,6 +37,8 @@ pub enum ScriptErrorKind {
     Terminated,
     /// Reached the host's memory limit.
     OutOfMemory,
+    /// Nothing ran: scripting is off, or there is no engine to run it.
+    Unavailable,
 }
 
 /// Why a script produced no value.

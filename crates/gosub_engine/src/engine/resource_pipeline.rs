@@ -54,6 +54,7 @@ impl<C: RenderConfiguration> ResourcePipelines<C> {
         media_environment: gosub_css3::media_query::MediaEnvironment,
         capture_source: bool,
         source_only: bool,
+        scripting: bool,
     ) -> Self {
         // A renderer process that will re-parse the document is also the only
         // process that should parse it: keep just the source here. Not for the
@@ -72,6 +73,7 @@ impl<C: RenderConfiguration> ResourcePipelines<C> {
                     capture_source,
                 )
                 .source_only(source_only)
+                .scripting(scripting)
                 .media_environment(media_environment),
             ),
             css: Box::new(CssPipelineImpl {}),

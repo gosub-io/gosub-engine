@@ -13,6 +13,8 @@ pub struct EffectiveTabServices {
     pub cookie_jar: CookieJarHandle,
     /// `Accept-Language` header value for this tab's requests, if configured.
     pub accept_language: Option<String>,
+    /// Whether the zone lets pages run JavaScript.
+    pub javascript_enabled: bool,
     /// Zone places store; the worker records committed http(s) visits into it.
     pub places: Option<crate::engine::places::PlacesHandle>,
     /// The zone's certificate pins and client identities, handed to the I/O side with the jar.
@@ -77,6 +79,7 @@ pub fn resolve_tab_services(
         storage,
         cookie_jar,
         accept_language,
+        javascript_enabled: zone_config.javascript_enabled,
         certificates: certificates.clone(),
     }
 }

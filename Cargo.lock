@@ -3415,6 +3415,7 @@ dependencies = [
  "gosub_renderer_skia",
  "gosub_sandbox",
  "gosub_shared",
+ "gosub_v8",
  "http",
  "image",
  "libc",

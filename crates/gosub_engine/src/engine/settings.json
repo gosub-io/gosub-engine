@@ -458,6 +458,18 @@
       "description": "Enable WebAssembly execution engine-wide."
     },
     {
+      "key": "max_run_ms",
+      "type": "u",
+      "default": "u:10000",
+      "description": "Time in milliseconds a script may run before it is terminated."
+    },
+    {
+      "key": "heap_limit_mb",
+      "type": "u",
+      "default": "u:512",
+      "description": "JavaScript heap size in MiB per page at which a script is ended."
+    },
+    {
       "key": "max_cpu_ms_per_frame",
       "type": "u",
       "default": "u:8",

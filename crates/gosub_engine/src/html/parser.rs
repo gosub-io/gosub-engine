@@ -90,6 +90,8 @@ pub struct HtmlParseConfig {
     /// Set to the document's referrer policy once every `<meta name="referrer">` in it has
     /// been seen, before the parse starts: for what the parse fetches through `stylesheets`.
     pub settled_referrer_policy: Option<std::sync::Arc<std::sync::OnceLock<ReferrerPolicy>>>,
+    /// Parse as a document whose scripts run. Off, `<noscript>` content is markup.
+    pub scripting_enabled: bool,
 }
 
 impl Default for HtmlParseConfig {
@@ -102,6 +104,7 @@ impl Default for HtmlParseConfig {
             capture_source: false,
             referrer_policy: ReferrerPolicy::default(),
             settled_referrer_policy: None,
+            scripting_enabled: true,
         }
     }
 }
@@ -247,6 +250,7 @@ where
     // samples the parser's own blocking fetches produce.
     let timing_scope = cfg.timing_scope;
     let stylesheets = cfg.stylesheets.clone();
+    let scripting_enabled = cfg.scripting_enabled;
     let parse = move || -> Result<EngineDocument<C>, DocumentError> {
         let _scope = timing_scope.map(gosub_shared::timing::enter_scope);
 
@@ -260,7 +264,7 @@ where
         let mut doc = DocumentBuilderImpl::new_document::<C>(Some(base_url));
         let options = gosub_html5::parser::Html5ParserOptions {
             stylesheets,
-            ..Default::default()
+            scripting_enabled,
         };
         match Html5Parser::<C>::parse_document(&mut stream, &mut doc, Some(options)) {
             Ok(errors) => doc.set_parse_errors(errors),

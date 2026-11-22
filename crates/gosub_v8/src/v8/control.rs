@@ -126,6 +126,11 @@ impl V8Context {
         V8Terminator(self.isolate().thread_safe_handle())
     }
 
+    /// Drops a termination request that has not ended a script yet.
+    pub fn cancel_termination(&self) {
+        self.isolate().cancel_terminate_execution();
+    }
+
     /// Runs the pending promise jobs.
     pub fn microtask_checkpoint(&self) -> Result<()> {
         let terminated = {
