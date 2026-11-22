@@ -1,8 +1,8 @@
 use core::fmt::Display;
 use std::ops::DerefMut;
 use v8::{
-    undefined, CallbackScope, External, Function, FunctionBuilder, FunctionCallbackArguments, FunctionCallbackInfo,
-    Global, HandleScope, Local, ReturnValue, TryCatch,
+    undefined, External, Function, FunctionBuilder, FunctionCallbackArguments, FunctionCallbackInfo, Global, Local,
+    ReturnValue,
 };
 
 use gosub_shared::types::Result;
@@ -130,23 +130,21 @@ impl V8Function {
 
         f(&mut cb);
 
-        let mut scope = cb.ctx.scope();
+        ctx_scope!(scope, cb.ctx);
 
         if cb.is_error {
-            ret.set(undefined(&mut scope).into());
+            ret.set(undefined(scope).into());
             return;
         }
 
         match cb.ret {
             Ok(value) => {
-                let value = Local::new(&mut scope, value);
+                let value = Local::new(scope, value);
 
                 ret.set(value);
             }
             Err(e) => {
-                ret.set(undefined(&mut scope).into());
-                // ctx.error opens its own scope; this one must close first
-                drop(scope);
+                ret.set(undefined(scope).into());
                 ctx.error(e);
             }
         }
@@ -156,12 +154,12 @@ impl V8Function {
 extern "C" fn callback(info: *const FunctionCallbackInfo) {
     let info = unsafe { &*info };
     let args = FunctionCallbackArguments::from_function_callback_info(info);
-    let mut scope = unsafe { CallbackScope::new(info) };
+    v8::callback_scope!(unsafe scope, info);
     let rv = ReturnValue::from_function_callback_info(info);
     let external = match <Local<External>>::try_from(args.data()) {
         Ok(external) => external,
         Err(e) => {
-            let excep = V8Context::create_exception(&mut scope, e.to_string());
+            let excep = V8Context::create_exception(scope, e.to_string());
             if let Some(exception) = excep {
                 scope.throw_exception(exception);
             }
@@ -171,11 +169,7 @@ extern "C" fn callback(info: *const FunctionCallbackInfo) {
 
     let data = unsafe { &mut *(external.value() as *mut CallbackWrapper) };
 
-    let sg = data.ctx.set_parent_scope(HandleScope::new(&mut scope));
-
     V8Function::callback(&data.ctx, args, rv, &data.f);
-
-    drop(sg);
 }
 
 struct CallbackWrapper {
@@ -202,15 +196,14 @@ impl WebFunction for V8Function {
 
         let builder: FunctionBuilder<Function> = FunctionBuilder::new_raw(callback);
 
-        let mut scope = ctx.scope();
+        ctx_scope!(scope, ctx);
 
-        let data = External::new(&mut scope, CallbackWrapper::new(ctx.clone(), f));
+        let data = External::new(scope, CallbackWrapper::new(ctx.clone(), f));
 
-        let function = builder.data(Local::from(data)).build(&mut scope);
+        let function = builder.data(Local::from(data)).build(scope);
 
         if let Some(function) = function {
-            let function = Global::new(&mut scope, function);
-            drop(scope);
+            let function = Global::new(scope, function);
             Ok(Self { ctx, function })
         } else {
             Err(Error::JS(JSError::Compile("failed to create function".to_owned())).into())
@@ -218,12 +211,12 @@ impl WebFunction for V8Function {
     }
 
     fn call(&mut self, args: &[<Self::RT as WebRuntime>::Value]) -> Result<<Self::RT as WebRuntime>::Value> {
-        let scope = &mut self.ctx.scope();
-        let scope = &mut TryCatch::new(scope);
+        ctx_scope!(scope, self.ctx);
+        v8::tc_scope!(scope, scope);
 
         let recv = Local::from(v8::undefined(scope));
 
-        let function = self.function.open(scope);
+        let function = Local::new(scope, &self.function);
 
         let args = args
             .iter()
@@ -427,21 +420,19 @@ impl V8FunctionVariadic {
 
         f(&mut cb);
 
-        let mut scope = ctx.scope();
+        ctx_scope!(scope, ctx);
 
         if cb.is_error {
-            ret.set(undefined(&mut scope).into());
+            ret.set(undefined(scope).into());
             return;
         }
 
         match cb.ret {
             Ok(value) => {
-                ret.set(Local::new(&mut scope, value));
+                ret.set(Local::new(scope, value));
             }
             Err(e) => {
-                ret.set(undefined(&mut scope).into());
-                // ctx.error opens its own scope; this one must close first
-                drop(scope);
+                ret.set(undefined(scope).into());
                 ctx.error(e);
             }
         }
@@ -450,13 +441,13 @@ impl V8FunctionVariadic {
 
 extern "C" fn callback_variadic(info: *const FunctionCallbackInfo) {
     let info = unsafe { &*info };
-    let mut scope = unsafe { CallbackScope::new(info) };
+    v8::callback_scope!(unsafe scope, info);
     let args = FunctionCallbackArguments::from_function_callback_info(info);
     let rv = ReturnValue::from_function_callback_info(info);
     let external = match <Local<External>>::try_from(args.data()) {
         Ok(external) => external,
         Err(e) => {
-            let Some(e) = V8Context::create_exception(&mut scope, e) else {
+            let Some(e) = V8Context::create_exception(scope, e) else {
                 log::error!("failed to create exception string\nexception was: {e}");
                 return;
             };
@@ -468,11 +459,7 @@ extern "C" fn callback_variadic(info: *const FunctionCallbackInfo) {
 
     let data = unsafe { &mut *(external.value() as *mut CallbackWrapperVariadic) };
 
-    let sg = data.ctx.set_parent_scope(HandleScope::new(&mut scope));
-
     V8FunctionVariadic::callback(&data.ctx, args, rv, &data.f);
-
-    drop(sg);
 }
 
 struct CallbackWrapperVariadic {
@@ -495,17 +482,16 @@ impl WebFunctionVariadic for V8FunctionVariadic {
         ctx: <Self::RT as WebRuntime>::Context,
         f: impl Fn(&mut <Self::RT as WebRuntime>::FunctionCallBackVariadic) + 'static,
     ) -> Result<Self> {
-        let mut scope = ctx.scope();
+        ctx_scope!(scope, ctx);
 
         let builder: FunctionBuilder<Function> = FunctionBuilder::new_raw(callback_variadic);
 
-        let data = External::new(&mut scope, CallbackWrapperVariadic::new(ctx.clone(), f));
+        let data = External::new(scope, CallbackWrapperVariadic::new(ctx.clone(), f));
 
-        let function = builder.data(Local::from(data)).build(&mut scope);
+        let function = builder.data(Local::from(data)).build(scope);
 
         if let Some(function) = function {
-            let function = Global::new(&mut scope, function);
-            drop(scope);
+            let function = Global::new(scope, function);
             Ok(Self { ctx, function })
         } else {
             Err(Error::JS(JSError::Compile("failed to create function".to_owned())).into())
@@ -513,12 +499,12 @@ impl WebFunctionVariadic for V8FunctionVariadic {
     }
 
     fn call(&mut self, args: &[<Self::RT as WebRuntime>::Value]) -> Result<<Self::RT as WebRuntime>::Value> {
-        let scope = &mut self.ctx.scope();
+        ctx_scope!(scope, self.ctx);
 
-        let scope = &mut v8::TryCatch::new(scope);
+        v8::tc_scope!(scope, scope);
         let recv = Local::from(v8::undefined(scope));
 
-        let function = self.function.open(scope);
+        let function = Local::new(scope, &self.function);
         let args = args
             .iter()
             .map(|x| Local::new(scope, x.value.clone()))
@@ -617,5 +603,33 @@ mod tests {
         ]);
 
         assert_eq!(ret.unwrap().as_number().unwrap(), 10.0);
+    }
+    // A callback that sets no return value takes the error path, which throws from a
+    // scope opened while the callback's own scope is still alive.
+    #[test]
+    fn function_without_return_value_throws() {
+        let ctx = V8Engine::new().new_context().unwrap();
+
+        let mut function = V8Function::new(ctx.clone(), |_cb| {}).unwrap();
+        assert!(function.call(&[]).is_err());
+
+        let mut variadic = V8FunctionVariadic::new(ctx.clone(), |_cb| {}).unwrap();
+        assert!(variadic.call(&[]).is_err());
+
+        // the context is still usable afterwards
+        let mut ok = V8Function::new(ctx.clone(), |cb| {
+            let ctx = cb.context();
+            cb.ret(1.to_web_value(ctx).unwrap());
+        })
+        .unwrap();
+        assert_eq!(ok.call(&[]).unwrap().as_number().unwrap(), 1.0);
+    }
+
+    #[test]
+    fn function_error_throws() {
+        let ctx = V8Engine::new().new_context().unwrap();
+
+        let mut function = V8Function::new(ctx.clone(), |cb| cb.error("nope")).unwrap();
+        assert!(function.call(&[]).is_err());
     }
 }

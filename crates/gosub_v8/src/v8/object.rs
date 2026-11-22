@@ -5,7 +5,7 @@ use gosub_shared::types::Result;
 use gosub_webexecutor::js::{JSError, WebGetterCallback, WebObject, WebRuntime, WebSetterCallback, WebValue};
 use gosub_webexecutor::Error;
 use v8::{
-    AccessorConfiguration, External, Global, HandleScope, Local, Name, Object, PropertyCallbackArguments, ReturnValue,
+    AccessorConfiguration, External, Global, Local, Name, Object, PinScope, PropertyCallbackArguments, ReturnValue,
     Value,
 };
 
@@ -24,12 +24,10 @@ pub struct GetterCallback {
 
 impl V8Object {
     pub fn new(ctx: V8Context) -> Result<V8Object> {
-        let mut scope = ctx.scope();
-        let value = Object::new(&mut scope);
+        ctx_scope!(scope, ctx);
+        let value = Object::new(scope);
 
-        let value = Global::new(&mut scope, value);
-
-        drop(scope);
+        let value = Global::new(scope, value);
 
         Ok(V8Object { ctx, value })
     }
@@ -82,13 +80,13 @@ impl WebObject for V8Object {
     type RT = V8Engine;
 
     fn set_property(&self, name: &str, value: &V8Value) -> Result<()> {
-        let scope = &mut self.ctx.scope();
+        ctx_scope!(scope, self.ctx);
 
         let Some(name) = v8::String::new(scope, name) else {
             return Err(Error::JS(JSError::Generic("failed to create a string".to_owned())).into());
         };
 
-        let obj = self.value.open(scope);
+        let obj = Local::new(scope, &self.value);
         let value = Local::new(scope, value.value.clone());
 
         if obj.set(scope, name.into(), value).is_none() {
@@ -99,13 +97,13 @@ impl WebObject for V8Object {
     }
 
     fn get_property(&self, name: &str) -> Result<<Self::RT as WebRuntime>::Value> {
-        let scope = &mut self.ctx.scope();
+        ctx_scope!(scope, self.ctx);
 
         let Some(name) = v8::String::new(scope, name) else {
             return Err(Error::JS(JSError::Generic("failed to create a string".to_owned())).into());
         };
 
-        let obj = self.value.open(scope);
+        let obj = Local::new(scope, &self.value);
 
         obj.get(scope, name.into())
             .ok_or_else(|| Error::JS(JSError::Generic("failed to get a property from an object".to_owned())).into())
@@ -120,13 +118,13 @@ impl WebObject for V8Object {
         name: &str,
         args: &[&<Self::RT as WebRuntime>::Value],
     ) -> Result<<Self::RT as WebRuntime>::Value> {
-        let scope = &mut self.ctx.scope();
+        ctx_scope!(scope, self.ctx);
 
         let Some(name) = v8::String::new(scope, name) else {
             return Err(Error::JS(JSError::Generic("failed to create a string".to_owned())).into());
         };
 
-        let obj = self.value.open(scope);
+        let obj = Local::new(scope, &self.value);
 
         let func = obj.get(scope, name.into()).ok_or_else(|| {
             anyhow::Error::new(Error::JS(JSError::Generic(
@@ -142,7 +140,7 @@ impl WebObject for V8Object {
 
         let args: Vec<Local<Value>> = args.iter().map(|v| Local::new(scope, &v.value)).collect();
 
-        let try_catch = &mut v8::TryCatch::new(scope);
+        v8::tc_scope!(try_catch, scope);
 
         let recv = Local::new(try_catch, self.value.clone());
 
@@ -157,7 +155,7 @@ impl WebObject for V8Object {
     }
 
     fn set_method(&self, name: &str, func: &V8Function) -> Result<()> {
-        let scope = &mut self.ctx.scope();
+        ctx_scope!(scope, self.ctx);
 
         let Some(name) = v8::String::new(scope, name) else {
             return Err(Error::JS(JSError::Generic("failed to create a string".to_owned())).into());
@@ -165,7 +163,7 @@ impl WebObject for V8Object {
 
         let f = Local::new(scope, func.function.clone());
 
-        let obj = self.value.open(scope);
+        let obj = Local::new(scope, &self.value);
 
         if obj.set(scope, name.into(), f.into()).is_none() {
             Err(Error::JS(JSError::Generic("failed to set a property in an object".to_owned())).into())
@@ -175,7 +173,7 @@ impl WebObject for V8Object {
     }
 
     fn set_method_variadic(&self, name: &str, func: &V8FunctionVariadic) -> Result<()> {
-        let scope = &mut self.ctx.scope();
+        ctx_scope!(scope, self.ctx);
 
         let Some(name) = v8::String::new(scope, name) else {
             return Err(Error::JS(JSError::Generic("failed to create a string".to_owned())).into());
@@ -183,7 +181,7 @@ impl WebObject for V8Object {
 
         let f = Local::new(scope, func.function.clone());
 
-        let obj = self.value.open(scope);
+        let obj = Local::new(scope, &self.value);
 
         if obj.set(scope, name.into(), f.into()).is_none() {
             Err(Error::JS(JSError::Generic("failed to set a property in an object".to_owned())).into())
@@ -198,7 +196,7 @@ impl WebObject for V8Object {
         getter: Box<dyn Fn(&mut <Self::RT as WebRuntime>::GetterCB)>,
         setter: Box<dyn Fn(&mut <Self::RT as WebRuntime>::SetterCB)>,
     ) -> Result<()> {
-        let scope = &mut self.ctx.scope();
+        ctx_scope!(scope, self.ctx);
         let name = v8::String::new(scope, name)
             .ok_or_else(|| Error::JS(JSError::Generic("failed to create a string".to_owned())))?;
 
@@ -211,7 +209,7 @@ impl WebObject for V8Object {
         let data = External::new(scope, Box::into_raw(gs) as *mut c_void);
 
         let config = AccessorConfiguration::new(
-            |scope: &mut HandleScope, _name: Local<Name>, args: PropertyCallbackArguments, mut rv: ReturnValue| {
+            |scope: &mut PinScope, _name: Local<Name>, args: PropertyCallbackArguments, mut rv: ReturnValue| {
                 let external = match Local::<External>::try_from(args.data()) {
                     Ok(external) => external,
                     Err(e) => {
@@ -234,22 +232,17 @@ impl WebObject for V8Object {
                     }
                 };
 
-                let sg = gs.ctx.set_parent_scope(HandleScope::new(scope));
-
                 let mut gc = GetterCallback {
                     ctx: gs.ctx.clone(),
                     ret,
                 };
-                //TODO: do we need to drop the scope here?
                 (gs.getter)(&mut gc);
-
-                drop(sg);
 
                 rv.set(Local::new(scope, gc.ret.value));
             },
         )
         .setter(
-            |scope: &mut HandleScope,
+            |scope: &mut PinScope,
              _name: Local<Name>,
              value: Local<Value>,
              args: PropertyCallbackArguments,
@@ -270,21 +263,17 @@ impl WebObject for V8Object {
 
                 let val = V8Value::from_value(gs.ctx.clone(), Global::new(scope, value));
 
-                let sg = gs.ctx.set_parent_scope(HandleScope::new(scope));
-
                 let mut sc = SetterCallback {
                     ctx: gs.ctx.clone(),
                     value: val,
                 };
 
                 (gs.setter)(&mut sc);
-
-                drop(sg);
             },
         )
         .data(Local::from(data));
 
-        let obj = self.value.open(scope);
+        let obj = Local::new(scope, &self.value);
 
         obj.set_accessor_with_configuration(scope, name.into(), config);
 
@@ -298,7 +287,7 @@ impl WebObject for V8Object {
 
 impl FromContext<Local<'_, Object>> for V8Object {
     fn from_ctx(ctx: V8Context, object: Local<'_, Object>) -> Self {
-        let object = Global::new(&mut ctx.isolate(), object);
+        let object = Global::new(&ctx.isolate(), object);
 
         Self { ctx, value: object }
     }

@@ -135,7 +135,7 @@ impl Arg {
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) enum ReturnType {
     Undefined,
-    Type(TypeT),
+    Type(Box<TypeT>),
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -149,7 +149,7 @@ impl ReturnType {
     pub(crate) fn parse(ret: &syn::ReturnType) -> Result<ReturnType, &'static str> {
         Ok(match ret {
             syn::ReturnType::Default => ReturnType::Undefined,
-            syn::ReturnType::Type(_, ty) => ReturnType::Type(Type::parse(ty, true)?.ty),
+            syn::ReturnType::Type(_, ty) => ReturnType::Type(Box::new(Type::parse(ty, true)?.ty)),
         })
     }
 }
