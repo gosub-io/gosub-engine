@@ -13,7 +13,6 @@ gosub_css3 = { version = "0.1.1", registry = "gosub", path = "../gosub_css3", fe
 parking_lot = { workspace = true }
 phf = { version = "0.14.0", features = ["macros"] }
 lazy_static = { workspace = true }
-thiserror = { workspace = true }
 url = { workspace = true, features = [] }
 log = { workspace = true, features = [] }
 nom = { workspace = true }
@@ -30,24 +29,40 @@ cow-utils = { workspace = true }
 test-case = { workspace = true }
 criterion = { workspace = true, features = ["html_reports"] }
 flate2 = "1"
+gosub_html5 = { path = ".", features = ["testing"] }
 
 
 [features]
 debug_parser = []
 debug_parser_verbose = []
+# The html5lib test harness in `gosub_html5::testing`, for tests, benches and test runners.
+testing = []
 
+
+# These use `gosub_html5::testing`. The self dev-dependency above turns `testing` on in the
+# workspace, but `cargo package` drops it, so the packaged crate needs `--features testing`.
+[[test]]
+name = "fragment_form_pointer"
+required-features = ["testing"]
+
+[[test]]
+name = "shadow_dom"
+required-features = ["testing"]
 
 [[bench]]
 name = "tokenizer"
 harness = false
+required-features = ["testing"]
 
 [[bench]]
 name = "tree_construction"
 harness = false
+required-features = ["testing"]
 
 [[bench]]
 name = "html_parser"
 harness = false
+required-features = ["testing"]
 
 # Mirrors the workspace lints, except unsafe_code is "deny" instead of "forbid":
 # the html_parser bench installs a counting GlobalAlloc, which requires unsafe

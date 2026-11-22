@@ -38,9 +38,9 @@ use url::Url;
 mod attr_replacements;
 pub mod errors;
 mod open_elements;
-pub mod query;
 mod quirks;
-pub mod tree_builder;
+#[cfg(test)]
+mod tree_construction_tests;
 
 // ------------------------------------------------------------
 
@@ -136,11 +136,9 @@ pub struct Html5ParserOptions {
 
 /// Somewhere the parser can get a linked stylesheet from, when it has to have one *now*.
 ///
-/// The parser does not fetch -- that is the whole point of the pending-stylesheet handoff --
-/// but a classic script may not run until the sheets before it have applied, and that is a
-/// wait the parse cannot get out of. So it asks, and blocks. Blocking is only acceptable
-/// because the parse runs on the blocking pool; on a runtime worker this would starve the
-/// fetches it is waiting for.
+/// The parser does not fetch, but a classic script may not run until the sheets before it
+/// have applied, so it asks and blocks. That is only acceptable because the parse runs on the
+/// blocking pool; on a runtime worker it would starve the fetches it waits for.
 pub trait StylesheetSource: Send + Sync + std::fmt::Debug {
     /// Block until each URL has been fetched, and answer in the same order.
     ///
@@ -177,7 +175,8 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     original_insertion_mode: InsertionMode,
     /// template insertion mode stack
     template_insertion_mode: Vec<InsertionMode>,
-    /// ??
+    /// The spec's "parser cannot change the mode" flag: when set, a DOCTYPE leaves the
+    /// quirks mode alone.
     parser_cannot_change_mode: bool,
     /// Current token from the tokenizer
     current_token: Token,
@@ -201,13 +200,13 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     frameset_ok: bool,
     /// Foster parenting flag
     foster_parenting: bool,
-    /// If true, the script engine has already started
+    /// If true, the script engine has already started. This and `script_nesting_level`,
+    /// `parser_pause_flag` and `insertion_point` are kept for script execution and
+    /// `document.write`; they are set but not read yet.
     script_already_started: bool,
-    /// Microseconds this parse spent stopped waiting for stylesheets -- at a script that
-    /// blocks, or at an `@import` inside a sheet being parsed. Subtracted from `decode.html`,
-    /// which measures bytes to DOM: a wait on a CDN is not parsing, and counting it there is
-    /// how that number stopped meaning anything before. A `Cell` because an import is
-    /// resolved from `&self`.
+    /// Microseconds this parse spent waiting for stylesheets, at a blocking script or at an
+    /// `@import`. Subtracted from `decode.html`, which measures bytes to DOM only. A `Cell`
+    /// because an import is resolved from `&self`.
     blocked_on_css_us: Cell<u64>,
     /// Whether the `<script>` currently being read blocks: an inline one always does, and
     /// one with a `src` does unless it is marked `async` or `defer`. Read at the start tag,
@@ -304,8 +303,8 @@ fn location_after(location: Location, text: &str) -> Location {
     location
 }
 
-/// Extracts the encoding declared by a `<meta charset="…">` or
-/// `<meta http-equiv="Content-Type" content="…; charset=…">` token.
+/// Extracts the encoding declared by a `<meta charset="...">` or
+/// `<meta http-equiv="Content-Type" content="...; charset=...">` token.
 /// Returns `None` when no valid/supported encoding is found.
 fn meta_charset_encoding(token: &Token) -> Option<Encoding> {
     let Token::StartTag { attributes, .. } = token else {
@@ -337,7 +336,7 @@ fn meta_charset_encoding(token: &Token) -> Option<Encoding> {
 }
 
 /// Maps a charset label string to our `Encoding` enum.
-/// Per WHATWG spec §13.2.3.5, a UTF-16 label from a meta element must be
+/// Per WHATWG spec section 13.2.3.5, a UTF-16 label from a meta element must be
 /// treated as UTF-8 (a truly UTF-16 document would have a BOM detected earlier).
 fn charset_label_to_encoding(label: &str) -> Option<Encoding> {
     match label.cow_to_ascii_lowercase().as_ref() {
@@ -345,7 +344,7 @@ fn charset_label_to_encoding(label: &str) -> Option<Encoding> {
         "us-ascii" | "ascii" | "ansi_x3.4-1968" | "iso-ir-6" | "iso646-us" | "latin1" | "iso-8859-1" => {
             Some(Encoding::Latin1)
         }
-        // UTF-16 from meta → treat as UTF-8 per spec
+        // UTF-16 from meta -> treat as UTF-8 per spec
         "utf-16" | "utf-16le" | "utf-16be" => Some(Encoding::UTF8),
         _ => None,
     }
@@ -401,9 +400,9 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
     /// Create a parser for tests with scripting enabled on both the parser and the supplied document.
     /// Regular users should use the `parse_document()` and `parse_fragment()` functions instead.
-    pub fn new_parser(stream: &'a mut ByteStream, document: &'a mut C::Document, start_location: Location) -> Self {
+    pub fn new_parser(stream: &'a mut ByteStream, document: &'a mut C::Document) -> Self {
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
-        let tokenizer = Tokenizer::new(stream, None, error_logger.clone(), start_location);
+        let tokenizer = Tokenizer::new(stream, None, error_logger.clone());
         document.set_scripting_enabled(true);
 
         Self {
@@ -464,7 +463,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         // 3.
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
 
-        let tokenizer = Tokenizer::new(stream, None, error_logger.clone(), start_location);
+        let tokenizer = Tokenizer::new(stream, None, error_logger.clone());
         let mut parser = Html5Parser::<C>::init(tokenizer, document, error_logger, options);
 
         // Fragment parsing is what `innerHTML` runs on, and that must not build shadow roots.
@@ -524,10 +523,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         parser.do_parse()
     }
 
-    /// Parses the input chars into a full document (including html, body, head, etc.). Note that
-    /// the document returned is not a full document, but a document fragment and has a "html" root
-    /// node that should not be used. The children of the root-node should be used on the context
-    /// node where this document fragment needs to be inserted into.
+    /// Parses the input into `document` as a full document (html, head, body, ...). Returns the
+    /// parse errors.
     pub fn parse_document(
         stream: &mut ByteStream,
         document: &mut C::Document,
@@ -538,14 +535,11 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
         let context = document.url().map_or_else(|| "unknown".to_string(), |u| u.to_string());
 
-        let tokenizer = Tokenizer::new(stream, None, error_logger.clone(), Location::default());
+        let tokenizer = Tokenizer::new(stream, None, error_logger.clone());
         let mut parser = Html5Parser::<C>::init(tokenizer, document, error_logger, options);
 
-        // Bytes to DOM, and nothing else. The parse fetches nothing itself, but it does
-        // stop at a blocking script until the stylesheets before it are in, and that wait
-        // belongs to the network -- it is recorded under `script.blocked_on_css` and taken
-        // back out here. Without that, a page whose script sits behind a slow CDN reports
-        // the CDN as parse time, which is how this counter stopped meaning anything before.
+        // Bytes to DOM only. The time spent waiting for stylesheets at a blocking script is
+        // recorded under `script.blocked_on_css` and taken back out here.
         let mut wall = Timer::new(Some(context.clone()));
         let ret = parser.do_parse();
         wall.end();
@@ -612,7 +606,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 return;
             }
             Token::Text { text: value, .. } if current_token.is_null() => {
-                self.parse_error("null character not allowed in foreign content");
+                self.null_parse_errors(value, loc, "null character not allowed in foreign content");
                 // A run of NULs arrives as one token; each NUL gets its own replacement
                 self.insert_text_element(&Token::Text {
                     text: CHAR_REPLACEMENT.to_string().repeat(value.chars().count()),
@@ -720,7 +714,6 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                         handle_as_script_endtag = true;
                     } else {
                         self.open_elements.pop();
-                        // self.current_token = self.fetch_next_token();
                         self.ack_self_closing = true;
                     }
                 }
@@ -1022,7 +1015,6 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     }
                     Token::EndTag { name, .. } if name == "noscript" => {
                         self.pop_check("noscript");
-                        self.check_last_element("head");
                         self.insertion_mode = InsertionMode::InHead;
                     }
                     Token::Text { text: value, location } if current_token.is_mixed() => {
@@ -1065,7 +1057,6 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     self.parse_error("anything else not allowed in after head insertion mode");
 
                     self.pop_check("noscript");
-                    self.check_last_element("head");
 
                     self.insertion_mode = InsertionMode::InHead;
                     self.reprocess_token = true;
@@ -1176,9 +1167,6 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     Token::EndTag { name, .. } if name == "style" => {
                         // Fetch first child node id. This should be the inline stylesheet text
                         let style_node_id = current_node_id!(self);
-                        // One construct instead of an `is_empty()` guard three lines above an
-                        // `unwrap()`: the two had to agree to stay correct, and only a comment
-                        // said they did.
                         let Some(&style_text_node_id) = self.document.children(style_node_id).first() else {
                             self.open_elements.pop();
                             self.insertion_mode = self.original_insertion_mode;
@@ -1199,7 +1187,6 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     }
                     Token::EndTag { name, .. } if name == "script" => {
                         // @todo: If the active speculative HTML parser is null and the JavaScript execution context stack is empty, then perform a microtask checkpoint.
-                        // let _script_node = current_node_id!(self);
 
                         self.open_elements.pop();
                         self.insertion_mode = self.original_insertion_mode;
@@ -1207,33 +1194,15 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                         let old_insertion_point = self.insertion_point;
                         self.insertion_point = Some(self.tokenizer.get_location().offset);
 
-                        // Nothing runs the script yet, but the wait in front of it is real
-                        // and is the part that shapes the load: a page whose script sits
-                        // behind a slow stylesheet is a page that stops here.
+                        // Nothing runs the script yet, but a blocking script still waits for
+                        // the stylesheets before it.
                         if self.current_script_blocks {
                             self.settle_stylesheets();
                         }
 
                         self.script_nesting_level += 1;
 
-                        // do script stuff
-                        //
-                        // WHEN THIS RUNS SCRIPTS: a classic script (no `async`, no `defer`)
-                        // may not execute until every stylesheet *before it in tree order*
-                        // has loaded and applied, because it can read and change both the
-                        // CSSOM and the DOM. The parser no longer fetches those sheets, so
-                        // this needs a way to say "hand me the sheets up to here, I will
-                        // wait" -- a hook on `HtmlParseConfig` that the resource pipeline
-                        // implements, never a fetch from in here.
-                        //
-                        // `Document::take_pending_stylesheets` already answers the question
-                        // in the shape the spec asks it: each entry carries the position it
-                        // holds in the cascade, so "before this script" is the entries whose
-                        // position is at or below `stylesheets().len()` right now.
-                        //
-                        // The wait is only safe because the parse runs on the blocking pool
-                        // (see `parse_main_document_stream`). On a runtime worker it would
-                        // starve the very fetches it is waiting for.
+                        // @todo: run the script here.
 
                         self.script_nesting_level -= 1;
                         if self.script_nesting_level == 0 {
@@ -1255,8 +1224,12 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                         let tokens = self.split_mixed_token(value, *location);
                         self.tokenizer.insert_tokens_at_queue_start(tokens);
                     }
-                    Token::Text { .. } if current_token.is_null() => {
-                        self.parse_error("null character not allowed in in table text insertion mode");
+                    Token::Text { text: value, location } if current_token.is_null() => {
+                        self.null_parse_errors(
+                            value,
+                            *location,
+                            "null character not allowed in in table text insertion mode",
+                        );
                         // ignore token
                     }
                     Token::Text { text: value, location } => {
@@ -1937,23 +1910,6 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         }
     }
 
-    /// Pops the last element from the open elements until we reach $name
-    #[allow(dead_code)]
-    fn pop_until(&mut self, name: &str) {
-        loop {
-            if self.open_elements.is_empty() {
-                break;
-            }
-
-            if node_tag!(self, current_node_id!(self)) == name {
-                self.open_elements.pop();
-                break;
-            }
-
-            self.open_elements.pop();
-        }
-    }
-
     /// Pops the last element from the open elements until we reach any of the elements in $arr
     fn pop_until_any(&mut self, arr: &[&str]) {
         while !self.open_elements.is_empty() {
@@ -1981,10 +1937,6 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         }
     }
 
-    fn check_last_element(&self, _name: &str) {
-        // Invariant check removed to prevent panics on malformed input.
-    }
-
     /// Returns true when the open elements have $name
     fn open_elements_has(&self, name: &str) -> bool {
         self.open_elements
@@ -1999,7 +1951,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     }
 
     /// Emits a parse error if any open element (in the HTML namespace) is not in the set of
-    /// elements that are allowed to remain open at body/EOF close time (spec §13.2.6.4.7).
+    /// elements that are allowed to remain open at body/EOF close time (spec section 13.2.6.4.7).
     fn check_open_elements_at_body_end(&self) {
         const ALLOWED: &[&str] = &[
             "dd", "dt", "li", "optgroup", "option", "p", "rb", "rp", "rt", "rtc", "tbody", "td", "tfoot", "th",
@@ -2020,6 +1972,16 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         self.error_logger
             .borrow_mut()
             .add_error(self.current_token.get_location(), message);
+    }
+
+    /// One parse error per NUL in `text`, a run of NULs that starts at `location`. The spec sees
+    /// each NUL as its own character token.
+    fn null_parse_errors(&self, text: &str, location: Location, message: &str) {
+        let mut location = location;
+        for _ in text.chars() {
+            self.error_logger.borrow_mut().add_error(location, message);
+            location = location_after(location, "\0");
+        }
     }
 
     /// Create a new node that is not connected or attached to the document arena
@@ -2282,19 +2244,40 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             .unwrap_or(false)
     }
 
+    /// Whether `target` itself is in `scope`. Unlike `is_in_scope`, another element with the
+    /// same name above it does not count.
+    fn is_element_in_scope(&self, target: NodeId, scope: Scope) -> bool {
+        for &node_id in self.open_elements.iter().rev() {
+            if node_id == target {
+                return true;
+            }
+            if self.ends_scope(node_id, scope) {
+                return false;
+            }
+        }
+        false
+    }
+
     /// One step of the scope walk. `Some(true)` when `node_id` is the element looked for,
     /// `Some(false)` when it ends the scope, `None` to go on to the next entry down.
     fn scope_step(&self, node_id: NodeId, tag: &str, namespace: &str, scope: Scope) -> Option<bool> {
+        if self.document.node_type(node_id) == NodeType::ElementNode
+            && self.document.tag_name(node_id).unwrap_or_default() == tag
+            && self.document.namespace(node_id).unwrap_or(HTML_NAMESPACE) == namespace
+        {
+            return Some(true);
+        }
+        self.ends_scope(node_id, scope).then_some(false)
+    }
+
+    /// Whether `node_id` is one of the elements that end `scope`.
+    fn ends_scope(&self, node_id: NodeId, scope: Scope) -> bool {
         if self.document.node_type(node_id) != NodeType::ElementNode {
-            return Some(false);
+            return true;
         }
 
         let node_tag = self.document.tag_name(node_id).unwrap_or_default();
         let node_ns = self.document.namespace(node_id).unwrap_or(HTML_NAMESPACE);
-
-        if node_tag == tag && node_ns == namespace {
-            return Some(true);
-        }
 
         let default_html_scope = [
             "applet", "caption", "html", "table", "td", "th", "marquee", "object", "template",
@@ -2307,7 +2290,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     || (node_ns == MATHML_NAMESPACE && default_mathml_scope.contains(&node_tag))
                     || (node_ns == SVG_NAMESPACE && default_svg_scope.contains(&node_tag))
                 {
-                    return Some(false);
+                    return true;
                 }
             }
             Scope::ListItem => {
@@ -2316,7 +2299,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     || (node_ns == MATHML_NAMESPACE && default_mathml_scope.contains(&node_tag))
                     || (node_ns == SVG_NAMESPACE && default_svg_scope.contains(&node_tag))
                 {
-                    return Some(false);
+                    return true;
                 }
             }
             Scope::Button => {
@@ -2324,21 +2307,21 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     || (node_ns == MATHML_NAMESPACE && default_mathml_scope.contains(&node_tag))
                     || (node_ns == SVG_NAMESPACE && default_svg_scope.contains(&node_tag))
                 {
-                    return Some(false);
+                    return true;
                 }
             }
             Scope::Table => {
                 if node_ns == HTML_NAMESPACE && ["html", "template", "table"].contains(&node_tag) {
-                    return Some(false);
+                    return true;
                 }
             }
             Scope::Select => {
                 if !(node_ns == HTML_NAMESPACE && ["optgroup", "option"].contains(&node_tag)) {
-                    return Some(false);
+                    return true;
                 }
             }
         }
-        None
+        false
     }
 
     /// Closes a table cell and switches the insertion mode to `InRow`
@@ -2365,8 +2348,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 let tokens = self.split_mixed_token_null(value, *location);
                 self.tokenizer.insert_tokens_at_queue_start(tokens);
             }
-            Token::Text { .. } if token.is_null() => {
-                self.parse_error("null character not allowed in in body insertion mode");
+            Token::Text { text: value, location } if token.is_null() => {
+                self.null_parse_errors(value, *location, "null character not allowed in in body insertion mode");
                 // ignore token
             }
             Token::Text { .. } => {
@@ -2743,8 +2726,9 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     let node_id = self.form_element;
                     self.form_element = None;
 
-                    let Some(node_id) = node_id.filter(|_| self.is_in_scope(name, HTML_NAMESPACE, Scope::Regular))
-                    else {
+                    // The pointer's own element, not any form: another form can be in scope
+                    // while the pointer's form is not.
+                    let Some(node_id) = node_id.filter(|&id| self.is_element_in_scope(id, Scope::Regular)) else {
                         self.parse_error("end tag not in scope");
                         // ignore token
                         return;
@@ -2933,9 +2917,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 self.frameset_ok = false;
                 self.insertion_mode = InsertionMode::InTable;
             }
-            Token::EndTag {
-                name, is_self_closing, ..
-            } if name == "br" => {
+            Token::EndTag { name, .. } if name == "br" => {
                 self.parse_error("br end tag not allowed");
                 self.reconstruct_formatting();
 
@@ -2948,7 +2930,6 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 self.insert_html_element(&mut br);
 
                 self.open_elements.pop();
-                self.acknowledge_closing_tag(*is_self_closing);
                 self.frameset_ok = false;
             }
             Token::StartTag {
@@ -3241,8 +3222,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 self.insertion_mode = InsertionMode::InHeadNoscript;
             }
             Token::StartTag { name, attributes, .. } if name == "script" => {
-                // An inline script blocks whatever it is marked with -- `async` and `defer`
-                // say nothing about a script with no `src` to fetch. One with a `src` blocks
+                // An inline script always blocks: `async` and `defer` say nothing about a
+                // script with no `src` to fetch. One with a `src` blocks
                 // only when it carries neither.
                 self.current_script_blocks = match attributes.get("src") {
                     None => true,
@@ -3589,8 +3570,12 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 let tokens = self.split_mixed_token(value, *location);
                 self.tokenizer.insert_tokens_at_queue_start(tokens);
             }
-            Token::Text { .. } if token.is_null() => {
-                self.parse_error("null character not allowed in in select insertion mode");
+            Token::Text { text: value, location } if token.is_null() => {
+                self.null_parse_errors(
+                    value,
+                    *location,
+                    "null character not allowed in in select insertion mode",
+                );
                 // ignore token
             }
             Token::Text { .. } => {
@@ -4037,9 +4022,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         }
     }
 
-    /// Fetches the next token from the tokenizer. However, if the token is a text token AND
-    /// it starts with one or more whitespaces, the token is split into 2 tokens: the whitespace part
-    /// and the remainder.
+    /// Fetches the next token from the tokenizer. A tokenizer error ends the input with an EOF
+    /// token.
     fn fetch_next_token(&mut self) -> Token {
         match self.tokenizer.next_token(self.parser_data()) {
             Ok(token) => token,
@@ -4049,7 +4033,6 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         }
     }
 
-    /// Returns the NodeId of the adjusted current node.
     /// The declarative-shadow-root branch of the "in head" `<template>` rules (HTML 13.2.6.4.4).
     ///
     /// Returns the shadow root when the token declares one and its intended parent can host it -
@@ -4101,6 +4084,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         self.document.add_stylesheet(stylesheet);
     }
 
+    /// Returns the NodeId of the adjusted current node.
     fn get_adjusted_current_node_id(&self) -> NodeId {
         // fragment case: return the context node (13.2.4), which fragment parsing always
         // sets. Falling through to the current node when it is somehow absent gives the same
@@ -4297,13 +4281,10 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         tokens
     }
 
-    /// Load an inline stylesheet from the <style>-node (identified by NodeId)
     /// Wait for every stylesheet linked so far, and put it in the cascade.
     ///
-    /// Called before a script that blocks. Everything still pending at this moment is by
-    /// construction a `<link>` that appeared *earlier* in the document than this script --
-    /// a later one has not been tokenised yet -- so "the sheets that block this script" is
-    /// simply all of them, and no position arithmetic is needed to select them.
+    /// Called before a script that blocks. Everything still pending is a `<link>` before this
+    /// script, since a later one has not been tokenised yet, so all of them block it.
     ///
     /// Does nothing without a [`StylesheetSource`]: the sheets stay pending and whoever
     /// drives the parse resolves them afterwards, which is what happens for a document with
@@ -4367,6 +4348,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         }
     }
 
+    /// Load an inline stylesheet from the <style>-node (identified by NodeId)
     fn load_inline_stylesheet(
         &self,
         origin: CssOrigin,
@@ -4402,16 +4384,12 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
     /// The text of a stylesheet an `@import` asked for.
     ///
-    /// The parser does not fetch. It asks the [`StylesheetSource`] -- the same seam a
-    /// `<link>` goes through -- so an import is a Fetcher request like every other
-    /// subresource, is visible in the developer tools, and is subject to the same policy.
-    /// Without a source there is nothing to ask and the import stays unresolved, which is
-    /// the answer wasm has always given.
+    /// Asks the [`StylesheetSource`], the same one a `<link>` goes through, so an import is
+    /// fetched under the same policy as any other subresource. Without a source the import
+    /// stays unresolved.
     ///
-    /// It still blocks: the sheet is being parsed and the import belongs in it. That is only
-    /// acceptable for the same reason [`Self::settle_stylesheets`] is -- the parse runs on
-    /// the blocking pool. The wait is accumulated so `parse_document` can take it back out
-    /// of `decode.html`; the fetch itself is timed by whoever performs it.
+    /// Blocks, like [`Self::settle_stylesheets`]. The wait is added to `blocked_on_css_us` so
+    /// `parse_document` can take it out of `decode.html`.
     fn fetch_css_text(&self, url: &Url) -> Option<String> {
         let source = self.stylesheet_source.clone()?;
 
@@ -4643,7 +4621,7 @@ mod test {
     fn is_in_scope() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
 
         node_create!(parser, "html");
         node_create!(parser, "div");
@@ -4659,7 +4637,7 @@ mod test {
     fn split_mixed_token_locations() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let parser = Parser::new_parser(&mut stream, &mut document);
 
         let locations = |tokens: Vec<Token>| {
             tokens
@@ -4692,7 +4670,7 @@ mod test {
     fn is_in_scope_empty_stack() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
 
         parser.open_elements.clear();
         assert!(!parser.is_in_scope("p", HTML_NAMESPACE, Scope::Regular));
@@ -4705,7 +4683,7 @@ mod test {
     fn is_in_scope_non_existing_node() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
         node_create!(parser, "html");
         node_create!(parser, "div");
         node_create!(parser, "p");
@@ -4721,7 +4699,7 @@ mod test {
     fn is_in_scope_1() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
         node_create!(parser, "html");
         node_create!(parser, "div");
         node_create!(parser, "table");
@@ -4759,7 +4737,7 @@ mod test {
     fn is_in_scope_2() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
         node_create!(parser, "html");
         node_create!(parser, "body");
         node_create!(parser, "ul");
@@ -4778,7 +4756,7 @@ mod test {
     fn is_in_scope_3() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
         node_create!(parser, "html");
         node_create!(parser, "body");
         node_create!(parser, "div");
@@ -4797,7 +4775,7 @@ mod test {
     fn is_in_scope_4() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
         node_create!(parser, "html");
         node_create!(parser, "body");
         node_create!(parser, "table");
@@ -4818,7 +4796,7 @@ mod test {
     fn is_in_scope_5() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
         node_create!(parser, "html");
         node_create!(parser, "body");
         node_create!(parser, "div");
@@ -4838,7 +4816,7 @@ mod test {
     fn is_in_scope_6() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
         node_create!(parser, "html");
         node_create!(parser, "body");
         node_create!(parser, "div");
@@ -4858,7 +4836,7 @@ mod test {
     fn is_in_scope_7() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
         node_create!(parser, "html");
         node_create!(parser, "body");
         node_create!(parser, "div");
@@ -4877,7 +4855,7 @@ mod test {
     fn is_in_scope_8() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
         let mut document = DocumentBuilderImpl::new_document::<Config>(None);
-        let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
+        let mut parser = Parser::new_parser(&mut stream, &mut document);
         node_create!(parser, "html");
         node_create!(parser, "body");
         node_create!(parser, "select");
@@ -4960,9 +4938,9 @@ mod test {
 
         // Whitespace makes an id non-conforming but it is still the element's id. An empty id
         // is no id at all.
-        assert!(doc.get_node_by_named_id("my id").is_some());
-        assert!(doc.get_node_by_named_id("my").is_none());
-        assert!(doc.get_node_by_named_id("").is_none());
+        assert!(doc.node_by_named_id("my id").is_some());
+        assert!(doc.node_by_named_id("my").is_none());
+        assert!(doc.node_by_named_id("").is_none());
     }
 
     #[test]
@@ -4977,9 +4955,9 @@ mod test {
         let _ = Parser::parse_document(&mut stream, &mut doc, None);
 
         // we are expecting the div (ID: 4) and p would be ignored
-        let div = doc.get_node_by_named_id("myid").unwrap();
-        assert_eq!(div.id, NodeId::from(4usize));
-        assert_eq!(div.get_element_data().unwrap().name(), "div");
+        let div = doc.node_by_named_id("myid").unwrap();
+        assert_eq!(div, NodeId::from(4usize));
+        assert_eq!(doc.tag_name(div), Some("div"));
     }
 
     #[test]
@@ -4993,11 +4971,11 @@ mod test {
         let _ = Parser::parse_document(&mut stream, &mut doc, None);
 
         assert!(
-            doc.get_node_by_named_id("t").is_some(),
+            doc.node_by_named_id("t").is_some(),
             "the template itself is in the tree"
         );
-        assert!(doc.get_node_by_named_id("inside").is_none());
-        assert!(doc.get_node_by_named_id("deep").is_none());
+        assert!(doc.node_by_named_id("inside").is_none());
+        assert!(doc.node_by_named_id("deep").is_none());
     }
 
     #[test]
@@ -5010,8 +4988,8 @@ mod test {
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
         let _ = Parser::parse_document(&mut stream, &mut doc, None);
 
-        let found = doc.get_node_by_named_id("dup").unwrap();
-        assert_eq!(found.get_element_data().unwrap().name(), "div");
+        let found = doc.node_by_named_id("dup").unwrap();
+        assert_eq!(doc.tag_name(found), Some("div"));
     }
 
     /// Answers with a fixed stylesheet and records what it was asked for.
@@ -5405,6 +5383,60 @@ mod text_location_tests {
     #[test]
     fn null_in_foreign_content() {
         assert_eq!(location_of("<svg>\0</svg>", "\u{fffd}"), (1, 6));
+    }
+
+    const FOREIGN_NULL: &str = "null character not allowed in foreign content";
+    const BODY_NULL: &str = "null character not allowed in in body insertion mode";
+    const SELECT_NULL: &str = "null character not allowed in in select insertion mode";
+    const TABLE_TEXT_NULL: &str = "null character not allowed in in table text insertion mode";
+
+    #[test]
+    fn each_null_in_a_run_is_its_own_parse_error() {
+        assert_eq!(errors_at("<svg>a\0\0\0b", FOREIGN_NULL), vec![(1, 7), (1, 8), (1, 9)]);
+        assert_eq!(errors_at("<svg>\0\0\0", FOREIGN_NULL), vec![(1, 6), (1, 7), (1, 8)]);
+        assert_eq!(errors_at("<math>a\0\0\0b", FOREIGN_NULL), vec![(1, 8), (1, 9), (1, 10)]);
+        assert_eq!(errors_at("<body>a\0\0\0b", BODY_NULL), vec![(1, 8), (1, 9), (1, 10)]);
+        assert_eq!(
+            errors_at("<select>a\0\0\0b", SELECT_NULL),
+            vec![(1, 10), (1, 11), (1, 12)]
+        );
+        assert_eq!(
+            errors_at("<table>\0\0\0", TABLE_TEXT_NULL),
+            vec![(1, 8), (1, 9), (1, 10)]
+        );
+    }
+
+    #[test]
+    fn each_null_in_a_run_is_its_own_parse_error_in_content_that_goes_through_in_body() {
+        assert_eq!(errors_at("<template>\0\0", BODY_NULL), vec![(1, 11), (1, 12)]);
+        assert_eq!(errors_at("<math><mi>\0\0", BODY_NULL), vec![(1, 11), (1, 12)]);
+        assert_eq!(errors_at("<svg><foreignObject>\0\0", BODY_NULL), vec![(1, 21), (1, 22)]);
+    }
+
+    #[test]
+    fn null_runs_split_by_other_text_each_count() {
+        assert_eq!(
+            errors_at("<select> \0\0 \0", SELECT_NULL),
+            vec![(1, 10), (1, 11), (1, 13)]
+        );
+        assert_eq!(errors_at("<body>\0\na\0", BODY_NULL), vec![(1, 7), (2, 2)]);
+    }
+
+    #[test]
+    fn a_single_null_is_still_one_parse_error() {
+        assert_eq!(errors_at("<svg>a\0b", FOREIGN_NULL), vec![(1, 7)]);
+        assert_eq!(errors_at("<table>\0", TABLE_TEXT_NULL), vec![(1, 8)]);
+    }
+
+    #[test]
+    fn nulls_in_cdata_are_tree_builder_errors_only() {
+        assert_eq!(errors_at("<svg><![CDATA[\0\0]]>", FOREIGN_NULL), vec![(1, 15), (1, 16)]);
+        assert!(errors_at("<svg><![CDATA[\0\0]]>", "unexpected-null-character").is_empty());
+    }
+
+    #[test]
+    fn tokenizer_null_errors_are_unchanged() {
+        assert_eq!(errors_at("<body>a\0\0\0b", "unexpected-null-character").len(), 3);
     }
 
     #[test]

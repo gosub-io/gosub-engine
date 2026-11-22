@@ -288,6 +288,78 @@ fn an_outside_marker_hangs_beside_a_block_in_the_item() {
     assert_eq!(marker.height, text.height, "one line tall");
 }
 
+/// The marker hangs off the item's border box, so the item's border and padding stay between it
+/// and the text, as in Firefox. Each case: the item's style, where its border box starts, and
+/// where its text starts. The list's content edge is at 40px and 760px wide.
+#[test]
+fn an_outside_marker_hangs_outside_the_items_border_and_padding() {
+    let cases = [
+        ("", 40.0, 40.0),
+        ("border-left: 4px solid", 40.0, 44.0),
+        ("padding-left: 10px", 40.0, 50.0),
+        ("padding-left: 10%", 40.0, 116.0),
+        ("border-left: 4px solid; padding-left: 10px", 40.0, 54.0),
+        (
+            "border-left: 4px solid; padding-left: 10px; box-sizing: border-box; width: 300px",
+            40.0,
+            54.0,
+        ),
+        ("border: 3px solid; padding: 5px 6px", 40.0, 49.0),
+        ("margin-left: 20px; border-left: 4px solid", 60.0, 64.0),
+    ];
+    for (style, edge, text_x) in cases {
+        let (marker, text) = marker_and_text_boxes(
+            &format!(
+                r#"<body style="margin: 0"><ul style="margin: 0; padding-left: 40px">
+                    <li id="item" style="{style}">first item</li>
+                </ul></body>"#
+            ),
+            "item",
+            "item",
+        );
+        assert!((text.x - text_x).abs() < 0.5, "{style}: text at {text:?}");
+        assert!(
+            (marker.x + marker.width - edge).abs() < 0.5,
+            "{style}: the marker ends at the border edge {edge}: {marker:?}"
+        );
+        assert!(
+            (marker.y - text.y).abs() < 0.5,
+            "{style}: on the first line: {marker:?} {text:?}"
+        );
+    }
+}
+
+/// A nested list's marker hangs off its own item, past the outer item's border.
+#[test]
+fn a_nested_outside_marker_hangs_off_its_own_item() {
+    let (marker, text) = marker_and_text_boxes(
+        r#"<body style="margin: 0"><ul style="margin: 0; padding-left: 40px">
+            <li style="border-left: 4px solid; padding-left: 6px">outer
+                <ul style="margin: 0; padding-left: 30px"><li id="inner" style="border-left: 2px solid">inner</li></ul>
+            </li>
+        </ul></body>"#,
+        "inner",
+        "inner",
+    );
+    // 40 + 4 + 6 + 30 = 80, the inner item's border box.
+    assert!((text.x - 82.0).abs() < 0.5, "{text:?}");
+    assert!((marker.x + marker.width - 80.0).abs() < 0.5, "{marker:?}");
+}
+
+/// A border on the list, not the item, moves the item and its marker together.
+#[test]
+fn a_border_on_the_list_moves_the_marker_with_the_item() {
+    let (marker, text) = marker_and_text_boxes(
+        r#"<body style="margin: 0"><ul style="margin: 0; padding-left: 40px; border-left: 5px solid">
+            <li id="item">first item</li>
+        </ul></body>"#,
+        "item",
+        "item",
+    );
+    assert!((text.x - 45.0).abs() < 0.5, "{text:?}");
+    assert!((marker.x + marker.width - 45.0).abs() < 0.5, "{marker:?}");
+}
+
 #[test]
 fn an_inside_marker_starts_the_first_line() {
     let (marker, text) = marker_and_text_boxes(

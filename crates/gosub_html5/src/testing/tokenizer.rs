@@ -38,7 +38,6 @@ impl TokenizerBuilder {
                 last_start_tag: self.last_start_tag.clone().unwrap_or_default(),
             }),
             error_logger.clone(),
-            Location::default(),
         )
     }
 }
@@ -128,7 +127,6 @@ where
                 },
                 "EndTag" => Token::EndTag {
                     name: values[1].as_str().unwrap().to_owned(),
-                    is_self_closing: false,
                     location: Location::default(),
                 },
                 _ => {
@@ -322,13 +320,8 @@ impl TestSpec {
                 location: *location,
             },
 
-            Token::EndTag {
-                name,
-                is_self_closing,
-                location,
-            } => Token::EndTag {
+            Token::EndTag { name, location } => Token::EndTag {
                 name: escape(name),
-                is_self_closing: *is_self_closing,
                 location: *location,
             },
 
