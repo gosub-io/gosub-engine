@@ -14,6 +14,7 @@ use gosub_shared::node::NodeId;
 
 use crate::common::document::node::NodeType;
 use crate::common::document::pipeline_doc::{is_marker_box, GosubDocumentAdapter, PipelineDocument};
+use crate::rendertree_builder::tree::INVISIBLE_ELEMENTS;
 
 #[derive(Clone, Debug, PartialEq)]
 struct Config;
@@ -40,9 +41,16 @@ fn element(a: &GosubDocumentAdapter<Config>, id: &str) -> NodeId {
     find(a, a.doc.root(), id).unwrap_or_else(|| panic!("no element with id {id}"))
 }
 
-/// All the text in a box subtree, generated text included, in box order.
+/// All the text in a box subtree, generated text included, in box order. What the render tree
+/// leaves out - `display: none`, `<style>` and the like - is left out here too.
 fn text_below(a: &GosubDocumentAdapter<Config>, node: NodeId, out: &mut String) {
     for child in a.children(node) {
+        let invisible = a
+            .tag_name(child)
+            .is_some_and(|tag| INVISIBLE_ELEMENTS.contains(&tag.as_str()));
+        if invisible || a.is_display_none(child) {
+            continue;
+        }
         match a.get_node_by_id(child).map(|node| node.node_type) {
             Some(NodeType::Text(text)) => out.push_str(&text),
             _ => text_below(a, child, out),
@@ -387,10 +395,8 @@ fn slotted_elements_count_in_flat_tree_order() {
           <span class="inc"></span>
         </div>"#,
     );
-    // Document styles stop at the shadow root, so the shadow tree brings its own. Only the end
-    // of the text is compared: the shadow tree's `<style>` text is in the box tree as well.
-    let text = text(&a, "host").split_whitespace().collect::<String>();
-    assert!(text.ends_with("}123"), "{text}");
+    // Document styles stop at the shadow root, so the shadow tree brings its own.
+    assert_eq!(text(&a, "host").split_whitespace().collect::<String>(), "123");
 }
 
 #[test]
