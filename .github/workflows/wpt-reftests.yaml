@@ -19,7 +19,7 @@ env:
 jobs:
   wpt-reftests:
     name: WPT reftests (${{ inputs.target }})
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
 
