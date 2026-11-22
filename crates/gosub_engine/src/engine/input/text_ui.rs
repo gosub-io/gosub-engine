@@ -59,22 +59,25 @@ impl PageInput {
         let Some(doc) = host.document() else {
             return ControlEditState::new(String::new(), 0);
         };
-        doc.control_edit_state(node).unwrap_or_else(|| {
-            let value = edit::initial_value(&doc, node);
-            let caret = if doc.tag_name(node) == Some("textarea") {
-                0
-            } else {
-                value.chars().count()
-            };
-            ControlEditState::new(value, caret)
-        })
+        host.interaction_snapshot()
+            .control_edit_state(node)
+            .cloned()
+            .unwrap_or_else(|| {
+                let value = edit::initial_value(&doc, node);
+                let caret = if doc.tag_name(node) == Some("textarea") {
+                    0
+                } else {
+                    value.chars().count()
+                };
+                ControlEditState::new(value, caret)
+            })
     }
 
     /// Store `state` (keeping a textarea's caret inside its view) and repaint the control.
     pub(super) fn commit_edit_state<H: InputHost>(&mut self, host: &mut H, node: NodeId, mut state: ControlEditState) {
-        let Some(doc) = host.document() else {
+        if host.document().is_none() {
             return;
-        };
+        }
         let ll = host.layer_list();
         if let Some(geo) = layout_element_of(ll.as_deref(), node).and_then(|lei| text_geometry(ll.as_deref(), lei)) {
             if geo.multiline {
@@ -86,7 +89,7 @@ impl PageInput {
                 state.scroll = area.first_showing(state.scroll, caret_row);
             }
         }
-        doc.set_control_edit_state(node, Some(state));
+        host.interaction_mut().set_edit(node, Some(state));
         Self::request_repaint(host, node);
     }
 
@@ -158,7 +161,7 @@ impl PageInput {
                 extend: false,
             },
         );
-        if !changed && doc.control_edit_state(node).is_some() {
+        if !changed && host.interaction_snapshot().control_edit_state(node).is_some() {
             return false;
         }
         self.commit_edit_state(host, node, state);
@@ -262,15 +265,15 @@ impl PageInput {
     }
 
     fn set_area_scroll<H: InputHost>(host: &mut H, node: NodeId, first: usize) -> bool {
-        let Some(doc) = host.document() else {
+        if host.document().is_none() {
             return false;
-        };
+        }
         let mut state = Self::edit_state(host, node);
-        if state.scroll == first && doc.control_edit_state(node).is_some() {
+        if state.scroll == first && host.interaction_snapshot().control_edit_state(node).is_some() {
             return false;
         }
         state.scroll = first;
-        doc.set_control_edit_state(node, Some(state));
+        host.interaction_mut().set_edit(node, Some(state));
         Self::request_repaint(host, node);
         true
     }
@@ -471,7 +474,7 @@ impl PageInput {
         let ll = host.layer_list();
         let (leaf, lei) = hit_at(ll.as_deref(), host.scroll(), vp_x, vp_y);
         // Popup rows are picked with a plain arrow.
-        if doc.open_select().is_some() && popup_lei(ll.as_deref()) == lei {
+        if host.interaction_snapshot().open_select().is_some() && popup_lei(ll.as_deref()) == lei {
             return CursorShape::Default;
         }
         if host.hover_has_link() {
@@ -494,7 +497,7 @@ impl PageInput {
     }
 
     /// Keyboard focus landing on a single-line text field selects its text (Tab behaviour).
-    pub(super) fn select_all_on_focus<H: InputHost>(host: &H, node: NodeId) {
+    pub(super) fn select_all_on_focus<H: InputHost>(host: &mut H, node: NodeId) {
         let Some(doc) = host.document() else {
             return;
         };
@@ -503,6 +506,6 @@ impl PageInput {
         }
         let mut state = Self::edit_state(host, node);
         edit::apply(&mut state, &EditAction::SelectAll);
-        doc.set_control_edit_state(node, Some(state));
+        host.interaction_mut().set_edit(node, Some(state));
     }
 }

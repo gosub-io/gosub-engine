@@ -59,6 +59,15 @@ fn doc(ctx: &Ctx) -> Arc<EngineDocument<DefaultRenderConfig>> {
         .unwrap_or_else(|| unreachable!("page() set a document"))
 }
 
+/// The interaction state as the next pass reads it.
+fn ix(ctx: &Ctx) -> InteractionSnapshot {
+    ctx.interaction_snapshot()
+}
+
+fn is_checked(ctx: &Ctx, node: NodeId) -> bool {
+    ix(ctx).is_checked::<DefaultRenderConfig>(&doc(ctx), node)
+}
+
 fn by_id(ctx: &Ctx, id: &str) -> NodeId {
     doc(ctx)
         .node_by_named_id(id)
@@ -121,11 +130,11 @@ fn chord(ctx: &mut Ctx, k: &str, ctrl: bool, shift: bool) {
 }
 
 fn selection(ctx: &Ctx, id: &str) -> Option<(usize, usize)> {
-    doc(ctx).control_edit_state(by_id(ctx, id)).and_then(|s| s.selection())
+    ix(ctx).control_edit_state(by_id(ctx, id)).and_then(|s| s.selection())
 }
 
 fn caret(ctx: &Ctx, id: &str) -> Option<usize> {
-    doc(ctx).control_edit_state(by_id(ctx, id)).map(|s| s.caret)
+    ix(ctx).control_edit_state(by_id(ctx, id)).map(|s| s.caret)
 }
 
 fn type_text(ctx: &mut Ctx, text: &str) {
@@ -137,8 +146,9 @@ fn type_text(ctx: &mut Ctx, text: &str) {
 fn value(ctx: &Ctx, id: &str) -> String {
     let d = doc(ctx);
     let node = by_id(ctx, id);
-    d.control_edit_state(node)
-        .map(|s| s.value)
+    ix(ctx)
+        .control_edit_state(node)
+        .map(|s| s.value.clone())
         .unwrap_or_else(|| crate::engine::edit::initial_value(&d, node))
 }
 
@@ -259,7 +269,7 @@ fn click_focuses_and_clicking_elsewhere_blurs() {
     click(&mut ctx, "t");
     assert_eq!(focused_id(&ctx).as_deref(), Some("t"));
     assert!(
-        doc(&ctx).is_focus_visible(by_id(&ctx, "t")),
+        ix(&ctx).is_focus_visible(by_id(&ctx, "t")),
         "text fields show the ring on click"
     );
     click(&mut ctx, "p");
@@ -273,10 +283,10 @@ fn label_click_reaches_its_control() {
            <label id="l2" for="c2">by for</label> <input id="c2" type="checkbox">"#,
     );
     click(&mut ctx, "l1");
-    assert!(doc(&ctx).is_checked(by_id(&ctx, "c1")));
+    assert!(is_checked(&ctx, by_id(&ctx, "c1")));
     assert_eq!(focused_id(&ctx).as_deref(), Some("c1"));
     click(&mut ctx, "l2");
-    assert!(doc(&ctx).is_checked(by_id(&ctx, "c2")));
+    assert!(is_checked(&ctx, by_id(&ctx, "c2")));
 }
 
 // ── text entry ────────────────────────────────────────────────────────────────
@@ -333,22 +343,21 @@ fn checkbox_toggles_and_radio_groups_are_exclusive() {
         r#"<input id="c" type="checkbox" checked>
            <input id="r1" type="radio" name="g" checked><input id="r2" type="radio" name="g"><input id="r3" type="radio" name="g" disabled>"#,
     );
-    let d = doc(&ctx);
     click(&mut ctx, "c");
-    assert!(!d.is_checked(by_id(&ctx, "c")));
+    assert!(!is_checked(&ctx, by_id(&ctx, "c")));
     key(&mut ctx, " ");
-    assert!(d.is_checked(by_id(&ctx, "c")), "Space toggles the focused checkbox");
+    assert!(is_checked(&ctx, by_id(&ctx, "c")), "Space toggles the focused checkbox");
 
     click(&mut ctx, "r2");
-    assert!(d.is_checked(by_id(&ctx, "r2")));
-    assert!(!d.is_checked(by_id(&ctx, "r1")));
+    assert!(is_checked(&ctx, by_id(&ctx, "r2")));
+    assert!(!is_checked(&ctx, by_id(&ctx, "r1")));
     click(&mut ctx, "r2");
     assert!(
-        d.is_checked(by_id(&ctx, "r2")),
+        is_checked(&ctx, by_id(&ctx, "r2")),
         "clicking a checked radio keeps it checked"
     );
     click(&mut ctx, "r3");
-    assert!(!d.is_checked(by_id(&ctx, "r3")), "disabled radio ignores clicks");
+    assert!(!is_checked(&ctx, by_id(&ctx, "r3")), "disabled radio ignores clicks");
 }
 
 // ── select ────────────────────────────────────────────────────────────────────
@@ -361,30 +370,32 @@ const SELECT: &str = r#"<select id="s">
 
 fn selected(ctx: &Ctx, select: &str) -> Option<String> {
     let d = doc(ctx);
-    d.selected_option(by_id(ctx, select))
+    ix(ctx)
+        .selected_option::<DefaultRenderConfig>(&d, by_id(ctx, select))
         .and_then(|o| d.attribute(o, "id").map(str::to_string))
 }
 
 #[test]
 fn select_opens_navigates_commits_and_escapes() {
     let mut ctx = page(SELECT);
-    let d = doc(&ctx);
     assert_eq!(selected(&ctx, "s").as_deref(), Some("o3"));
 
     click(&mut ctx, "s");
-    let open = d.open_select().unwrap_or_else(|| panic!("click opens the dropdown"));
+    let open = ix(&ctx)
+        .open_select()
+        .unwrap_or_else(|| panic!("click opens the dropdown"));
     // Popup rows: Apple(0) Berries(1) Blueberry(2) Cherry(3) Date(4); the choice is active.
     assert_eq!(open.active, Some(3));
 
     key(&mut ctx, "ArrowUp");
     assert_eq!(
-        d.open_select().and_then(|o| o.active),
+        ix(&ctx).open_select().and_then(|o| o.active),
         Some(0),
         "skips the disabled option and the group label"
     );
     key(&mut ctx, "ArrowDown");
     key(&mut ctx, "ArrowDown");
-    assert_eq!(d.open_select().and_then(|o| o.active), Some(4));
+    assert_eq!(ix(&ctx).open_select().and_then(|o| o.active), Some(4));
     assert_eq!(
         selected(&ctx, "s").as_deref(),
         Some("o3"),
@@ -392,14 +403,14 @@ fn select_opens_navigates_commits_and_escapes() {
     );
 
     key(&mut ctx, "Escape");
-    assert!(d.open_select().is_none());
+    assert!(ix(&ctx).open_select().is_none());
     assert_eq!(selected(&ctx, "s").as_deref(), Some("o3"), "Escape changes nothing");
 
     key(&mut ctx, "Enter");
-    assert!(d.open_select().is_some(), "Enter reopens");
+    assert!(ix(&ctx).open_select().is_some(), "Enter reopens");
     key(&mut ctx, "ArrowDown");
     key(&mut ctx, "Enter");
-    assert!(d.open_select().is_none());
+    assert!(ix(&ctx).open_select().is_none());
     assert_eq!(
         selected(&ctx, "s").as_deref(),
         Some("o4"),
@@ -427,17 +438,16 @@ fn select_closed_keys_change_selection_and_typeahead_matches() {
 #[test]
 fn select_space_opens_and_commits() {
     let mut ctx = page(SELECT);
-    let d = doc(&ctx);
     click(&mut ctx, "s");
     key(&mut ctx, "Escape");
-    assert!(d.open_select().is_none());
+    assert!(ix(&ctx).open_select().is_none());
 
     key(&mut ctx, " ");
-    assert!(d.open_select().is_some(), "Space opens a closed select");
+    assert!(ix(&ctx).open_select().is_some(), "Space opens a closed select");
 
     key(&mut ctx, "ArrowDown");
     key(&mut ctx, " ");
-    assert!(d.open_select().is_none());
+    assert!(ix(&ctx).open_select().is_none());
     assert_eq!(
         selected(&ctx, "s").as_deref(),
         Some("o4"),
@@ -459,7 +469,7 @@ fn select_space_continues_an_active_typeahead_prefix() {
     type_text(&mut ctx, "cherry t");
     assert_eq!(selected(&ctx, "s").as_deref(), Some("o2"));
     assert!(
-        doc(&ctx).open_select().is_none(),
+        ix(&ctx).open_select().is_none(),
         "the space typed ahead, it did not open"
     );
 }
@@ -467,7 +477,6 @@ fn select_space_continues_an_active_typeahead_prefix() {
 #[test]
 fn select_row_click_picks_and_outside_click_closes() {
     let mut ctx = page(SELECT);
-    let d = doc(&ctx);
     click(&mut ctx, "s");
     // Row 4 ("Date") sits below the popup's top padding at 4 × row_height.
     let (popup_box, row_h) = {
@@ -482,13 +491,13 @@ fn select_row_click_picks_and_outside_click_closes() {
         (el.box_model.content_box, p.row_height)
     };
     click_at(&mut ctx, popup_box.x + 20.0, popup_box.y + 4.0 * row_h + row_h / 2.0);
-    assert!(d.open_select().is_none());
+    assert!(ix(&ctx).open_select().is_none());
     assert_eq!(selected(&ctx, "s").as_deref(), Some("o4"));
 
     click(&mut ctx, "s");
-    assert!(d.open_select().is_some());
+    assert!(ix(&ctx).open_select().is_some());
     click_at(&mut ctx, 700.0, 500.0);
-    assert!(d.open_select().is_none(), "click outside closes");
+    assert!(ix(&ctx).open_select().is_none(), "click outside closes");
     assert_eq!(selected(&ctx, "s").as_deref(), Some("o4"), "…without changing");
 }
 
@@ -671,8 +680,8 @@ fn submit_encodes_live_state_and_reset_restores_it() {
 
     click(&mut ctx, "reset");
     assert_eq!(value(&ctx, "t"), "a b");
-    assert!(doc(&ctx).is_checked(by_id(&ctx, "c")));
-    assert!(!doc(&ctx).is_checked(by_id(&ctx, "r2")));
+    assert!(is_checked(&ctx, by_id(&ctx, "c")));
+    assert!(!is_checked(&ctx, by_id(&ctx, "r2")));
     assert!(ctx.take_submission().is_none());
 }
 
@@ -743,7 +752,7 @@ fn click_places_the_caret_in_a_text_field() {
         content.x + text_field::inset_x(content.width) + w + 1.0
     };
     click_at(&mut ctx, x_after_hello, content.y + content.height / 2.0);
-    assert_eq!(doc(&ctx).control_edit_state(node).map(|s| s.caret), Some(5));
+    assert_eq!(ix(&ctx).control_edit_state(node).map(|s| s.caret), Some(5));
     type_text(&mut ctx, "X");
     assert_eq!(value(&ctx, "t"), "helloX world");
 
@@ -802,7 +811,7 @@ fn click_places_the_caret_on_a_soft_wrapped_row() {
     assert!(rows.len() >= 3, "the text must wrap into several rows: {rows:?}");
     // Click at the very start of the second visual row: the caret goes to that row's first char.
     click_at(&mut ctx, content.x + 1.0, content.y + line_h * 1.5);
-    assert_eq!(doc(&ctx).control_edit_state(node).map(|s| s.caret), Some(rows[1].start));
+    assert_eq!(ix(&ctx).control_edit_state(node).map(|s| s.caret), Some(rows[1].start));
     type_text(&mut ctx, "|");
     let v = value(&ctx, "ta");
     assert_eq!(&v[rows[1].start..=rows[1].start], "|");
@@ -927,15 +936,15 @@ fn textarea_row_keys_and_scrolling() {
     for _ in 0..5 {
         key(&mut ctx, "ArrowDown");
     }
-    let scroll = doc(&ctx).control_edit_state(node).map(|s| s.scroll);
+    let scroll = ix(&ctx).control_edit_state(node).map(|s| s.scroll);
     assert_eq!(scroll, Some(3), "the caret is on row 6 (0-based); 4 rows fit");
     // The wheel scrolls independently of the caret; typing brings the caret back into view.
     let (cx, cy) = (content.x + 5.0, content.y + 5.0);
     ctx.update_hover(cx, cy);
     assert!(ctx.area_scroll(cx, cy, -200.0));
-    assert_eq!(doc(&ctx).control_edit_state(node).map(|s| s.scroll), Some(0));
+    assert_eq!(ix(&ctx).control_edit_state(node).map(|s| s.scroll), Some(0));
     type_text(&mut ctx, "!");
-    assert_eq!(doc(&ctx).control_edit_state(node).map(|s| s.scroll), Some(3));
+    assert_eq!(ix(&ctx).control_edit_state(node).map(|s| s.scroll), Some(3));
     // The scrollbar is there: the text block is narrower than the content box.
     let area = {
         let fs = ctx.font_system();
@@ -962,7 +971,7 @@ fn shift_up_across_a_soft_wrap_keeps_going() {
     let (cx, cy) = (content.x + 5.0, content.y + 5.0);
     ctx.update_hover(cx, cy);
     assert!(ctx.area_scroll(cx, cy, 200.0));
-    assert_eq!(doc(&ctx).control_edit_state(node).map(|s| s.scroll), Some(5));
+    assert_eq!(ix(&ctx).control_edit_state(node).map(|s| s.scroll), Some(5));
     // Third visible row is row 7 ("line 7"); click past its end.
     click_at(&mut ctx, content.x + 100.0, content.y + 2.5 * 18.0);
     assert_eq!(caret(&ctx, "ta"), Some(rows[7].end));
@@ -976,7 +985,7 @@ fn shift_up_across_a_soft_wrap_keeps_going() {
     );
     chord(&mut ctx, "ArrowUp", false, true);
     assert_eq!(caret(&ctx, "ta"), Some(rows[4].start + 6));
-    assert_eq!(doc(&ctx).control_edit_state(node).map(|s| s.scroll), Some(4));
+    assert_eq!(ix(&ctx).control_edit_state(node).map(|s| s.scroll), Some(4));
     chord(&mut ctx, "End", false, true);
     // End of a soft-wrapped row is the wrap point.
     assert_eq!(caret(&ctx, "ta"), Some(rows[4].end));

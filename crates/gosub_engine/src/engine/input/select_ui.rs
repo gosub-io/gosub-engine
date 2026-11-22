@@ -33,10 +33,8 @@ pub(super) fn popup_lei(layer_list: Option<&LayerList>) -> Option<LayoutElementI
 }
 
 impl PageInput {
-    fn set_open<H: InputHost>(host: &H, open: OpenSelect) {
-        if let Some(doc) = host.document() {
-            doc.set_open_select(Some(open));
-        }
+    fn set_open<H: InputHost>(host: &mut H, open: OpenSelect) {
+        host.interaction_mut().open_select = Some(open);
     }
 
     /// Paint-only repaint of the popup after a highlight/scroll change.
@@ -55,7 +53,7 @@ impl PageInput {
         let viewport = (scroll_y, host.viewport_height());
         // Decide the row window the way the layouter will, so the choice lands mid-popup.
         let rows = popup_rows_of(&doc, select);
-        let chosen = doc.selected_option(select);
+        let chosen = host.interaction_snapshot().selected_option::<H::Config>(&doc, select);
         let chosen_row = rows.iter().find(|(n, _)| Some(*n) == chosen).map(|(_, row)| *row);
         let total_rows = rows.last().map_or(0, |(_, r)| r + 1);
         let anchor = control_anchor(host.layer_list().as_deref(), select).unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
@@ -78,9 +76,7 @@ impl PageInput {
     }
 
     pub(super) fn close_select_popup<H: InputHost>(host: &mut H) {
-        if let Some(doc) = host.document() {
-            doc.set_open_select(None);
-        }
+        host.interaction_mut().open_select = None;
         host.relayout();
     }
 
@@ -107,17 +103,14 @@ impl PageInput {
 
     /// Commit popup row `row` (if it is a selectable option) and close.
     fn commit_row<H: InputHost>(host: &mut H, row: usize) {
-        let Some(doc) = host.document() else {
-            return;
-        };
-        let Some(open) = doc.open_select() else {
+        let Some(open) = host.interaction_snapshot().open_select() else {
             return;
         };
         if let Some((_, _, ctx)) = popup_parts(host.layer_list().as_deref()) {
             if let Some(r) = ctx.rows.get(row) {
                 if r.selectable() {
                     if let Some(id) = r.option_id() {
-                        doc.set_selected_option(open.select, Some(id));
+                        host.interaction_mut().set_selected(open.select, Some(id));
                     }
                 }
             }
@@ -137,7 +130,7 @@ impl PageInput {
         if x >= inner.x + inner.width - ctx.scrollbar_width() {
             return None;
         }
-        let first = host.document().and_then(|d| d.open_select()).map_or(0, |o| o.first_row);
+        let first = host.interaction_snapshot().open_select().map_or(0, |o| o.first_row);
         let row = ((y - inner.y) / ctx.row_height).floor();
         if row < 0.0 || row as usize >= ctx.visible_rows {
             return None;
@@ -148,10 +141,7 @@ impl PageInput {
 
     /// Pointer over an open dropdown: light-highlight the row under it (paint-only).
     pub fn popup_hover_at<H: InputHost>(host: &mut H, vp_x: f64, vp_y: f64) -> bool {
-        let Some(doc) = host.document() else {
-            return false;
-        };
-        let Some(open) = doc.open_select() else {
+        let Some(open) = host.interaction_snapshot().open_select() else {
             return false;
         };
         let (_, lei) = hit_at(host.layer_list().as_deref(), host.scroll(), vp_x, vp_y);
@@ -166,10 +156,7 @@ impl PageInput {
 
     /// Mouse wheel over an open dropdown: scroll its list one row per notch (paint-only).
     pub fn popup_scroll<H: InputHost>(host: &mut H, vp_x: f64, vp_y: f64, delta_y: f64) -> bool {
-        let Some(doc) = host.document() else {
-            return false;
-        };
-        let Some(open) = doc.open_select() else {
+        let Some(open) = host.interaction_snapshot().open_select() else {
             return false;
         };
         let ll = host.layer_list();
@@ -211,10 +198,7 @@ impl PageInput {
         vp_x: f64,
         vp_y: f64,
     ) -> bool {
-        let Some(doc) = host.document() else {
-            return false;
-        };
-        let Some(open) = doc.open_select() else {
+        let Some(open) = host.interaction_snapshot().open_select() else {
             return false;
         };
         let ll = host.layer_list();
@@ -261,10 +245,7 @@ impl PageInput {
         start_first: usize,
         vp_y: f64,
     ) -> bool {
-        let Some(doc) = host.document() else {
-            return false;
-        };
-        let Some(open) = doc.open_select() else {
+        let Some(open) = host.interaction_snapshot().open_select() else {
             return false;
         };
         let ll = host.layer_list();
@@ -300,7 +281,8 @@ impl PageInput {
         let Some(doc) = host.document() else {
             return false;
         };
-        let open = doc.open_select();
+        let ix = host.interaction_snapshot();
+        let open = ix.open_select();
 
         // Space opens a closed select and commits the active row, so it only types ahead while a
         // prefix is already being typed - "New " keeps matching "New York", a bare Space does not.
@@ -380,8 +362,8 @@ impl PageInput {
                 if options.is_empty() {
                     return false;
                 }
-                let cur = doc
-                    .selected_option(select)
+                let cur = ix
+                    .selected_option::<H::Config>(&doc, select)
                     .and_then(|c| options.iter().position(|&o| o == c));
                 let last = options.len() - 1;
                 let next = match (key, cur) {
@@ -394,7 +376,7 @@ impl PageInput {
                     (_, None) => 0,
                     _ => return false,
                 };
-                doc.set_selected_option(select, Some(options[next]));
+                host.interaction_mut().set_selected(select, Some(options[next]));
                 host.relayout();
                 true
             }
@@ -421,11 +403,12 @@ impl PageInput {
         if rows.is_empty() {
             return false;
         }
-        let open = doc.open_select();
+        let ix = host.interaction_snapshot();
+        let open = ix.open_select();
         let current = match open {
             Some(o) => o.active.and_then(|a| rows.iter().position(|(_, pos)| *pos == a)),
-            None => doc
-                .selected_option(select)
+            None => ix
+                .selected_option::<H::Config>(&doc, select)
                 .and_then(|c| rows.iter().position(|(n, _)| *n == c)),
         };
         // A repeated single letter cycles; anything longer matches the prefix from the top.
@@ -460,7 +443,7 @@ impl PageInput {
                 Self::repaint_popup(host);
             }
             None => {
-                doc.set_selected_option(select, Some(node));
+                host.interaction_mut().set_selected(select, Some(node));
                 host.relayout();
             }
         }

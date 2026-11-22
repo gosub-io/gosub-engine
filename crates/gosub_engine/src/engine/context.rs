@@ -31,6 +31,7 @@ use crate::html::RenderConfiguration;
 use gosub_css3::media_query::{ColorScheme, MediaEnvironment, MediaType, ReducedMotion};
 use gosub_interface::css3::{CssSystem, HoverFingerprints};
 use gosub_interface::document::Document as _;
+use gosub_interface::interaction::{InteractionSnapshot, InteractionState};
 use gosub_interface::node::NodeType;
 use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
 use gosub_render_pipeline::common::document::pipeline_doc::{GosubDocumentAdapter, PipelineDocument};
@@ -221,6 +222,9 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// the whole document even when nothing about the cascade had changed. Cleared only when
     /// the document itself changes.
     document_adapter: Option<Arc<GosubDocumentAdapter<C>>>,
+    /// What the user did to the document: focus, hover, typed values, toggles, picks, the open
+    /// dropdown. Belongs to the document, so it goes with it.
+    interaction: InteractionState,
     /// Layout state reused across frames; see [`RetainedLayout`].
     retained_layout: Option<RetainedLayout>,
     /// The style environment the currently cached computed styles were produced under
@@ -449,6 +453,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             hover_layout_element: None,
             hover_fingerprints: None,
             document_adapter: None,
+            interaction: InteractionState::default(),
             retained_layout: None,
             style_fingerprint: None,
             deferred_fonts: Default::default(),
@@ -764,6 +769,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.hover_layout_element = None;
         self.hover_fingerprints = None;
         self.document_adapter = None;
+        self.interaction = InteractionState::default();
         self.retained_layout = None;
         self.style_fingerprint = None;
         self.deferred_fonts = Default::default();
@@ -1080,7 +1086,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             None => {
                 let doc = self.document.as_ref()?;
                 let adapter = Arc::new(GosubDocumentAdapter::<C>::new(Arc::clone(doc)));
-                adapter.set_interaction(doc.interaction_snapshot());
+                adapter.set_interaction(InteractionSnapshot::new::<C>(&self.interaction, doc));
                 self.document_adapter = Some(Arc::clone(&adapter));
                 adapter
             }
@@ -1093,7 +1099,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// what this pass styles and paints with.
     fn sync_interaction(&self) {
         if let (Some(adapter), Some(doc)) = (&self.document_adapter, &self.document) {
-            adapter.set_interaction(doc.interaction_snapshot());
+            adapter.set_interaction(InteractionSnapshot::new::<C>(&self.interaction, doc));
         }
     }
 
@@ -2545,7 +2551,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     }
 
     pub fn focused_node(&self) -> Option<NodeId> {
-        self.document.as_ref().and_then(|d| d.focused_node())
+        self.interaction_snapshot().focused_node()
     }
 
     /// Flush the document's autofocus candidates once it has laid out (HTML, "update the
@@ -2561,7 +2567,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let rendered: std::collections::HashSet<NodeId> =
             ll.layout_tree.arena.values().map(|el| el.dom_node_id).collect();
         let fragment = self.document_url.as_ref().and_then(Url::fragment);
-        let Some(target) = self.autofocus.flush(&doc, Some(&rendered), fragment) else {
+        let focused = self.focused_node();
+        let Some(target) = self.autofocus.flush(&doc, focused, Some(&rendered), fragment) else {
             return false;
         };
         // The focusing steps; a text control shows the ring, as a click into it would.
@@ -2864,9 +2871,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.hover_chain_sensitive = new_sensitive;
 
         if visual_dirty {
-            if let Some(doc) = &self.document {
+            {
                 let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::HoverSetHovered);
-                doc.set_hovered_nodes(new_leaf);
+                self.interaction.hover_leaf = new_leaf;
             }
             // Hover changes only paint (colour, background, outline): the boxes do not move,
             // so record paint-level damage over the old and new hovered elements and let the
@@ -2909,6 +2916,14 @@ impl<C: RenderConfiguration> InputHost for BrowsingContext<C> {
 
     fn document(&self) -> Option<Arc<EngineDocument<C>>> {
         self.document.clone()
+    }
+
+    fn interaction(&self) -> &InteractionState {
+        &self.interaction
+    }
+
+    fn interaction_mut(&mut self) -> &mut InteractionState {
+        &mut self.interaction
     }
 
     fn layer_list(&self) -> Option<Arc<LayerList>> {
@@ -4376,10 +4391,10 @@ mod tests {
             assert_eq!(ctx.focused_node(), Some(button), "shift-tab goes back");
             assert_ne!(a, input);
 
-            // The document agrees (this is what :focus matching reads).
-            let doc = ctx.document.as_ref().unwrap();
-            assert!(doc.is_focused(button));
-            assert!(!doc.is_focused(a));
+            // The snapshot agrees (this is what :focus matching reads).
+            let ix = ctx.interaction_snapshot();
+            assert!(ix.is_focused(button));
+            assert!(!ix.is_focused(a));
 
             // Clicking the <span> inside the link focuses the link (nearest focusable
             // ancestor); clicking the plain div blurs.

@@ -1,7 +1,6 @@
 use core::fmt::Debug;
 use gosub_interface::css3::CssSystem;
-use gosub_interface::document::{AttachError, ControlEditState, Document, DocumentType, OpenSelect, PendingStylesheet};
-use gosub_interface::interaction::{InteractionSnapshot, InteractionState};
+use gosub_interface::document::{AttachError, Document, DocumentType, PendingStylesheet};
 use gosub_shared::attributes::Attributes;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -45,7 +44,6 @@ pub struct DocumentImpl<C: HasDocument> {
     /// Links whose bytes have not arrived. Filled in after the parse; see
     /// [`Document::add_pending_stylesheet`].
     pending_stylesheets: Vec<PendingStylesheet>,
-    interaction: parking_lot::RwLock<InteractionState>,
     /// The errors the HTML parser reported building this document, for whoever wants to show
     /// them; see [`DocumentImpl::set_parse_errors`].
     parse_errors: Vec<ParseError>,
@@ -79,7 +77,6 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             scripting_enabled: true,
             stylesheets: Vec::new(),
             pending_stylesheets: Vec::new(),
-            interaction: parking_lot::RwLock::new(InteractionState::default()),
             parse_errors: Vec::new(),
         };
         let root = NodeImpl::new_document(Location::default(), QuirksMode::NoQuirks);
@@ -538,89 +535,6 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         &self.parse_errors
     }
 
-    /// The interaction state read against the tree as it is now, for a style or paint pass.
-    pub fn interaction_snapshot(&self) -> InteractionSnapshot {
-        InteractionSnapshot::new::<C>(&self.interaction.read(), self)
-    }
-
-    pub fn is_hovered(&self, id: NodeId) -> bool {
-        let leaf = self.interaction.read().hover_leaf;
-        self.is_ancestor_or_self(id, leaf)
-    }
-
-    pub fn is_focused(&self, id: NodeId) -> bool {
-        self.interaction.read().focus == Some(id)
-    }
-
-    pub fn is_focus_visible(&self, id: NodeId) -> bool {
-        let ix = self.interaction.read();
-        ix.focus_visible && ix.focus == Some(id)
-    }
-
-    pub fn is_focus_within(&self, id: NodeId) -> bool {
-        let focus = self.interaction.read().focus;
-        self.is_ancestor_or_self(id, focus)
-    }
-
-    pub fn focused_node(&self) -> Option<NodeId> {
-        self.interaction.read().focus
-    }
-
-    pub fn control_edit_state(&self, id: NodeId) -> Option<ControlEditState> {
-        self.interaction.read().edits.get(&id).cloned()
-    }
-
-    pub fn is_checked(&self, id: NodeId) -> bool {
-        // `option:checked` = the select's chosen option.
-        if self.tag_name(id) == Some("option") {
-            let mut cur = self.parent(id);
-            while let Some(p) = cur {
-                if self.tag_name(p) == Some("select") {
-                    return self.selected_option(p) == Some(id);
-                }
-                cur = self.parent(p);
-            }
-            return false;
-        }
-        match self.interaction.read().checked.get(&id) {
-            Some(c) => *c,
-            None => self.attribute(id, "checked").is_some(),
-        }
-    }
-
-    pub fn selected_option(&self, select: NodeId) -> Option<NodeId> {
-        // The pick only counts while the option is still one of the select's options; moved
-        // out, the select falls back to its default. Moved back, the pick returns.
-        let picked = self.interaction.read().selected.get(&select).copied();
-        if let Some(opt) = picked.filter(|&opt| self.is_option_of(opt, select)) {
-            return Some(opt);
-        }
-        // Default: the `selected` attribute, else the first option.
-        let mut first = None;
-        let mut stack: Vec<NodeId> = self.children(select).iter().rev().copied().collect();
-        while let Some(id) = stack.pop() {
-            match self.tag_name(id) {
-                Some("option") => {
-                    if self.attribute(id, "selected").is_some() {
-                        return Some(id);
-                    }
-                    first.get_or_insert(id);
-                }
-                Some("optgroup") => stack.extend(self.children(id).iter().rev()),
-                _ => {}
-            }
-        }
-        first
-    }
-
-    pub fn open_select(&self) -> Option<OpenSelect> {
-        self.interaction.read().open_select
-    }
-
-    pub fn control_size(&self, id: NodeId) -> Option<(f64, f64)> {
-        self.interaction.read().sizes.get(&id).copied()
-    }
-
     /// The `<table>` a cell sits in, if it sits in one at all.
     ///
     /// A `<td>` written outside a table is an ordinary element as far as the tree is concerned,
@@ -634,71 +548,6 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             current = self.parent(node);
         }
         None
-    }
-
-    pub fn set_hovered_nodes(&self, leaf: Option<NodeId>) {
-        self.interaction.write().hover_leaf = leaf;
-    }
-
-    /// Move focus to `node` (`None` blurs); `visible` = show the focus ring.
-    pub fn set_focused_node(&self, node: Option<NodeId>, visible: bool) {
-        let mut ix = self.interaction.write();
-        ix.focus = node;
-        ix.focus_visible = visible;
-    }
-
-    /// Whether `id` is `node` or one of its ancestors, in the tree as it is now.
-    fn is_ancestor_or_self(&self, id: NodeId, node: Option<NodeId>) -> bool {
-        let mut current = node;
-        while let Some(n) = current {
-            if n == id {
-                return true;
-            }
-            current = self.arena.node_ref(n).and_then(|n| n.parent);
-        }
-        false
-    }
-
-    /// Whether `option` is in `select`'s list of options, which is the case when `select` is its
-    /// nearest ancestor select (<https://html.spec.whatwg.org/#option-element-nearest-ancestor-select>).
-    fn is_option_of(&self, option: NodeId, select: NodeId) -> bool {
-        let mut seen_optgroup = false;
-        let mut current = self.parent(option);
-        while let Some(ancestor) = current {
-            match self.tag_name(ancestor) {
-                Some("datalist" | "hr" | "option") => return false,
-                Some("optgroup") if seen_optgroup => return false,
-                Some("optgroup") => seen_optgroup = true,
-                Some("select") => return ancestor == select,
-                _ => {}
-            }
-            current = self.parent(ancestor);
-        }
-        false
-    }
-
-    /// `None` reverts to the `selected` attribute.
-    pub fn set_selected_option(&self, select: NodeId, option: Option<NodeId>) {
-        self.interaction.write().set_selected(select, option);
-    }
-
-    /// `None` reverts to the stylesheet size.
-    pub fn set_control_size(&self, id: NodeId, size: Option<(f64, f64)>) {
-        self.interaction.write().set_size(id, size);
-    }
-
-    pub fn set_open_select(&self, state: Option<OpenSelect>) {
-        self.interaction.write().open_select = state;
-    }
-
-    /// `None` reverts to the `checked` attribute.
-    pub fn set_checked(&self, id: NodeId, checked: Option<bool>) {
-        self.interaction.write().set_checked(id, checked);
-    }
-
-    /// `None` reverts to the markup value.
-    pub fn set_control_edit_state(&self, id: NodeId, state: Option<ControlEditState>) {
-        self.interaction.write().set_edit(id, state);
     }
 
     /// The root of the tree `node_id` is in: follow parents until there are none. A shadow root
@@ -1176,7 +1025,6 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         // The node and everything below it leave the document tree, so `getElementById` must
         // stop finding them. The arena only drops this one slot.
         self.refresh_named_ids(node_id, None);
-        self.clear_interaction_state(node_id);
         self.orphan_children(node_id);
         self.arena.delete_node(node_id);
     }
@@ -1193,30 +1041,6 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             if let Some(node) = self.arena.node_ref_mut(child) {
                 node.set_parent(None);
             }
-        }
-    }
-
-    /// Drop every piece of user-interaction state that names `node_id`. `NodeArena` never reuses
-    /// ids, so nothing can inherit it - but without this the maps grow for the tab's lifetime and
-    /// `focused_node()` / `selected_option()` keep handing out a deleted id. Deliberately *not*
-    /// done in `detach_node`: relocation detaches before reattaching, and must keep the state.
-    fn clear_interaction_state(&self, node_id: NodeId) {
-        let mut ix = self.interaction.write();
-        if ix.hover_leaf == Some(node_id) {
-            ix.hover_leaf = None;
-        }
-        if ix.focus == Some(node_id) {
-            ix.focus = None;
-            ix.focus_visible = false;
-        }
-        ix.edits.remove(&node_id);
-        ix.checked.remove(&node_id);
-        ix.sizes.remove(&node_id);
-        // Also drop entries that *point at* the node: a deleted `<option>`.
-        ix.selected
-            .retain(|select, option| *select != node_id && *option != node_id);
-        if ix.open_select.as_ref().is_some_and(|o| o.select == node_id) {
-            ix.open_select = None;
         }
     }
 
@@ -1438,6 +1262,7 @@ mod tests {
     use gosub_css3::system::Css3System;
     use gosub_interface::config::ModuleConfiguration;
     use gosub_interface::document::OpenSelect;
+    use gosub_interface::interaction::{InteractionSnapshot, InteractionState};
     use gosub_interface::node::ShadowRootMode;
 
     #[derive(Clone, Debug, PartialEq)]
@@ -1469,113 +1294,147 @@ mod tests {
         doc.register_node(node)
     }
 
+    /// `state` read against `doc` as a style pass reads it.
+    fn snapshot(doc: &DocumentImpl<Config>, state: &InteractionState) -> InteractionSnapshot {
+        InteractionSnapshot::new::<Config>(state, doc)
+    }
+
     #[test]
-    fn deleting_a_node_clears_its_interaction_state() {
+    fn deleting_a_node_drops_its_interaction_state() {
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
         let root = doc.root();
         let select = element(&mut doc, "select", root);
         let option = element(&mut doc, "option", select);
         let input = element(&mut doc, "input", root);
 
-        doc.set_focused_node(Some(input), true);
-        doc.set_checked(input, Some(true));
-        doc.set_control_size(input, Some((10.0, 20.0)));
-        doc.set_selected_option(select, Some(option));
-        doc.set_open_select(Some(OpenSelect {
-            select,
-            hover: None,
-            active: None,
-            first_row: 0,
-            viewport: (0.0, 100.0),
-        }));
+        let mut state = InteractionState {
+            focus: Some(input),
+            focus_visible: true,
+            open_select: Some(OpenSelect {
+                select,
+                hover: None,
+                active: None,
+                first_row: 0,
+                viewport: (0.0, 100.0),
+            }),
+            ..Default::default()
+        };
+        state.set_checked(input, Some(true));
+        state.set_size(input, Some((10.0, 20.0)));
+        state.set_selected(select, Some(option));
 
         doc.delete_node_by_id(input);
-        assert_eq!(doc.focused_node(), None, "focus does not survive its node");
-        assert!(!doc.is_checked(input));
-        assert_eq!(doc.control_size(input), None);
+        let ix = snapshot(&doc, &state);
+        assert_eq!(ix.focused_node(), None, "focus does not survive its node");
+        assert!(!ix.is_checked::<Config>(&doc, input));
+        assert_eq!(ix.control_size(input), None);
 
         // Deleting the *option* clears the select's choice, which points at it.
         doc.delete_node_by_id(option);
-        assert_eq!(doc.selected_option(select), None);
+        assert_eq!(snapshot(&doc, &state).selected_option::<Config>(&doc, select), None);
 
         doc.delete_node_by_id(select);
-        assert!(doc.open_select().is_none(), "the open dropdown closes with its select");
+        assert!(
+            snapshot(&doc, &state).open_select().is_none(),
+            "the open dropdown closes with its select"
+        );
+    }
+
+    #[test]
+    fn deleting_the_picked_option_falls_back_to_the_default() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (select, a, b, state) = picked_option(&mut doc);
+
+        doc.delete_node_by_id(b);
+
+        let ix = snapshot(&doc, &state);
+        assert_eq!(ix.selected_option::<Config>(&doc, select), Some(a));
+        assert!(ix.is_checked::<Config>(&doc, a));
     }
 
     /// html > (old > input, new): the input focused.
-    fn focused_input(doc: &mut DocumentImpl<Config>) -> (NodeId, NodeId, NodeId) {
+    fn focused_input(doc: &mut DocumentImpl<Config>) -> (NodeId, NodeId, NodeId, InteractionState) {
         let root = doc.root();
         let old = element(doc, "div", root);
         let new = element(doc, "section", root);
         let input = element(doc, "input", old);
-        doc.set_focused_node(Some(input), true);
-        (old, new, input)
+        let state = InteractionState {
+            focus: Some(input),
+            focus_visible: true,
+            ..Default::default()
+        };
+        (old, new, input, state)
     }
 
     #[test]
     fn moving_the_focused_element_moves_focus_within() {
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
-        let (old, new, input) = focused_input(&mut doc);
-        assert!(doc.is_focus_within(old));
+        let (old, new, input, state) = focused_input(&mut doc);
+        assert!(snapshot(&doc, &state).is_focus_within(old));
 
         doc.attach_node(input, new, None).unwrap();
 
-        assert!(!doc.is_focus_within(old), "the old parent no longer holds the focus");
-        assert!(doc.is_focus_within(new));
-        assert!(doc.is_focus_within(input));
-        assert!(doc.is_focus_within(doc.root()));
-        assert_eq!(doc.focused_node(), Some(input), "the focus stays on the element");
+        let ix = snapshot(&doc, &state);
+        assert!(!ix.is_focus_within(old), "the old parent no longer holds the focus");
+        assert!(ix.is_focus_within(new));
+        assert!(ix.is_focus_within(input));
+        assert!(ix.is_focus_within(doc.root()));
+        assert_eq!(ix.focused_node(), Some(input), "the focus stays on the element");
     }
 
     #[test]
     fn moving_an_ancestor_of_the_focused_element_moves_focus_within() {
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
-        let (old, new, input) = focused_input(&mut doc);
+        let (old, new, input, state) = focused_input(&mut doc);
         let wrapper = element(&mut doc, "div", old);
         doc.attach_node(input, wrapper, None).unwrap();
 
         doc.attach_node(wrapper, new, Some(0)).unwrap();
 
-        assert!(!doc.is_focus_within(old));
-        assert!(doc.is_focus_within(new));
-        assert!(doc.is_focus_within(wrapper));
+        let ix = snapshot(&doc, &state);
+        assert!(!ix.is_focus_within(old));
+        assert!(ix.is_focus_within(new));
+        assert!(ix.is_focus_within(wrapper));
     }
 
     #[test]
     fn relocating_the_focused_element_moves_focus_within() {
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
-        let (old, new, input) = focused_input(&mut doc);
+        let (old, new, input, state) = focused_input(&mut doc);
 
         Document::relocate_node(&mut doc, input, new);
 
-        assert!(!doc.is_focus_within(old));
-        assert!(doc.is_focus_within(new));
+        let ix = snapshot(&doc, &state);
+        assert!(!ix.is_focus_within(old));
+        assert!(ix.is_focus_within(new));
     }
 
     #[test]
     fn detaching_the_focused_element_takes_focus_within_out_of_the_document() {
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
-        let (old, _, input) = focused_input(&mut doc);
+        let (old, _, input, state) = focused_input(&mut doc);
 
         doc.detach_node(input);
 
-        assert!(!doc.is_focus_within(old));
-        assert!(!doc.is_focus_within(doc.root()));
-        assert!(doc.is_focus_within(input));
+        let ix = snapshot(&doc, &state);
+        assert!(!ix.is_focus_within(old));
+        assert!(!ix.is_focus_within(doc.root()));
+        assert!(ix.is_focus_within(input));
     }
 
     #[test]
     fn moving_an_unrelated_node_leaves_focus_within_alone() {
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
-        let (old, new, input) = focused_input(&mut doc);
+        let (old, new, input, state) = focused_input(&mut doc);
         let other = element(&mut doc, "p", new);
 
         doc.attach_node(other, old, None).unwrap();
 
-        assert!(doc.is_focus_within(old));
-        assert!(doc.is_focus_within(input));
-        assert!(!doc.is_focus_within(new));
-        assert!(!doc.is_focus_within(other));
+        let ix = snapshot(&doc, &state);
+        assert!(ix.is_focus_within(old));
+        assert!(ix.is_focus_within(input));
+        assert!(!ix.is_focus_within(new));
+        assert!(!ix.is_focus_within(other));
     }
 
     #[test]
@@ -1586,79 +1445,96 @@ mod tests {
         let new = element(&mut doc, "section", root);
         let wrapper = element(&mut doc, "div", old);
         let leaf = element(&mut doc, "span", wrapper);
-        doc.set_hovered_nodes(Some(leaf));
-        assert!(doc.is_hovered(old));
+        let state = InteractionState {
+            hover_leaf: Some(leaf),
+            ..Default::default()
+        };
+        assert!(snapshot(&doc, &state).is_hovered(old));
 
         doc.attach_node(wrapper, new, None).unwrap();
 
-        assert!(!doc.is_hovered(old), "the old parent is no longer under the pointer");
-        assert!(doc.is_hovered(new));
-        assert!(doc.is_hovered(wrapper));
-        assert!(doc.is_hovered(leaf));
-        assert!(doc.is_hovered(root));
+        let ix = snapshot(&doc, &state);
+        assert!(!ix.is_hovered(old), "the old parent is no longer under the pointer");
+        assert!(ix.is_hovered(new));
+        assert!(ix.is_hovered(wrapper));
+        assert!(ix.is_hovered(leaf));
+        assert!(ix.is_hovered(root));
     }
 
     /// html > select > (a, b, c), with `b` picked.
-    fn picked_option(doc: &mut DocumentImpl<Config>) -> (NodeId, NodeId, NodeId) {
+    fn picked_option(doc: &mut DocumentImpl<Config>) -> (NodeId, NodeId, NodeId, InteractionState) {
         let root = doc.root();
         let select = element(doc, "select", root);
         let a = element(doc, "option", select);
         let b = element(doc, "option", select);
         element(doc, "option", select);
-        doc.set_selected_option(select, Some(b));
-        (select, a, b)
+        let mut state = InteractionState::default();
+        state.set_selected(select, Some(b));
+        (select, a, b, state)
     }
 
     #[test]
     fn a_picked_option_detached_from_its_select_is_no_longer_its_choice() {
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
-        let (select, a, b) = picked_option(&mut doc);
+        let (select, a, b, state) = picked_option(&mut doc);
 
         doc.detach_node(b);
 
-        assert_eq!(doc.selected_option(select), Some(a), "back to the first option");
-        assert!(doc.is_checked(a));
-        assert!(!doc.is_checked(b));
+        let ix = snapshot(&doc, &state);
+        assert_eq!(
+            ix.selected_option::<Config>(&doc, select),
+            Some(a),
+            "back to the first option"
+        );
+        assert!(ix.is_checked::<Config>(&doc, a));
+        assert!(!ix.is_checked::<Config>(&doc, b));
     }
 
     #[test]
     fn a_picked_option_moved_to_another_select_is_no_longer_the_first_ones_choice() {
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
-        let (select, a, b) = picked_option(&mut doc);
+        let (select, a, b, state) = picked_option(&mut doc);
         let root = doc.root();
         let other = element(&mut doc, "select", root);
         let first = element(&mut doc, "option", other);
 
         doc.attach_node(b, other, None).unwrap();
 
-        assert_eq!(doc.selected_option(select), Some(a));
-        assert_eq!(doc.selected_option(other), Some(first));
-        assert!(!doc.is_checked(b));
+        let ix = snapshot(&doc, &state);
+        assert_eq!(ix.selected_option::<Config>(&doc, select), Some(a));
+        assert_eq!(ix.selected_option::<Config>(&doc, other), Some(first));
+        assert!(!ix.is_checked::<Config>(&doc, b));
     }
 
     #[test]
     fn a_picked_option_moved_within_its_select_stays_picked() {
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
-        let (select, _, b) = picked_option(&mut doc);
+        let (select, _, b, state) = picked_option(&mut doc);
         let group = element(&mut doc, "optgroup", select);
 
         doc.attach_node(b, select, None).unwrap();
-        assert_eq!(doc.selected_option(select), Some(b), "moved to the end");
+        let ix = snapshot(&doc, &state);
+        assert_eq!(ix.selected_option::<Config>(&doc, select), Some(b), "moved to the end");
 
         doc.attach_node(b, group, None).unwrap();
-        assert_eq!(doc.selected_option(select), Some(b), "moved into an optgroup");
-        assert!(doc.is_checked(b));
+        let ix = snapshot(&doc, &state);
+        assert_eq!(
+            ix.selected_option::<Config>(&doc, select),
+            Some(b),
+            "moved into an optgroup"
+        );
+        assert!(ix.is_checked::<Config>(&doc, b));
     }
 
     #[test]
     fn a_picked_option_moved_into_a_wrapper_in_its_select_stays_picked() {
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
-        let (select, _, b) = picked_option(&mut doc);
+        let (select, _, b, state) = picked_option(&mut doc);
         let wrapper = element(&mut doc, "div", select);
 
         doc.attach_node(b, wrapper, None).unwrap();
 
-        assert_eq!(doc.selected_option(select), Some(b));
+        assert_eq!(snapshot(&doc, &state).selected_option::<Config>(&doc, select), Some(b));
     }
 
     #[test]
@@ -1667,7 +1543,7 @@ mod tests {
         let tags: [&[&str]; 4] = [&["datalist"], &["hr"], &["option"], &["optgroup", "optgroup"]];
         for path in tags {
             let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
-            let (select, a, b) = picked_option(&mut doc);
+            let (select, a, b, state) = picked_option(&mut doc);
             let mut parent = select;
             for tag in path {
                 parent = element(&mut doc, tag, parent);
@@ -1675,22 +1551,26 @@ mod tests {
 
             doc.attach_node(b, parent, None).unwrap();
 
-            assert_eq!(doc.selected_option(select), Some(a), "{path:?}");
+            assert_eq!(
+                snapshot(&doc, &state).selected_option::<Config>(&doc, select),
+                Some(a),
+                "{path:?}"
+            );
         }
     }
 
     #[test]
     fn a_picked_option_moved_out_and_back_is_picked_again() {
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
-        let (select, a, b) = picked_option(&mut doc);
+        let (select, a, b, state) = picked_option(&mut doc);
         let root = doc.root();
         let elsewhere = element(&mut doc, "div", root);
 
         doc.attach_node(b, elsewhere, None).unwrap();
-        assert_eq!(doc.selected_option(select), Some(a));
+        assert_eq!(snapshot(&doc, &state).selected_option::<Config>(&doc, select), Some(a));
 
         doc.attach_node(b, select, None).unwrap();
-        assert_eq!(doc.selected_option(select), Some(b));
+        assert_eq!(snapshot(&doc, &state).selected_option::<Config>(&doc, select), Some(b));
     }
 
     /// Change `node`'s `id` attribute in place and run the mutation hook, the way a DOM
