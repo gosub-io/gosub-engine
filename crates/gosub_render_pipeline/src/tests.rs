@@ -5851,6 +5851,8 @@ mod abspos_insets;
 #[cfg(test)]
 mod collapsed_borders;
 #[cfg(test)]
+mod counters;
+#[cfg(test)]
 mod list_markers;
 #[cfg(test)]
 mod overflow_clip;

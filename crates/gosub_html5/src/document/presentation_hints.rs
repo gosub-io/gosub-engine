@@ -1,4 +1,4 @@
-//! HTML presentational hints: the attributes that mean a CSS declaration (HTML §15.3).
+//! HTML presentational hints: the attributes that mean a CSS declaration (HTML section 15.3).
 //!
 //! `<table cellspacing=4>` is `border-spacing: 4px` and `<img width=50>` is `width: 50px`. The
 //! mapping is part of HTML rather than of CSS, so it lives here: the style system asks the
@@ -19,7 +19,7 @@ use gosub_shared::microsyntax::{parse_dimension_value, DimensionValue};
 ///
 /// Nothing this module builds contains any of these characters; the check is here so that stays
 /// true of anything added later. `!` most of all: a presentational hint is never important
-/// (HTML §15.3.1), and the only way one could become important is by writing the word.
+/// (HTML section 15.3.1), and the only way one could become important is by writing the word.
 fn push(out: &mut String, property: &str, value: &str) {
     if value.is_empty() || value.contains(['!', ';', '{', '}', '"', '\'', '\\']) {
         return;
@@ -69,6 +69,37 @@ fn non_negative_integer(raw: &str) -> Option<u32> {
     let raw = raw.strip_prefix('+').unwrap_or(raw);
     let digits: String = raw.chars().take_while(char::is_ascii_digit).collect();
     digits.parse().ok()
+}
+
+/// An integer, as HTML's rules for parsing one read it: leading whitespace, an optional sign,
+/// then the digits, and whatever follows is ignored. Saturates rather than fail on a number too
+/// long for an `i64`; the counter it ends up in is clamped far below that anyway.
+fn integer(raw: &str) -> Option<i64> {
+    let raw = raw.trim_start_matches([' ', '\t', '\n', '\u{0c}', '\r']);
+    let (negative, raw) = match raw.as_bytes().first() {
+        Some(b'-') => (true, &raw[1..]),
+        Some(b'+') => (false, &raw[1..]),
+        _ => (false, raw),
+    };
+    let digits = raw.bytes().take_while(u8::is_ascii_digit);
+    let mut value: i64 = 0;
+    let mut any = false;
+    for digit in digits {
+        any = true;
+        value = value.saturating_mul(10).saturating_add(i64::from(digit - b'0'));
+    }
+    any.then_some(if negative { -value } else { value })
+}
+
+/// HTML §15.3.8: an `<ol>`'s `start` and `reversed` as the `counter-reset` of its `list-item`
+/// counter, which its items then count from.
+fn list_counter_reset(start: Option<i64>, reversed: bool) -> Option<String> {
+    match (start, reversed) {
+        (Some(start), true) => Some(format!("reversed(list-item) {}", start.saturating_add(1))),
+        (None, true) => Some("reversed(list-item)".to_string()),
+        (Some(start), false) => Some(format!("list-item {}", start.saturating_sub(1))),
+        (None, false) => None,
+    }
 }
 
 /// HTML's "rules for parsing a legacy colour value", which answer `bgcolor`.
@@ -145,12 +176,12 @@ fn legacy_color(raw: &str) -> Option<String> {
     Some(out)
 }
 
-/// The elements whose `bgcolor` is a `background-color` (HTML §15.3.3 and §15.3.10).
+/// The elements whose `bgcolor` is a `background-color` (HTML sections 15.3.3 and 15.3.10).
 fn maps_bgcolor(tag: &str) -> bool {
     matches!(tag, "body" | "table" | "thead" | "tbody" | "tfoot" | "tr" | "td" | "th")
 }
 
-/// `align` on the elements that take it (HTML §15.3.3), as a `text-align` value.
+/// `align` on the elements that take it (HTML section 15.3.3), as a `text-align` value.
 ///
 /// On the block and table elements the attribute moves block-level descendants as well as text,
 /// which is what the `-webkit-` keywords are for; on a paragraph or a heading it is plain text
@@ -178,7 +209,7 @@ fn align(tag: &str, raw: &str) -> Option<&'static str> {
     }
 }
 
-/// `valign` on the table parts that take it (HTML §15.3.10), as a `vertical-align` value. The
+/// `valign` on the table parts that take it (HTML section 15.3.10), as a `vertical-align` value. The
 /// user-agent sheet's `vertical-align: inherit` on rows and cells carries a section's or a row's
 /// value down to its cells.
 fn valign(tag: &str, raw: &str) -> Option<&'static str> {
@@ -198,7 +229,7 @@ fn valign(tag: &str, raw: &str) -> Option<&'static str> {
     }
 }
 
-/// §15.3.8: a list's `type`, as a `list-style-type`. The numbering letters are case-sensitive -
+/// section 15.3.8: a list's `type`, as a `list-style-type`. The numbering letters are case-sensitive -
 /// `a` and `A` are two styles - and belong to `<ol>`; the bullet names are not, and belong to
 /// `<ul>`. An `<li>` takes either.
 fn list_type(tag: &str, raw: &str) -> Option<&'static str> {
@@ -239,7 +270,7 @@ pub fn hints_for<'a>(
     let mut out = String::new();
 
     // SVG has the same idea under another name: a presentation attribute is a declaration at
-    // specificity zero in the author origin (SVG 2 §6.6), and `width` is one of them - which is
+    // specificity zero in the author origin (SVG 2 section 6.6), and `width` is one of them - which is
     // what sizes the `<svg>` box an HTML page embeds. Its value is CSS rather than markup, but
     // for this attribute the two agree: a bare number is a length in px.
     if svg {
@@ -255,14 +286,14 @@ pub fn hints_for<'a>(
         return (!out.is_empty()).then_some(out);
     }
 
-    // §15.3.10: the table's own cell spacing, in px.
+    // section 15.3.10: the table's own cell spacing, in px.
     if tag == "table" {
         if let Some(spacing) = lookup("cellspacing").and_then(non_negative_integer) {
             push(&mut out, "border-spacing", &format!("{spacing}px"));
         }
     }
 
-    // §15.3.10: a cell's padding comes from the table it is in, not from the cell.
+    // section 15.3.10: a cell's padding comes from the table it is in, not from the cell.
     if in_table_cell {
         let padding = table_attr("cellpadding")
             .and_then(non_negative_integer)
@@ -287,8 +318,19 @@ pub fn hints_for<'a>(
     if let Some(value) = lookup("type").and_then(|raw| list_type(tag, raw)) {
         push(&mut out, "list-style-type", value);
     }
+    if tag == "ol" {
+        let start = lookup("start").and_then(integer);
+        if let Some(value) = list_counter_reset(start, lookup("reversed").is_some()) {
+            push(&mut out, "counter-reset", &value);
+        }
+    }
+    if tag == "li" {
+        if let Some(value) = lookup("value").and_then(integer) {
+            push(&mut out, "counter-set", &format!("list-item {value}"));
+        }
+    }
 
-    // §15.3.9, the dimension attributes: a replaced element's `width` and `height` are CSS ones.
+    // section 15.3.9, the dimension attributes: a replaced element's `width` and `height` are CSS ones.
     let dimension_attr = match tag {
         "img" | "embed" | "iframe" | "object" | "video" => true,
         "input" => lookup("type").is_some_and(|value| value.eq_ignore_ascii_case("image")),
@@ -301,7 +343,7 @@ pub fn hints_for<'a>(
         if let Some(height) = lookup("height").and_then(dimension) {
             push(&mut out, "height", &height);
         }
-        // §15.4.3: on img, video and the image button the pair is also a ratio, as long as
+        // section 15.4.3: on img, video and the image button the pair is also a ratio, as long as
         // neither is a percentage.
         if !matches!(tag, "embed" | "iframe" | "object") {
             let length = |name| match lookup(name).and_then(parse_dimension_value) {
@@ -313,7 +355,7 @@ pub fn hints_for<'a>(
             }
         }
     } else if matches!(tag, "table" | "td" | "th" | "col" | "colgroup" | "hr") {
-        // §15.3.6 and §15.3.10: the same attribute on the table family and on `<hr>`, where a
+        // sections 15.3.6 and 15.3.10: the same attribute on the table family and on `<hr>`, where a
         // zero is an error rather than a zero-width box.
         if let Some(width) = lookup("width").and_then(nonzero_dimension) {
             push(&mut out, "width", &width);
@@ -345,6 +387,46 @@ mod tests {
         assert_eq!(hint("ul", "a"), None);
         assert_eq!(hint("ol", "disc"), None);
         assert_eq!(hint("input", "1"), None);
+    }
+
+    #[test]
+    fn start_reversed_and_value_map_onto_the_list_item_counter() {
+        let attrs = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| *value)
+        };
+        let hint = |tag: &str, pairs: &'static [(&'static str, &'static str)]| {
+            hints_for(tag, false, attrs(pairs), none, false)
+        };
+        assert_eq!(
+            hint("ol", &[("start", "5")]).as_deref(),
+            Some("counter-reset:list-item 4")
+        );
+        assert_eq!(
+            hint("ol", &[("start", " -3x")]).as_deref(),
+            Some("counter-reset:list-item -4")
+        );
+        assert_eq!(
+            hint("ol", &[("reversed", "")]).as_deref(),
+            Some("counter-reset:reversed(list-item)")
+        );
+        assert_eq!(
+            hint("ol", &[("reversed", ""), ("start", "10")]).as_deref(),
+            Some("counter-reset:reversed(list-item) 11")
+        );
+        // A start that does not parse is no start; without `reversed` there is then no hint.
+        assert_eq!(hint("ol", &[("start", "x")]), None);
+        assert_eq!(
+            hint("ol", &[("reversed", ""), ("start", "x")]).as_deref(),
+            Some("counter-reset:reversed(list-item)")
+        );
+        assert_eq!(
+            hint("li", &[("value", "+7")]).as_deref(),
+            Some("counter-set:list-item 7")
+        );
+        assert_eq!(hint("li", &[("value", "")]), None);
+        // Only the elements HTML maps them on.
+        assert_eq!(hint("ul", &[("start", "5"), ("reversed", "")]), None);
+        assert_eq!(hint("p", &[("value", "5")]), None);
     }
 
     #[test]
