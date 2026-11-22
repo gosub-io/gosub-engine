@@ -38,7 +38,10 @@ jobs:
       # untouched. The `-optdeps` cache keys keep these builds apart from opt-level 0 ones.
       - name: Optimise dependencies
         shell: bash
-        run: printf '[profile.dev.package."*"]\nopt-level = 2\n' >> "${CARGO_HOME:-$HOME/.cargo}/config.toml"
+        run: |
+          # Not there yet on the macOS runners.
+          mkdir -p "${CARGO_HOME:-$HOME/.cargo}"
+          printf '[profile.dev.package."*"]\nopt-level = 2\n' >> "${CARGO_HOME:-$HOME/.cargo}/config.toml"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: test-${{ matrix.rust_version }}-optdeps
@@ -192,7 +195,10 @@ jobs:
       # As in `test`.
       - name: Optimise dependencies
         shell: bash
-        run: printf '[profile.dev.package."*"]\nopt-level = 2\n' >> "${CARGO_HOME:-$HOME/.cargo}/config.toml"
+        run: |
+          # Not there yet on the macOS runners.
+          mkdir -p "${CARGO_HOME:-$HOME/.cargo}"
+          printf '[profile.dev.package."*"]\nopt-level = 2\n' >> "${CARGO_HOME:-$HOME/.cargo}/config.toml"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: all-features-optdeps
@@ -268,7 +274,10 @@ jobs:
       # As in `test`.
       - name: Optimise dependencies
         shell: bash
-        run: printf '[profile.dev.package."*"]\nopt-level = 2\n' >> "${CARGO_HOME:-$HOME/.cargo}/config.toml"
+        run: |
+          # Not there yet on the macOS runners.
+          mkdir -p "${CARGO_HOME:-$HOME/.cargo}"
+          printf '[profile.dev.package."*"]\nopt-level = 2\n' >> "${CARGO_HOME:-$HOME/.cargo}/config.toml"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: native-${{ matrix.os }}-optdeps
