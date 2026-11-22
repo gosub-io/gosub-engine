@@ -824,70 +824,64 @@ fn match_group_exactly_one<'a>(
     mut shorthand_resolver: Option<ShorthandResolver>,
 ) -> MatchResult<'a> {
     let input = raw_input;
-    let mut components_matched = vec![];
 
     // Pass 1: find the winning alternative WITHOUT resolver side effects. `|` picks
     // exactly one alternative, but a value can syntactically match several (e.g.
     // `green` matches more than one arm of `<color>`); firing a shorthand-complete per
     // match would over-advance the {1,4} value->side counter and scramble box
     // shorthands like `border-color`.
-    let mut c_idx = 0;
-    while c_idx < components.len() {
-        if input.is_empty() {
-            break;
-        }
-        let res = match_component(input, &components[c_idx], None);
-        if res.matched {
-            components_matched.push((c_idx, res.matched_values, res.remainder));
-        }
-        c_idx += 1;
-    }
-
-    if components_matched.is_empty() {
-        return no_match(input);
-    }
-
+    //
     // The alternative that consumes the most wins. Between alternatives that consume the same,
     // the one that reports the value as written wins over one that rewrote it: a bare `0`
     // against `<length> | <number>` matches both, and it is a number, which serializes as `0`,
     // not the length's `0px`. A change of case alone is not a rewrite: `NONE` against
     // `none | <custom-ident>` is the keyword, spelled `none`, and not an ident called `NONE`.
-    let mut winner = 0;
-    let mut shortest_remainder_len = usize::MAX;
+    // Only the best so far is kept, so a beaten alternative's values are dropped right away.
+    let mut winner: Option<(usize, MatchResult<'a>)> = None;
     let mut winner_as_written = false;
-    for (idx, (_, values, remainder)) in components_matched.iter().enumerate() {
-        let consumed = input.len() - remainder.len();
-        let as_written = same_ignoring_case(values, &input[..consumed.min(input.len())]);
-        let better = remainder.len() < shortest_remainder_len
-            || (remainder.len() == shortest_remainder_len && as_written && !winner_as_written);
+    for (c_idx, component) in components.iter().enumerate() {
+        if input.is_empty() {
+            break;
+        }
+        let res = match_component(input, component, None);
+        if !res.matched {
+            continue;
+        }
+        let consumed = input.len() - res.remainder.len();
+        let as_written = same_ignoring_case(&res.matched_values, &input[..consumed.min(input.len())]);
+        let better = match &winner {
+            None => true,
+            Some((_, best)) => {
+                res.remainder.len() < best.remainder.len()
+                    || (res.remainder.len() == best.remainder.len() && as_written && !winner_as_written)
+            }
+        };
         if better {
-            shortest_remainder_len = remainder.len();
-            winner = idx;
+            winner = Some((c_idx, res));
             winner_as_written = as_written;
         }
     }
-    let (winner_c_idx, winner_values, winner_remainder) = &components_matched[winner];
+
+    let Some((winner_c_idx, winner)) = winner else {
+        return no_match(input);
+    };
 
     // Pass 2: replay ONLY the winner against the resolver - completing it here, or
     // descending with the stepped resolver when the shorthand path continues deeper.
     if let Some(mut resolver) = copy_resolver(&mut shorthand_resolver) {
-        match resolver.step(*winner_c_idx) {
+        match resolver.step(winner_c_idx) {
             Ok(Some(sub)) => {
-                let res = match_component(input, &components[*winner_c_idx], Some(sub));
+                let res = match_component(input, &components[winner_c_idx], Some(sub));
                 if res.matched {
                     return res;
                 }
             }
             Ok(None) => {}
-            Err(complete) => complete.complete(winner_values.clone()),
+            Err(complete) => complete.complete(winner.matched_values.clone()),
         }
     }
 
-    MatchResult {
-        remainder: winner_remainder,
-        matched: true,
-        matched_values: winner_values.clone(),
-    }
+    winner
 }
 
 /// Returns element, when at least one of the elements in the group matches
@@ -1285,10 +1279,14 @@ fn match_group_juxtaposition<'a>(
         };
 
         if res.matched {
-            let consumed = res.remainder.len() < input.len();
-            matched_values.append(&mut res.matched_values.clone());
+            prev_consumed = res.remainder.len() < input.len();
             input = res.remainder;
-            prev_consumed = consumed;
+            // The first component's values are taken as they are, not copied into an empty `Vec`.
+            if matched_values.is_empty() {
+                matched_values = res.matched_values;
+            } else {
+                matched_values.extend(res.matched_values);
+            }
         } else {
             if is_comma_literal(component) {
                 // Elide a comma whose preceding optional component was omitted
@@ -1840,6 +1838,19 @@ mod tests {
             let res = match_group_all_any_order(&input, components, None);
             assert_not_match!(res);
         }
+    }
+
+    #[test]
+    fn exactly_one_takes_the_alternative_that_consumes_the_most() {
+        let tree = CssSyntax::new("auto | auto none").compile().unwrap();
+        let SyntaxComponent::Group { components, .. } = &tree.components[0] else {
+            panic!("not a group");
+        };
+        let input = [str!("auto"), str!("none"), str!("block")];
+        let res = match_group_exactly_one(&input, components, None);
+        assert_match!(res);
+        assert_eq!(vec![str!("auto"), str!("none")], res.matched_values);
+        assert_eq!(vec![str!("block")], res.remainder);
     }
 
     #[test]
