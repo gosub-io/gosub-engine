@@ -42,7 +42,19 @@ testing = []
 # These use `gosub_html5::testing`. The self dev-dependency above turns `testing` on in the
 # workspace, but `cargo package` drops it, so the packaged crate needs `--features testing`.
 [[test]]
+name = "adoption_agency"
+required-features = ["testing"]
+
+[[test]]
+name = "form_end_tag"
+required-features = ["testing"]
+
+[[test]]
 name = "fragment_form_pointer"
+required-features = ["testing"]
+
+[[test]]
+name = "mathml_text_integration_point"
 required-features = ["testing"]
 
 [[test]]
