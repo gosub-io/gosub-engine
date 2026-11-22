@@ -1923,16 +1923,30 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let limit = self.script_time_limit();
         let tab_id = self.tab_id;
         let event_tx = self.zone_context.event_tx.clone();
-        tokio::spawn(async move {
-            let event = match thread.execute(source, origin, limit).await {
-                Ok(value) => EngineEvent::ScriptResult {
-                    tab_id,
-                    result: script::to_json(value),
-                },
-                Err(e) => script_error_event(tab_id, e),
-            };
-            let _ = event_tx.send(event);
-        });
+        let (finished, done) = oneshot::channel();
+        // Queued here, not in the task below: scripts run in the order their commands came.
+        // The answer goes out from the script thread, so the answers keep that order too.
+        let queued = thread.submit(
+            source,
+            origin,
+            Box::new(move |result| {
+                let event = match result {
+                    Ok(value) => EngineEvent::ScriptResult {
+                        tab_id,
+                        result: script::to_json(value),
+                    },
+                    Err(e) => script_error_event(tab_id, e),
+                };
+                let _ = event_tx.send(event);
+                let _ = finished.send(());
+            }),
+        );
+        match queued {
+            Ok(id) => {
+                tokio::spawn(async move { thread.watch(id, limit, done).await });
+            }
+            Err(e) => self.send_event(script_error_event(self.tab_id, e)),
+        }
     }
 
     /// What scripts of the current document are named after: its URL.

@@ -6619,6 +6619,69 @@ mod tests {
 
     #[cfg(feature = "js")]
     #[tokio::test]
+    async fn promise_jobs_of_a_script_that_throws_run_before_the_next_script() {
+        let html = "<script>Promise.resolve().then(() => console.log('job')); missing()</script>\
+                    <script>console.log('next')</script>";
+
+        assert_eq!(
+            page_script_output(true, html).await,
+            ["job", "ReferenceError: missing is not defined @1:51", "next"]
+        );
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn a_runaway_promise_job_is_terminated() {
+        let (mut engine, mut events, tab) = script_tab(true).await;
+        engine
+            .settings()
+            .set_transient("scripting.max_run_ms", gosub_config::settings::Setting::UInt(200))
+            .expect("setting");
+
+        let spin = "Promise.resolve().then(() => { for (;;) {} }); 1";
+        let (message, ..) = script_error(script_answer(&tab, &mut events, spin).await);
+        assert_eq!(message, "script execution was terminated");
+        assert_eq!(
+            script_value(script_answer(&tab, &mut events, "1 + 1").await),
+            serde_json::json!(2.0)
+        );
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn scripts_run_and_answer_in_the_order_they_were_sent() {
+        let (mut engine, mut events, tab) = script_tab(true).await;
+
+        for n in 0..40 {
+            tab.send(crate::events::TabCommand::ExecuteScript { source: n.to_string() })
+                .await
+                .expect("send script");
+        }
+
+        let mut answers = Vec::new();
+        tokio::time::timeout(Duration::from_secs(20), async {
+            while answers.len() < 40 {
+                match events.recv().await {
+                    Ok(EngineEvent::ScriptResult { result, .. }) => answers.push(result),
+                    Ok(EngineEvent::JavaScriptError { message, .. }) => panic!("script failed: {message}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("not every script answered");
+
+        let expected: Vec<serde_json::Value> = (0..40).map(|n| serde_json::json!(f64::from(n))).collect();
+        assert_eq!(answers, expected);
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
     async fn inline_scripts_do_not_run_with_javascript_disabled() {
         let html = "<script>console.log('ran')</script><noscript><p>off</p></noscript>";
 

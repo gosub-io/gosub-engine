@@ -71,9 +71,9 @@ struct Job {
 }
 
 struct Shared {
-    /// The job the thread is running, 0 for none. A script is only terminated with this
-    /// held and naming it, so that a request never lands on the script after it.
-    running: Mutex<u64>,
+    /// The job the thread is running and when it started. A script is only terminated with
+    /// this held and naming it, so that a request never lands on the script after it.
+    running: Mutex<Option<(u64, std::time::Instant)>>,
     /// Set once the host exists.
     terminator: std::sync::OnceLock<ScriptTerminator>,
     /// URL of the script that is running, or ran last.
@@ -101,7 +101,7 @@ impl ScriptThread {
         Self {
             queue: Mutex::new(Queue::Idle(Some(make))),
             shared: Arc::new(Shared {
-                running: Mutex::new(0),
+                running: Mutex::new(None),
                 terminator: std::sync::OnceLock::new(),
                 origin,
             }),
@@ -109,8 +109,9 @@ impl ScriptThread {
         }
     }
 
-    /// Queues a script and returns its id. `reply` gets the result on the script thread.
-    fn submit(
+    /// Queues a script and returns its id. Scripts run in the order they are queued, and
+    /// `reply` gets each result on the script thread, so in that order too.
+    pub(crate) fn submit(
         &self,
         source: String,
         origin: ScriptOrigin,
@@ -144,34 +145,35 @@ impl ScriptThread {
         }
     }
 
-    /// Runs `source`, then the promise jobs it queued. A script still running after `limit`
-    /// is terminated.
+    /// Ends script `id` if it is still running `limit` after it started. Returns when
+    /// `done` does, which is for the script's `reply` to arrange.
+    pub(crate) async fn watch(&self, id: u64, limit: Duration, mut done: oneshot::Receiver<()>) {
+        let mut wait = limit;
+        while tokio::time::timeout(wait, &mut done).await.is_err() {
+            wait = self.check(id, limit);
+        }
+    }
+
+    /// Runs `source`, then the promise jobs it queued. A script still running `limit`
+    /// after it started is terminated.
+    #[cfg(test)]
     pub(crate) async fn execute(&self, source: String, origin: ScriptOrigin, limit: Duration) -> ScriptResult {
-        let (reply, mut result) = oneshot::channel();
+        let (reply, result) = oneshot::channel();
+        let (finished, done) = oneshot::channel();
         let id = self.submit(
             source,
             origin,
             Box::new(move |result| {
                 let _ = reply.send(result);
+                let _ = finished.send(());
             }),
         )?;
+        self.watch(id, limit, done).await;
 
-        let mut wait = limit;
-        loop {
-            match tokio::time::timeout(wait, &mut result).await {
-                Ok(Ok(result)) => return result,
-                Ok(Err(_)) => return Err(unavailable("the script thread is gone")),
-                // Asked again until the script has ended: a request can arrive just before
-                // the script starts, where the host drops it.
-                Err(_) => {
-                    self.terminate(id);
-                    wait = TERMINATE_RETRY;
-                }
-            }
-        }
+        result.await.map_err(|_| unavailable("the script thread is gone"))?
     }
 
-    /// [`execute`](Self::execute) for a thread that may block: the HTML parser's.
+    /// The same for a thread that may block: the HTML parser's.
     pub(crate) fn execute_blocking(&self, source: String, origin: ScriptOrigin, limit: Duration) -> ScriptResult {
         let (reply, result) = mpsc::channel();
         let id = self.submit(
@@ -187,20 +189,30 @@ impl ScriptThread {
             match result.recv_timeout(wait) {
                 Ok(result) => return result,
                 Err(mpsc::RecvTimeoutError::Disconnected) => return Err(unavailable("the script thread is gone")),
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    self.terminate(id);
-                    wait = TERMINATE_RETRY;
-                }
+                Err(mpsc::RecvTimeoutError::Timeout) => wait = self.check(id, limit),
             }
         }
     }
 
-    fn terminate(&self, id: u64) {
+    /// Terminates script `id` if it has run for `limit`, and returns how long to wait
+    /// before looking again.
+    fn check(&self, id: u64, limit: Duration) -> Duration {
         let running = self.shared.running.lock();
-        if *running == id {
-            if let Some(terminator) = self.shared.terminator.get() {
-                terminator.terminate();
+        match *running {
+            Some((running_id, since)) if running_id == id => {
+                let ran = since.elapsed();
+                if ran < limit {
+                    return limit - ran;
+                }
+                if let Some(terminator) = self.shared.terminator.get() {
+                    terminator.terminate();
+                }
+                // Asked again until the script has ended: a request can arrive just before
+                // the script starts, where the host drops it.
+                TERMINATE_RETRY
             }
+            // still queued behind another script: its time has not started
+            _ => limit,
         }
     }
 }
@@ -213,21 +225,28 @@ fn run_jobs(make: HostFactory, queue: &mpsc::Receiver<Job>, shared: &Shared) {
 
     for job in queue {
         shared.origin.lock().clone_from(&job.origin.url);
-        *shared.running.lock() = job.id;
+        *shared.running.lock() = Some((job.id, std::time::Instant::now()));
         let result = match &mut host {
             Ok(host) => run(host.as_mut(), &job),
             Err(e) => Err(e.clone()),
         };
-        *shared.running.lock() = 0;
+        *shared.running.lock() = None;
 
         (job.reply)(result);
     }
 }
 
 fn run(host: &mut dyn ScriptHost, job: &Job) -> ScriptResult {
-    let value = host.execute(&job.source, &job.origin)?;
-    host.microtask_checkpoint()?;
+    let result = host.execute(&job.source, &job.origin);
+    // A script that threw still has the promise jobs it queued run now, before the next
+    // script. One that was ended does not: there is no telling what its jobs would do.
+    if matches!(&result, Err(e) if e.kind != ScriptErrorKind::Exception) {
+        return result;
+    }
+    let jobs = host.microtask_checkpoint();
 
+    let value = result?;
+    jobs?;
     Ok(value)
 }
 
@@ -305,6 +324,13 @@ mod tests {
         fn execute(&mut self, source: &str, _origin: &ScriptOrigin) -> ScriptResult {
             // like the real host: a request from before this script is not for it
             self.stop.store(false, Ordering::SeqCst);
+            if source == "throw" {
+                return Err(ScriptError::new(ScriptErrorKind::Exception, "thrown"));
+            }
+            if let Some(ms) = source.strip_prefix("sleep ") {
+                std::thread::sleep(Duration::from_millis(ms.parse().unwrap()));
+                return Ok(ScriptValue::Null);
+            }
             if source == "spin" {
                 while !self.stop.load(Ordering::SeqCst) {
                     std::thread::sleep(Duration::from_millis(1));
@@ -387,6 +413,64 @@ mod tests {
             spin.await.unwrap().map_err(|e| e.kind),
             Err(ScriptErrorKind::Terminated)
         );
+    }
+
+    #[tokio::test]
+    async fn a_script_that_throws_still_has_its_promise_jobs_run() {
+        let (thread, checkpoints) = stub_thread();
+
+        let thrown = thread.execute("throw".to_owned(), ScriptOrigin::default(), LONG).await;
+        assert_eq!(thrown.map_err(|e| e.kind), Err(ScriptErrorKind::Exception));
+        assert_eq!(checkpoints.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn the_time_limit_counts_from_when_a_script_starts() {
+        let (thread, _) = stub_thread();
+        let thread = Arc::new(thread);
+
+        // 150 ms ahead in the queue, then 150 ms of its own: over a 200 ms limit only if
+        // the wait counted
+        let first = Arc::clone(&thread);
+        let ahead = tokio::spawn(async move {
+            first
+                .execute("sleep 150".to_owned(), ScriptOrigin::default(), LONG)
+                .await
+        });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let queued = thread
+            .execute(
+                "sleep 150".to_owned(),
+                ScriptOrigin::default(),
+                Duration::from_millis(200),
+            )
+            .await;
+
+        assert_eq!(queued, Ok(ScriptValue::Null));
+        assert_eq!(ahead.await.unwrap(), Ok(ScriptValue::Null));
+    }
+
+    #[test]
+    fn results_come_in_the_order_the_scripts_were_queued() {
+        let (thread, _) = stub_thread();
+        let (results, received) = mpsc::channel();
+
+        for n in 0..50usize {
+            let results = results.clone();
+            thread
+                .submit(
+                    "x".repeat(n),
+                    ScriptOrigin::default(),
+                    Box::new(move |result| {
+                        let _ = results.send(result);
+                    }),
+                )
+                .unwrap();
+        }
+
+        let order: Vec<ScriptResult> = received.iter().take(50).collect();
+        let expected: Vec<ScriptResult> = (0..50).map(|n| Ok(ScriptValue::Number(f64::from(n)))).collect();
+        assert_eq!(order, expected);
     }
 
     #[tokio::test]
