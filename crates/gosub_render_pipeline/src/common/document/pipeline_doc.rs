@@ -537,17 +537,18 @@ fn resolve_content_function<S: CssSystem>(name: &str, args: &[S::Value], counter
     if values.is_empty() {
         values.push(0);
     }
-    match name {
-        "counter" => list_marker::counter_text(&style(1), values[values.len() - 1]),
-        "counters" => {
-            let style = style(2);
-            let parts: Vec<String> = values
-                .iter()
-                .map(|&value| list_marker::counter_text(&style, value))
-                .collect();
-            parts.join(text(1).unwrap_or(""))
-        }
-        _ => String::new(),
+    // Function names are ASCII case-insensitive; the counter's own name is not.
+    if name.eq_ignore_ascii_case("counter") {
+        list_marker::counter_text(&style(1), values[values.len() - 1])
+    } else if name.eq_ignore_ascii_case("counters") {
+        let style = style(2);
+        let parts: Vec<String> = values
+            .iter()
+            .map(|&value| list_marker::counter_text(&style, value))
+            .collect();
+        parts.join(text(1).unwrap_or(""))
+    } else {
+        String::new()
     }
 }
 
@@ -605,7 +606,7 @@ fn content_generates_box<S: CssSystem>(p: &S::Property) -> bool {
 /// The counters `counter()` and `counters()` in a `content` value name.
 fn content_counter_names<S: CssSystem>(p: &S::Property) -> Vec<Arc<str>> {
     fn named<S: CssSystem>(name: &str, args: &[S::Value], out: &mut Vec<Arc<str>>) {
-        if matches!(name, "counter" | "counters") {
+        if name.eq_ignore_ascii_case("counter") || name.eq_ignore_ascii_case("counters") {
             if let Some(counter) = args.first().and_then(|arg| arg.as_string()) {
                 out.push(Arc::from(counter));
             }
@@ -631,7 +632,9 @@ fn counter_entries<S: CssSystem>(p: Option<&S::Property>) -> Vec<(Arc<str>, bool
     };
     let name = |text: Option<&str>, function: Option<(&str, &[S::Value])>| match (text, function) {
         (Some(name), _) if name != "none" => Some((Arc::from(name), false)),
-        (_, Some(("reversed", [inner]))) => inner.as_string().map(|name| (Arc::from(name), true)),
+        (_, Some((function, [inner]))) if function.eq_ignore_ascii_case("reversed") => {
+            inner.as_string().map(|name| (Arc::from(name), true))
+        }
         _ => None,
     };
     let Some(list) = p.as_list() else {

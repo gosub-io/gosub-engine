@@ -434,3 +434,19 @@ fn counters_are_clamped_to_32_bits() {
     // Not rounded through an f32 on the way.
     assert_eq!(text(&a, "exact"), "16777217");
 }
+
+#[test]
+fn function_names_are_case_insensitive_and_counter_names_are_not() {
+    let a = adapter(
+        r#"<style>
+            body { counter-reset: Chapter 2 chapter 7 }
+            #up::before { content: COUNTER(Chapter) "|" Counters(chapter, ".") }
+            #rev { counter-reset: REVERSED(n) }
+            #rev > span { counter-increment: n -1 }
+            #rev > span::before { content: counter(n) }
+        </style>
+        <p id="up"></p><div id="rev"><span></span><span></span></div>"#,
+    );
+    assert_eq!(text(&a, "up"), "2|7");
+    assert_eq!(text(&a, "rev"), "21");
+}
