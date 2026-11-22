@@ -16,6 +16,14 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 gosub_webinterop = { version = "0.1.1", registry = "gosub", path = "../gosub_webinterop" }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+gosub_sandbox = { version = "0.1.0", registry = "gosub", path = "../gosub_sandbox" }
+
+[[test]]
+name = "sandboxed_jitless"
+harness = false
+
 # Mirrors the workspace lints, except unsafe_code: this is an FFI binding crate
 # around the V8 C++ API, where unsafe is inherent to nearly every operation.
 [lints.rust]

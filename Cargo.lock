@@ -3680,6 +3680,7 @@ name = "gosub_v8"
 version = "0.1.2"
 dependencies = [
  "anyhow",
+ "gosub_sandbox",
  "gosub_shared",
  "gosub_webexecutor",
  "gosub_webinterop",
