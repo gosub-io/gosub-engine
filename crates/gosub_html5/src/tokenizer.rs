@@ -430,59 +430,7 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::RCDATAEndTagName => {
                     let c = self.read_char();
-
-                    // we use this flag because a lot of matches will actually do the same thing
-                    let mut consume_anything_else = false;
-
-                    match c {
-                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::BeforeAttributeName;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch('/') => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::SelfClosingStart;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch('>') => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.emit_current_token();
-                                self.last_start_token = String::new();
-                                self.state = State::Data;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch(ch) if ch.is_ascii_alphabetic() => {
-                            self.add_to_token_name(to_lowercase!(ch));
-                            self.temporary_buffer.push(ch);
-                        }
-                        _ => {
-                            consume_anything_else = true;
-                        }
-                    }
-
-                    if consume_anything_else {
-                        self.stream_prev();
-                        self.transition_to(State::RCDATA);
-                    }
+                    self.end_tag_name_char(c, State::RCDATA);
                 }
                 State::RAWTEXTLessThanSign => {
                     let c = self.read_char();
@@ -516,59 +464,7 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::RAWTEXTEndTagName => {
                     let c = self.read_char();
-
-                    // we use this flag because a lot of matches will actually do the same thing
-                    let mut consume_anything_else = false;
-
-                    match c {
-                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::BeforeAttributeName;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch('/') => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::SelfClosingStart;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch('>') => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.emit_current_token();
-                                self.last_start_token = String::new();
-                                self.state = State::Data;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch(ch) if ch.is_ascii_alphabetic() => {
-                            self.add_to_token_name(to_lowercase!(ch));
-                            self.temporary_buffer.push(ch);
-                        }
-                        _ => {
-                            consume_anything_else = true;
-                        }
-                    }
-
-                    if consume_anything_else {
-                        self.stream_prev();
-                        self.transition_to(State::RAWTEXT);
-                    }
+                    self.end_tag_name_char(c, State::RAWTEXT);
                 }
                 State::ScriptDataLessThenSign => {
                     let c = self.read_char();
@@ -612,59 +508,7 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::ScriptDataEndTagName => {
                     let c = self.read_char();
-
-                    // we use this flag because a lot of matches will actually do the same thing
-                    let mut consume_anything_else = false;
-
-                    match c {
-                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::BeforeAttributeName;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch('/') => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::SelfClosingStart;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch('>') => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.emit_current_token();
-                                self.last_start_token = String::new();
-                                self.state = State::Data;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch(ch) if ch.is_ascii_alphabetic() => {
-                            self.add_to_token_name(to_lowercase!(ch));
-                            self.temporary_buffer.push(ch);
-                        }
-                        _ => {
-                            consume_anything_else = true;
-                        }
-                    }
-
-                    if consume_anything_else {
-                        self.stream_prev();
-                        self.transition_to(State::ScriptData);
-                    }
+                    self.end_tag_name_char(c, State::ScriptData);
                 }
                 State::ScriptDataEscapeStart => {
                     let c = self.read_char();
@@ -812,59 +656,7 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::ScriptDataEscapedEndTagName => {
                     let c = self.read_char();
-
-                    // we use this flag because a lot of matches will actually do the same thing
-                    let mut consume_anything_else = false;
-
-                    match c {
-                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::BeforeAttributeName;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch('/') => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::SelfClosingStart;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch('>') => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.emit_current_token();
-                                self.last_start_token = String::new();
-                                self.state = State::Data;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch(ch) if ch.is_ascii_alphabetic() => {
-                            self.add_to_token_name(to_lowercase!(ch));
-                            self.temporary_buffer.push(ch);
-                        }
-                        _ => {
-                            consume_anything_else = true;
-                        }
-                    }
-
-                    if consume_anything_else {
-                        self.stream_prev();
-                        self.transition_to(State::ScriptDataEscaped);
-                    }
+                    self.end_tag_name_char(c, State::ScriptDataEscaped);
                 }
                 State::ScriptDataDoubleEscapeStart => {
                     let c = self.read_char();
@@ -2236,9 +2028,41 @@ impl<'stream> Tokenizer<'stream> {
         self.state = state;
     }
 
-    /// Return true when the given `end_token` matches the stored start token (ie: 'table' matches when
+    /// Handles `c` in one of the RCDATA, RAWTEXT and script data end tag name states. Letters
+    /// go to the tag name. Whitespace, '/' and '>' end the tag if it is an appropriate end tag;
+    /// in every other case the '</' and the name so far become text again and the tokenizer
+    /// returns to `text_state`.
+    fn end_tag_name_char(&mut self, c: Character, text_state: State) {
+        match c {
+            Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) if self.is_appropriate_end_token() => {
+                self.state = State::BeforeAttributeName;
+            }
+            Ch('/') if self.is_appropriate_end_token() => {
+                self.state = State::SelfClosingStart;
+            }
+            Ch('>') if self.is_appropriate_end_token() => {
+                self.emit_current_token();
+                self.last_start_token = String::new();
+                self.state = State::Data;
+            }
+            Ch(ch) if ch.is_ascii_alphabetic() => {
+                self.add_to_token_name(to_lowercase!(ch));
+                self.temporary_buffer.push(ch);
+            }
+            _ => {
+                self.stream_prev();
+                self.transition_to(text_state);
+            }
+        }
+    }
+
+    /// Return true when the current end tag matches the stored start token (ie: 'table' matches when
     /// `last_start_token` = 'table')
-    fn is_appropriate_end_token(&self, end_token: &str) -> bool {
+    fn is_appropriate_end_token(&self) -> bool {
+        let end_token = match &self.current_token {
+            Some(Token::EndTag { name, .. }) => name,
+            _ => "",
+        };
         self.last_start_token == end_token
     }
 
@@ -2621,6 +2445,54 @@ mod location_tests {
                 "unexpected-null-character@1:17",
             ]
         );
+    }
+
+    #[test]
+    fn end_tag_name_states() {
+        let tokens = |html: &str, state: State| {
+            let mut stream = ByteStream::from_str(html, Encoding::UTF8);
+            let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
+            let opts = Options {
+                initial_state: state,
+                last_start_tag: "tt".to_string(),
+            };
+            let mut tokenizer = Tokenizer::new(&mut stream, Some(opts), error_logger);
+            let mut out = vec![];
+            loop {
+                let token = tokenizer.next_token(ParserData::default()).unwrap();
+                match token {
+                    Token::Eof { .. } => return out.join("|"),
+                    Token::Text { text, .. } => out.push(format!("text:{text}")),
+                    Token::EndTag { name, .. } => out.push(format!("end:{name}")),
+                    _ => out.push(format!("{token:?}")),
+                }
+            }
+        };
+
+        let cases = [
+            ("a</tt>b", "text:a|end:tt|text:b"),
+            ("</tt x>", "end:tt"),
+            ("</tt\n>", "end:tt"),
+            ("</tt/>", "end:tt"),
+            ("</TT>", "end:tt"),
+            ("</tT>", "end:tt"),
+            ("</tx>", "text:</tx>"),
+            ("</t>", "text:</t>"),
+            ("</ttt>", "text:</ttt>"),
+            ("</tt1>", "text:</tt1>"),
+            ("</tt", "text:</tt"),
+            ("</tx/>", "text:</tx/>"),
+        ];
+        for state in [
+            State::RCDATA,
+            State::RAWTEXT,
+            State::ScriptData,
+            State::ScriptDataEscaped,
+        ] {
+            for (html, expected) in cases {
+                assert_eq!(tokens(html, state), expected, "{html:?} in {state:?}");
+            }
+        }
     }
 
     #[test]
