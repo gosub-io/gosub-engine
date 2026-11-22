@@ -140,8 +140,9 @@ impl ParserError {
 pub struct ErrorLogger {
     /// List of errors that occurred during parsing
     errors: Vec<ParseError>,
-    /// Messages already recorded per location, for O(1) duplicate detection
-    seen: std::collections::HashMap<Location, std::collections::HashSet<String>>,
+    /// Indices into `errors` per location, for duplicate detection without a second copy
+    /// of each message
+    seen: std::collections::HashMap<Location, Vec<usize>>,
 }
 
 impl Default for ErrorLogger {
@@ -169,12 +170,11 @@ impl ErrorLogger {
     /// Adds a new error to the error logger
     pub fn add_error(&mut self, location: Location, message: &str) {
         // Check if the error already exists, if so, don't add it again
-        if let Some(messages) = self.seen.get(&location) {
-            if messages.contains(message) {
-                return;
-            }
+        let indices = self.seen.entry(location).or_default();
+        if indices.iter().any(|&i| self.errors[i].message == message) {
+            return;
         }
-        self.seen.entry(location).or_default().insert(message.to_string());
+        indices.push(self.errors.len());
 
         self.errors.push(ParseError {
             message: message.to_string(),
@@ -254,5 +254,34 @@ mod tests {
         logger.add_error(Location::new(0, 2, 5), "test");
 
         assert_eq!(logger.get_errors().len(), 10);
+    }
+
+    /// Different messages at one location are all kept, in order; a repeat of any of them
+    /// is dropped.
+    #[test]
+    fn test_error_logger_messages_per_location() {
+        let mut logger = ErrorLogger::new();
+
+        logger.add_error(Location::new(1, 1, 0), "a");
+        logger.add_error(Location::new(1, 1, 0), "b");
+        logger.add_error(Location::new(1, 2, 1), "a");
+        logger.add_error(Location::new(1, 1, 0), "a");
+        logger.add_error(Location::new(1, 1, 0), "c");
+        logger.add_error(Location::new(1, 1, 0), "b");
+
+        let errors: Vec<_> = logger
+            .get_errors()
+            .into_iter()
+            .map(|e| (e.location.column, e.message))
+            .collect();
+        assert_eq!(
+            errors,
+            [
+                (1, "a".to_string()),
+                (1, "b".to_string()),
+                (2, "a".to_string()),
+                (1, "c".to_string())
+            ]
+        );
     }
 }
