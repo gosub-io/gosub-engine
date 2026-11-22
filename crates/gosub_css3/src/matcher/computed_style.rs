@@ -901,22 +901,7 @@ fn list_style_type(text: &str) -> ListStyleType {
     if !ident_like {
         return ListStyleType::String(Arc::from(text));
     }
-    match &*text.cow_to_ascii_lowercase() {
-        "none" => ListStyleType::None,
-        "disc" => ListStyleType::Disc,
-        "circle" => ListStyleType::Circle,
-        "square" => ListStyleType::Square,
-        "decimal-leading-zero" => ListStyleType::DecimalLeadingZero,
-        "lower-roman" => ListStyleType::LowerRoman,
-        "upper-roman" => ListStyleType::UpperRoman,
-        "lower-alpha" | "lower-latin" => ListStyleType::LowerAlpha,
-        "upper-alpha" | "upper-latin" => ListStyleType::UpperAlpha,
-        "lower-greek" => ListStyleType::LowerGreek,
-        "disclosure-open" => ListStyleType::DisclosureOpen,
-        "disclosure-closed" => ListStyleType::DisclosureClosed,
-        // `decimal` itself, and every counter style this engine does not define.
-        _ => ListStyleType::Decimal,
-    }
+    ListStyleType::from_name(text)
 }
 
 /// A `<line-style>`. The four `border-*-style` longhands share that grammar, so the top side's

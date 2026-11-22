@@ -11,8 +11,22 @@ use crate::tokenizer::CHAR_REPLACEMENT;
 use cow_utils::CowUtils;
 use gosub_interface::config::HasDocument;
 use gosub_interface::document::Document;
-use gosub_shared::attributes::Attributes;
 use gosub_shared::node::NodeId;
+
+/// Whether `adjusted_attribute_name` renames `name`, without building the new name.
+fn is_adjusted_attribute(table: Option<&phf::Map<&str, &str>>, name: &str) -> bool {
+    table.is_some_and(|t| t.contains_key(name)) || XML_ADJUSTMENTS.contains_key(name)
+}
+
+/// The name `name` gets from `table` (MathML or SVG) and then from the foreign attribute
+/// adjustments, or `None` when neither renames it.
+fn adjusted_attribute_name(table: Option<&phf::Map<&str, &str>>, name: &str) -> Option<String> {
+    let renamed = table.and_then(|t| t.get(name).copied());
+    if let Some((prefix, local_name, _namespace)) = XML_ADJUSTMENTS.get(renamed.unwrap_or(name)) {
+        return Some(format!("{prefix} {local_name}"));
+    }
+    renamed.map(str::to_owned)
+}
 
 impl<C: HasDocument> Html5Parser<'_, C> {
     // Process token in foreign content (svg, mathml)
@@ -122,16 +136,10 @@ impl<C: HasDocument> Html5Parser<'_, C> {
 
                 let acn_id = self.get_adjusted_current_node_id();
                 let acn_ns = self.document.namespace(acn_id).unwrap_or(HTML_NAMESPACE).to_owned();
-                if acn_ns == MATHML_NAMESPACE {
-                    self.adjust_mathml_attributes(&mut current_token);
-                }
-
                 if acn_ns == SVG_NAMESPACE {
                     self.adjust_svg_tag_names(&mut current_token);
-                    self.adjust_svg_attributes(&mut current_token);
                 }
-
-                self.adjust_foreign_attributes(&mut current_token);
+                self.adjust_foreign_attributes(&mut current_token, &acn_ns);
                 self.insert_foreign_element(&mut current_token, &acn_ns);
 
                 if is_self_closing {
@@ -253,21 +261,6 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         self.process_html_content();
     }
 
-    /// Adjusts attributes names in the given token for SVG
-    pub(crate) fn adjust_svg_attributes(&self, token: &mut Token) {
-        if let Token::StartTag { attributes, .. } = token {
-            let mut new_attributes = Attributes::new();
-            for (name, value) in attributes.iter() {
-                if let Some(&new_name) = SVG_ADJUSTMENTS_ATTRIBUTES.get(name) {
-                    new_attributes.insert(new_name.to_owned(), value.clone());
-                } else {
-                    new_attributes.insert(name.clone(), value.clone());
-                }
-            }
-            *attributes = new_attributes;
-        }
-    }
-
     /// Adjusts tag name in the given token for SVG
     pub(crate) fn adjust_svg_tag_names(&self, token: &mut Token) {
         if let Token::StartTag { name, .. } = token {
@@ -277,33 +270,27 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         }
     }
 
-    // Adjust attribute names in the given token for MathML
-    pub(crate) fn adjust_mathml_attributes(&self, token: &mut Token) {
-        if let Token::StartTag { attributes, .. } = token {
-            let mut new_attributes = Attributes::new();
-            for (name, value) in attributes.iter() {
-                if let Some(&new_name) = MATHML_ADJUSTMENTS.get(name) {
-                    new_attributes.insert(new_name.to_owned(), value.clone());
-                } else {
-                    new_attributes.insert(name.clone(), value.clone());
-                }
-            }
-            *attributes = new_attributes;
+    /// Adjusts the attribute names of a foreign start tag: the MathML or SVG adjustments
+    /// for `namespace`, then the foreign (xlink, xml, xmlns) ones. The attributes are only
+    /// rebuilt when a name changes.
+    pub(crate) fn adjust_foreign_attributes(&self, token: &mut Token, namespace: &str) {
+        let Token::StartTag { attributes, .. } = token else {
+            return;
+        };
+        let table = if namespace == MATHML_NAMESPACE {
+            Some(&MATHML_ADJUSTMENTS)
+        } else if namespace == SVG_NAMESPACE {
+            Some(&SVG_ADJUSTMENTS_ATTRIBUTES)
+        } else {
+            None
+        };
+        if attributes.keys().all(|name| !is_adjusted_attribute(table, name)) {
+            return;
         }
-    }
-
-    pub(crate) fn adjust_foreign_attributes(&self, token: &mut Token) {
-        if let Token::StartTag { attributes, .. } = token {
-            let mut new_attributes = Attributes::new();
-            for (name, value) in attributes.iter() {
-                if let Some((prefix, local_name, _namespace)) = XML_ADJUSTMENTS.get(name) {
-                    new_attributes.insert(format!("{prefix} {local_name}"), value.clone());
-                } else {
-                    new_attributes.insert(name.clone(), value.clone());
-                }
-            }
-            *attributes = new_attributes;
-        }
+        *attributes = std::mem::take(attributes)
+            .into_iter()
+            .map(|(name, value)| (adjusted_attribute_name(table, &name).unwrap_or(name), value))
+            .collect();
     }
 }
 
@@ -349,6 +336,40 @@ mod foreign_content_tests {
         let math = find(&doc, NodeId::root(), "math").unwrap();
         assert_eq!(doc.namespace(math), Some(MATHML_NAMESPACE));
         assert_eq!(doc.attribute(math, "definitionURL"), Some("u"));
+    }
+
+    /// Names of the attributes of `id`, in document order.
+    fn attribute_names(doc: &DocumentImpl<Config>, id: NodeId) -> Vec<String> {
+        doc.attributes(id).unwrap().keys().cloned().collect()
+    }
+
+    /// Renaming keeps the attributes in source order, in every place foreign attributes are
+    /// adjusted: `<svg>` and `<math>` in body, and start tags inside foreign content.
+    #[test]
+    fn adjusted_foreign_attributes_keep_their_order() {
+        let doc = crate::html_compile::<Config>(
+            r##"<svg a="1" viewbox="v" xlink:href="#h" b="2"><path d="x" xml:lang="en" pathlength="3"/>
+                <foreignObject><math c="3" definitionurl="u" xlink:show="s"></math></foreignObject></svg>
+                <math definitionurl="u" z="1" xlink:href="#m"><mi viewbox="v" definitionurl="d"/></math>"##,
+        );
+        let svg = find(&doc, NodeId::root(), "svg").unwrap();
+        assert_eq!(attribute_names(&doc, svg), ["a", "viewBox", "xlink href", "b"]);
+        let path = find(&doc, svg, "path").unwrap();
+        assert_eq!(attribute_names(&doc, path), ["d", "xml lang", "pathLength"]);
+
+        let math_in_svg = find(&doc, svg, "math").unwrap();
+        assert_eq!(attribute_names(&doc, math_in_svg), ["c", "definitionURL", "xlink show"]);
+
+        let body = find(&doc, NodeId::root(), "body").unwrap();
+        let math = doc
+            .children(body)
+            .iter()
+            .copied()
+            .find(|&c| doc.tag_name(c) == Some("math"))
+            .unwrap();
+        assert_eq!(attribute_names(&doc, math), ["definitionURL", "z", "xlink href"]);
+        let mi = find(&doc, math, "mi").unwrap();
+        assert_eq!(attribute_names(&doc, mi), ["viewbox", "definitionURL"]);
     }
 
     /// Tokens handed from foreign content to HTML processing must be the real token.

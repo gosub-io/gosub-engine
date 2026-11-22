@@ -6,6 +6,7 @@
 
 use gosub_interface::config::HasDocument;
 use gosub_shared::memory::{record, HeapSize, Row, Walk};
+use std::borrow::Cow;
 
 use crate::document::document_impl::DocumentImpl;
 use crate::node::data::comment::CommentData;
@@ -47,7 +48,9 @@ impl HeapSize for ShadowRootData {
 impl HeapSize for ElementData {
     fn heap_size(&self, walk: &mut Walk) {
         self.name.heap_size(walk);
-        self.namespace.heap_size(walk);
+        if let Some(Cow::Owned(namespace)) = &self.namespace {
+            namespace.heap_size(walk);
+        }
         self.attributes().heap_size(walk);
         self.classlist().heap_size(walk);
     }

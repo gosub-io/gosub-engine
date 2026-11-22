@@ -769,8 +769,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                 let is_self_closing = *is_self_closing;
                 self.reconstruct_formatting();
 
-                self.adjust_mathml_attributes(token);
-                self.adjust_foreign_attributes(token);
+                self.adjust_foreign_attributes(token, MATHML_NAMESPACE);
 
                 self.insert_foreign_element(token, MATHML_NAMESPACE);
 
@@ -785,8 +784,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                 let is_self_closing = *is_self_closing;
                 self.reconstruct_formatting();
 
-                self.adjust_svg_attributes(token);
-                self.adjust_foreign_attributes(token);
+                self.adjust_foreign_attributes(token, SVG_NAMESPACE);
                 self.insert_foreign_element(token, SVG_NAMESPACE);
 
                 if is_self_closing {

@@ -6,6 +6,7 @@ use core::fmt::{Debug, Formatter};
 use gosub_shared::attributes::Attributes;
 use gosub_shared::node::NodeId;
 use indexmap::IndexSet;
+use std::borrow::Cow;
 use std::fmt;
 
 /// The classes of an element: the `class` attribute parsed as an ordered set of tokens.
@@ -73,11 +74,22 @@ fn is_valid_token(token: &str) -> bool {
     !token.is_empty() && !token.bytes().any(|b| b.is_ascii_whitespace())
 }
 
+/// `namespace` as a borrowed `Cow` when it is one of the namespaces the parser creates.
+fn static_namespace(namespace: &str) -> Cow<'static, str> {
+    match namespace {
+        HTML_NAMESPACE => Cow::Borrowed(HTML_NAMESPACE),
+        MATHML_NAMESPACE => Cow::Borrowed(MATHML_NAMESPACE),
+        SVG_NAMESPACE => Cow::Borrowed(SVG_NAMESPACE),
+        other => Cow::Owned(other.to_owned()),
+    }
+}
+
 /// Data structure for element nodes
 #[derive(PartialEq, Clone)]
 pub struct ElementData {
     pub name: String,
-    pub namespace: Option<String>,
+    /// Borrowed for the HTML, MathML and SVG namespaces, so most elements do not allocate one.
+    pub namespace: Option<Cow<'static, str>>,
     /// Written only through `add_attribute` and `remove_attribute`, which keep `class_list`
     /// in step.
     attributes: Attributes,
@@ -108,7 +120,7 @@ impl ElementData {
             .unwrap_or_default();
         Self {
             name: name.into(),
-            namespace: Some(namespace.unwrap_or(HTML_NAMESPACE).into()),
+            namespace: Some(static_namespace(namespace.unwrap_or(HTML_NAMESPACE))),
             attributes,
             class_list,
             template_contents: None,
@@ -122,16 +134,13 @@ impl ElementData {
 
     pub fn namespace(&self) -> &str {
         match self.namespace {
-            Some(ref namespace) => namespace.as_str(),
+            Some(ref namespace) => namespace,
             None => HTML_NAMESPACE,
         }
     }
 
     pub fn is_namespace(&self, namespace: &str) -> bool {
-        if self.namespace.is_none() {
-            return namespace == HTML_NAMESPACE;
-        }
-        self.namespace == Some(namespace.into())
+        self.namespace() == namespace
     }
 
     pub fn classlist(&self) -> &ClassListImpl {
@@ -242,8 +251,8 @@ impl ElementData {
     }
 
     pub fn is_mathml_integration_point(&self) -> bool {
-        let namespace = self.namespace.clone().unwrap_or_default();
-        namespace == MATHML_NAMESPACE && ["mi", "mo", "mn", "ms", "mtext"].contains(&self.name.as_str())
+        self.namespace.as_deref() == Some(MATHML_NAMESPACE)
+            && ["mi", "mo", "mn", "ms", "mtext"].contains(&self.name.as_str())
     }
 
     pub fn is_html_integration_point(&self) -> bool {
@@ -319,6 +328,25 @@ mod tests {
 
     fn class_attr(e: &ElementData) -> Option<&str> {
         e.attribute("class").map(String::as_str)
+    }
+
+    /// The parser's namespaces are borrowed, any other is kept as given; both compare by value.
+    #[test]
+    fn namespaces() {
+        let html = ElementData::new("div", None, Attributes::new());
+        let svg = ElementData::new("svg", Some(SVG_NAMESPACE), Attributes::new());
+        let other = ElementData::new("x", Some("urn:other"), Attributes::new());
+        assert!(matches!(html.namespace, Some(Cow::Borrowed(HTML_NAMESPACE))));
+        assert!(matches!(svg.namespace, Some(Cow::Borrowed(SVG_NAMESPACE))));
+        assert!(matches!(other.namespace, Some(Cow::Owned(_))));
+        assert_eq!(other.namespace(), "urn:other");
+        assert!(other.is_namespace("urn:other") && !other.is_namespace(HTML_NAMESPACE));
+        assert!(html.is_namespace(HTML_NAMESPACE));
+
+        let mut owned = ElementData::new("svg", Some(SVG_NAMESPACE), Attributes::new());
+        owned.namespace = Some(Cow::Owned(SVG_NAMESPACE.to_owned()));
+        assert!(svg.matches_tag_and_attrs_without_order(&owned));
+        assert_eq!(svg, owned);
     }
 
     #[test]
