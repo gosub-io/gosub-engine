@@ -1205,11 +1205,21 @@ where
             }
         }
         let style = self.cached_computed_style(owner);
-        if style.inherited.list_style_type == ListStyleType::None {
-            return None;
-        }
-        let value = counters(counters::LIST_ITEM).last().copied().unwrap_or(0);
-        list_marker::marker_text(&style.inherited.list_style_type, value)
+        let list_style_type = &style.inherited.list_style_type;
+        // A bullet needs no number; asking for one would resolve every counter in the document
+        // and make the marker one more box any restyle throws away.
+        let value = if list_marker::reads_value(list_style_type) {
+            counters(counters::LIST_ITEM).last().copied().unwrap_or(0)
+        } else {
+            0
+        };
+        list_marker::marker_text(list_style_type, value)
+    }
+
+    /// Whether the document's counters have been resolved since the last restyle.
+    #[cfg(test)]
+    pub(crate) fn counters_resolved(&self) -> bool {
+        self.counters.lock().is_some()
     }
 
     /// The document's counters, resolved on first use.

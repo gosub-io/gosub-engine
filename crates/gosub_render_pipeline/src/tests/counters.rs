@@ -450,3 +450,13 @@ fn function_names_are_case_insensitive_and_counter_names_are_not() {
     assert_eq!(text(&a, "up"), "2|7");
     assert_eq!(text(&a, "rev"), "21");
 }
+
+#[test]
+fn bullets_do_not_resolve_the_counters() {
+    let a = adapter(r#"<ul><li id="a">a</li><li id="b">b</li></ul>"#);
+    assert_eq!(marker(&a, "b").as_deref(), Some("\u{2022} "));
+    assert!(!a.counters_resolved());
+    let a = adapter(r#"<ol><li id="a">a</li><li id="b">b</li></ol>"#);
+    assert_eq!(marker(&a, "b").as_deref(), Some("2. "));
+    assert!(a.counters_resolved());
+}

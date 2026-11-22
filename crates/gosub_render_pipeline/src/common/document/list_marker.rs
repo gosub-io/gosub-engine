@@ -25,6 +25,22 @@ pub fn marker_text(style: &ListStyleType, value: i64) -> Option<String> {
     Some(format!("{}{suffix}", counter_text(style, value)))
 }
 
+/// Whether the marker text of `style` depends on the counter value at all: a bullet or a
+/// `<string>` reads the same on every item.
+#[must_use]
+pub fn reads_value(style: &ListStyleType) -> bool {
+    !matches!(
+        style,
+        ListStyleType::None
+            | ListStyleType::String(_)
+            | ListStyleType::Disc
+            | ListStyleType::Circle
+            | ListStyleType::Square
+            | ListStyleType::DisclosureOpen
+            | ListStyleType::DisclosureClosed
+    )
+}
+
 /// A counter value in a counter style, without the suffix a marker adds: what `counter()` and
 /// `counters()` write. `none` writes nothing.
 #[must_use]
