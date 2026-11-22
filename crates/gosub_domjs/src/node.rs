@@ -136,11 +136,8 @@ impl GosubNode {
 
     pub fn append_child<'js>(&self, ctx: Ctx<'js>, child: rquickjs::Class<'js, GosubNode>) -> Result<Value<'js>> {
         let child_id = child.borrow().id;
-        let attached = {
-            let mut doc = self.doc.borrow_mut();
-            doc.detach(child_id);
-            doc.attach(child_id, self.id, None)
-        };
+        // `attach` moves the child itself, and only once the move is known to be valid.
+        let attached = self.doc.borrow_mut().attach(child_id, self.id, None);
         crate::style_cache::invalidate();
         match attached {
             Ok(()) => wrap(&ctx, &self.doc, child_id),
