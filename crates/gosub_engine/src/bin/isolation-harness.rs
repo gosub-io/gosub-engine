@@ -2681,10 +2681,11 @@ fn engine_remote_scripts<F: FontSystem + Default>() -> i32 {
             html("<html><body><script>var q = 5; console.log('quiet')</script></body></html>"),
             html("<html><body><script>var q = 50; console.log('other')</script></body></html>"),
         );
-        // Tall only where the noscript element's contents are markup: parsed without scripting.
+        // Tall only where the noscript elements' contents are markup (the stylesheet in the
+        // head) and shown (the paragraph it sizes): parsed and styled without scripting.
         let noscript = html(
             "<html><head><noscript><link rel=\"stylesheet\" href=\"/tall.css\"></noscript></head>\
-             <body><p>page</p><script>console.log('ran')</script></body></html>",
+             <body><noscript><p>fallback</p></noscript><script>console.log('ran')</script></body></html>",
         );
         let Ok(port) = serve_routes(vec![
             ("/", "text/html", page, std::time::Duration::ZERO),
@@ -2696,7 +2697,7 @@ fn engine_remote_scripts<F: FontSystem + Default>() -> i32 {
             (
                 "/tall.css",
                 "text/css",
-                b"p { height: 3000px }".to_vec(),
+                b"noscript p { height: 3000px }".to_vec(),
                 std::time::Duration::ZERO,
             ),
         ]) else {
@@ -2947,8 +2948,8 @@ fn engine_remote_scripts<F: FontSystem + Default>() -> i32 {
             expect_said!("a script in the page that replaced it", ["other", "value: 50.0"]);
 
             // JavaScript off: the renderer parses without scripting (a noscript element's
-            // contents are markup, here a stylesheet that makes the page tall) and runs
-            // nothing. With it on, the same page is short and its script runs.
+            // contents are markup, here a stylesheet and the paragraph it makes tall), shows
+            // what is in it and runs nothing. With it on, the same page is short and its script runs.
             for (on, expected) in [(true, "ran"), (false, "error: JavaScript is disabled")] {
                 if let Err(e) = engine.settings().set("scripting.javascript_enabled", Setting::Bool(on)) {
                     eprintln!("could not switch JavaScript: {e}");

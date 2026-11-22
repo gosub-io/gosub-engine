@@ -340,6 +340,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         // Viewport-relative CSS units resolve against the real viewport; must
         // precede parse(), which computes styles for display:none filtering.
         gosub_css3::stylesheet::set_layout_viewport(viewport_width as f32, viewport_height as f32);
+        gosub_css3::stylesheet::set_scripting(parser.scripting_enabled);
 
         // Parse with the page's base URL (relative subresource URLs resolve
         // against it). The parser records `<link rel="stylesheet">` and moves on;
@@ -766,6 +767,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         // Process-wide state another tab's navigate may have moved since.
         apply_media_prefs(self.dpr, self.media);
         gosub_css3::stylesheet::set_layout_viewport(self.viewport_width as f32, self.viewport_height as f32);
+        gosub_css3::stylesheet::set_scripting(self.doc.scripting_enabled());
         // Under the environment the layout is about to use: what the cascade
         // would produce now, against what it produced last time.
         let fingerprint = C::CssSystem::style_environment_fingerprint(self.doc.stylesheets());

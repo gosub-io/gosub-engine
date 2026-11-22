@@ -1021,9 +1021,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             media_type: MediaType::Screen,
             color_scheme,
             reduced_motion,
-            // Flip to `true` when the JS runtime is wired in (M2), so `@media (scripting)`
-            // and the `no-js` class pattern report the truth.
-            scripting: false,
+            // the document's own flag, not the tab's setting now: it is what the parser went by
+            scripting: self.document.as_ref().is_some_and(|doc| doc.scripting_enabled()),
         }
     }
 
@@ -4197,6 +4196,33 @@ mod tests {
             ctx.set_document(Arc::new(doc), None);
             ctx.rebuild_pipeline_cache_if_needed();
             ctx
+        }
+
+        /// `@media (scripting)` answers for the document the tab shows: the flag its parser
+        /// went by, which is what hides or shows its `noscript` elements.
+        #[test]
+        fn the_scripting_media_feature_follows_the_document() {
+            use gosub_shared::byte_stream::{ByteStream, Encoding};
+
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            assert!(!ctx.media_environment().scripting, "no document, no scripting");
+
+            for scripting in [true, false] {
+                let mut stream = ByteStream::from_str("<html><body><p>page</p></body></html>", Encoding::UTF8);
+                let mut doc =
+                    gosub_html5::document::builder::DocumentBuilderImpl::new_document::<DefaultRenderConfig>(None);
+                let options = gosub_html5::parser::Html5ParserOptions {
+                    scripting_enabled: scripting,
+                    ..Default::default()
+                };
+                let _ = gosub_html5::parser::Html5Parser::<DefaultRenderConfig>::parse_document(
+                    &mut stream,
+                    &mut doc,
+                    Some(options),
+                );
+                ctx.set_document(Arc::new(doc), None);
+                assert_eq!(ctx.media_environment().scripting, scripting);
+            }
         }
 
         /// A whole page's render passes on where the renderer's autofocus put the focus, and

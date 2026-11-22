@@ -42,6 +42,14 @@ pub fn set_layout_viewport(width: f32, height: f32) {
     }
 }
 
+/// Whether scripting is enabled for the document about to be styled: what `@media (scripting)`
+/// answers. The rest of the environment is kept.
+pub fn set_scripting(enabled: bool) {
+    let mut env = media_environment();
+    env.scripting = enabled;
+    set_media_environment(env);
+}
+
 static PREFERS_DARK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Set the user's colour-scheme preference, consumed by `light-dark()` and by rules under

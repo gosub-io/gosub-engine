@@ -81,7 +81,7 @@ another document. V8 runs jitless there.
 
 | Setting | Meaning |
 |---|---|
-| `ZoneConfig::javascript_enabled` | Off: nothing runs in the zone, and its documents parse with scripting disabled (`<noscript>` content is markup). |
+| `ZoneConfig::javascript_enabled` | Off: nothing runs in the zone, and its documents parse with scripting disabled: `<noscript>` content is markup and is shown, and `@media (scripting)` is false. |
 | `scripting.javascript_enabled` | The same switch, engine-wide. Both have to be on. |
 | `scripting.max_run_ms` | A script still running after this long is terminated. |
 | `scripting.heap_limit_mb` | Heap size per page at which a script is ended. |

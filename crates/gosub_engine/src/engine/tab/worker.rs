@@ -2660,11 +2660,15 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
         let download_spool = self.download_spool_limits();
         let font_system = self.zone_context.font_system.clone();
-        let media_environment = self.context.media_environment();
         // Capture the document source only when a renderer process may need it
         // (it re-parses there); otherwise skip the copy.
         let capture_source = self.remote_render_available();
         let scripting = self.javascript_enabled();
+        // for the document about to be loaded, not the one this tab shows
+        let media_environment = gosub_css3::media_query::MediaEnvironment {
+            scripting,
+            ..self.context.media_environment()
+        };
         let scripts = self.document_scripts(nav_id);
 
         let span = tracing::info_span!(
@@ -3008,10 +3012,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
         let download_spool = self.download_spool_limits();
         let font_system = self.zone_context.font_system.clone();
-        let media_environment = self.context.media_environment();
         // Same rule as navigate(): keep the source only when a renderer process may re-parse it.
         let capture_source = self.remote_render_available();
         let scripting = self.javascript_enabled();
+        let media_environment = gosub_css3::media_query::MediaEnvironment {
+            scripting,
+            ..self.context.media_environment()
+        };
         let scripts = self.document_scripts(nav_id);
         // The engine's own pages are parsed here too: they are the ones allowed to
         // fall back to in-process rendering, which needs a document. `LoadHtml`
