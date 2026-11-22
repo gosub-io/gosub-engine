@@ -1431,6 +1431,35 @@ mod tests {
         assert!(doc.open_select().is_none(), "the open dropdown closes with its select");
     }
 
+    /// Detach and delete take the node out of its parent's child list and leave the order of
+    /// the other children alone, for the first, a middle and the last child.
+    #[test]
+    fn detach_and_delete_keep_the_sibling_order() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let parent = element(&mut doc, "div", root);
+        let kids: Vec<NodeId> = (0..5).map(|_| element(&mut doc, "p", parent)).collect();
+
+        doc.detach_node(kids[4]);
+        assert_eq!(doc.children(parent), &kids[..4]);
+        assert_eq!(doc.parent(kids[4]), None);
+        doc.detach_node(kids[0]);
+        assert_eq!(doc.children(parent), &kids[1..4]);
+        doc.delete_node_by_id(kids[2]);
+        assert_eq!(doc.children(parent), &[kids[1], kids[3]]);
+
+        // Detaching a detached node changes nothing; reattaching puts it back once.
+        doc.detach_node(kids[4]);
+        doc.attach_node(kids[4], parent, Some(1)).unwrap();
+        assert_eq!(doc.children(parent), &[kids[1], kids[4], kids[3]]);
+
+        // A move within the same parent leaves a single entry.
+        doc.attach_node(kids[1], parent, None).unwrap();
+        assert_eq!(doc.children(parent), &[kids[4], kids[3], kids[1]]);
+        doc.attach_node(kids[1], parent, Some(0)).unwrap();
+        assert_eq!(doc.children(parent), &[kids[1], kids[4], kids[3]]);
+    }
+
     /// Change `node`'s `id` attribute the way a DOM `setAttribute` / `removeAttribute` does.
     fn set_id(doc: &mut DocumentImpl<Config>, node: NodeId, id: Option<&str>) {
         match id {

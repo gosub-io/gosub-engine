@@ -238,7 +238,11 @@ impl NodeImpl {
     }
 
     pub fn remove(&mut self, node_id: NodeId) {
-        self.children.retain(|x| x != &node_id);
+        // A node is in a child list at most once: `attach_node` detaches before it inserts.
+        // Searched from the end, where the parser takes nodes from.
+        if let Some(idx) = self.children.iter().rposition(|&x| x == node_id) {
+            self.children.remove(idx);
+        }
     }
 
     pub fn insert(&mut self, node_id: NodeId, idx: usize) {
