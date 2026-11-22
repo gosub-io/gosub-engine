@@ -145,7 +145,7 @@ impl Tokenizer<'_> {
                     }
                 }
                 CcrState::HexadecimalCharacterReferenceStart => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.stream_read_and_next();
                     match c {
                         Ch('0'..='9' | 'A'..='F' | 'a'..='f') => {
@@ -154,12 +154,12 @@ impl Tokenizer<'_> {
                             ccr_state = CcrState::HexadecimalCharacterReference;
                         }
                         Character::StreamEnd => {
-                            self.parse_error(ParserError::AbsenceOfDigitsInNumericCharacterReference, loc);
+                            self.parse_error_at(ParserError::AbsenceOfDigitsInNumericCharacterReference, pos);
                             self.consume_temp_buffer(as_attribute);
                             return;
                         }
                         _ => {
-                            self.parse_error(ParserError::AbsenceOfDigitsInNumericCharacterReference, loc);
+                            self.parse_error_at(ParserError::AbsenceOfDigitsInNumericCharacterReference, pos);
                             self.consume_temp_buffer(as_attribute);
 
                             self.stream_prev();
@@ -168,7 +168,7 @@ impl Tokenizer<'_> {
                     }
                 }
                 CcrState::DecimalCharacterReferenceStart => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.stream_read_and_next();
                     match c {
                         Ch('0'..='9') => {
@@ -176,12 +176,12 @@ impl Tokenizer<'_> {
                             ccr_state = CcrState::DecimalCharacterReference;
                         }
                         Character::StreamEnd => {
-                            self.parse_error(ParserError::AbsenceOfDigitsInNumericCharacterReference, loc);
+                            self.parse_error_at(ParserError::AbsenceOfDigitsInNumericCharacterReference, pos);
                             self.consume_temp_buffer(as_attribute);
                             return;
                         }
                         _ => {
-                            self.parse_error(ParserError::AbsenceOfDigitsInNumericCharacterReference, loc);
+                            self.parse_error_at(ParserError::AbsenceOfDigitsInNumericCharacterReference, pos);
                             self.consume_temp_buffer(as_attribute);
 
                             self.stream_prev();
@@ -190,7 +190,7 @@ impl Tokenizer<'_> {
                     }
                 }
                 CcrState::HexadecimalCharacterReference => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.stream_read_and_next();
                     match c {
                         // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEnd,
@@ -216,18 +216,18 @@ impl Tokenizer<'_> {
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                         Character::StreamEnd => {
-                            self.parse_error(ParserError::MissingSemicolonAfterCharacterReference, loc);
+                            self.parse_error_at(ParserError::MissingSemicolonAfterCharacterReference, pos);
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                         _ => {
-                            self.parse_error(ParserError::MissingSemicolonAfterCharacterReference, loc);
+                            self.parse_error_at(ParserError::MissingSemicolonAfterCharacterReference, pos);
                             self.stream_prev();
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                     }
                 }
                 CcrState::DecimalCharacterReference => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.stream_read_and_next();
                     match c {
                         // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEndState,
@@ -241,11 +241,11 @@ impl Tokenizer<'_> {
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                         Character::StreamEnd => {
-                            self.parse_error(ParserError::MissingSemicolonAfterCharacterReference, loc);
+                            self.parse_error_at(ParserError::MissingSemicolonAfterCharacterReference, pos);
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                         _ => {
-                            self.parse_error(ParserError::MissingSemicolonAfterCharacterReference, loc);
+                            self.parse_error_at(ParserError::MissingSemicolonAfterCharacterReference, pos);
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                             self.stream_prev();
                         }
