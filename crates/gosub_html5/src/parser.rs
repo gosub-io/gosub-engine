@@ -193,7 +193,7 @@ pub struct Html5ParserOptions {
     pub stylesheets: Option<Arc<dyn StylesheetSource>>,
     /// Runs the document's inline classic scripts, each when its end tag is seen. `None`
     /// means no script runs.
-    pub scripts: Option<Box<dyn ScriptHost + Send>>,
+    pub scripts: Option<Box<dyn ScriptHost>>,
     /// Where the text of a `<script src>` comes from. `None` means external scripts do not
     /// run. Only asked when `scripts` is set.
     pub script_sources: Option<Arc<dyn ScriptSource>>,
@@ -292,7 +292,7 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     /// where the attributes are, and acted on at the end tag, where the script would run.
     current_script_blocks: bool,
     /// What runs the document's scripts, if anything does.
-    script_host: Option<Box<dyn ScriptHost + Send>>,
+    script_host: Option<Box<dyn ScriptHost>>,
     script_source: Option<Arc<dyn ScriptSource>>,
     /// URLs of the `defer` and `async` scripts seen so far, in document order. They run
     /// when the document has been parsed.

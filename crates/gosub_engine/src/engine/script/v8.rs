@@ -15,6 +15,7 @@ impl V8ScriptHost {
         // The first initialization in a process decides, and this is the only one.
         V8Engine::initialize_with(&V8Options {
             jitless: true,
+            single_threaded: limits.single_threaded,
             ..Default::default()
         });
 
@@ -56,6 +57,9 @@ impl ScriptHost for V8ScriptHost {
     }
 
     fn microtask_checkpoint(&mut self) -> Result<(), ScriptError> {
+        // as in `execute`: a request that is still meant is made again
+        self.context.cancel_termination();
+
         self.context
             .microtask_checkpoint()
             .map_err(|e| match e.downcast_ref::<V8Error>() {
@@ -96,6 +100,7 @@ mod tests {
         let host = V8ScriptHost::new(
             ScriptLimits {
                 heap_bytes: 32 * 1024 * 1024,
+                single_threaded: false,
             },
             Arc::new(move |level, text| seen.lock().push((level, text))),
         )

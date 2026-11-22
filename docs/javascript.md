@@ -112,9 +112,46 @@ once into a per-parse map, and the parser takes it from there, or fetches a `src
 missed. A script that cannot be loaded is logged and skipped. Script text is read as
 UTF-8; a `charset` is not looked at.
 
-Not there yet: a page that lives in a renderer process (nothing runs there, and
-`ExecuteScript` answers with an error), modules, `integrity`, the MIME type check on a
-fetched script, and every DOM binding - there is no `document`.
+### In a renderer process
+
+With process isolation the page lives in a resident renderer, and so do its scripts
+(`fork_server/scripts.rs`). `ToRenderer::Navigate` carries the tab's limits
+(`ScriptSettings`, `None` when JavaScript is off); the renderer gives the document a host
+and parses it with that host and with a `ScriptSource` that fetches through the broker.
+`ToRenderer::ExecuteScript` runs a script in the document a tab shows. What scripts say
+comes back as `FromRenderer::Script` messages ahead of the closing `Rendered` - console
+lines, errors, a result as JSON text - and the tab worker raises the same events as for a
+page it parsed itself. They are a renderer's claims: bounded in number and size
+(`MAX_SCRIPT_REPORTS`, `MAX_SCRIPT_TEXT`) and passed on as data.
+
+Differences from a page parsed in the broker:
+
+- The renderer has one thread and may start no other, so there is no script thread and
+  no watchdog. A script's time limit is the process's alarm
+  (`gosub_sandbox::arm_soft_deadline`): its handler asks V8 to end the script, and if the
+  script is still there two seconds later the alarm ends the renderer.
+- A document's script output arrives when its renderer has loaded it: with the first
+  frame, or with the first `ExecuteScript` when no frame is drawn. That can be after the
+  navigation's `Finished`.
+- Every full render sends the document to the renderer again, which parses it again: its
+  scripts run again, in a new global scope. That is a renderer replaced after a crash, a
+  page let go of past the retained-page limit, and anything else that rebuilds the whole
+  page (a change of device pixel ratio does). An `ExecuteScript` in flight then answers
+  with an error.
+- A page's stylesheets do not hold its scripts back there; nothing a script can do shows
+  the difference yet.
+- The heap limit is capped at a quarter of the renderer's memory limit.
+- Each document has its own isolate, not one isolate per process with a context each.
+- A one-shot renderer (fork server without a pool, exec per render) runs no scripts.
+
+V8 under the renderer's confinement: `uname` and `prlimit64` on itself are allowed;
+`pkey_alloc` is answered `ENOSYS`; opening `/proc/self/maps` or `/etc/localtime` is
+answered `EACCES` (V8 and libc have fallbacks); the time zone is settled before the
+lockdown (`gosub_sandbox::prime_time_zone`); `RLIMIT_AS` is 64 GiB, for the address space
+V8 reserves and never commits. No executable memory, no threads.
+
+Not there yet: modules, `integrity`, the MIME type check on a fetched script, and every
+DOM binding - there is no `document`.
 
 ## What wiring it up would take
 

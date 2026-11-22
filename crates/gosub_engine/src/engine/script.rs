@@ -35,6 +35,10 @@ pub(crate) struct ScriptLimits {
     /// Heap size in bytes at which a script is ended.
     #[cfg_attr(not(feature = "js"), allow(dead_code))] // read by the host only
     pub heap_bytes: usize,
+    /// The engine starts no thread of its own. For a renderer process, which may not
+    /// start any. Decided by the first host of the process.
+    #[cfg_attr(not(feature = "js"), allow(dead_code))]
+    pub single_threaded: bool,
 }
 
 /// The engine's script host, or why there is none.
@@ -555,9 +559,15 @@ mod tests {
     #[cfg(not(feature = "js"))]
     #[test]
     fn a_build_without_js_has_no_host() {
-        let error = page_host(ScriptLimits { heap_bytes: 1 << 20 }, Arc::new(|_, _| {}))
-            .err()
-            .unwrap();
+        let error = page_host(
+            ScriptLimits {
+                heap_bytes: 1 << 20,
+                single_threaded: false,
+            },
+            Arc::new(|_, _| {}),
+        )
+        .err()
+        .unwrap();
         assert_eq!(error.kind, ScriptErrorKind::Unavailable);
     }
 }

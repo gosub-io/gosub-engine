@@ -23,6 +23,9 @@ const ENV_KEPT: &[&str] = &[
     "TMPDIR",
     "LANG",
     "LANGUAGE",
+    // The user's time zone, or the system's as `prime_time_zone` found it: what a page's
+    // `Date` shows in a renderer that can read no zone file.
+    "TZ",
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
     "RUST_LOG",

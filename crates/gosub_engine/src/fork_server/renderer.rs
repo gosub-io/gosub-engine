@@ -314,6 +314,18 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
         loader: Arc<dyn ResourceLoader>,
     ) -> Self {
+        Self::build_with(page, fonts, media_store, loader, Html5ParserOptions::default())
+    }
+
+    /// [`Self::build`] with the parser set up by the caller: whether the document's
+    /// scripts run, and through what.
+    pub fn build_with(
+        page: PageRequest<'_>,
+        fonts: Arc<Mutex<dyn FontSystem>>,
+        media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
+        loader: Arc<dyn ResourceLoader>,
+        parser: Html5ParserOptions,
+    ) -> Self {
         let PageRequest {
             html,
             page_url,
@@ -338,7 +350,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         let base_url = Url::parse(page_url).ok();
         let mut stream = ByteStream::from_str(html, Encoding::UTF8);
         let mut doc = DocumentBuilderImpl::new_document::<C>(base_url.clone());
-        match Html5Parser::<C>::parse_document(&mut stream, &mut doc, Some(Html5ParserOptions::default())) {
+        match Html5Parser::<C>::parse_document(&mut stream, &mut doc, Some(parser)) {
             Ok(errors) => doc.set_parse_errors(errors),
             Err(e) => log::warn!("HTML parse of {page_url} stopped early: {e}"),
         }

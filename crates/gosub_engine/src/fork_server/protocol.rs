@@ -130,6 +130,19 @@ pub enum ToRenderer {
         scroll_y: f64,
         known_tiles: Vec<u64>,
         hovered_node: Option<u64>,
+        /// Run the page's scripts, within these limits. `None` when JavaScript is off for
+        /// the tab; the document is then parsed with scripting disabled.
+        scripts: Option<ScriptSettings>,
+    },
+    /// Run `source` in the document `tab` shows, the way a page script would run.
+    /// Answered with [`FromRenderer::Script`] messages - what it wrote to the console,
+    /// then its value or its error - and a closing [`FromRenderer::Rendered`] without
+    /// tiles. A tab whose document runs no scripts here answers with an error.
+    ExecuteScript {
+        tab: String,
+        source: String,
+        /// See [`ScriptSettings::max_run_ms`].
+        max_run_ms: u64,
     },
     /// The viewport moved on a page this renderer retains: rasterize what
     /// came into the raster window and ship it, and announce
@@ -190,6 +203,92 @@ pub enum ToRenderer {
     /// Exit cleanly. The broker sends this when the renderer's last tab
     /// closes; a closed link means the same.
     Shutdown,
+}
+
+/// The limits a renderer runs a document's scripts under: the tab's settings, which the
+/// renderer has no way to read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScriptSettings {
+    /// How long one script may run before it is ended.
+    pub max_run_ms: u64,
+    /// The heap size at which a script is ended. The renderer caps it at what its own
+    /// memory limit leaves room for.
+    pub heap_limit_mb: u64,
+}
+
+/// `gosub_interface::script::ConsoleLevel` as it crosses the link.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WireConsoleLevel {
+    Debug,
+    Log,
+    Info,
+    Warn,
+    Error,
+}
+
+impl From<gosub_interface::script::ConsoleLevel> for WireConsoleLevel {
+    fn from(level: gosub_interface::script::ConsoleLevel) -> Self {
+        use gosub_interface::script::ConsoleLevel;
+        match level {
+            ConsoleLevel::Debug => Self::Debug,
+            ConsoleLevel::Log => Self::Log,
+            ConsoleLevel::Info => Self::Info,
+            ConsoleLevel::Warn => Self::Warn,
+            ConsoleLevel::Error => Self::Error,
+        }
+    }
+}
+
+impl From<WireConsoleLevel> for gosub_interface::script::ConsoleLevel {
+    fn from(level: WireConsoleLevel) -> Self {
+        match level {
+            WireConsoleLevel::Debug => Self::Debug,
+            WireConsoleLevel::Log => Self::Log,
+            WireConsoleLevel::Info => Self::Info,
+            WireConsoleLevel::Warn => Self::Warn,
+            WireConsoleLevel::Error => Self::Error,
+        }
+    }
+}
+
+/// What a script in a renderer has to say. Claims, like everything a renderer sends: the
+/// broker bounds them ([`MAX_SCRIPT_REPORTS`], [`MAX_SCRIPT_TEXT`]) and passes them on as
+/// data, never acts on them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ScriptReport {
+    /// A line on the console.
+    Console {
+        level: WireConsoleLevel,
+        text: String,
+        /// The URL of the script that wrote it.
+        origin: String,
+    },
+    /// A script failed: it threw, or it was ended. `line` and `column` are 1-based and 0
+    /// when there is none.
+    Error { message: String, line: u32, column: u32 },
+    /// The value of an [`ToRenderer::ExecuteScript`], as JSON text.
+    Result { json: String },
+}
+
+/// Script reports one exchange may carry. A renderer drops what its page writes past
+/// this; the broker takes more for a renderer gone wrong.
+pub const MAX_SCRIPT_REPORTS: usize = 1000;
+
+/// Bytes of text in one [`ScriptReport`]; longer text is cut on both sides of the link.
+pub const MAX_SCRIPT_TEXT: usize = 64 * 1024;
+
+/// `text` cut to [`MAX_SCRIPT_TEXT`] bytes, on a character boundary.
+pub fn clip_script_text(mut text: String) -> String {
+    if text.len() > MAX_SCRIPT_TEXT {
+        let mut end = MAX_SCRIPT_TEXT;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+        // not only shorter: the rest of what the sender made us allocate goes too
+        text.shrink_to_fit();
+    }
+    text
 }
 
 /// One user action on a retained page, in viewport CSS px - the space the
@@ -692,6 +791,9 @@ pub enum FromRenderer {
     /// drops them; scrolling back there ships them afresh. Only a resident
     /// renderer sends this.
     Evict { hashes: Vec<u64> },
+    /// Mid-exchange: a script of the page said something. Any number before the closing
+    /// [`FromRenderer::Rendered`], in the order it happened.
+    Script(ScriptReport),
     /// Answer to [`ToRenderer::Audit`]. Only with the sandbox compiled in.
     #[cfg(feature = "process-isolation")]
     Audit(gosub_sandbox::audit::AuditReport),
@@ -743,6 +845,18 @@ mod tests {
 
     /// An `id` match wins over an `<a name>` one even when the anchor comes
     /// first; among equals, the first in the list (document order) wins.
+    #[test]
+    fn script_text_is_cut_on_a_character_boundary() {
+        assert_eq!(clip_script_text("short".to_owned()), "short");
+
+        // 3 bytes each: the limit falls inside a character
+        let long = "\u{20ac}".repeat(MAX_SCRIPT_TEXT / 3 + 10);
+        let cut = clip_script_text(long);
+        assert!(cut.len() <= MAX_SCRIPT_TEXT && cut.len() > MAX_SCRIPT_TEXT - 3);
+        assert!(cut.chars().all(|c| c == '\u{20ac}'));
+        assert!(cut.capacity() <= MAX_SCRIPT_TEXT);
+    }
+
     #[test]
     fn an_id_beats_an_anchor_name_and_the_first_match_wins() {
         let targets = [

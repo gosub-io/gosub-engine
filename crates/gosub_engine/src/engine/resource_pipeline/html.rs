@@ -620,7 +620,7 @@ impl gosub_html5::parser::ScriptSource for ParseSheetGate {
 
 /// The bytes of a script as text: UTF-8, without a byte order mark. A `charset` on the
 /// element or the response is not looked at.
-fn script_text(bytes: &[u8]) -> String {
+pub(crate) fn script_text(bytes: &[u8]) -> String {
     let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
 
     String::from_utf8_lossy(bytes).into_owned()

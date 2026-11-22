@@ -352,6 +352,21 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// the tab worker to judge and act on.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     remote_effects: Vec<(InputProvenance, crate::fork_server::protocol::Effect)>,
+    /// The limits the renderer runs this tab's scripts under; `None` when it runs none.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_scripts: Option<crate::fork_server::protocol::ScriptSettings>,
+    /// What the document's scripts reported while a renderer loaded it, for the tab
+    /// worker to pass on.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_script_reports: Vec<crate::fork_server::protocol::ScriptReport>,
+    /// Whether a renderer has loaded the current document: before that there is nothing
+    /// to run a script in.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_page_ready: bool,
+    /// The thread that sends this tab's scripts to its renderer, one after the other;
+    /// started with the first script.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_script_queue: Option<std::sync::mpsc::Sender<RemoteScriptJob>>,
     /// Why the last out-of-process render could not happen at all - page
     /// content is never rendered in-process instead; the tab worker takes
     /// this and tells the embedder.
@@ -496,6 +511,14 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             remote_input_queue: std::collections::VecDeque::new(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_effects: Vec::new(),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_scripts: None,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_script_reports: Vec::new(),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_page_ready: false,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_script_queue: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_failure: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -731,6 +754,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             // Input queued for the page that is going would land on the next.
             self.remote_input_queue.clear();
             self.remote_effects.clear();
+            // and its scripts' output
+            self.remote_script_reports.clear();
+            self.remote_page_ready = false;
         }
         // Nothing the last document loaded answers for this one: whether a URL loads at all is
         // the document's call.
@@ -1491,7 +1517,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     .unwrap_or_else(|_| "about:".to_string());
                 let renderer = pool.renderer_for(*zone, &site, *tab)?;
                 let mut renderer = renderer.lock();
-                renderer.navigate(
+                renderer.navigate_with(
                     source,
                     &page_url,
                     &self.remote_tab,
@@ -1500,6 +1526,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     &resources,
                     &self.remote_tile_memory,
                     self.hover_leaf.map(|id| id.into()),
+                    self.remote_scripts,
                 )
             }
             RemoteRenderer::ForkServer(server) => server.lock().render_page(
@@ -1551,10 +1578,109 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 self.remote_hover_pending = false;
                 self.remote_resize_pending = None;
                 self.adopt_remote_page(page);
+                // the document is in its renderer now, and scripts can be sent to it
+                self.remote_page_ready = true;
                 Ok(())
             }
             Err(e) => Err(e.to_string()),
         }
+    }
+
+    /// Whether, and within what limits, the renderer runs the scripts of the documents
+    /// this tab loads from now on.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn set_remote_scripts(&mut self, scripts: Option<crate::fork_server::protocol::ScriptSettings>) {
+        self.remote_scripts = scripts;
+    }
+
+    /// What the document's scripts reported while a renderer loaded it, once.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn take_remote_script_reports(&mut self) -> Vec<crate::fork_server::protocol::ScriptReport> {
+        std::mem::take(&mut self.remote_script_reports)
+    }
+
+    /// Whether a renderer has loaded the current document.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn remote_page_ready(&self) -> bool {
+        self.remote_page_ready
+    }
+
+    /// Counts the documents and full renders a renderer was asked for. What a pass or a
+    /// script started under an earlier count is about a page that is gone.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn remote_epoch(&self) -> u64 {
+        self.remote_epoch.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// Run `source` in this tab's document in its resident renderer, for at most
+    /// `max_run_ms`. `done` gets [`Self::remote_epoch`] as it was when the script was
+    /// queued and what the script reported - console lines, then its value or its error -
+    /// or why it did not run; on another thread. Scripts run in the order they are given.
+    /// `Err` when the script could not be queued at all; `done` is not called then.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn remote_execute_script(
+        &mut self,
+        source: String,
+        max_run_ms: u64,
+        done: RemoteScriptDone,
+    ) -> Result<(), String> {
+        let (Some(RemoteRenderer::Resident { pool, zone, tab }), Some(page_url)) = (
+            &self.remote_renderer,
+            self.document_url.as_ref().map(|url| url.to_string()),
+        ) else {
+            return Err("this tab has no renderer that runs scripts".to_owned());
+        };
+        if !self.remote_page_ready {
+            return Err("the page is not loaded in its renderer".to_owned());
+        }
+        let (pool, zone, tab) = (Arc::clone(pool), *zone, *tab);
+        let epoch = Arc::clone(&self.remote_epoch);
+        let started_for = epoch.load(std::sync::atomic::Ordering::Acquire);
+        let remote_tab = self.remote_tab.clone();
+        let resources = crate::fork_server::client::TabResources {
+            loader: self.loader_for_document(),
+            media: Arc::clone(&self.remote_media),
+        };
+        let job: RemoteScriptJob = Box::new(move || {
+            let result = (|| {
+                let site = url::Url::parse(&page_url)
+                    .map(|u| crate::fork_server::site::site_of(&u))
+                    .unwrap_or_else(|_| "about:".to_string());
+                let current = || epoch.load(std::sync::atomic::Ordering::Acquire) == started_for;
+                let renderer = pool.renderer_for_live(zone, &site, tab, &current)?;
+                let mut renderer = renderer.lock();
+                // the renderer has loaded another document for this tab since, or is about to
+                if !current() {
+                    anyhow::bail!("the page was replaced before the script could run");
+                }
+                renderer.execute_script(&remote_tab, &source, max_run_ms, &resources)
+            })();
+            done(started_for, result.map_err(|e| e.to_string()));
+        });
+
+        // One thread per tab, so the scripts reach the renderer in the order they came.
+        let job = match &self.remote_script_queue {
+            Some(queue) => match queue.send(job) {
+                Ok(()) => return Ok(()),
+                // the thread is gone; the job comes back for a new one
+                Err(std::sync::mpsc::SendError(job)) => job,
+            },
+            None => job,
+        };
+        let (queue, jobs) = std::sync::mpsc::channel::<RemoteScriptJob>();
+        std::thread::Builder::new()
+            .name("gosub-remote-script".into())
+            .spawn(move || {
+                for job in jobs {
+                    job();
+                }
+            })
+            .map_err(|e| format!("could not start the remote script thread: {e}"))?;
+        queue
+            .send(job)
+            .map_err(|_| "the remote script thread ended at once".to_owned())?;
+        self.remote_script_queue = Some(queue);
+        Ok(())
     }
 
     /// A whole page from a renderer replaces what this tab holds.
@@ -1594,6 +1720,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 .filter(|effect| matches!(effect, crate::fork_server::protocol::Effect::Focus { .. }))
                 .map(|effect| (unprompted, effect)),
         );
+        self.remote_script_reports.extend(page.scripts);
     }
 
     /// The viewport moved on a page a resident renderer retains: fetch what
@@ -3225,6 +3352,15 @@ fn pipeline_extend_raster(
 }
 
 /// The incremental exchanges a resident renderer answers from its retained page.
+/// What a script run in a renderer comes back with: the epoch it was queued under, and
+/// its reports or why it did not run.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+pub type RemoteScriptDone =
+    Box<dyn FnOnce(u64, Result<Vec<crate::fork_server::protocol::ScriptReport>, String>) + Send>;
+
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+type RemoteScriptJob = Box<dyn FnOnce() + Send>;
+
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
 #[derive(Clone)]
 enum RemotePass {
@@ -3793,6 +3929,7 @@ mod tests {
                 hit_regions: Vec::new(),
                 evicted: Vec::new(),
                 effects: Vec::new(),
+                scripts: Vec::new(),
             }
         }
 
@@ -4074,6 +4211,7 @@ mod tests {
                 tiles: Vec::new(),
                 hit_regions: Vec::new(),
                 evicted: Default::default(),
+                scripts: Vec::new(),
                 effects: vec![
                     Effect::Navigate {
                         url: "https://elsewhere.test/".into(),
@@ -4116,6 +4254,7 @@ mod tests {
                 hit_regions: Vec::new(),
                 evicted: Default::default(),
                 effects: Vec::new(),
+                scripts: Vec::new(),
             });
             assert!(ctx.active_layer_list().is_none(), "a remote page keeps no layout");
 
@@ -4162,6 +4301,7 @@ mod tests {
                 ],
                 evicted: Default::default(),
                 effects: Vec::new(),
+                scripts: Vec::new(),
             });
             assert!(ctx.document.is_none(), "a remote page keeps no document");
 

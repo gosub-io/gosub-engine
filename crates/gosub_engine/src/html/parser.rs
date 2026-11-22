@@ -316,7 +316,7 @@ where
                 Box::new(UntilCancelled {
                     host: source.host(),
                     cancel: script_cancel,
-                }) as Box<dyn ScriptHost + Send>
+                }) as Box<dyn ScriptHost>
             }),
             script_sources,
         };

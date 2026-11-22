@@ -268,6 +268,10 @@ mod probe_inventory {
         "fcntl-dupfd",
         "path-stat",
         "path-stat-control",
+        "script-probes",
+        "script-probe-other-path",
+        "soft-deadline",
+        "soft-deadline-ignored",
         "ring",
         "netns",
         "pidns",
@@ -395,6 +399,31 @@ mod sandbox_enforcement {
         // the lockdown itself, was the cause.
         let st = probe("baseline");
         assert!(st.success(), "baseline should exit cleanly, got {st:?}");
+    }
+
+    /// What V8 asks for in a renderer is answered, not fatal - and nothing next to it.
+    #[test]
+    fn a_script_engines_probes_are_answered() {
+        let st = probe("script-probes");
+        assert!(st.success(), "a script engine's probes should be answered, got {st:?}");
+
+        let st = probe("script-probe-other-path");
+        assert_eq!(st.signal(), Some(SIGSYS), "another path must stay fatal, got {st:?}");
+    }
+
+    /// A soft deadline calls its handler and lets the work go on; one whose handler
+    /// never returns still ends the process.
+    #[test]
+    fn a_soft_deadline_asks_first_and_ends_the_process_second() {
+        let st = probe("soft-deadline");
+        assert!(st.success(), "the handler should run and the process go on, got {st:?}");
+
+        let st = probe("soft-deadline-ignored");
+        assert_eq!(
+            st.signal(),
+            Some(14),
+            "expected SIGALRM after the grace period, got {st:?}"
+        );
     }
 
     #[test]
