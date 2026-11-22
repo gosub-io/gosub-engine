@@ -18,6 +18,7 @@ use gosub_shared::byte_stream::Character::{Ch, StreamEnd};
 use gosub_shared::byte_stream::{ByteStream, Character, Location, Stream};
 use gosub_shared::types::Result;
 use std::cell::{Ref, RefCell};
+use std::collections::VecDeque;
 use std::rc::Rc;
 
 /// Constants that are not directly captured as visible chars
@@ -28,6 +29,14 @@ pub const CHAR_CR: char = '\u{000D}';
 pub const CHAR_FF: char = '\u{000C}';
 pub const CHAR_SPACE: char = '\u{0020}';
 pub const CHAR_REPLACEMENT: char = '\u{FFFD}';
+
+/// True for the ASCII bytes that `read_char` passes on without a parse error: printable
+/// characters plus TAB, LF, FF and CR. The bulk scans in the states stop at anything else,
+/// so NUL, control characters and non-ASCII still go through `read_char`.
+#[inline]
+fn is_plain_ascii(b: u8) -> bool {
+    matches!(b, b'\t' | b'\n' | 0x0C | b'\r' | 0x20..=0x7E)
+}
 
 /// The tokenizer will read the input stream and emit tokens that can be used by the parser.
 pub struct Tokenizer<'tokens> {
@@ -48,13 +57,13 @@ pub struct Tokenizer<'tokens> {
     /// Temporary buffer
     pub temporary_buffer: String,
     /// Queue of emitted tokens. Needed because we can generate multiple tokens during iteration
-    pub token_queue: Vec<Token>,
+    pub token_queue: VecDeque<Token>,
     /// The last emitted start token (or empty if none)
     pub last_start_token: String,
     /// Last token location
     pub last_token_location: Location,
-    /// Location of the first character in the consume buffer
-    pub consumed_location: Location,
+    /// Byte offset of the first character in the consume buffer
+    pub consumed_pos: usize,
     /// Last read character
     pub last_char: Character,
     /// Error logger to log errors to
@@ -63,10 +72,9 @@ pub struct Tokenizer<'tokens> {
 
 impl Tokenizer<'_> {
     pub(crate) fn insert_tokens_at_queue_start(&mut self, first_tokens: Vec<Token>) {
-        let mut new_queue = first_tokens;
-        new_queue.append(&mut self.token_queue);
-
-        self.token_queue = new_queue;
+        for token in first_tokens.into_iter().rev() {
+            self.token_queue.push_front(token);
+        }
     }
 }
 
@@ -118,10 +126,10 @@ impl<'stream> Tokenizer<'stream> {
             state: opts.as_ref().map_or(State::Data, |o| o.initial_state),
             last_start_token: opts.map_or(String::new(), |o| o.last_start_tag),
             last_token_location: Location::default(),
-            consumed_location: Location::default(),
+            consumed_pos: 0,
             consumed: String::new(),
             current_token: None,
-            token_queue: vec![],
+            token_queue: VecDeque::new(),
             current_attr_name: String::new(),
             current_attr_value: String::new(),
             current_attrs: Attributes::new(),
@@ -141,13 +149,12 @@ impl<'stream> Tokenizer<'stream> {
     pub fn next_token(&mut self, parser_data: ParserData) -> Result<Token> {
         self.consume_stream(parser_data)?;
 
-        if self.token_queue.is_empty() {
-            return Ok(Token::Eof {
+        match self.token_queue.pop_front() {
+            Some(token) => Ok(token),
+            None => Ok(Token::Eof {
                 location: self.get_location(),
-            });
+            }),
         }
-
-        Ok(self.token_queue.remove(0))
     }
 
     /// Returns the error logger
@@ -181,24 +188,28 @@ impl<'stream> Tokenizer<'stream> {
                     | State::CDATASection
             ) && !self.has_consumed_data()
             {
-                self.consumed_location = self.get_location();
+                self.consumed_pos = self.stream.tell_bytes();
             }
 
             match self.state {
                 State::Data => {
-                    let loc = self.get_location();
+                    let run = self
+                        .stream
+                        .scan_ascii_while(|b| is_plain_ascii(b) && b != b'&' && b != b'<');
+                    self.consumed.push_str(run);
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('&') => self.state = State::CharacterReferenceInData,
                         Ch('<') => {
                             self.state = {
-                                self.last_token_location = loc;
+                                self.last_token_location = self.stream.location_at(pos);
                                 State::TagOpen
                             }
                         }
                         Ch(CHAR_NUL) => {
                             self.consume(c.into());
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                         }
                         StreamEnd => self.emit_token(Token::Eof {
                             location: self.get_location(),
@@ -211,7 +222,11 @@ impl<'stream> Tokenizer<'stream> {
                     self.state = State::Data;
                 }
                 State::RCDATA => {
-                    let loc = self.get_location();
+                    let run = self
+                        .stream
+                        .scan_ascii_while(|b| is_plain_ascii(b) && b != b'&' && b != b'<');
+                    self.consumed.push_str(run);
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('&') => self.state = State::CharacterReferenceInRcData,
@@ -221,7 +236,7 @@ impl<'stream> Tokenizer<'stream> {
                         }),
                         Ch(CHAR_NUL) => {
                             self.consume(CHAR_REPLACEMENT);
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                         }
                         _ => self.consume(c.into()),
                     }
@@ -232,13 +247,15 @@ impl<'stream> Tokenizer<'stream> {
                     self.state = State::RCDATA;
                 }
                 State::RAWTEXT => {
-                    let loc = self.get_location();
+                    let run = self.stream.scan_ascii_while(|b| is_plain_ascii(b) && b != b'<');
+                    self.consumed.push_str(run);
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('<') => self.state = State::RAWTEXTLessThanSign,
                         Ch(CHAR_NUL) => {
                             self.consume(CHAR_REPLACEMENT);
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                         }
                         StreamEnd => self.emit_token(Token::Eof {
                             location: self.get_location(),
@@ -247,12 +264,14 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::ScriptData => {
-                    let loc = self.get_location();
+                    let run = self.stream.scan_ascii_while(|b| is_plain_ascii(b) && b != b'<');
+                    self.consumed.push_str(run);
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('<') => self.state = State::ScriptDataLessThenSign,
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.consume(CHAR_REPLACEMENT);
                         }
                         StreamEnd => self.emit_token(Token::Eof {
@@ -262,11 +281,13 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::PLAINTEXT => {
-                    let loc = self.get_location();
+                    let run = self.stream.scan_ascii_while(is_plain_ascii);
+                    self.consumed.push_str(run);
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.consume(CHAR_REPLACEMENT);
                         }
                         StreamEnd => self.emit_token(Token::Eof {
@@ -276,7 +297,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::TagOpen => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('!') => self.state = State::MarkupDeclarationOpen,
@@ -296,17 +317,17 @@ impl<'stream> Tokenizer<'stream> {
                                 comment: String::new(),
                                 location: self.last_token_location,
                             });
-                            self.parse_error(ParserError::UnexpectedQuestionMarkInsteadOfTagName, loc);
+                            self.parse_error_at(ParserError::UnexpectedQuestionMarkInsteadOfTagName, pos);
                             self.stream_prev();
                             self.state = State::BogusComment;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofBeforeTagName, loc);
+                            self.parse_error_at(ParserError::EofBeforeTagName, pos);
                             self.consume('<');
                             self.state = State::Data;
                         }
                         _ => {
-                            self.parse_error(ParserError::InvalidFirstCharacterOfTagName, loc);
+                            self.parse_error_at(ParserError::InvalidFirstCharacterOfTagName, pos);
                             self.consume('<');
                             self.stream_prev();
                             self.state = State::Data;
@@ -314,7 +335,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::EndTagOpen => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(ch) if ch.is_ascii_alphabetic() => {
@@ -326,17 +347,17 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::TagName;
                         }
                         Ch('>') => {
-                            self.parse_error(ParserError::MissingEndTagName, loc);
+                            self.parse_error_at(ParserError::MissingEndTagName, pos);
                             self.state = State::Data;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofBeforeTagName, loc);
+                            self.parse_error_at(ParserError::EofBeforeTagName, pos);
                             self.consume('<');
                             self.consume('/');
                             self.state = State::Data;
                         }
                         _ => {
-                            self.parse_error(ParserError::InvalidFirstCharacterOfTagName, loc);
+                            self.parse_error_at(ParserError::InvalidFirstCharacterOfTagName, pos);
                             self.current_token = Some(Token::Comment {
                                 comment: String::new(),
                                 location: self.last_token_location,
@@ -347,7 +368,14 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::TagName => {
-                    let loc = self.get_location();
+                    if let Some(Token::StartTag { name, .. } | Token::EndTag { name, .. }) = &mut self.current_token {
+                        let start = name.len();
+                        name.push_str(self.stream.scan_ascii_while(|b| {
+                            is_plain_ascii(b) && !matches!(b, b'\t' | b'\n' | 0x0C | b' ' | b'/' | b'>')
+                        }));
+                        name[start..].make_ascii_lowercase();
+                    }
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -360,11 +388,11 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         Ch(ch @ 'A'..='Z') => self.add_to_token_name(to_lowercase!(ch)),
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.add_to_token_name(CHAR_REPLACEMENT);
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInTag, loc);
+                            self.parse_error_at(ParserError::EofInTag, pos);
                             self.state = State::Data;
                         }
                         _ => self.add_to_token_name(c.into()),
@@ -402,59 +430,7 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::RCDATAEndTagName => {
                     let c = self.read_char();
-
-                    // we use this flag because a lot of matches will actually do the same thing
-                    let mut consume_anything_else = false;
-
-                    match c {
-                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::BeforeAttributeName;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch('/') => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::SelfClosingStart;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch('>') => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.emit_current_token();
-                                self.last_start_token = String::new();
-                                self.state = State::Data;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch(ch) if ch.is_ascii_alphabetic() => {
-                            self.add_to_token_name(to_lowercase!(ch));
-                            self.temporary_buffer.push(ch);
-                        }
-                        _ => {
-                            consume_anything_else = true;
-                        }
-                    }
-
-                    if consume_anything_else {
-                        self.stream_prev();
-                        self.transition_to(State::RCDATA);
-                    }
+                    self.end_tag_name_char(c, State::RCDATA);
                 }
                 State::RAWTEXTLessThanSign => {
                     let c = self.read_char();
@@ -488,59 +464,7 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::RAWTEXTEndTagName => {
                     let c = self.read_char();
-
-                    // we use this flag because a lot of matches will actually do the same thing
-                    let mut consume_anything_else = false;
-
-                    match c {
-                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::BeforeAttributeName;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch('/') => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::SelfClosingStart;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch('>') => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.emit_current_token();
-                                self.last_start_token = String::new();
-                                self.state = State::Data;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch(ch) if ch.is_ascii_alphabetic() => {
-                            self.add_to_token_name(to_lowercase!(ch));
-                            self.temporary_buffer.push(ch);
-                        }
-                        _ => {
-                            consume_anything_else = true;
-                        }
-                    }
-
-                    if consume_anything_else {
-                        self.stream_prev();
-                        self.transition_to(State::RAWTEXT);
-                    }
+                    self.end_tag_name_char(c, State::RAWTEXT);
                 }
                 State::ScriptDataLessThenSign => {
                     let c = self.read_char();
@@ -584,59 +508,7 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::ScriptDataEndTagName => {
                     let c = self.read_char();
-
-                    // we use this flag because a lot of matches will actually do the same thing
-                    let mut consume_anything_else = false;
-
-                    match c {
-                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::BeforeAttributeName;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch('/') => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::SelfClosingStart;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch('>') => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.emit_current_token();
-                                self.last_start_token = String::new();
-                                self.state = State::Data;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch(ch) if ch.is_ascii_alphabetic() => {
-                            self.add_to_token_name(to_lowercase!(ch));
-                            self.temporary_buffer.push(ch);
-                        }
-                        _ => {
-                            consume_anything_else = true;
-                        }
-                    }
-
-                    if consume_anything_else {
-                        self.stream_prev();
-                        self.transition_to(State::ScriptData);
-                    }
+                    self.end_tag_name_char(c, State::ScriptData);
                 }
                 State::ScriptDataEscapeStart => {
                     let c = self.read_char();
@@ -659,7 +531,11 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::ScriptDataEscaped => {
-                    let loc = self.get_location();
+                    let run = self
+                        .stream
+                        .scan_ascii_while(|b| is_plain_ascii(b) && b != b'-' && b != b'<');
+                    self.consumed.push_str(run);
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('-') => {
@@ -670,11 +546,11 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::ScriptDataEscapedLessThanSign;
                         }
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.consume(CHAR_REPLACEMENT);
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInScriptHtmlCommentLikeText, loc);
+                            self.parse_error_at(ParserError::EofInScriptHtmlCommentLikeText, pos);
                             self.state = State::Data;
                         }
                         _ => {
@@ -683,7 +559,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::ScriptDataEscapedDash => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('-') => {
@@ -694,12 +570,12 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::ScriptDataEscapedLessThanSign;
                         }
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.consume(CHAR_REPLACEMENT);
                             self.state = State::ScriptDataEscaped;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInScriptHtmlCommentLikeText, loc);
+                            self.parse_error_at(ParserError::EofInScriptHtmlCommentLikeText, pos);
                             self.state = State::Data;
                         }
                         _ => {
@@ -709,7 +585,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::ScriptDataEscapedDashDash => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('-') => {
@@ -723,12 +599,12 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::ScriptData;
                         }
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.consume(CHAR_REPLACEMENT);
                             self.state = State::ScriptDataEscaped;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInScriptHtmlCommentLikeText, loc);
+                            self.parse_error_at(ParserError::EofInScriptHtmlCommentLikeText, pos);
                             self.state = State::Data;
                         }
                         _ => {
@@ -780,59 +656,7 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::ScriptDataEscapedEndTagName => {
                     let c = self.read_char();
-
-                    // we use this flag because a lot of matches will actually do the same thing
-                    let mut consume_anything_else = false;
-
-                    match c {
-                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::BeforeAttributeName;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch('/') => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::SelfClosingStart;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch('>') => {
-                            let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTag { name, .. }) => name,
-                                _ => "",
-                            };
-                            if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.emit_current_token();
-                                self.last_start_token = String::new();
-                                self.state = State::Data;
-                            } else {
-                                consume_anything_else = true;
-                            }
-                        }
-                        Ch(ch) if ch.is_ascii_alphabetic() => {
-                            self.add_to_token_name(to_lowercase!(ch));
-                            self.temporary_buffer.push(ch);
-                        }
-                        _ => {
-                            consume_anything_else = true;
-                        }
-                    }
-
-                    if consume_anything_else {
-                        self.stream_prev();
-                        self.transition_to(State::ScriptDataEscaped);
-                    }
+                    self.end_tag_name_char(c, State::ScriptDataEscaped);
                 }
                 State::ScriptDataDoubleEscapeStart => {
                     let c = self.read_char();
@@ -856,7 +680,11 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::ScriptDataDoubleEscaped => {
-                    let loc = self.get_location();
+                    let run = self
+                        .stream
+                        .scan_ascii_while(|b| is_plain_ascii(b) && b != b'-' && b != b'<');
+                    self.consumed.push_str(run);
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('-') => {
@@ -868,18 +696,18 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::ScriptDataDoubleEscapedLessThanSign;
                         }
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.consume(CHAR_REPLACEMENT);
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInScriptHtmlCommentLikeText, loc);
+                            self.parse_error_at(ParserError::EofInScriptHtmlCommentLikeText, pos);
                             self.state = State::Data;
                         }
                         _ => self.consume(c.into()),
                     }
                 }
                 State::ScriptDataDoubleEscapedDash => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('-') => {
@@ -891,12 +719,12 @@ impl<'stream> Tokenizer<'stream> {
                             self.consume('<');
                         }
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.consume(CHAR_REPLACEMENT);
                             self.state = State::ScriptDataDoubleEscaped;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInScriptHtmlCommentLikeText, loc);
+                            self.parse_error_at(ParserError::EofInScriptHtmlCommentLikeText, pos);
                             self.state = State::Data;
                         }
                         _ => {
@@ -906,7 +734,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::ScriptDataDoubleEscapedDashDash => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('-') => self.consume('-'),
@@ -919,12 +747,12 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::ScriptData;
                         }
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.consume(CHAR_REPLACEMENT);
                             self.state = State::ScriptDataDoubleEscaped;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInScriptHtmlCommentLikeText, loc);
+                            self.parse_error_at(ParserError::EofInScriptHtmlCommentLikeText, pos);
                             self.state = State::Data;
                         }
                         _ => {
@@ -966,7 +794,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::BeforeAttributeName => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -977,7 +805,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::AfterAttributeName;
                         }
                         Ch('=') => {
-                            self.parse_error(ParserError::UnexpectedEqualsSignBeforeAttributeName, loc);
+                            self.parse_error_at(ParserError::UnexpectedEqualsSignBeforeAttributeName, pos);
 
                             self.store_and_clear_current_attribute();
                             self.current_attr_name.push(c.into());
@@ -994,12 +822,21 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::AttributeName => {
-                    let loc = self.get_location();
+                    let start = self.current_attr_name.len();
+                    self.current_attr_name.push_str(self.stream.scan_ascii_while(|b| {
+                        is_plain_ascii(b)
+                            && !matches!(
+                                b,
+                                b'\t' | b'\n' | 0x0C | b' ' | b'/' | b'>' | b'=' | b'"' | b'\'' | b'<'
+                            )
+                    }));
+                    self.current_attr_name[start..].make_ascii_lowercase();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE | '/' | '>') => {
                             if self.attr_already_exists() {
-                                self.parse_error(ParserError::DuplicateAttribute, loc);
+                                self.parse_error_at(ParserError::DuplicateAttribute, pos);
                             }
                             self.stream_prev();
 
@@ -1007,13 +844,13 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         StreamEnd => {
                             if self.attr_already_exists() {
-                                self.parse_error(ParserError::DuplicateAttribute, loc);
+                                self.parse_error_at(ParserError::DuplicateAttribute, pos);
                             }
                             self.state = State::AfterAttributeName;
                         }
                         Ch('=') => {
                             if self.attr_already_exists() {
-                                self.parse_error(ParserError::DuplicateAttribute, loc);
+                                self.parse_error_at(ParserError::DuplicateAttribute, pos);
                             }
                             self.state = State::BeforeAttributeValue;
                         }
@@ -1021,18 +858,18 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_attr_name.push(to_lowercase!(ch));
                         }
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.current_attr_name.push(CHAR_REPLACEMENT);
                         }
                         Ch('"' | '\'' | '<') => {
-                            self.parse_error(ParserError::UnexpectedCharacterInAttributeName, loc);
+                            self.parse_error_at(ParserError::UnexpectedCharacterInAttributeName, pos);
                             self.current_attr_name.push(c.into());
                         }
                         _ => self.current_attr_name.push(c.into()),
                     }
                 }
                 State::AfterAttributeName => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -1047,7 +884,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInTag, loc);
+                            self.parse_error_at(ParserError::EofInTag, pos);
                             self.clear_attribute_state();
                             self.state = State::Data;
                         }
@@ -1059,7 +896,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::BeforeAttributeValue => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -1070,7 +907,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::AttributeValueSingleQuoted;
                         }
                         Ch('>') => {
-                            self.parse_error(ParserError::MissingAttributeValue, loc);
+                            self.parse_error_at(ParserError::MissingAttributeValue, pos);
 
                             self.store_and_clear_current_attribute();
                             self.add_stored_attributes_to_current_token();
@@ -1078,7 +915,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInTag, loc);
+                            self.parse_error_at(ParserError::EofInTag, pos);
                             self.clear_attribute_state();
                             self.state = State::Data;
                         }
@@ -1089,7 +926,11 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::AttributeValueDoubleQuoted => {
-                    let loc = self.get_location();
+                    let run = self
+                        .stream
+                        .scan_ascii_while(|b| is_plain_ascii(b) && b != b'"' && b != b'&');
+                    self.current_attr_value.push_str(run);
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('"') => self.state = State::AfterAttributeValueQuoted,
@@ -1097,11 +938,11 @@ impl<'stream> Tokenizer<'stream> {
                             self.consume_character_reference(true);
                         }
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.current_attr_value.push(CHAR_REPLACEMENT);
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInTag, loc);
+                            self.parse_error_at(ParserError::EofInTag, pos);
                             self.clear_attribute_state();
                             self.state = State::Data;
                         }
@@ -1111,7 +952,11 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::AttributeValueSingleQuoted => {
-                    let loc = self.get_location();
+                    let run = self
+                        .stream
+                        .scan_ascii_while(|b| is_plain_ascii(b) && b != b'\'' && b != b'&');
+                    self.current_attr_value.push_str(run);
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('\'') => self.state = State::AfterAttributeValueQuoted,
@@ -1119,11 +964,11 @@ impl<'stream> Tokenizer<'stream> {
                             self.consume_character_reference(true);
                         }
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.current_attr_value.push(CHAR_REPLACEMENT);
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInTag, loc);
+                            self.parse_error_at(ParserError::EofInTag, pos);
                             self.clear_attribute_state();
                             self.state = State::Data;
                         }
@@ -1133,7 +978,15 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::AttributeValueUnquoted => {
-                    let loc = self.get_location();
+                    let run = self.stream.scan_ascii_while(|b| {
+                        is_plain_ascii(b)
+                            && !matches!(
+                                b,
+                                b'\t' | b'\n' | 0x0C | b' ' | b'&' | b'>' | b'"' | b'\'' | b'<' | b'=' | b'`'
+                            )
+                    });
+                    self.current_attr_value.push_str(run);
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -1149,15 +1002,15 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.current_attr_value.push(CHAR_REPLACEMENT);
                         }
                         Ch('"' | '\'' | '<' | '=' | '`') => {
-                            self.parse_error(ParserError::UnexpectedCharacterInUnquotedAttributeValue, loc);
+                            self.parse_error_at(ParserError::UnexpectedCharacterInUnquotedAttributeValue, pos);
                             self.current_attr_value.push(c.into());
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInTag, loc);
+                            self.parse_error_at(ParserError::EofInTag, pos);
                             self.clear_attribute_state();
                             self.state = State::Data;
                         }
@@ -1167,7 +1020,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::AfterAttributeValueQuoted => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -1181,19 +1034,19 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInTag, loc);
+                            self.parse_error_at(ParserError::EofInTag, pos);
                             self.clear_attribute_state();
                             self.state = State::Data;
                         }
                         _ => {
-                            self.parse_error(ParserError::MissingWhitespaceBetweenAttributes, loc);
+                            self.parse_error_at(ParserError::MissingWhitespaceBetweenAttributes, pos);
                             self.stream_prev();
                             self.state = State::BeforeAttributeName;
                         }
                     }
                 }
                 State::SelfClosingStart => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('>') => {
@@ -1206,19 +1059,22 @@ impl<'stream> Tokenizer<'stream> {
                             self.emit_current_token();
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInTag, loc);
+                            self.parse_error_at(ParserError::EofInTag, pos);
                             self.clear_attribute_state();
                             self.state = State::Data;
                         }
                         _ => {
                             self.stream_prev();
-                            self.parse_error(ParserError::UnexpectedSolidusInTag, loc);
+                            self.parse_error_at(ParserError::UnexpectedSolidusInTag, pos);
                             self.state = State::BeforeAttributeName;
                         }
                     }
                 }
                 State::BogusComment => {
-                    let loc = self.get_location();
+                    if let Some(Token::Comment { comment, .. }) = &mut self.current_token {
+                        comment.push_str(self.stream.scan_ascii_while(|b| is_plain_ascii(b) && b != b'>'));
+                    }
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('>') | StreamEnd => {
@@ -1226,7 +1082,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.add_to_token_value(CHAR_REPLACEMENT);
                         }
                         _ => {
@@ -1235,7 +1091,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::MarkupDeclarationOpen => {
-                    if Character::slice_to_string(self.stream.get_slice(2)) == "--" {
+                    if self.stream.lookahead_bytes(2) == b"--" {
                         self.current_token = Some(Token::Comment {
                             comment: String::new(),
                             location: self.last_token_location,
@@ -1254,9 +1110,9 @@ impl<'stream> Tokenizer<'stream> {
                         continue;
                     }
 
-                    if Character::slice_to_string(self.stream.get_slice(7)) == "[CDATA[" {
+                    if self.stream.lookahead_bytes(7) == b"[CDATA[" {
                         self.stream_next_n(6);
-                        let loc = self.get_location();
+                        let pos = self.stream.tell_bytes();
                         self.stream_next_n(1);
 
                         if parser_data.adjusted_node_namespace != HTML_NAMESPACE {
@@ -1264,7 +1120,7 @@ impl<'stream> Tokenizer<'stream> {
                             continue;
                         }
 
-                        self.parse_error(ParserError::CdataInHtmlContent, loc);
+                        self.parse_error_at(ParserError::CdataInHtmlContent, pos);
                         self.current_token = Some(Token::Comment {
                             comment: "[CDATA[".into(),
                             location: self.last_token_location,
@@ -1283,14 +1139,14 @@ impl<'stream> Tokenizer<'stream> {
                     self.state = State::BogusComment;
                 }
                 State::CommentStart => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('-') => {
                             self.state = State::CommentStartDash;
                         }
                         Ch('>') => {
-                            self.parse_error(ParserError::AbruptClosingOfEmptyComment, loc);
+                            self.parse_error_at(ParserError::AbruptClosingOfEmptyComment, pos);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
@@ -1301,19 +1157,19 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::CommentStartDash => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('-') => {
                             self.state = State::CommentEnd;
                         }
                         Ch('>') => {
-                            self.parse_error(ParserError::AbruptClosingOfEmptyComment, loc);
+                            self.parse_error_at(ParserError::AbruptClosingOfEmptyComment, pos);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInComment, loc);
+                            self.parse_error_at(ParserError::EofInComment, pos);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
@@ -1325,7 +1181,13 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::Comment => {
-                    let loc = self.get_location();
+                    if let Some(Token::Comment { comment, .. }) = &mut self.current_token {
+                        comment.push_str(
+                            self.stream
+                                .scan_ascii_while(|b| is_plain_ascii(b) && b != b'<' && b != b'-'),
+                        );
+                    }
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('<') => {
@@ -1334,11 +1196,11 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         Ch('-') => self.state = State::CommentEndDash,
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.add_to_token_value(CHAR_REPLACEMENT);
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInComment, loc);
+                            self.parse_error_at(ParserError::EofInComment, pos);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
@@ -1382,7 +1244,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::CommentLessThanSignBangDashDash => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         StreamEnd => {
@@ -1393,21 +1255,21 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::CommentEnd;
                         }
                         _ => {
-                            self.parse_error(ParserError::NestedComment, loc);
+                            self.parse_error_at(ParserError::NestedComment, pos);
                             self.stream_prev();
                             self.state = State::CommentEnd;
                         }
                     }
                 }
                 State::CommentEndDash => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('-') => {
                             self.state = State::CommentEnd;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInComment, loc);
+                            self.parse_error_at(ParserError::EofInComment, pos);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
@@ -1419,7 +1281,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::CommentEnd => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('>') => {
@@ -1429,7 +1291,7 @@ impl<'stream> Tokenizer<'stream> {
                         Ch('!') => self.state = State::CommentEndBang,
                         Ch('-') => self.add_to_token_value('-'),
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInComment, loc);
+                            self.parse_error_at(ParserError::EofInComment, pos);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
@@ -1442,7 +1304,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::CommentEndBang => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('-') => {
@@ -1453,12 +1315,12 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::CommentEndDash;
                         }
                         Ch('>') => {
-                            self.parse_error(ParserError::IncorrectlyClosedComment, loc);
+                            self.parse_error_at(ParserError::IncorrectlyClosedComment, pos);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInComment, loc);
+                            self.parse_error_at(ParserError::EofInComment, pos);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
@@ -1472,7 +1334,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::DOCTYPE => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -1483,7 +1345,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::BeforeDOCTYPEName;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInDoctype, loc);
+                            self.parse_error_at(ParserError::EofInDoctype, pos);
 
                             self.emit_token(Token::DocType {
                                 name: None,
@@ -1496,14 +1358,14 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
                         _ => {
-                            self.parse_error(ParserError::MissingWhitespaceBeforeDoctypeName, loc);
+                            self.parse_error_at(ParserError::MissingWhitespaceBeforeDoctypeName, pos);
                             self.stream_prev();
                             self.state = State::BeforeDOCTYPEName;
                         }
                     }
                 }
                 State::BeforeDOCTYPEName => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -1522,7 +1384,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::DOCTYPEName;
                         }
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.current_token = Some(Token::DocType {
                                 name: None,
                                 force_quirks: false,
@@ -1535,7 +1397,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::DOCTYPEName;
                         }
                         Ch('>') => {
-                            self.parse_error(ParserError::MissingDoctypeName, loc);
+                            self.parse_error_at(ParserError::MissingDoctypeName, pos);
                             self.emit_token(Token::DocType {
                                 name: None,
                                 force_quirks: true,
@@ -1548,7 +1410,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
 
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInDoctype, loc);
+                            self.parse_error_at(ParserError::EofInDoctype, pos);
 
                             self.emit_token(Token::DocType {
                                 name: None,
@@ -1575,7 +1437,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::DOCTYPEName => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -1587,11 +1449,11 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         Ch(ch @ 'A'..='Z') => self.add_to_token_name(to_lowercase!(ch)),
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.add_to_token_name(CHAR_REPLACEMENT);
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInDoctype, loc);
+                            self.parse_error_at(ParserError::EofInDoctype, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
@@ -1600,7 +1462,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::AfterDOCTYPEName => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -1611,7 +1473,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInDoctype, loc);
+                            self.parse_error_at(ParserError::EofInDoctype, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
@@ -1630,9 +1492,9 @@ impl<'stream> Tokenizer<'stream> {
                             }
                             // Make sure the parser is on the correct position again since we just
                             // unread the character
-                            let loc = self.get_location();
+                            let pos = self.stream.tell_bytes();
                             self.stream_next_n(1);
-                            self.parse_error(ParserError::InvalidCharacterSequenceAfterDoctypeName, loc);
+                            self.parse_error_at(ParserError::InvalidCharacterSequenceAfterDoctypeName, pos);
                             self.stream_prev();
                             self.set_quirks_mode(true);
                             self.stream_prev();
@@ -1641,36 +1503,36 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::AfterDOCTYPEPublicKeyword => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             self.state = State::BeforeDOCTYPEPublicIdentifier;
                         }
                         Ch('"') => {
-                            self.parse_error(ParserError::MissingWhitespaceAfterDoctypePublicKeyword, loc);
+                            self.parse_error_at(ParserError::MissingWhitespaceAfterDoctypePublicKeyword, pos);
                             self.set_public_identifier(String::new());
                             self.state = State::DOCTYPEPublicIdentifierDoubleQuoted;
                         }
                         Ch('\'') => {
-                            self.parse_error(ParserError::MissingWhitespaceAfterDoctypePublicKeyword, loc);
+                            self.parse_error_at(ParserError::MissingWhitespaceAfterDoctypePublicKeyword, pos);
                             self.set_public_identifier(String::new());
                             self.state = State::DOCTYPEPublicIdentifierSingleQuoted;
                         }
                         Ch('>') => {
-                            self.parse_error(ParserError::MissingDoctypePublicIdentifier, loc);
+                            self.parse_error_at(ParserError::MissingDoctypePublicIdentifier, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInDoctype, loc);
+                            self.parse_error_at(ParserError::EofInDoctype, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
                         _ => {
-                            self.parse_error(ParserError::MissingQuoteBeforeDoctypePublicIdentifier, loc);
+                            self.parse_error_at(ParserError::MissingQuoteBeforeDoctypePublicIdentifier, pos);
                             self.stream_prev();
                             self.set_quirks_mode(true);
                             self.state = State::BogusDOCTYPE;
@@ -1678,7 +1540,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::BeforeDOCTYPEPublicIdentifier => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -1693,42 +1555,42 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::DOCTYPEPublicIdentifierSingleQuoted;
                         }
                         Ch('>') => {
-                            self.parse_error(ParserError::MissingDoctypePublicIdentifier, loc);
+                            self.parse_error_at(ParserError::MissingDoctypePublicIdentifier, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInDoctype, loc);
+                            self.parse_error_at(ParserError::EofInDoctype, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
                         _ => {
                             self.stream_prev();
-                            self.parse_error(ParserError::MissingQuoteBeforeDoctypePublicIdentifier, loc);
+                            self.parse_error_at(ParserError::MissingQuoteBeforeDoctypePublicIdentifier, pos);
                             self.set_quirks_mode(true);
                             self.state = State::BogusDOCTYPE;
                         }
                     }
                 }
                 State::DOCTYPEPublicIdentifierDoubleQuoted => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('"') => self.state = State::AfterDOCTYPEPublicIdentifier,
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.add_public_identifier(CHAR_REPLACEMENT);
                         }
                         Ch('>') => {
-                            self.parse_error(ParserError::AbruptDoctypePublicIdentifier, loc);
+                            self.parse_error_at(ParserError::AbruptDoctypePublicIdentifier, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInDoctype, loc);
+                            self.parse_error_at(ParserError::EofInDoctype, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
@@ -1737,22 +1599,22 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::DOCTYPEPublicIdentifierSingleQuoted => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('\'') => self.state = State::AfterDOCTYPEPublicIdentifier,
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.add_public_identifier(CHAR_REPLACEMENT);
                         }
                         Ch('>') => {
-                            self.parse_error(ParserError::AbruptDoctypePublicIdentifier, loc);
+                            self.parse_error_at(ParserError::AbruptDoctypePublicIdentifier, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInDoctype, loc);
+                            self.parse_error_at(ParserError::EofInDoctype, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
@@ -1761,7 +1623,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::AfterDOCTYPEPublicIdentifier => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -1772,29 +1634,29 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
                         Ch('"') => {
-                            self.parse_error(
+                            self.parse_error_at(
                                 ParserError::MissingWhitespaceBetweenDoctypePublicAndSystemIdentifiers,
-                                loc,
+                                pos,
                             );
                             self.set_system_identifier(String::new());
                             self.state = State::DOCTYPESystemIdentifierDoubleQuoted;
                         }
                         Ch('\'') => {
-                            self.parse_error(
+                            self.parse_error_at(
                                 ParserError::MissingWhitespaceBetweenDoctypePublicAndSystemIdentifiers,
-                                loc,
+                                pos,
                             );
                             self.set_system_identifier(String::new());
                             self.state = State::DOCTYPESystemIdentifierSingleQuoted;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInDoctype, loc);
+                            self.parse_error_at(ParserError::EofInDoctype, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
                         _ => {
-                            self.parse_error(ParserError::MissingQuoteBeforeDoctypeSystemIdentifier, loc);
+                            self.parse_error_at(ParserError::MissingQuoteBeforeDoctypeSystemIdentifier, pos);
                             self.stream_prev();
                             self.set_quirks_mode(true);
                             self.state = State::BogusDOCTYPE;
@@ -1802,7 +1664,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::BetweenDOCTYPEPublicAndSystemIdentifiers => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -1821,13 +1683,13 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::DOCTYPESystemIdentifierSingleQuoted;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInDoctype, loc);
+                            self.parse_error_at(ParserError::EofInDoctype, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
                         _ => {
-                            self.parse_error(ParserError::MissingQuoteBeforeDoctypeSystemIdentifier, loc);
+                            self.parse_error_at(ParserError::MissingQuoteBeforeDoctypeSystemIdentifier, pos);
                             self.stream_prev();
                             self.set_quirks_mode(true);
                             self.state = State::BogusDOCTYPE;
@@ -1835,36 +1697,36 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::AfterDOCTYPESystemKeyword => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             self.state = State::BeforeDOCTYPESystemIdentifier;
                         }
                         Ch('"') => {
-                            self.parse_error(ParserError::MissingWhitespaceAfterDoctypeSystemKeyword, loc);
+                            self.parse_error_at(ParserError::MissingWhitespaceAfterDoctypeSystemKeyword, pos);
                             self.set_system_identifier(String::new());
                             self.state = State::DOCTYPESystemIdentifierDoubleQuoted;
                         }
                         Ch('\'') => {
-                            self.parse_error(ParserError::MissingWhitespaceAfterDoctypeSystemKeyword, loc);
+                            self.parse_error_at(ParserError::MissingWhitespaceAfterDoctypeSystemKeyword, pos);
                             self.set_system_identifier(String::new());
                             self.state = State::DOCTYPESystemIdentifierSingleQuoted;
                         }
                         Ch('>') => {
-                            self.parse_error(ParserError::MissingDoctypeSystemIdentifier, loc);
+                            self.parse_error_at(ParserError::MissingDoctypeSystemIdentifier, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInDoctype, loc);
+                            self.parse_error_at(ParserError::EofInDoctype, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
                         _ => {
-                            self.parse_error(ParserError::MissingQuoteBeforeDoctypeSystemIdentifier, loc);
+                            self.parse_error_at(ParserError::MissingQuoteBeforeDoctypeSystemIdentifier, pos);
                             self.stream_prev();
                             self.set_quirks_mode(true);
                             self.state = State::BogusDOCTYPE;
@@ -1872,7 +1734,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::BeforeDOCTYPESystemIdentifier => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -1887,19 +1749,19 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::DOCTYPESystemIdentifierSingleQuoted;
                         }
                         Ch('>') => {
-                            self.parse_error(ParserError::MissingDoctypeSystemIdentifier, loc);
+                            self.parse_error_at(ParserError::MissingDoctypeSystemIdentifier, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInDoctype, loc);
+                            self.parse_error_at(ParserError::EofInDoctype, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
                         _ => {
-                            self.parse_error(ParserError::MissingQuoteBeforeDoctypeSystemIdentifier, loc);
+                            self.parse_error_at(ParserError::MissingQuoteBeforeDoctypeSystemIdentifier, pos);
                             self.stream_prev();
                             self.set_quirks_mode(true);
                             self.state = State::BogusDOCTYPE;
@@ -1907,22 +1769,22 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::DOCTYPESystemIdentifierDoubleQuoted => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('"') => self.state = State::AfterDOCTYPESystemIdentifier,
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.add_system_identifier(CHAR_REPLACEMENT);
                         }
                         Ch('>') => {
-                            self.parse_error(ParserError::AbruptDoctypeSystemIdentifier, loc);
+                            self.parse_error_at(ParserError::AbruptDoctypeSystemIdentifier, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInDoctype, loc);
+                            self.parse_error_at(ParserError::EofInDoctype, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
@@ -1931,22 +1793,22 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::DOCTYPESystemIdentifierSingleQuoted => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('\'') => self.state = State::AfterDOCTYPESystemIdentifier,
                         Ch(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter, loc);
+                            self.parse_error_at(ParserError::UnexpectedNullCharacter, pos);
                             self.add_system_identifier(CHAR_REPLACEMENT);
                         }
                         Ch('>') => {
-                            self.parse_error(ParserError::AbruptDoctypeSystemIdentifier, loc);
+                            self.parse_error_at(ParserError::AbruptDoctypeSystemIdentifier, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInDoctype, loc);
+                            self.parse_error_at(ParserError::EofInDoctype, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
@@ -1955,7 +1817,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::AfterDOCTYPESystemIdentifier => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -1966,41 +1828,43 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInDoctype, loc);
+                            self.parse_error_at(ParserError::EofInDoctype, pos);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
                         _ => {
-                            self.parse_error(ParserError::UnexpectedCharacterAfterDoctypeSystemIdentifier, loc);
+                            self.parse_error_at(ParserError::UnexpectedCharacterAfterDoctypeSystemIdentifier, pos);
                             self.stream_prev();
                             self.state = State::BogusDOCTYPE;
                         }
                     }
                 }
                 State::BogusDOCTYPE => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch('>') | StreamEnd => {
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Ch(CHAR_NUL) => self.parse_error(ParserError::UnexpectedNullCharacter, loc),
+                        Ch(CHAR_NUL) => self.parse_error_at(ParserError::UnexpectedNullCharacter, pos),
                         _ => {
                             // ignore
                         }
                     }
                 }
                 State::CDATASection => {
-                    let loc = self.get_location();
+                    let run = self.stream.scan_ascii_while(|b| is_plain_ascii(b) && b != b']');
+                    self.consumed.push_str(run);
+                    let pos = self.stream.tell_bytes();
                     let c = self.read_char();
                     match c {
                         Ch(']') => {
                             self.state = State::CDATASectionBracket;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofInCdata, loc);
+                            self.parse_error_at(ParserError::EofInCdata, pos);
                             self.state = State::Data;
                         }
                         _ => self.consume(c.into()),
@@ -2041,19 +1905,19 @@ impl<'stream> Tokenizer<'stream> {
     /// Reads a character from the input stream and optionally generates (tokenization)
     /// errors if the character is not valid.
     fn read_char(&mut self) -> Character {
-        let loc = self.get_location();
+        let pos = self.stream.tell_bytes();
         let mut c = self.stream_read_and_next();
 
         match c {
             Character::Surrogate(..) => {
-                self.parse_error(ParserError::SurrogateInInputStream, loc);
+                self.parse_error_at(ParserError::SurrogateInInputStream, pos);
                 c = Ch(CHAR_REPLACEMENT);
             }
             Ch(c) if self.is_control_char(c as u32) => {
-                self.parse_error(ParserError::ControlCharacterInInputStream, loc);
+                self.parse_error_at(ParserError::ControlCharacterInInputStream, pos);
             }
             Ch(c) if self.is_noncharacter(c as u32) => {
-                self.parse_error(ParserError::NoncharacterInInputStream, loc);
+                self.parse_error_at(ParserError::NoncharacterInInputStream, pos);
             }
             _ => {}
         }
@@ -2138,13 +2002,13 @@ impl<'stream> Tokenizer<'stream> {
 
         // If there is any consumed data, emit this first as a text token
         if self.has_consumed_data() {
-            self.token_queue.push(Token::Text {
+            self.token_queue.push_back(Token::Text {
                 text: std::mem::take(&mut self.consumed),
-                location: self.consumed_location,
+                location: self.stream.location_at(self.consumed_pos),
             });
         }
 
-        self.token_queue.push(token);
+        self.token_queue.push_back(token);
     }
 
     // Consumes the given character
@@ -2162,9 +2026,41 @@ impl<'stream> Tokenizer<'stream> {
         self.state = state;
     }
 
-    /// Return true when the given `end_token` matches the stored start token (ie: 'table' matches when
+    /// Handles `c` in one of the RCDATA, RAWTEXT and script data end tag name states. Letters
+    /// go to the tag name. Whitespace, '/' and '>' end the tag if it is an appropriate end tag;
+    /// in every other case the '</' and the name so far become text again and the tokenizer
+    /// returns to `text_state`.
+    fn end_tag_name_char(&mut self, c: Character, text_state: State) {
+        match c {
+            Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) if self.is_appropriate_end_token() => {
+                self.state = State::BeforeAttributeName;
+            }
+            Ch('/') if self.is_appropriate_end_token() => {
+                self.state = State::SelfClosingStart;
+            }
+            Ch('>') if self.is_appropriate_end_token() => {
+                self.emit_current_token();
+                self.last_start_token = String::new();
+                self.state = State::Data;
+            }
+            Ch(ch) if ch.is_ascii_alphabetic() => {
+                self.add_to_token_name(to_lowercase!(ch));
+                self.temporary_buffer.push(ch);
+            }
+            _ => {
+                self.stream_prev();
+                self.transition_to(text_state);
+            }
+        }
+    }
+
+    /// Return true when the current end tag matches the stored start token (ie: 'table' matches when
     /// `last_start_token` = 'table')
-    fn is_appropriate_end_token(&self, end_token: &str) -> bool {
+    fn is_appropriate_end_token(&self) -> bool {
+        let end_token = match &self.current_token {
+            Some(Token::EndTag { name, .. }) => name,
+            _ => "",
+        };
         self.last_start_token == end_token
     }
 
@@ -2172,10 +2068,8 @@ impl<'stream> Tokenizer<'stream> {
     /// ASCII case-insensitively. The stream position is not changed.
     fn lookahead_eq_ignore_ascii_case(&mut self, keyword: &str) -> bool {
         self.stream
-            .get_slice(keyword.len())
-            .iter()
-            .zip(keyword.chars())
-            .all(|(c, k)| matches!(c, Ch(c) if c.eq_ignore_ascii_case(&k)))
+            .lookahead_bytes(keyword.len())
+            .eq_ignore_ascii_case(keyword.as_bytes())
     }
 
     /// Return the consumed string as a String
@@ -2193,6 +2087,13 @@ impl<'stream> Tokenizer<'stream> {
     /// Creates a parser log error message
     pub(crate) fn parse_error(&mut self, message: ParserError, location: Location) {
         self.error_logger.borrow_mut().add_error(location, message.as_str());
+    }
+
+    /// Creates a parser log error message at byte offset `pos`. The location is only worked
+    /// out here, so states can note the offset of each character without paying for it.
+    pub(crate) fn parse_error_at(&mut self, message: ParserError, pos: usize) {
+        let location = self.stream.location_at(pos);
+        self.parse_error(message, location);
     }
 
     /// Set `is_closing_tag` in current token
@@ -2432,6 +2333,195 @@ mod location_tests {
         assert_eq!(html("<p><!---->"), vec![t("<!---->", 1, 4)]);
         assert_eq!(html("<p><!-->"), vec![t("<!---->", 1, 4)]);
         assert_eq!(html("<p>\n  <!--x"), vec![t("\n  ", 1, 4), t("<!--x-->", 2, 3)]);
+    }
+
+    /// Tokenizes `html` and returns every token (without location) and every error as
+    /// `message@line:column`.
+    fn tokens_and_errors(html: &str, state: State) -> (Vec<String>, Vec<String>) {
+        let mut stream = ByteStream::from_str(html, Encoding::UTF8);
+        let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
+        let opts = Options {
+            initial_state: state,
+            last_start_tag: String::new(),
+        };
+        let mut tokenizer = Tokenizer::new(&mut stream, Some(opts), error_logger.clone());
+        let mut tokens = vec![];
+        loop {
+            let token = tokenizer.next_token(ParserData::default()).unwrap();
+            if token.is_eof() {
+                break;
+            }
+            tokens.push(format!("{token:?}").split(", location").next().unwrap().to_string());
+        }
+        let errors = error_logger
+            .borrow()
+            .get_errors()
+            .iter()
+            .map(|e| format!("{}@{}:{}", e.message, e.location.line, e.location.column))
+            .collect();
+        (tokens, errors)
+    }
+
+    #[test]
+    fn bulk_scans_stop_at_characters_that_need_attention() {
+        // Control characters, NUL and non-ASCII break a run and are still reported
+        let (tokens, errors) = tokens_and_errors("ab\x01c\0d\u{e9}\u{fffe}e\r\nf\x7f", State::Data);
+        assert_eq!(
+            tokens,
+            vec!["Text { text: \"ab\\u{1}c\\0d\u{e9}\\u{fffe}e\\nf\\u{7f}\""]
+        );
+        assert_eq!(
+            errors,
+            vec![
+                "control-character-in-input-stream@1:3",
+                "unexpected-null-character@1:5",
+                "noncharacter-in-input-stream@1:8",
+                "control-character-in-input-stream@2:2",
+            ]
+        );
+
+        // Same in the other text states, with their own replacement of NUL
+        for state in [State::RCDATA, State::RAWTEXT, State::ScriptData, State::PLAINTEXT] {
+            let (tokens, errors) = tokens_and_errors("ab\x01c\0d", state);
+            assert_eq!(tokens, vec!["Text { text: \"ab\\u{1}c\u{fffd}d\""], "{state:?}");
+            assert_eq!(
+                errors,
+                vec!["control-character-in-input-stream@1:3", "unexpected-null-character@1:5"],
+                "{state:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn bulk_scans_in_tags_and_comments() {
+        let (tokens, errors) = tokens_and_errors(
+            "<DiV\x01x CLASS=\"a&amp;b\x01\" Data-X='c&lt;d' u=e&gt;f\x01g\u{e9}h>",
+            State::Data,
+        );
+        assert_eq!(
+            tokens,
+            vec![
+                "StartTag { name: \"div\\u{1}x\", is_self_closing: false, attributes: Attributes { entries: \
+                 {\"class\": \"a&b\\u{1}\", \"data-x\": \"c<d\", \"u\": \"e>f\\u{1}g\u{e9}h\"} }"
+            ]
+        );
+        assert_eq!(
+            errors,
+            vec![
+                "control-character-in-input-stream@1:5",
+                "control-character-in-input-stream@1:22",
+                "control-character-in-input-stream@1:49",
+            ]
+        );
+
+        // Text and tag name runs stop at the '<', '/' and whitespace that end them
+        let (tokens, _) = tokens_and_errors("x<a/><B\tc>y</b >", State::Data);
+        assert_eq!(
+            tokens,
+            vec![
+                r#"Text { text: "x""#,
+                r#"StartTag { name: "a", is_self_closing: true, attributes: Attributes { entries: {} }"#,
+                r#"StartTag { name: "b", is_self_closing: false, attributes: Attributes { entries: {"c": ""} }"#,
+                r#"Text { text: "y""#,
+                r#"EndTag { name: "b""#,
+            ]
+        );
+
+        let (tokens, errors) = tokens_and_errors("<!--a<b-c\x01--><!x\0y>", State::Data);
+        assert_eq!(
+            tokens,
+            vec![
+                r#"Comment { comment: "a<b-c\u{1}""#,
+                "Comment { comment: \"x\u{fffd}y\""
+            ]
+        );
+        assert_eq!(
+            errors,
+            vec![
+                "control-character-in-input-stream@1:10",
+                "incorrectly-opened-comment@1:16",
+                "unexpected-null-character@1:17",
+            ]
+        );
+    }
+
+    #[test]
+    fn end_tag_name_states() {
+        let tokens = |html: &str, state: State| {
+            let mut stream = ByteStream::from_str(html, Encoding::UTF8);
+            let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
+            let opts = Options {
+                initial_state: state,
+                last_start_tag: "tt".to_string(),
+            };
+            let mut tokenizer = Tokenizer::new(&mut stream, Some(opts), error_logger);
+            let mut out = vec![];
+            loop {
+                let token = tokenizer.next_token(ParserData::default()).unwrap();
+                match token {
+                    Token::Eof { .. } => return out.join("|"),
+                    Token::Text { text, .. } => out.push(format!("text:{text}")),
+                    Token::EndTag { name, .. } => out.push(format!("end:{name}")),
+                    _ => out.push(format!("{token:?}")),
+                }
+            }
+        };
+
+        let cases = [
+            ("a</tt>b", "text:a|end:tt|text:b"),
+            ("</tt x>", "end:tt"),
+            ("</tt\n>", "end:tt"),
+            ("</tt/>", "end:tt"),
+            ("</TT>", "end:tt"),
+            ("</tT>", "end:tt"),
+            ("</tx>", "text:</tx>"),
+            ("</t>", "text:</t>"),
+            ("</ttt>", "text:</ttt>"),
+            ("</tt1>", "text:</tt1>"),
+            ("</tt", "text:</tt"),
+            ("</tx/>", "text:</tx/>"),
+        ];
+        for state in [
+            State::RCDATA,
+            State::RAWTEXT,
+            State::ScriptData,
+            State::ScriptDataEscaped,
+        ] {
+            for (html, expected) in cases {
+                assert_eq!(tokens(html, state), expected, "{html:?} in {state:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn tokens_inserted_at_queue_start_come_first_in_order() {
+        let mut stream = ByteStream::from_str("<c><d>", Encoding::UTF8);
+        let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
+        let mut tokenizer = Tokenizer::new(&mut stream, None, error_logger);
+        let tag = |name: &str| Token::StartTag {
+            name: name.to_string(),
+            is_self_closing: false,
+            attributes: Attributes::new(),
+            location: Location::default(),
+        };
+
+        let mut names = vec![];
+        let mut next = |tokenizer: &mut Tokenizer| {
+            let mut token = tokenizer.next_token(ParserData::default()).unwrap();
+            token.set_location(Location::default());
+            names.push(token.to_string());
+        };
+
+        next(&mut tokenizer);
+        tokenizer.insert_tokens_at_queue_start(vec![tag("a"), tag("b")]);
+        next(&mut tokenizer);
+        tokenizer.insert_tokens_at_queue_start(vec![tag("x")]);
+        next(&mut tokenizer);
+        next(&mut tokenizer);
+        next(&mut tokenizer);
+        next(&mut tokenizer);
+
+        assert_eq!(names, vec!["<c>", "<a>", "<x>", "<b>", "<d>", "EOF"]);
     }
 
     #[test]

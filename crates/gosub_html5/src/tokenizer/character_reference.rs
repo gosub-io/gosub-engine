@@ -142,7 +142,7 @@ impl Tokenizer<'_> {
                     }
                 }
                 CcrState::HexadecimalCharacterReferenceStart => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.stream_read_and_next();
                     match c {
                         Ch('0'..='9' | 'A'..='F' | 'a'..='f') => {
@@ -150,12 +150,12 @@ impl Tokenizer<'_> {
                             ccr_state = CcrState::HexadecimalCharacterReference;
                         }
                         Character::StreamEnd => {
-                            self.parse_error(ParserError::AbsenceOfDigitsInNumericCharacterReference, loc);
+                            self.parse_error_at(ParserError::AbsenceOfDigitsInNumericCharacterReference, pos);
                             self.consume_temp_buffer(as_attribute);
                             return;
                         }
                         _ => {
-                            self.parse_error(ParserError::AbsenceOfDigitsInNumericCharacterReference, loc);
+                            self.parse_error_at(ParserError::AbsenceOfDigitsInNumericCharacterReference, pos);
                             self.consume_temp_buffer(as_attribute);
 
                             self.stream_prev();
@@ -164,7 +164,7 @@ impl Tokenizer<'_> {
                     }
                 }
                 CcrState::DecimalCharacterReferenceStart => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.stream_read_and_next();
                     match c {
                         Ch('0'..='9') => {
@@ -172,12 +172,12 @@ impl Tokenizer<'_> {
                             ccr_state = CcrState::DecimalCharacterReference;
                         }
                         Character::StreamEnd => {
-                            self.parse_error(ParserError::AbsenceOfDigitsInNumericCharacterReference, loc);
+                            self.parse_error_at(ParserError::AbsenceOfDigitsInNumericCharacterReference, pos);
                             self.consume_temp_buffer(as_attribute);
                             return;
                         }
                         _ => {
-                            self.parse_error(ParserError::AbsenceOfDigitsInNumericCharacterReference, loc);
+                            self.parse_error_at(ParserError::AbsenceOfDigitsInNumericCharacterReference, pos);
                             self.consume_temp_buffer(as_attribute);
 
                             self.stream_prev();
@@ -186,7 +186,7 @@ impl Tokenizer<'_> {
                     }
                 }
                 CcrState::HexadecimalCharacterReference => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.stream_read_and_next();
                     match c {
                         Ch(c @ '0'..='9') => {
@@ -211,18 +211,18 @@ impl Tokenizer<'_> {
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                         Character::StreamEnd => {
-                            self.parse_error(ParserError::MissingSemicolonAfterCharacterReference, loc);
+                            self.parse_error_at(ParserError::MissingSemicolonAfterCharacterReference, pos);
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                         _ => {
-                            self.parse_error(ParserError::MissingSemicolonAfterCharacterReference, loc);
+                            self.parse_error_at(ParserError::MissingSemicolonAfterCharacterReference, pos);
                             self.stream_prev();
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                     }
                 }
                 CcrState::DecimalCharacterReference => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.stream_read_and_next();
                     match c {
                         Ch(c @ '0'..='9') => {
@@ -235,11 +235,11 @@ impl Tokenizer<'_> {
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                         Character::StreamEnd => {
-                            self.parse_error(ParserError::MissingSemicolonAfterCharacterReference, loc);
+                            self.parse_error_at(ParserError::MissingSemicolonAfterCharacterReference, pos);
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                         _ => {
-                            self.parse_error(ParserError::MissingSemicolonAfterCharacterReference, loc);
+                            self.parse_error_at(ParserError::MissingSemicolonAfterCharacterReference, pos);
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                             self.stream_prev();
                         }
@@ -321,21 +321,15 @@ impl Tokenizer<'_> {
     /// Finds the longest entity from the current position in the stream. Returns the entity
     /// name OR None when no entity has been found.
     fn find_entity(&mut self) -> Option<&'static str> {
-        let chars = self.stream.get_slice(*LONGEST_ENTITY_LENGTH);
+        let bytes = self.stream.lookahead_bytes(*LONGEST_ENTITY_LENGTH);
 
         // Entity names are ASCII alphanumerics with an optional trailing ';', so only a
         // prefix of that run can match.
-        let mut candidate = String::with_capacity(chars.len());
-        for c in chars {
-            match c {
-                Ch(ch) if ch.is_ascii_alphanumeric() => candidate.push(ch),
-                Ch(';') => {
-                    candidate.push(';');
-                    break;
-                }
-                _ => break,
-            }
+        let mut len = bytes.iter().take_while(|b| b.is_ascii_alphanumeric()).count();
+        if bytes.get(len) == Some(&b';') {
+            len += 1;
         }
+        let candidate = std::str::from_utf8(&bytes[..len]).unwrap_or_default();
 
         (1..=candidate.len())
             .rev()
