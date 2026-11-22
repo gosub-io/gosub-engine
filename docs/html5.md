@@ -25,7 +25,7 @@ The tokenizer produces `Token`s (`token.rs`: start/end tags with attributes, tex
 
 -   `modes.rs` - the per-mode dispatch, with one `handle_*` method per mode in `modes/` (`initial.rs`, `head.rs`, `body.rs`, `text.rs`, `table.rs`, `select.rs`, `template.rs`, `after.rs`);
 -   `foreign.rs` - foreign content; `fragment.rs` - fragment parsing; `scope.rs` - element scopes; `formatting.rs` - the list of active formatting elements;
--   `stylesheets.rs` - stylesheets met while parsing: a `<style>` sheet is parsed at its end tag, a `<link>` sheet is recorded as pending, and before a blocking script the pending ones are fetched through the `StylesheetSource` option (without one they stay pending for whoever drives the parse).
+-   `stylesheets.rs` - stylesheets met while parsing: a `<style>` sheet is parsed at its end tag, a `<link>` sheet is recorded as pending, and before a blocking script the parser waits while the pending ones are fetched through the `StylesheetSource` option (without one they stay pending for whoever drives the parse). Their `@import`s are not followed at that point; only an inline `<style>` resolves its imports during the parse.
 
 The spec's machinery is all here:
 
