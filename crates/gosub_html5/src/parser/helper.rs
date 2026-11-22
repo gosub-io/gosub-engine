@@ -151,7 +151,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
 
         match position {
             InsertionPositionMode::Sibling { parent_id, before_id } => {
-                let children: Vec<NodeId> = self.document.children(parent_id).to_vec();
+                let children = self.document.children(parent_id);
                 let pos = children.iter().position(|&x| x == before_id);
                 match pos {
                     None | Some(0) => {
