@@ -25,6 +25,7 @@ struct Parsed {
     tree: String,
     errors: Vec<String>,
     quirks: QuirksMode,
+    stylesheets: usize,
 }
 
 fn parse_as(html: &str, doctype: DocumentType) -> Parsed {
@@ -33,11 +34,13 @@ fn parse_as(html: &str, doctype: DocumentType) -> Parsed {
     let mut stream = ByteStream::from_str(html, Encoding::UTF8);
     let errors = Html5Parser::<Config>::parse_document(&mut stream, &mut doc, None).unwrap();
     let quirks = doc.quirks_mode();
+    let stylesheets = doc.stylesheets().len();
     let root = doc.root();
     Parsed {
         tree: TreeOutputGenerator::<Config>::new(doc).generate_from(root).join("\n"),
         errors: errors.into_iter().map(|error| error.message).collect(),
         quirks,
+        stylesheets,
     }
 }
 
@@ -147,5 +150,34 @@ fn a_colgroup_end_tag_is_not_reprocessed() {
             "|         <col>",
         ]
         .join("\n")
+    );
+}
+
+/// A `<style>` in the contents of an ordinary template belongs to the template's own document
+/// and styles nothing here. One in a declarative shadow root still applies to that shadow
+/// tree, unless the shadow root is itself inside an ordinary template.
+#[test]
+fn a_style_in_template_contents_is_not_a_document_stylesheet() {
+    let sheets = |html: &str| parse(html).stylesheets;
+    assert_eq!(
+        sheets("<!DOCTYPE html><template><style>p { display: none }</style></template><p>Visible</p>"),
+        0
+    );
+    assert_eq!(
+        sheets("<!DOCTYPE html><template><div><style>p { color: red }</style></div></template>"),
+        0
+    );
+    assert_eq!(sheets("<!DOCTYPE html><style>p { color: red }</style><p>x"), 1);
+    assert_eq!(
+        sheets(
+            "<!DOCTYPE html><div><template shadowrootmode=\"open\"><style>p { color: red }</style></template></div>"
+        ),
+        1
+    );
+    assert_eq!(
+        sheets(
+            "<!DOCTYPE html><template><div><template shadowrootmode=\"open\"><style>p { color: red }</style></template></div></template>"
+        ),
+        0
     );
 }

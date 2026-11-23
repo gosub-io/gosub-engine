@@ -61,6 +61,20 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         self.document.add_stylesheet(stylesheet);
     }
 
+    /// Whether `id` is in the contents of an ordinary `<template>`, which belong to a document
+    /// of their own. A declarative shadow root's template is not in the tree, so a shadow tree
+    /// is only in template contents when its host is.
+    pub(crate) fn in_template_contents(&self, id: NodeId) -> bool {
+        let mut node = Some(id);
+        while let Some(id) = node {
+            if self.document.template_contents(id) == Some(id) {
+                return true;
+            }
+            node = self.document.parent(id).or_else(|| self.document.shadow_host(id));
+        }
+        false
+    }
+
     /// Wait for every stylesheet linked so far, and put it in the cascade.
     ///
     /// Called before a script that blocks. Everything still pending is a `<link>` before this

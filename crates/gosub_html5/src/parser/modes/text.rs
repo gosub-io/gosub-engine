@@ -34,8 +34,13 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                     return;
                 };
 
-                // Load stylesheet from text node
-                if let Some(mut stylesheet) = self.load_inline_stylesheet(CssOrigin::Author, style_text_node_id) {
+                // Load stylesheet from text node. One in template contents styles nothing here.
+                let stylesheet = if self.in_template_contents(style_node_id) {
+                    None
+                } else {
+                    self.load_inline_stylesheet(CssOrigin::Author, style_text_node_id)
+                };
+                if let Some(mut stylesheet) = stylesheet {
                     if let Some(media) = self.document.attribute(style_node_id, "media") {
                         C::CssSystem::set_stylesheet_media(&mut stylesheet, media);
                     }
