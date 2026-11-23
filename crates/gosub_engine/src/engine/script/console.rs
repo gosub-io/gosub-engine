@@ -26,9 +26,10 @@ struct Arg {
 
 type Method = fn(&mut Console, &[Arg]);
 
-/// The most text one console call passes on, in bytes. The argument that goes over it is
-/// cut and marked, and the ones after it are not looked at: a call cannot take memory by
-/// the number of its arguments.
+/// The most text one console call passes on, in bytes, each argument counting for one
+/// more (the space after it, and an empty argument is not free either). The argument that
+/// goes over it is cut and marked, and the ones after it are not looked at: a call cannot
+/// take memory by the number of its arguments.
 pub(super) const MAX_CALL_TEXT: usize = 64 * 1024;
 
 /// Ends the text of a call that was cut.
@@ -58,7 +59,7 @@ fn bounded<V: WebValue>(values: &[V]) -> Vec<Arg> {
             text.push_str(CUT);
             left = 0;
         } else {
-            left -= text.len();
+            left = (left - text.len()).saturating_sub(1);
         }
         args.push(Arg {
             text,

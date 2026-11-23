@@ -287,7 +287,11 @@ mod tests {
         assert_eq!(lines.len(), 1);
         let text = &lines[0].1;
         assert!(text.ends_with(CUT), "{}", &text[text.len() - 20..]);
-        assert_eq!(text.matches('b').count(), MAX_CALL_TEXT);
+        assert!(text.len() <= MAX_CALL_TEXT + CUT.len(), "{}", text.len());
+
+        // nor do arguments without text come for free
+        let lines = console("console.log(...new Array(100000).fill(''))");
+        assert_eq!(lines[0].1, format!("{}{CUT}", " ".repeat(MAX_CALL_TEXT - 1)));
 
         // cut between characters, not inside one
         let lines = console("console.log('x' + '\\u00e9'.repeat(40000))");
