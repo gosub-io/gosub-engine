@@ -791,8 +791,9 @@ pub enum FromRenderer {
     /// drops them; scrolling back there ships them afresh. Only a resident
     /// renderer sends this.
     Evict { hashes: Vec<u64> },
-    /// Mid-exchange: a script of the page said something. Any number before the closing
-    /// [`FromRenderer::Rendered`], in the order it happened.
+    /// Mid-exchange: a script of the page said something. Up to [`MAX_SCRIPT_REPORTS`]
+    /// before the closing [`FromRenderer::Rendered`], in the order it happened; the broker
+    /// gives up on a renderer that sends more.
     Script(ScriptReport),
     /// Answer to [`ToRenderer::Audit`]. Only with the sandbox compiled in.
     #[cfg(feature = "process-isolation")]
