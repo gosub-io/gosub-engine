@@ -541,8 +541,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         self.error_logger.borrow().get_errors()
     }
 
-    /// Emits a parse error if any open element (in the HTML namespace) is not in the set of
-    /// elements that are allowed to remain open at body/EOF close time (spec section 13.2.6.4.7).
+    /// Emits a parse error if any open element is not one of the HTML elements that are allowed
+    /// to remain open at body/EOF close time (spec section 13.2.6.4.7). A foreign element never is.
     fn check_open_elements_at_body_end(&self) {
         const ALLOWED: &[&str] = &[
             "dd", "dt", "li", "optgroup", "option", "p", "rb", "rp", "rt", "rtc", "tbody", "td", "tfoot", "th",
@@ -551,7 +551,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         for &node_id in &self.open_elements {
             let tag = self.document.tag_name(node_id).unwrap_or_default();
             let ns = self.document.namespace(node_id);
-            if ns == Some(HTML_NAMESPACE) && !ALLOWED.contains(&tag) {
+            if ns != Some(HTML_NAMESPACE) || !ALLOWED.contains(&tag) {
                 self.parse_error("open element not allowed at end of body");
                 return;
             }

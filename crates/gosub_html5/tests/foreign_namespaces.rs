@@ -51,6 +51,14 @@ fn fragment(namespace: &str, name: &str, html: &str) -> String {
         .join("\n")
 }
 
+/// The parse error messages `html` produces.
+fn errors(html: &str) -> Vec<String> {
+    let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+    let mut stream = ByteStream::from_str(html, Encoding::UTF8);
+    let errors = Html5Parser::<Config>::parse_document(&mut stream, &mut doc, None).unwrap();
+    errors.into_iter().map(|error| error.message).collect()
+}
+
 fn lines(lines: &[&str]) -> String {
     lines.join("\n")
 }
@@ -152,4 +160,24 @@ fn an_end_tag_does_not_close_an_svg_element_of_that_name() {
             "{name}"
         );
     }
+}
+
+/// Leaving the body with an element open that is not one of the listed HTML ones is a parse
+/// error, and a foreign element is never one of them: at EOF, at `</body>` and at `</html>`.
+#[test]
+fn an_open_foreign_element_at_the_end_of_the_body_is_an_error() {
+    const OPEN: &str = "open element not allowed at end of body";
+    for html in [
+        "<!DOCTYPE html><svg><g>",
+        "<!DOCTYPE html><math><mi>x",
+        // The end tags reach the HTML rules with the svg and g still open.
+        "<!DOCTYPE html><svg><g></body>",
+        "<!DOCTYPE html><svg><g></html>",
+    ] {
+        let errors = errors(html);
+        assert!(errors.iter().any(|error| error == OPEN), "{html}: {errors:?}");
+    }
+    // The listed HTML elements may stay open.
+    let errors = errors("<!DOCTYPE html><p>x");
+    assert!(!errors.iter().any(|error| error == OPEN), "{errors:?}");
 }
