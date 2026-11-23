@@ -9,5 +9,6 @@ pub mod interaction;
 pub mod media_decoder;
 pub mod node;
 pub mod render;
+pub mod script;
 pub mod style;
 pub mod used;
