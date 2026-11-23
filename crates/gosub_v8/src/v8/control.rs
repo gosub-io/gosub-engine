@@ -160,6 +160,7 @@ impl V8Context {
     /// cleared when the outermost call returns - which then was ended too, also when the
     /// function was all there was to it and V8 saw no script to end.
     pub(crate) fn take_termination(&self, terminated: bool) -> Option<V8Error> {
+        let _entered = self.isolate();
         let mut ctx = self.borrow_mut();
         if !terminated && !(ctx.unwinding && ctx.in_callback == 0) {
             return None;
@@ -341,6 +342,20 @@ mod tests {
             assert!(stopper.join().unwrap());
             assert!(matches!(ctx.evaluate("1 + 1", "test.js", 0), Ok(crate::V8Plain::Number(n)) if n == 2.0));
         }
+    }
+
+    #[test]
+    fn contexts_on_one_thread_are_used_and_dropped_in_any_order() {
+        let mut first = context(V8ContextOptions::default());
+        let mut second = context(V8ContextOptions::default());
+
+        // the one made first, with the other still there
+        assert_eq!(number(&mut first, "globalThis.a = 1; a + 1"), 2.0);
+        assert_eq!(number(&mut second, "typeof a === 'undefined' ? 3 : 0"), 3.0);
+        assert_eq!(number(&mut first, "a"), 1.0);
+
+        drop(first);
+        assert_eq!(number(&mut second, "1 + 1"), 2.0);
     }
 
     // tests/init_options.rs has the jitless run, with a loop the JIT does not stop in time

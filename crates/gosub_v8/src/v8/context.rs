@@ -41,6 +41,10 @@ impl V8Ctx {
 
             Global::new(handle_scope, ctx)
         };
+        // V8 enters an isolate when it is made. Left here, and entered for each use
+        // (`IsolateWrapper`): another context on this thread may be used in between.
+        // Safety: it is the current isolate, having just been made
+        unsafe { isolate.exit() }
 
         Self {
             isolate,
@@ -110,6 +114,10 @@ impl V8Ctx {
 impl Drop for V8Ctx {
     fn drop(&mut self) {
         //TODO order is important here: context scope, then handle scope (and ctx), then isolate
+
+        // an isolate is dropped as the current one, which it leaves itself
+        // Safety: see above
+        unsafe { self.isolate.enter() }
     }
 }
 
