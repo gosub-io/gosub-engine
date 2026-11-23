@@ -3052,6 +3052,25 @@ fn engine_remote_scripts<F: FontSystem + Default>() -> i32 {
             );
             run_script!(undrawn, "q");
             expect_said!("the script after it", ["other", "value: 50.0"]);
+
+            // Which page goes is the one used longest ago, and a script is use: of the two
+            // crowd tabs still there, the older one runs a script and outlives the newer.
+            run_script!(crowd[1], "q = 7; q");
+            expect_said!("a script in the older tab", ["value: 7.0"]);
+            let Ok(extra) = zone.tab_builder().create().await else {
+                eprintln!("could not create one more tab");
+                return 1;
+            };
+            if extra.navigate(format!("http://127.0.0.1:{port}/quiet")).await.is_err() {
+                eprintln!("navigate failed");
+                return 1;
+            }
+            finished!(extra);
+            run_script!(extra, "q + 1");
+            expect_said!("a script in the tab that pushed a page out", ["quiet", "value: 6.0"]);
+            run_script!(crowd[1], "q");
+            expect_said!("a script in the tab that ran one last", ["value: 7.0"]);
+            drop(extra);
             drop(crowd);
 
             println!("a tab that does not draw, a replaced page, a page the renderer let go of and a page without JavaScript behaved");

@@ -316,6 +316,10 @@ pub fn serve<C: RenderConfiguration>(
             } => {
                 let reports = match scripts.get(&tab) {
                     Some(page_scripts) => {
+                        // a page whose scripts are being used is not the one to let go of
+                        if pages.contains_key(&tab) {
+                            touch(&mut recent, &tab);
+                        }
                         page_scripts.begin_request(request_ends);
                         page_scripts.execute(&source, std::time::Duration::from_millis(max_run_ms));
                         page_scripts.take_reports()
