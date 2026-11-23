@@ -281,6 +281,9 @@ pub struct TabWorker<C: RenderConfiguration> {
     /// The current document was handed to a renderer process as source: there is no page
     /// here to run a script in.
     document_in_renderer: bool,
+    /// Counts the documents this tab committed. A script that was sent under an earlier
+    /// count ran in a page that is gone.
+    script_page: Arc<std::sync::atomic::AtomicU64>,
     /// Answers of the scripts sent to the renderer, from the threads that waited for them.
     remote_script_replies: tokio::sync::mpsc::UnboundedSender<RemoteScriptReply>,
     remote_script_inbox: tokio::sync::mpsc::UnboundedReceiver<RemoteScriptReply>,
@@ -488,6 +491,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             remote_script_replies,
             remote_script_inbox,
             remote_script_next: 0,
+            script_page: Arc::default(),
             remote_script_published: 0,
             remote_script_done: Default::default(),
             zone_context,
@@ -913,6 +917,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     .as_ref()
                     .filter(|a| a.nav_id == nav_id)
                     .map(|a| a.cancel.clone());
+                // scripts still running in the page this one replaces answer with an error
+                self.script_page.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
                 match (doc, source) {
                     (Some(doc), source) => {
                         // the thread the document's own scripts ran on, if it had any to run
@@ -1950,12 +1956,20 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let tab_id = self.tab_id;
         let event_tx = self.zone_context.event_tx.clone();
         let (finished, done) = oneshot::channel();
+        let page = Arc::clone(&self.script_page);
+        let sent_to = page.load(std::sync::atomic::Ordering::Acquire);
         // Queued here, not in the task below: scripts run in the order their commands came.
         // The answer goes out from the script thread, so the answers keep that order too.
         let queued = thread.submit(
             source,
             origin,
             Box::new(move |result| {
+                // as a renderer's answer: one for a page that is gone is an error
+                let result = if page.load(std::sync::atomic::Ordering::Acquire) == sent_to {
+                    result
+                } else {
+                    Err(script::unavailable("the page was replaced while the script ran"))
+                };
                 let event = match result {
                     Ok(value) => EngineEvent::ScriptResult {
                         tab_id,

@@ -6486,6 +6486,47 @@ mod tests {
 
     #[cfg(feature = "js")]
     #[tokio::test]
+    async fn a_script_that_outlives_its_page_answers_with_an_error() {
+        let (mut engine, mut events, tab) = script_tab(true).await;
+        load_html(&tab, &mut events, "<html><body><p>first</p></body></html>").await;
+
+        tab.send(crate::events::TabCommand::ExecuteScript {
+            source: "const from = Date.now(); while (Date.now() - from < 1000) {} 'late'".to_owned(),
+        })
+        .await
+        .expect("send script");
+        tab.send(crate::events::TabCommand::LoadHtml {
+            html: "<html><body><p>next</p></body></html>".to_owned(),
+            base_url: "https://example.test/next.html".into(),
+        })
+        .await
+        .expect("load");
+
+        let answer = tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::ScriptResult { result, .. }) => return Ok(result),
+                    Ok(EngineEvent::JavaScriptError { message, .. }) => return Err(message),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("no answer to the script");
+        assert_eq!(answer, Err("the page was replaced while the script ran".to_owned()));
+
+        // the page that replaced it runs scripts as any other
+        assert_eq!(
+            script_value(script_answer(&tab, &mut events, "1 + 1").await),
+            serde_json::json!(2.0)
+        );
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
     async fn console_output_reaches_the_embedder() {
         use gosub_interface::script::ConsoleLevel;
 
