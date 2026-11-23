@@ -74,6 +74,16 @@ impl fmt::Display for ScriptError {
 
 impl std::error::Error for ScriptError {}
 
+/// The severity of a line a script wrote to its console.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConsoleLevel {
+    Debug,
+    Log,
+    Info,
+    Warn,
+    Error,
+}
+
 /// Stops the script a host is running. Can be used from any thread, which is the point:
 /// the thread running the script is busy.
 #[derive(Clone)]

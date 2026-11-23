@@ -1115,6 +1115,13 @@ pub enum EngineEvent {
         url: Url,
         message: String,
     },
+    /// A script in the tab's page wrote to its console. `origin` is the URL of the document.
+    ConsoleMessage {
+        tab_id: TabId,
+        level: gosub_interface::script::ConsoleLevel,
+        text: String,
+        origin: String,
+    },
     /// A [`TabCommand::ExecuteScript`] that did not run to its end: it threw, did not
     /// compile, was terminated, or there was nothing to run it. `line` and `column` are
     /// 1-based, and 0 when there is no position.

@@ -3,14 +3,14 @@
 use gosub_interface::script::{ScriptError, ScriptErrorKind, ScriptHost, ScriptOrigin, ScriptTerminator, ScriptValue};
 use gosub_v8::{V8Context, V8ContextOptions, V8Engine, V8Error, V8EvalError, V8Options, V8Plain};
 
-use super::ScriptLimits;
+use super::{console, ConsoleSink, ScriptLimits};
 
 pub(super) struct V8ScriptHost {
     context: V8Context,
 }
 
 impl V8ScriptHost {
-    pub(super) fn new(limits: ScriptLimits) -> Result<Self, ScriptError> {
+    pub(super) fn new(limits: ScriptLimits, sink: ConsoleSink) -> Result<Self, ScriptError> {
         // Interpreter only: no executable memory, which a sandboxed renderer may not map.
         // The first initialization in a process decides, and this is the only one.
         V8Engine::initialize_with(&V8Options {
@@ -23,6 +23,9 @@ impl V8ScriptHost {
             explicit_microtasks: true,
         })
         .map_err(|e| ScriptError::new(ScriptErrorKind::Unavailable, format!("no V8 context: {e}")))?;
+
+        console::install::<V8Engine>(V8Context::clone(&context), sink)
+            .map_err(|e| ScriptError::new(ScriptErrorKind::Unavailable, format!("no console: {e}")))?;
 
         Ok(Self { context })
     }
@@ -80,13 +83,42 @@ fn ended(by: V8Error) -> ScriptError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gosub_interface::script::ConsoleLevel;
+    use parking_lot::Mutex;
+    use std::sync::Arc;
     use std::time::Duration;
 
+    type Lines = Arc<Mutex<Vec<(ConsoleLevel, String)>>>;
+
+    fn host_and_console() -> (V8ScriptHost, Lines) {
+        let lines = Lines::default();
+        let seen = Arc::clone(&lines);
+        let host = V8ScriptHost::new(
+            ScriptLimits {
+                heap_bytes: 32 * 1024 * 1024,
+            },
+            Arc::new(move |level, text| seen.lock().push((level, text))),
+        )
+        .unwrap();
+
+        (host, lines)
+    }
+
     fn host() -> V8ScriptHost {
-        V8ScriptHost::new(ScriptLimits {
-            heap_bytes: 32 * 1024 * 1024,
-        })
-        .unwrap()
+        host_and_console().0
+    }
+
+    /// What `source` writes to the console.
+    fn console(source: &str) -> Vec<(ConsoleLevel, String)> {
+        let (mut host, lines) = host_and_console();
+        assert_eq!(host.execute(source, &origin()), Ok(ScriptValue::Undefined), "{source}");
+
+        let lines = lines.lock().clone();
+        lines
+    }
+
+    fn line(level: ConsoleLevel, text: &str) -> (ConsoleLevel, String) {
+        (level, text.to_owned())
     }
 
     fn origin() -> ScriptOrigin {
@@ -172,5 +204,123 @@ mod tests {
         let error = host.execute(hoard, &origin()).unwrap_err();
         assert_eq!(error.kind, ScriptErrorKind::OutOfMemory);
         assert_eq!(host.execute("1 + 1", &origin()), Ok(ScriptValue::Number(2.0)));
+    }
+
+    #[test]
+    fn console_log_levels() {
+        assert_eq!(console("console.log('a', 1)"), [line(ConsoleLevel::Log, "a 1")]);
+        assert_eq!(console("console.info('i')"), [line(ConsoleLevel::Info, "i")]);
+        assert_eq!(console("console.warn('w')"), [line(ConsoleLevel::Warn, "w")]);
+        assert_eq!(console("console.error('e')"), [line(ConsoleLevel::Error, "e")]);
+        assert_eq!(console("console.debug('d')"), [line(ConsoleLevel::Debug, "d")]);
+        assert_eq!(console("console.trace('t')"), [line(ConsoleLevel::Log, "t")]);
+        assert_eq!(console("console.log()"), []);
+    }
+
+    #[test]
+    fn console_arguments_are_stringified() {
+        assert_eq!(
+            console("console.log(1.5, true, null, undefined, [1, 2], {})"),
+            [line(ConsoleLevel::Log, "1.5 true null undefined 1,2 [object Object]")]
+        );
+    }
+
+    #[test]
+    fn console_assert_prints_only_when_the_condition_fails() {
+        assert_eq!(console("console.assert(true, 'fine')"), []);
+        assert_eq!(
+            console("console.assert(1 === 2, 'broken')"),
+            [line(ConsoleLevel::Error, "Assertion failed: broken")]
+        );
+        assert_eq!(
+            console("console.assert(0, 'falsy')"),
+            [line(ConsoleLevel::Error, "Assertion failed: falsy")]
+        );
+        assert_eq!(
+            console("console.assert()"),
+            [line(ConsoleLevel::Error, "Assertion failed")]
+        );
+    }
+
+    #[test]
+    fn console_count_and_count_reset() {
+        assert_eq!(
+            console("console.count(); console.count('x'); console.count(); console.countReset(); console.count()"),
+            [
+                line(ConsoleLevel::Log, "default: 1"),
+                line(ConsoleLevel::Log, "x: 1"),
+                line(ConsoleLevel::Log, "default: 2"),
+                line(ConsoleLevel::Log, "default: 1"),
+            ]
+        );
+        assert_eq!(
+            console("console.countReset('never')"),
+            [line(ConsoleLevel::Warn, "label does not exist")]
+        );
+    }
+
+    #[test]
+    fn console_groups_indent_what_is_inside() {
+        assert_eq!(
+            console(
+                "console.group('outer'); console.log('in'); console.groupCollapsed('inner'); console.log('deep'); \
+                 console.groupEnd(); console.log('in again'); console.groupEnd(); console.log('out')"
+            ),
+            [
+                line(ConsoleLevel::Log, "outer"),
+                line(ConsoleLevel::Log, "  in"),
+                line(ConsoleLevel::Log, "  inner"),
+                line(ConsoleLevel::Log, "    deep"),
+                line(ConsoleLevel::Log, "  in again"),
+                line(ConsoleLevel::Log, "out"),
+            ]
+        );
+    }
+
+    #[test]
+    fn console_clear_leaves_every_group() {
+        assert_eq!(
+            console("console.group('g'); console.clear(); console.log('flat')"),
+            [line(ConsoleLevel::Log, "g"), line(ConsoleLevel::Log, "flat")]
+        );
+    }
+
+    #[test]
+    fn console_timers() {
+        let lines = console("console.time('t'); console.timeLog('t', 'half'); console.timeEnd('t')");
+        let texts: Vec<&str> = lines.iter().map(|(_, text)| text.as_str()).collect();
+
+        assert_eq!(texts.len(), 2, "{texts:?}");
+        assert!(
+            texts[0].starts_with("t: ") && texts[0].ends_with("ms half"),
+            "{texts:?}"
+        );
+        assert!(texts[1].starts_with("t: ") && texts[1].ends_with("ms"), "{texts:?}");
+    }
+
+    #[test]
+    fn console_dir_dirxml_and_table() {
+        assert_eq!(console("console.dir('item')"), [line(ConsoleLevel::Log, "item")]);
+        assert_eq!(console("console.dirxml('a', 'b')"), [line(ConsoleLevel::Log, "a b")]);
+        assert_eq!(console("console.table('rows')"), [line(ConsoleLevel::Log, "rows")]);
+        assert_eq!(console("console.dir(); console.table()"), []);
+    }
+
+    #[test]
+    fn console_state_lasts_across_scripts() {
+        let (mut host, lines) = host_and_console();
+
+        assert_eq!(
+            host.execute("console.count('n')", &origin()),
+            Ok(ScriptValue::Undefined)
+        );
+        assert_eq!(
+            host.execute("console.count('n')", &origin()),
+            Ok(ScriptValue::Undefined)
+        );
+        assert_eq!(
+            *lines.lock(),
+            [line(ConsoleLevel::Log, "n: 1"), line(ConsoleLevel::Log, "n: 2")]
+        );
     }
 }
