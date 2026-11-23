@@ -4477,7 +4477,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         }
         // an SVG script names its file with `href`; those are not loaded yet
         let in_svg = node_ns!(self, script) == Some(SVG_NAMESPACE);
-        if in_svg && (attribute("href").is_some() || attribute("xlink:href").is_some()) {
+        // (`xlink:href` is stored under its adjusted name)
+        if in_svg && (attribute("href").is_some() || attribute("xlink href").is_some()) {
             return None;
         }
 
@@ -6116,6 +6117,22 @@ mod script_tests {
         );
         // and `src` only on an HTML one
         assert_eq!(ran("<svg><script src=\"/a.js\">inSvg()</script></svg>"), ["inSvg()"]);
+    }
+
+    #[test]
+    fn xlink_href_names_a_file_on_an_svg_script() {
+        for html in [
+            "<svg><script xlink:href=\"/a.js\">inline()</script></svg>",
+            "<svg><script src=\"/ignored.js\" xlink:href=\"/a.js\">inline()</script></svg>",
+        ] {
+            let (ran, fetched) = external(html);
+            assert!(
+                ran.is_empty() && fetched.is_empty(),
+                "{html}: ran {ran:?}, fetched {fetched:?}"
+            );
+        }
+        // not an attribute of an HTML script
+        assert_eq!(ran("<script xlink:href=\"/a.js\">inline()</script>"), ["inline()"]);
     }
 
     /// Records the stylesheets asked for in the same log as the scripts, and has none.
