@@ -86,3 +86,45 @@ fn whitespace_in_a_thead_stays_in_the_thead() {
     );
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
 }
+
+/// `</table>` and `<table>` in "in table" act only on a table in table scope, which ends at a
+/// `template`: a table outside the template is not closed from inside it.
+#[test]
+fn a_table_tag_inside_a_template_does_not_reach_the_table_outside() {
+    // `</table>`: ignored, so the div goes into the template contents.
+    let parsed = parse("<!DOCTYPE html><table><template><tbody></tbody></table><div>x</div>");
+    assert_eq!(
+        parsed.tree,
+        [
+            "| <!DOCTYPE html>",
+            "| <html>",
+            "|   <head>",
+            "|   <body>",
+            "|     <table>",
+            "|       <template>",
+            "|         content",
+            "|           <tbody>",
+            "|           <div>",
+            "|             \"x\"",
+        ]
+        .join("\n")
+    );
+
+    // `<table>`: ignored too, so the row still lands in the template.
+    let parsed = parse("<!DOCTYPE html><table><template><tbody><table><tr>");
+    assert_eq!(
+        parsed.tree,
+        [
+            "| <!DOCTYPE html>",
+            "| <html>",
+            "|   <head>",
+            "|   <body>",
+            "|     <table>",
+            "|       <template>",
+            "|         content",
+            "|           <tbody>",
+            "|             <tr>",
+        ]
+        .join("\n")
+    );
+}

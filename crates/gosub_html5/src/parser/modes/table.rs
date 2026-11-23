@@ -82,7 +82,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
             Token::StartTag { name, .. } if name == "table" => {
                 self.parse_error("table tag not allowed in in table insertion mode");
 
-                if !self.open_elements_has("table") {
+                if !self.is_in_scope("table", HTML_NAMESPACE, Scope::Table) {
                     // ignore token
                     return;
                 }
@@ -92,7 +92,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                 self.reprocess_token = true;
             }
             Token::EndTag { name, .. } if name == "table" => {
-                if !self.open_elements_has("table") {
+                if !self.is_in_scope("table", HTML_NAMESPACE, Scope::Table) {
                     self.parse_error("table end tag not allowed in in table insertion mode");
                     // ignore token
                     return;
