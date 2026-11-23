@@ -246,6 +246,10 @@ impl WebFunction for V8Function {
         let ret = function.call(scope, recv, &args);
 
         if let Some(value) = ret {
+            // a script that a native function ran was ended, and this call got past it
+            if let Some(e) = self.ctx.take_termination(false) {
+                return Err(e.into());
+            }
             let value = Global::new(scope, value);
 
             Ok(V8Value {
@@ -538,6 +542,10 @@ impl WebFunctionVariadic for V8FunctionVariadic {
         let ret = function.call(scope, recv, &args);
 
         if let Some(value) = ret {
+            // a script that a native function ran was ended, and this call got past it
+            if let Some(e) = self.ctx.take_termination(false) {
+                return Err(e.into());
+            }
             let value = Global::new(scope, value);
 
             Ok(V8Value {

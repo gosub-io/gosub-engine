@@ -322,6 +322,13 @@ mod tests {
         // and the context runs scripts again
         assert_eq!(ctx.run("typeof after").unwrap().as_string().unwrap(), "undefined");
 
+        // also when the calling script ends with a value before V8 looks for the request
+        let stopper = terminate_soon(&ctx);
+        let outer = ctx.run("try { native.spin() } catch (e) {} 1");
+        assert_eq!(error_of(outer), Some(V8Error::Terminated));
+        assert!(stopper.join().unwrap());
+        assert_eq!(ctx.run("1 + 1").unwrap().as_string().unwrap(), "2");
+
         // `evaluate` too, also when the function's exception is all it sees: nothing
         // after the call that V8 could end
         for source in ["native.spin()", "try { native.spin() } catch (e) {} 1"] {
