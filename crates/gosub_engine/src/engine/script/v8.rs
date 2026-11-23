@@ -274,6 +274,34 @@ mod tests {
     }
 
     #[test]
+    fn a_console_call_passes_on_a_bounded_amount_of_text() {
+        use super::console::{CUT, MAX_CALL_TEXT};
+
+        // one argument over the limit: cut, and what follows it is left out
+        let lines = console("console.log('a'.repeat(100000), 'tail')");
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].1, format!("{}{CUT}", "a".repeat(MAX_CALL_TEXT)));
+
+        // many arguments that add up to more
+        let lines = console("console.log(...new Array(5000).fill('b'.repeat(1000)))");
+        assert_eq!(lines.len(), 1);
+        let text = &lines[0].1;
+        assert!(text.ends_with(CUT), "{}", &text[text.len() - 20..]);
+        assert_eq!(text.matches('b').count(), MAX_CALL_TEXT);
+
+        // cut between characters, not inside one
+        let lines = console("console.log('x' + '\\u00e9'.repeat(40000))");
+        assert_eq!(
+            lines[0].1,
+            format!("x{}{CUT}", "\u{e9}".repeat((MAX_CALL_TEXT - 1) / 2))
+        );
+
+        // text up to the limit is left alone
+        let lines = console("console.log('c'.repeat(65536))");
+        assert_eq!(lines[0].1, "c".repeat(MAX_CALL_TEXT));
+    }
+
+    #[test]
     fn console_assert_prints_only_when_the_condition_fails() {
         assert_eq!(console("console.assert(true, 'fine')"), []);
         assert_eq!(
