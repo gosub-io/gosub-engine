@@ -3023,7 +3023,35 @@ fn engine_remote_scripts<F: FontSystem + Default>() -> i32 {
                     }
                 }
             }
-            println!("a tab that does not draw, a replaced page and a page without JavaScript behaved");
+
+            // A renderer keeps the pages of three tabs. A tab that does not draw and whose
+            // page it let go of is told so by its next script, and has the page back for
+            // the one after: nothing else would load it again.
+            let mut crowd = Vec::new();
+            for _ in 0..3 {
+                let Ok(tab) = zone.tab_builder().create().await else {
+                    eprintln!("could not create one more tab");
+                    return 1;
+                };
+                if tab.navigate(format!("http://127.0.0.1:{port}/quiet")).await.is_err() {
+                    eprintln!("navigate failed");
+                    return 1;
+                }
+                finished!(tab);
+                run_script!(tab, "q + 1");
+                expect_said!("a script in one more tab", ["quiet", "value: 6.0"]);
+                crowd.push(tab);
+            }
+            run_script!(undrawn, "q");
+            expect_said!(
+                "a script for a page the renderer let go of",
+                ["error: the page is no longer loaded in its renderer"]
+            );
+            run_script!(undrawn, "q");
+            expect_said!("the script after it", ["other", "value: 50.0"]);
+            drop(crowd);
+
+            println!("a tab that does not draw, a replaced page, a page the renderer let go of and a page without JavaScript behaved");
 
             engine.close_zone(zone).await;
             let _ = engine.shutdown().await;

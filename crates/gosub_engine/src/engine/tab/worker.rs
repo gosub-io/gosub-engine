@@ -1981,7 +1981,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     fn execute_script_in_renderer(&mut self, source: String) {
         // The renderer loads a document for its first frame. A script does not wait for
-        // one: drawing may be suspended.
+        // one: drawing may be suspended. Nor does a page the renderer let go of come back
+        // without a frame.
+        self.context.reload_lost_remote_page();
         if !self.context.remote_page_ready() {
             self.context.rebuild_pipeline_cache_if_needed();
         }

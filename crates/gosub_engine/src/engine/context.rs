@@ -363,6 +363,10 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// to run a script in.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     remote_page_ready: bool,
+    /// Set by a script that found the renderer had let go of the page: it is loaded
+    /// again before the next one.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_page_lost: Arc<std::sync::atomic::AtomicBool>,
     /// The thread that sends this tab's scripts to its renderer, one after the other;
     /// started with the first script.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -517,6 +521,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             remote_script_reports: Vec::new(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_page_ready: false,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_page_lost: Default::default(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_script_queue: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -757,6 +763,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             // and its scripts' output
             self.remote_script_reports.clear();
             self.remote_page_ready = false;
+            self.remote_page_lost.store(false, std::sync::atomic::Ordering::Release);
         }
         // Nothing the last document loaded answers for this one: whether a URL loads at all is
         // the document's call.
@@ -1579,6 +1586,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 self.adopt_remote_page(page);
                 // the document is in its renderer now, and scripts can be sent to it
                 self.remote_page_ready = true;
+                self.remote_page_lost.store(false, std::sync::atomic::Ordering::Release);
                 Ok(())
             }
             Err(e) => Err(e.to_string()),
@@ -1602,6 +1610,19 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub fn remote_page_ready(&self) -> bool {
         self.remote_page_ready
+    }
+
+    /// A script found that the renderer no longer holds this tab's page: mark it for a
+    /// full render, which loads it there again. Call before sending the next script.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn reload_lost_remote_page(&mut self) {
+        if self.remote_page_lost.swap(false, std::sync::atomic::Ordering::AcqRel) {
+            log::warn!("resident renderer has no retained page for this tab; rendering it again");
+            self.remote_page_ready = false;
+            // Whatever input waited was for that page.
+            self.remote_input_queue.clear();
+            self.damage.rebuild();
+        }
     }
 
     /// Counts the documents and full renders a renderer was asked for. What a pass or a
@@ -1640,6 +1661,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             loader: self.loader_for_document(),
             media: Arc::clone(&self.remote_media),
         };
+        let lost = Arc::clone(&self.remote_page_lost);
         let job: RemoteScriptJob = Box::new(move || {
             let result = (|| {
                 let site = url::Url::parse(&page_url)
@@ -1652,7 +1674,13 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 if !current() {
                     anyhow::bail!("the page was replaced before the script could run");
                 }
-                renderer.execute_script(&remote_tab, &source, max_run_ms, &resources)
+                let reports = renderer.execute_script(&remote_tab, &source, max_run_ms, &resources);
+                // The script did not run. It is not sent again; the next one finds the
+                // page loaded.
+                if matches!(&reports, Err(e) if e.is::<crate::fork_server::client::PageNotRetained>()) && current() {
+                    lost.store(true, std::sync::atomic::Ordering::Release);
+                }
+                reports
             })();
             done(started_for, result.map_err(|e| e.to_string()));
         });

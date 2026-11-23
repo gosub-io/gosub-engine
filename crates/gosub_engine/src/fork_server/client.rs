@@ -719,6 +719,19 @@ fn bound_effects(effects: &mut Vec<Effect>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Why a script did not run: the renderer no longer holds the tab's page (replaced after
+/// a crash, or past its retained-page limit). Loading it again helps.
+#[derive(Debug)]
+pub struct PageNotRetained;
+
+impl std::fmt::Display for PageNotRetained {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the page is no longer loaded in its renderer")
+    }
+}
+
+impl std::error::Error for PageNotRetained {}
+
 /// One page as the broker receives it: what the renderer measured, its tiles
 /// (freshly mapped or reused from the previous render), the geometry hit
 /// testing needs, and what an input pass asked for.
@@ -1474,7 +1487,11 @@ impl ResidentRenderer {
         refuse_oversized_document(&message)?;
         self.send(&message)?;
         // no tiles come back, so there is nothing a `TileUnchanged` could refer to
-        self.exchange(loader, &TileMemory::default()).map(|page| page.scripts)
+        let page = self.exchange(loader, &TileMemory::default())?;
+        if page.summary.no_page {
+            return Err(PageNotRetained.into());
+        }
+        Ok(page.scripts)
     }
 
     /// The viewport of `tab`'s retained page moved: collect what came into
@@ -1732,6 +1749,37 @@ mod tests {
                 },
             ]
         );
+        assert!(!renderer.is_dead());
+    }
+
+    /// A renderer that let go of the tab's page says so, and that is what comes back
+    /// instead of what it reported.
+    #[test]
+    fn a_script_for_a_page_the_renderer_let_go_of_is_told_apart() {
+        use crate::fork_server::protocol::ScriptReport;
+
+        let (mut renderer, far) = renderer_answering(vec![
+            FromRenderer::Script(ScriptReport::Error {
+                message: "this tab's document runs no scripts in its renderer".to_owned(),
+                line: 0,
+                column: 0,
+            }),
+            FromRenderer::Rendered {
+                summary: PageSummary {
+                    no_page: true,
+                    ..Default::default()
+                },
+                hit_regions: Vec::new(),
+                effects: Vec::new(),
+            },
+        ]);
+
+        let error = renderer
+            .execute_script("tab", "1", 1000, &NoResources)
+            .expect_err("no page, no answer");
+        far.join().expect("the far end");
+
+        assert!(error.is::<PageNotRetained>(), "{error}");
         assert!(!renderer.is_dead());
     }
 

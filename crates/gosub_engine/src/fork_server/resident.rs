@@ -327,9 +327,14 @@ pub fn serve<C: RenderConfiguration>(
                         column: 0,
                     }],
                 };
-                let closing = no_page_pass();
+                // without the page the broker has it loaded again before the next script
+                let closing = if pages.contains_key(&tab) {
+                    PageSummary::default()
+                } else {
+                    no_page_pass().summary
+                };
                 if !send_script_reports(&mut link.lock(), reports)
-                    || !stream_rendered(&mut link.lock(), &[], &[], closing.summary, Vec::new(), Vec::new())
+                    || !stream_rendered(&mut link.lock(), &[], &[], closing, Vec::new(), Vec::new())
                 {
                     gosub_sandbox::exit_now(1);
                 }
