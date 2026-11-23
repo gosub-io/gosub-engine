@@ -6890,17 +6890,30 @@ mod tests {
         }
     }
 
-    /// A `src` the document scan does not see is fetched when the parser gets to it.
+    /// Two elements with the same `src` each run what the scan had fetched for them, which
+    /// is one request: neither falls back to a fetch of its own.
     #[cfg(feature = "js")]
     #[tokio::test]
-    async fn a_script_the_scan_missed_is_fetched_by_the_parse() {
-        // the same file twice: the second element is not in the scan's map any more
+    async fn a_script_named_twice_is_not_fetched_again_by_the_parse() {
         let page = "<script src=\"/twice.js\"></script><script src=\"/twice.js\"></script>";
 
         let (output, requests) = served_page_output(page).await;
 
         assert_eq!(output, ["twice", "twice"]);
-        assert!(requests.get("/twice.js").is_some_and(|n| *n >= 1), "{requests:?}");
+        assert_eq!(requests.get("/twice.js"), Some(&1), "{requests:?}");
+    }
+
+    /// A `src` the document scan does not see is fetched when the parser gets to it.
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn a_script_the_scan_missed_is_fetched_by_the_parse() {
+        // the scan reads the attribute as it is written, the parser as what it says
+        let page = "<script src=\"/sca&#110;.js\"></script>";
+
+        let (output, requests) = served_page_output(page).await;
+
+        assert_eq!(output, ["scan"]);
+        assert_eq!(requests.get("/scan.js"), Some(&1), "{requests:?}");
     }
 
     #[cfg(not(feature = "js"))]

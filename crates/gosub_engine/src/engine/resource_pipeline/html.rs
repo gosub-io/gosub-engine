@@ -22,6 +22,9 @@ use tokio_util::io::StreamReader;
 
 /// One `oneshot` per stylesheet this parse discovered, keyed by URL.
 type SheetBodies = Arc<Mutex<HashMap<String, tokio::sync::oneshot::Receiver<SheetBody>>>>;
+/// The same for scripts, where each element that names a URL has a fetch of its own, in
+/// document order.
+type ScriptBodies = Arc<Mutex<HashMap<String, std::collections::VecDeque<tokio::sync::oneshot::Receiver<SheetBody>>>>>;
 
 /// A fetched stylesheet: its `Content-Type` and its bytes. `None` when it could not be had.
 pub(crate) type SheetBody = Option<(Option<String>, Vec<u8>)>;
@@ -281,7 +284,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
         let sheet_bodies: SheetBodies = Arc::new(Mutex::new(HashMap::new()));
         // The same for scripts, when this parse runs them: each `<script src>` the scan
         // finds is fetched once, and the parser takes it from here when it gets there.
-        let script_bodies: SheetBodies = Arc::new(Mutex::new(HashMap::new()));
+        let script_bodies: ScriptBodies = Arc::new(Mutex::new(HashMap::new()));
         let scripts_run = self.scripts.is_some();
 
         let child_handles_for_closure = child_handles.clone();
@@ -353,8 +356,12 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
                 Some(tx)
             } else if is_script {
                 let (tx, rx) = tokio::sync::oneshot::channel();
-                // a second element with the same src finds nothing here and fetches again
-                script_bodies_for_closure.lock().insert(sub_url.to_string(), rx);
+                // behind the one of an earlier element with the same src, not in its place
+                script_bodies_for_closure
+                    .lock()
+                    .entry(sub_url.to_string())
+                    .or_default()
+                    .push_back(rx);
                 Some(tx)
             } else {
                 if let Some(scope) = nav_scope {
@@ -544,7 +551,7 @@ impl<C: RenderConfiguration> HtmlPipeline<C> for HtmlPipelineImpl<C> {
 struct ParseSheetGate {
     bodies: SheetBodies,
     /// The external scripts in flight, for a parse that runs them.
-    scripts: SheetBodies,
+    scripts: ScriptBodies,
     runtime: tokio::runtime::Handle,
     zone_id: ZoneId,
     tab_id: TabId,
@@ -560,10 +567,14 @@ struct ParseSheetGate {
 }
 
 impl ParseSheetGate {
-    /// The body of `url`: the fetch already in flight for it in `bodies`, or a new one for
-    /// a URL the document scan did not see.
-    async fn body(&self, bodies: &SheetBodies, url: &str, kind: crate::net::types::ResourceKind) -> SheetBody {
-        let waiting = bodies.lock().remove(url);
+    /// The body of `url`: the fetch already in flight for it, or a new one for a URL the
+    /// document scan did not see.
+    async fn body(
+        &self,
+        waiting: Option<tokio::sync::oneshot::Receiver<SheetBody>>,
+        url: &str,
+        kind: crate::net::types::ResourceKind,
+    ) -> SheetBody {
         match waiting {
             Some(rx) => rx.await.ok().flatten(),
             None => {
@@ -595,8 +606,9 @@ impl gosub_html5::parser::StylesheetSource for ParseSheetGate {
         self.runtime.block_on(async {
             let mut out = Vec::with_capacity(urls.len());
             for url in urls {
+                let waiting = self.bodies.lock().remove(url);
                 let body = self
-                    .body(&self.bodies, url, crate::net::types::ResourceKind::Stylesheet)
+                    .body(waiting, url, crate::net::types::ResourceKind::Stylesheet)
                     .await;
                 out.push(body.map(|(_, bytes)| bytes));
             }
@@ -608,8 +620,9 @@ impl gosub_html5::parser::StylesheetSource for ParseSheetGate {
 impl gosub_html5::parser::ScriptSource for ParseSheetGate {
     fn fetch_blocking(&self, url: &str) -> Option<String> {
         // on the parse's blocking thread, like the stylesheets above
+        let waiting = self.scripts.lock().get_mut(url).and_then(|fetches| fetches.pop_front());
         let (_, bytes) = self.runtime.block_on(self.body(
-            &self.scripts,
+            waiting,
             url,
             crate::net::types::ResourceKind::Script { blocking: true },
         ))?;
