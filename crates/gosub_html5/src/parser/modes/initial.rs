@@ -74,7 +74,8 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         }
 
         if anything_else {
-            if !self.parser_cannot_change_mode {
+            // An iframe srcdoc document without a DOCTYPE is neither an error nor quirks.
+            if !self.is_iframesrcdoc() && !self.parser_cannot_change_mode {
                 self.set_quirks_mode(QuirksMode::Quirks);
             }
 
