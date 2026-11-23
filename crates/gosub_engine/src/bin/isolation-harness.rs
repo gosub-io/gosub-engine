@@ -2888,6 +2888,32 @@ fn engine_remote_scripts<F: FontSystem + Default>() -> i32 {
                 started.elapsed()
             );
 
+            // The time limit covers a script and its promise jobs together: one that
+            // spends two thirds of it leaves its jobs the last third, not a limit of
+            // their own.
+            if let Err(e) = engine.settings().set("scripting.max_run_ms", Setting::UInt(3000)) {
+                eprintln!("could not set the script time limit: {e}");
+                return 1;
+            }
+            let started = std::time::Instant::now();
+            run_script!(
+                "const t = Date.now(); while (Date.now() - t < 2000) {} \
+                 Promise.resolve().then(() => { for (;;) {} }); 1"
+            );
+            match next!("the answer of a script with runaway promise jobs") {
+                Ok(line) if line == "error: script execution was terminated" => {}
+                other => {
+                    eprintln!("runaway promise jobs: {other:?}");
+                    return 1;
+                }
+            }
+            let took = started.elapsed();
+            if took >= std::time::Duration::from_millis(4000) {
+                eprintln!("a script and its promise jobs ran for {took:?} with a limit of 3 s");
+                return 1;
+            }
+            println!("a script and its promise jobs shared one time limit ({took:?})");
+
             macro_rules! expect_said {
                 ($what:expr, $expected:expr) => {
                     for expected in $expected {

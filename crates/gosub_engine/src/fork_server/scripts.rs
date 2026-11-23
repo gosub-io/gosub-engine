@@ -85,6 +85,8 @@ struct Inner {
     limit: Duration,
     /// When the request being served runs out; no script gets longer than that.
     request_ends: Instant,
+    /// What the script that ran last left of its time, for its promise jobs.
+    left_for_jobs: Duration,
 }
 
 impl Inner {
@@ -111,6 +113,22 @@ impl Inner {
         *RUNNING.lock() = None;
 
         out
+    }
+
+    /// Runs a script with `limit` to spend. What it leaves is for its promise jobs.
+    fn execute(&mut self, limit: Duration, source: &str, origin: &ScriptOrigin) -> Result<ScriptValue, ScriptError> {
+        let started = Instant::now();
+        let result = self.bounded(limit, |host| host.execute(source, origin));
+        self.left_for_jobs = limit.saturating_sub(started.elapsed());
+
+        result
+    }
+
+    /// Runs the promise jobs of the script that ran last, in the time it left. The alarm
+    /// asks once, so they get a deadline of their own.
+    fn jobs(&mut self) -> Result<(), ScriptError> {
+        let left = self.left_for_jobs;
+        self.bounded(left, |host| host.microtask_checkpoint())
     }
 }
 
@@ -157,6 +175,7 @@ impl PageScripts {
                 host,
                 limit: Duration::from_millis(settings.max_run_ms),
                 request_ends,
+                left_for_jobs: Duration::ZERO,
             })),
             reports,
             url: url.to_owned(),
@@ -184,13 +203,13 @@ impl PageScripts {
         };
         self.reports.lock().origin = clip_script_text(origin.url.clone());
         let mut inner = self.inner.borrow_mut();
-        let result = inner.bounded(limit, |host| host.execute(source, &origin));
-        // Then its promise jobs, unless it was ended (as the script thread has it). They
-        // get a deadline of their own: the alarm asks once.
+        let result = inner.execute(limit, source, &origin);
+        // Then its promise jobs, unless it was ended (as the script thread has it), in
+        // what is left of `limit`.
         let result = match result {
             Err(e) if e.kind != ScriptErrorKind::Exception => Err(e),
             result => {
-                let jobs = inner.bounded(limit, |host| host.microtask_checkpoint());
+                let jobs = inner.jobs();
                 result.and_then(|value| jobs.map(|()| value))
             }
         };
@@ -229,7 +248,7 @@ impl ScriptHost for Parsing {
         self.reports.lock().origin = clip_script_text(origin.url.clone());
         let mut inner = self.inner.borrow_mut();
         let limit = inner.limit;
-        let result = inner.bounded(limit, |host| host.execute(source, origin));
+        let result = inner.execute(limit, source, origin);
         if let Err(e) = &result {
             self.reports.lock().error(e);
         }
@@ -238,8 +257,7 @@ impl ScriptHost for Parsing {
 
     fn microtask_checkpoint(&mut self) -> Result<(), ScriptError> {
         let mut inner = self.inner.borrow_mut();
-        let limit = inner.limit;
-        let result = inner.bounded(limit, |host| host.microtask_checkpoint());
+        let result = inner.jobs();
         if let Err(e) = &result {
             self.reports.lock().error(e);
         }
