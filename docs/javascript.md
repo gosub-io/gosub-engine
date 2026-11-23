@@ -83,13 +83,15 @@ another document. V8 runs jitless there.
 |---|---|
 | `ZoneConfig::javascript_enabled` | Off: nothing runs in the zone, and its documents parse with scripting disabled: `<noscript>` content is markup and is shown, and `@media (scripting)` is false. |
 | `scripting.javascript_enabled` | The same switch, engine-wide. Both have to be on. |
-| `scripting.max_run_ms` | A script still running after this long is terminated. |
+| `scripting.max_run_ms` | A script still running after this long is terminated. Its promise jobs count toward the same limit. |
 | `scripting.heap_limit_mb` | Heap size per page at which a script is ended. |
 
 `console` is on the global object: `gosub_jsapi`'s console, bound in `script/console.rs`
 by hand against the `gosub_webexecutor` traits. Each line goes out as
 `EngineEvent::ConsoleMessage` (level, text, URL of the document) and into the engine's log
-under the target `console`. Arguments are stringified as `String(value)` does it.
+under the target `console`. Arguments are stringified as `String(value)` does it. One
+call passes on at most 64 KiB of text: the argument that goes over is cut and ends in
+`... (cut)`, and the arguments after it are left out.
 
 Inline classic scripts run while the page is parsed. `Html5ParserOptions::scripts` takes a
 `ScriptHost`; the parser calls it at each `</script>` (HTML and SVG) with the element's
@@ -106,7 +108,8 @@ parser a host that forwards to the script thread of the document being loaded
 External scripts come through `Html5ParserOptions::script_sources` (`ScriptSource`, the
 counterpart of `StylesheetSource`). A blocking `<script src>` is fetched and run at its
 end tag; `defer` and `async` scripts are collected and run in document order once the
-document is parsed (`async` does not run earlier yet). In the engine the parse's
+document is parsed (`async` does not run earlier yet). The `defer` ones wait for the
+document's stylesheets, the `async` ones do not. In the engine the parse's
 `ParseSheetGate` is the source: every `<script src>` the document scan finds is fetched
 once into a per-parse map, and the parser takes it from there, or fetches a `src` the scan
 missed. A script that cannot be loaded is logged and skipped. Script text is read as
@@ -138,6 +141,8 @@ Differences from a page parsed in the broker:
   page let go of past the retained-page limit, and anything else that rebuilds the whole
   page (a change of device pixel ratio does). An `ExecuteScript` in flight then answers
   with an error.
+- An `ExecuteScript` for a page the renderer let go of answers with an error and is not
+  run again; the page is loaded again before the next one.
 - A page's stylesheets do not hold its scripts back there; nothing a script can do shows
   the difference yet.
 - The heap limit is capped at a quarter of the renderer's memory limit.
