@@ -3,7 +3,7 @@
 Five crates make up Gosub's scripting story. **Status up front: a first slice is wired.**
 With the cargo feature `js`, `gosub_engine` runs `TabCommand::ExecuteScript` in V8 for a
 page that lives in the engine's own process and answers with `ScriptResult` or
-`JavaScriptError` (see [Scripts in a tab](#scripts-in-a-tab)). Page scripts run during the parse: inline, `<script src>`, `defer` and `async`. Without `js` nothing links V8.
+`JavaScriptError` (see [Scripts in a tab](#scripts-in-a-tab)). Page scripts run during the parse: inline, `<script src>`, `defer` and `async`. Without `js` the engine does not link V8.
 `gosub_html5` has no JS dependency. The other consumer is the `run-js` component tool
 (`src/bin/run-js.rs`, see [binaries.md](binaries.md)).
 
@@ -77,7 +77,9 @@ source text in, plain data out (`ScriptValue`, `ScriptError`). No script value c
 `gosub_engine::engine::script` holds the V8-backed host (`script/v8.rs`, the only file in
 the engine that names `gosub_v8`) and `ScriptThread`: each document gets a thread of its
 own with one global scope, started by its first script and dropped when the tab commits
-another document. V8 runs jitless there.
+another document. V8 runs jitless there, provided the host is what starts V8 in the
+process: V8 is initialized once, and an embedder that starts it first with other options
+(`V8Engine::new()`) keeps those.
 
 | Setting | Meaning |
 |---|---|
