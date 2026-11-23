@@ -517,6 +517,9 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             }
         }
         self.doc.set_hovered_nodes(new_leaf);
+        // the restyle below answers `@media (scripting)` for this document, not for the
+        // one another tab loaded last
+        gosub_css3::stylesheet::set_scripting(self.doc.scripting_enabled());
         self.adapter.invalidate_style_for_nodes(&dirty_nodes);
 
         // Everything either element covers, as laid out.
@@ -1476,6 +1479,55 @@ mod tests {
         let mut page = build("https://example.test/#p");
         assert!(page.flush_autofocus().is_none());
         assert_eq!(page.doc.focused_node(), None);
+    }
+
+    /// A hover restyles under the scripting flag of its own document, whatever page the
+    /// renderer loaded since.
+    #[test]
+    fn a_hover_restyles_with_the_scripting_of_its_document() {
+        use crate::html::{DefaultRenderConfig, RenderConfiguration};
+        use gosub_interface::style::Display;
+        use gosub_render_pipeline::common::document::pipeline_doc::PipelineDocument;
+        type Fonts = <DefaultRenderConfig as RenderConfiguration>::FontSystem;
+        let build = |scripting_enabled: bool| {
+            let fonts: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(Fonts::default()));
+            RetainedPage::<DefaultRenderConfig>::build_with(
+                PageRequest {
+                    html: "<!DOCTYPE html><body><noscript id=\"n\"><p id=\"p\">fallback</p></noscript>",
+                    page_url: "https://example.test/",
+                    viewport_width: 800.0,
+                    viewport_height: 600.0,
+                    known_tiles: &HashSet::new(),
+                    hovered_node: None,
+                    dpr: 1,
+                    media: MediaPrefs::default(),
+                },
+                fonts,
+                Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
+                Arc::new(crate::net::resource_loader::NoResourceLoader),
+                Html5ParserOptions {
+                    scripting_enabled,
+                    ..Default::default()
+                },
+            )
+        };
+
+        let mut without = build(false);
+        let noscript = without.doc.node_by_named_id("n").expect("the noscript element");
+        let fallback = without.doc.node_by_named_id("p").expect("its paragraph");
+        assert_ne!(
+            without.adapter.computed_style(noscript).box_group.display,
+            Display::None
+        );
+
+        // another tab's page, with scripting
+        let _with = build(true);
+
+        without.hover(Some(fallback.into()));
+        assert_ne!(
+            without.adapter.computed_style(noscript).box_group.display,
+            Display::None
+        );
     }
 
     /// A viewport with no width yet keeps every column, so what the broker holds stays there.
