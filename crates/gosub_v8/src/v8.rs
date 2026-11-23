@@ -114,6 +114,7 @@ pub struct V8Context {
 ///
 /// The isolate is the thread's current one for as long as this lives: a thread can hold
 /// the contexts of several pages, and V8 works on the isolate that was entered last.
+/// Keep it in a local, like a scope: wrappers have to go in the reverse order they came.
 pub struct IsolateWrapper {
     iso: NonNull<Isolate>,    // we are not responsible for dropping the Isolate
     _ctx: Rc<RefCell<V8Ctx>>, //ctx to keep the isolate alive
