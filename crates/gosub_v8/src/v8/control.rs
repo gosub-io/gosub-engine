@@ -22,6 +22,10 @@ pub struct V8Options {
 #[derive(Clone, Debug, Default)]
 pub struct V8ContextOptions {
     /// Maximum heap size in bytes. A script that reaches it ends with [`V8Error::OutOfMemory`].
+    ///
+    /// That holds with [`V8Options::jitless`]. With the JIT on, optimized code can allocate
+    /// past the request to stop, and V8 then aborts the process: it has no other answer to
+    /// a heap that is full.
     pub heap_limit: Option<usize>,
     /// Run promise jobs only at [`V8Context::microtask_checkpoint`], not whenever a script returns.
     pub explicit_microtasks: bool,
