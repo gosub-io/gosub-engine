@@ -17,7 +17,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
 
         match &*token {
             Token::Text { .. }
-                if ["table", "tbody", "template", "tfoot", "tr"]
+                if ["table", "tbody", "template", "tfoot", "thead", "tr"]
                     .iter()
                     .any(|&node| node == node_tag!(self, current_node_id!(self))) =>
             {

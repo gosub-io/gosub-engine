@@ -61,3 +61,28 @@ fn a_srcdoc_document_without_a_doctype_stays_in_no_quirks_mode() {
     let parsed = parse("<p>x");
     assert_eq!(parsed.quirks, QuirksMode::Quirks);
 }
+
+/// Whitespace in a `thead` stays there, as it does in `tbody` and `tfoot` ("in table": a
+/// character token while the current node is one of table, tbody, template, tfoot, thead, tr).
+#[test]
+fn whitespace_in_a_thead_stays_in_the_thead() {
+    let parsed = parse("<!DOCTYPE html><table><thead> \n<tr><th>H</th></tr></thead></table>");
+    assert_eq!(
+        parsed.tree,
+        [
+            "| <!DOCTYPE html>",
+            "| <html>",
+            "|   <head>",
+            "|   <body>",
+            "|     <table>",
+            "|       <thead>",
+            "|         \" ",
+            "\"",
+            "|         <tr>",
+            "|           <th>",
+            "|             \"H\"",
+        ]
+        .join("\n")
+    );
+    assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+}
