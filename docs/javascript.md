@@ -142,7 +142,8 @@ Differences from a page parsed in the broker:
   page (a change of device pixel ratio does). An `ExecuteScript` in flight then answers
   with an error.
 - An `ExecuteScript` for a page the renderer let go of answers with an error and is not
-  run again; the page is loaded again before the next one.
+  run again, and so do the ones sent before that answer came. The page is loaded again
+  before the next one after it.
 - A page's stylesheets do not hold its scripts back there; nothing a script can do shows
   the difference yet.
 - The heap limit is capped at a quarter of the renderer's memory limit.
