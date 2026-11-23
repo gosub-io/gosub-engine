@@ -144,11 +144,18 @@ impl ActiveElement {
 /// A script element the parser runs.
 enum Script {
     Inline(String),
-    External {
-        url: String,
-        /// `defer` or `async`: it does not hold up the parse.
-        deferred: bool,
-    },
+    External { url: String, when: ScriptTiming },
+}
+
+/// When an external script runs.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ScriptTiming {
+    /// Where it stands; the parse waits for it.
+    Blocking,
+    /// After the parse, once the stylesheets are in.
+    Defer,
+    /// After the parse for now, and without waiting for stylesheets.
+    Async,
 }
 
 /// The JavaScript MIME type essences.
@@ -296,7 +303,7 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     script_source: Option<Arc<dyn ScriptSource>>,
     /// URLs of the `defer` and `async` scripts seen so far, in document order. They run
     /// when the document has been parsed.
-    deferred_scripts: Vec<String>,
+    deferred_scripts: Vec<(String, ScriptTiming)>,
     /// Time spent running scripts and waiting for external ones, in microseconds: not part
     /// of the time the parse itself took.
     script_us: u64,
@@ -4405,9 +4412,12 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 };
                 self.execute_script(&source, &origin)
             }
-            Some(Script::External { url, deferred: false }) => self.run_external_script(&url),
-            Some(Script::External { url, deferred: true }) => {
-                self.deferred_scripts.push(url);
+            Some(Script::External {
+                url,
+                when: ScriptTiming::Blocking,
+            }) => self.run_external_script(&url),
+            Some(Script::External { url, when }) => {
+                self.deferred_scripts.push((url, when));
                 false
             }
             None => false,
@@ -4446,11 +4456,14 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     /// Runs the `defer` and `async` scripts, in document order, now that the document has
     /// been parsed. `async` scripts do not run earlier than this yet.
     fn run_deferred_scripts(&mut self) {
-        // they wait for the stylesheets of the document, as a blocking script does
-        if !self.deferred_scripts.is_empty() {
-            self.settle_stylesheets();
-        }
-        for url in std::mem::take(&mut self.deferred_scripts) {
+        let mut settled = false;
+        for (url, when) in std::mem::take(&mut self.deferred_scripts) {
+            // a `defer` script waits for the stylesheets of the document, as a blocking
+            // script does; an `async` one does not
+            if when == ScriptTiming::Defer && !settled {
+                self.settle_stylesheets();
+                settled = true;
+            }
             if self.run_external_script(&url) {
                 self.script_checkpoint();
             }
@@ -4495,7 +4508,13 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
             return Some(Script::External {
                 url: url.to_string(),
-                deferred: attribute("defer").is_some() || attribute("async").is_some(),
+                when: if attribute("async").is_some() {
+                    ScriptTiming::Async
+                } else if attribute("defer").is_some() {
+                    ScriptTiming::Defer
+                } else {
+                    ScriptTiming::Blocking
+                },
             });
         }
 
@@ -6174,6 +6193,54 @@ mod script_tests {
                 },
                 Call::Checkpoint,
             ]
+        );
+    }
+
+    /// What a parse with pending stylesheets asks for and runs: `sheets` or a script's source.
+    fn with_late_sheet(html: &str) -> Vec<String> {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let options = Html5ParserOptions {
+            scripting_enabled: true,
+            stylesheets: Some(Arc::new(Sheets(Arc::clone(&calls)))),
+            scripts: Some(Box::new(Recorder(Arc::clone(&calls)))),
+            script_sources: Some(Arc::new(Files::default())),
+        };
+        let mut stream = ByteStream::from_str(html, Encoding::UTF8);
+        let url = Url::parse("https://example.test/").unwrap();
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(Some(url));
+        let _ = Html5Parser::<Config>::parse_document(&mut stream, &mut doc, Some(options));
+
+        let calls = calls.lock();
+        calls
+            .iter()
+            .filter_map(|call| match call {
+                Call::Sheets(_) => Some("sheets".to_owned()),
+                Call::Execute { source, .. } => Some(source.clone()),
+                Call::Checkpoint => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn async_scripts_do_not_wait_for_the_stylesheets() {
+        const LINK: &str = "<link rel=\"stylesheet\" href=\"/late.css\">";
+
+        assert_eq!(
+            with_late_sheet(&format!("<script async src=\"/a1.js\"></script>{LINK}")),
+            ["a1()"]
+        );
+        // `async` wins over `defer`
+        assert_eq!(
+            with_late_sheet(&format!("<script async defer src=\"/a1.js\"></script>{LINK}")),
+            ["a1()"]
+        );
+        // only the deferred ones wait, and once
+        assert_eq!(
+            with_late_sheet(&format!(
+                "<script async src=\"/a1.js\"></script><script defer src=\"/d1.js\"></script>\
+                 <script async src=\"/a.js\"></script><script defer src=\"/d2.js\"></script>{LINK}"
+            )),
+            ["a1()", "sheets", "d1()", "a()", "d2()"]
         );
     }
 
