@@ -85,8 +85,8 @@ struct Inner {
     limit: Duration,
     /// When the request being served runs out; no script gets longer than that.
     request_ends: Instant,
-    /// What the script that ran last left of its time, for its promise jobs.
-    left_for_jobs: Duration,
+    /// When the time of the script that ran last is up, for its promise jobs too.
+    jobs_end: Instant,
 }
 
 impl Inner {
@@ -117,17 +117,15 @@ impl Inner {
 
     /// Runs a script with `limit` to spend. What it leaves is for its promise jobs.
     fn execute(&mut self, limit: Duration, source: &str, origin: &ScriptOrigin) -> Result<ScriptValue, ScriptError> {
-        let started = Instant::now();
-        let result = self.bounded(limit, |host| host.execute(source, origin));
-        self.left_for_jobs = limit.saturating_sub(started.elapsed());
-
-        result
+        // an instant, not what is left: the jobs may start later than the script ended
+        self.jobs_end = Instant::now() + limit;
+        self.bounded(limit, |host| host.execute(source, origin))
     }
 
     /// Runs the promise jobs of the script that ran last, in the time it left. The alarm
     /// asks once, so they get a deadline of their own.
     fn jobs(&mut self) -> Result<(), ScriptError> {
-        let left = self.left_for_jobs;
+        let left = self.jobs_end.saturating_duration_since(Instant::now());
         self.bounded(left, |host| host.microtask_checkpoint())
     }
 }
@@ -175,7 +173,7 @@ impl PageScripts {
                 host,
                 limit: Duration::from_millis(settings.max_run_ms),
                 request_ends,
-                left_for_jobs: Duration::ZERO,
+                jobs_end: Instant::now(),
             })),
             reports,
             url: url.to_owned(),
