@@ -9,6 +9,7 @@ use gosub_interface::config::HasDocument;
 use gosub_interface::css3;
 use gosub_interface::css3::{CssOrigin, CssPropertyMap};
 use gosub_interface::document::Document;
+use gosub_interface::interaction::InteractionSnapshot;
 use gosub_interface::node::NodeType;
 use gosub_interface::style::ComputedStyle;
 use gosub_shared::node::NodeId;
@@ -38,6 +39,7 @@ use crate::tokenizer::NumberKind;
 // exactly the match that would have run anyway. `None` matches without it.
 pub(crate) fn match_selector<C: HasDocument>(
     document: &C::Document,
+    ix: &InteractionSnapshot,
     node_id: NodeId,
     selector: &CssSelector,
     pseudo: Option<&str>,
@@ -74,7 +76,7 @@ pub(crate) fn match_selector<C: HasDocument>(
             continue;
         }
 
-        if match_compound::<C>(document, node_id, part, pseudo, scope) {
+        if match_compound::<C>(document, ix, node_id, part, pseudo, scope) {
             best = Some(best.map_or(specificity, |b| b.max(specificity)));
         }
     }
@@ -137,6 +139,7 @@ fn subject_reach(parts: &[CssSelectorPart]) -> ScopeMatch {
 /// right-to-left walk takes over.
 fn match_compound<C: HasDocument>(
     doc: &C::Document,
+    ix: &InteractionSnapshot,
     node_id: NodeId,
     parts: &[CssSelectorPart],
     pseudo: Option<&str>,
@@ -147,7 +150,7 @@ fn match_compound<C: HasDocument>(
     // stops ordinary selectors crossing the boundary. Check it here, then match the remainder
     // inside the tree as usual.
     let Some(CssSelectorPart::Host(inner)) = parts.first() else {
-        return match_selector_parts::<C>(doc, node_id, parts, pseudo, scope);
+        return match_selector_parts::<C>(doc, ix, node_id, parts, pseudo, scope);
     };
 
     let Some(tree) = scope.tree else {
@@ -159,7 +162,7 @@ fn match_compound<C: HasDocument>(
     if let Some(inner) = inner {
         if !inner
             .iter()
-            .any(|compound| match_selector_parts::<C>(doc, host, compound, None, ScopeContext::plain()))
+            .any(|compound| match_selector_parts::<C>(doc, ix, host, compound, None, ScopeContext::plain()))
         {
             return false;
         }
@@ -181,7 +184,7 @@ fn match_compound<C: HasDocument>(
         }
     }
 
-    match_selector_parts::<C>(doc, node_id, rest, pseudo, scope)
+    match_selector_parts::<C>(doc, ix, node_id, rest, pseudo, scope)
 }
 
 /// The slot in `tree` that `node` is projected into, mirroring the flat tree's assignment: an
@@ -229,7 +232,7 @@ fn consume<'a, T>(this: &mut &'a [T]) -> Option<&'a T> {
 /// Whether `node` sits at an `An+B` position among the siblings an `:nth-*()` counts: element
 /// siblings only, of the node's own type for the `-of-type` pair, and matching `S` for `of S` -
 /// which the node itself must match too (Selectors L4 §14.4).
-fn match_nth<C: HasDocument>(doc: &C::Document, node: NodeId, nth: &NthSelector) -> bool {
+fn match_nth<C: HasDocument>(doc: &C::Document, ix: &InteractionSnapshot, node: NodeId, nth: &NthSelector) -> bool {
     let Some(parent) = doc.parent(node) else {
         return false;
     };
@@ -241,7 +244,7 @@ fn match_nth<C: HasDocument>(doc: &C::Document, node: NodeId, nth: &NthSelector)
             && (!nth.kind.of_type() || element_type(id) == own_type)
             && nth.of.as_ref().is_none_or(|of| {
                 of.iter()
-                    .any(|complex| match_selector_parts::<C>(doc, id, complex, None, ScopeContext::plain()))
+                    .any(|complex| match_selector_parts::<C>(doc, ix, id, complex, None, ScopeContext::plain()))
             })
     };
     if !counts(node) {
@@ -263,7 +266,12 @@ fn match_nth<C: HasDocument>(doc: &C::Document, node: NodeId, nth: &NthSelector)
 /// Whether a relative selector (`[combinator, compound, combinator, compound, ...]`) is satisfied
 /// starting from `anchor`. Walked left to right, the way it reads: the combinator names the
 /// candidates, each candidate matching the compound continues with the rest from there.
-fn match_relative<C: HasDocument>(doc: &C::Document, anchor: NodeId, relative: &[CssSelectorPart]) -> bool {
+fn match_relative<C: HasDocument>(
+    doc: &C::Document,
+    ix: &InteractionSnapshot,
+    anchor: NodeId,
+    relative: &[CssSelectorPart],
+) -> bool {
     let Some((CssSelectorPart::Combinator(combinator), rest)) = relative.split_first() else {
         return false;
     };
@@ -278,8 +286,8 @@ fn match_relative<C: HasDocument>(doc: &C::Document, anchor: NodeId, relative: &
 
     let try_candidate = |candidate: NodeId| {
         doc.node_type(candidate) == NodeType::ElementNode
-            && match_selector_parts::<C>(doc, candidate, compound, None, ScopeContext::plain())
-            && (tail.is_empty() || match_relative::<C>(doc, candidate, tail))
+            && match_selector_parts::<C>(doc, ix, candidate, compound, None, ScopeContext::plain())
+            && (tail.is_empty() || match_relative::<C>(doc, ix, candidate, tail))
     };
 
     match combinator {
@@ -427,6 +435,7 @@ fn language_range_matches(range: &str, tag: &str) -> bool {
 /// Returns true when the given node matches the part(s)
 fn match_selector_parts<C: HasDocument>(
     doc: &C::Document,
+    ix: &InteractionSnapshot,
     node_id: NodeId,
     mut parts: &[CssSelectorPart],
     pseudo: Option<&str>,
@@ -443,7 +452,16 @@ fn match_selector_parts<C: HasDocument>(
             return false;
         }
 
-        if !match_selector_part::<C>(part, current_id, doc, &mut next_current_id, &mut parts, pseudo, scope) {
+        if !match_selector_part::<C>(
+            part,
+            current_id,
+            doc,
+            ix,
+            &mut next_current_id,
+            &mut parts,
+            pseudo,
+            scope,
+        ) {
             return false;
         }
     }
@@ -456,6 +474,7 @@ fn match_selector_part<C: HasDocument>(
     part: &CssSelectorPart,
     current_id: NodeId,
     doc: &C::Document,
+    ix: &InteractionSnapshot,
     next_id: &mut Option<NodeId>,
     parts: &mut &[CssSelectorPart],
     pseudo: Option<&str>,
@@ -468,15 +487,15 @@ fn match_selector_part<C: HasDocument>(
         // tree - `:not()` takes a compound, and a compound never crosses a combinator.
         CssSelectorPart::Not(inner) => !inner
             .iter()
-            .any(|compound| match_selector_parts::<C>(doc, current_id, compound, pseudo, ScopeContext::plain())),
-        CssSelectorPart::Nth(nth) => match_nth::<C>(doc, current_id, nth),
+            .any(|compound| match_selector_parts::<C>(doc, ix, current_id, compound, pseudo, ScopeContext::plain())),
+        CssSelectorPart::Nth(nth) => match_nth::<C>(doc, ix, current_id, nth),
         // `:is()` and `:where()` match when any argument does. Unlike `:not()`'s compounds, an
         // argument may be a complex selector (`:is(nav a)`); its rightmost compound is matched
         // against this element and its combinators walk the document from here, as the
         // argument would on its own (Selectors L4 §4.2).
         CssSelectorPart::Is(inner) | CssSelectorPart::Where(inner) => inner
             .iter()
-            .any(|complex| match_selector_parts::<C>(doc, current_id, complex, pseudo, ScopeContext::plain())),
+            .any(|complex| match_selector_parts::<C>(doc, ix, current_id, complex, pseudo, ScopeContext::plain())),
         // `:has()` matches when some element, related to this one as its relative selector says,
         // matches it - a descendant, a child, the next sibling or a later one.
         //
@@ -492,13 +511,13 @@ fn match_selector_part<C: HasDocument>(
             let others = &parts[start..];
             if !others.is_empty()
                 && !others.iter().any(|p| matches!(p, CssSelectorPart::Has(_)))
-                && !match_selector_parts::<C>(doc, current_id, others, pseudo, scope)
+                && !match_selector_parts::<C>(doc, ix, current_id, others, pseudo, scope)
             {
                 return false;
             }
             inner
                 .iter()
-                .any(|relative| match_relative::<C>(doc, current_id, relative))
+                .any(|relative| match_relative::<C>(doc, ix, current_id, relative))
         }
         CssSelectorPart::Lang(ranges) => matches_lang::<C>(doc, current_id, ranges),
         // `:host` is only meaningful as the leftmost part, where `match_compound` handles it.
@@ -514,7 +533,7 @@ fn match_selector_part<C: HasDocument>(
             // argument is matched against this element and nothing is walked.
             if !inner
                 .iter()
-                .any(|compound| match_selector_parts::<C>(doc, current_id, compound, None, ScopeContext::plain()))
+                .any(|compound| match_selector_parts::<C>(doc, ix, current_id, compound, None, ScopeContext::plain()))
             {
                 return false;
             }
@@ -577,7 +596,7 @@ fn match_selector_part<C: HasDocument>(
             }
         }
         CssSelectorPart::PseudoClass(name) => match name.as_ref() {
-            "hover" => doc.is_hovered(current_id),
+            "hover" => ix.is_hovered(current_id),
             // Link pseudo-classes: match any element with an href attribute.
             // We have no browsing history, so treat everything as unvisited
             // (`:link` matches, `:visited` does not).
@@ -674,7 +693,7 @@ fn match_selector_part<C: HasDocument>(
                         .parent(current_id)
                         .is_none_or(|p| doc.node_type(p) == NodeType::DocumentNode)
             }
-            "checked" => doc.is_checked(current_id),
+            "checked" => ix.is_checked::<C>(doc, current_id),
             "disabled" => doc.attribute(current_id, "disabled").is_some(),
             "enabled" => {
                 doc.attribute(current_id, "disabled").is_none() && doc.node_type(current_id) == NodeType::ElementNode
@@ -685,9 +704,9 @@ fn match_selector_part<C: HasDocument>(
                     && doc.attribute(current_id, "disabled").is_none()
                     && doc.node_type(current_id) == NodeType::ElementNode
             }
-            "focus" => doc.is_focused(current_id),
-            "focus-visible" => doc.is_focus_visible(current_id),
-            "focus-within" => doc.is_focus_within(current_id),
+            "focus" => ix.is_focused(current_id),
+            "focus-visible" => ix.is_focus_visible(current_id),
+            "focus-within" => ix.is_focus_within(current_id),
             "active" => false,
             // Unknown / unimplemented pseudo-classes never match.
             _ => false,
@@ -723,7 +742,7 @@ fn match_selector_part<C: HasDocument>(
                     // Only an element can match a selector; the document node at the top of
                     // the chain must not satisfy `*`.
                     if doc.node_type(id) == NodeType::ElementNode
-                        && match_selector_parts::<C>(doc, id, rest, pseudo, scope)
+                        && match_selector_parts::<C>(doc, ix, id, rest, pseudo, scope)
                     {
                         return true;
                     }
@@ -742,7 +761,7 @@ fn match_selector_part<C: HasDocument>(
 
                 *next_id = Some(parent_id);
 
-                match_selector_part::<C>(last, parent_id, doc, next_id, parts, pseudo, scope)
+                match_selector_part::<C>(last, parent_id, doc, ix, next_id, parts, pseudo, scope)
             }
             Combinator::NextSibling => {
                 let Some(parent_id) = doc.parent(current_id) else {
@@ -770,7 +789,7 @@ fn match_selector_part<C: HasDocument>(
 
                 *next_id = Some(prev_id);
 
-                match_selector_part::<C>(last, prev_id, doc, next_id, parts, pseudo, scope)
+                match_selector_part::<C>(last, prev_id, doc, ix, next_id, parts, pseudo, scope)
             }
             Combinator::SubsequentSibling => {
                 // Same as the descendant case, over preceding siblings rather than ancestors:
@@ -799,7 +818,7 @@ fn match_selector_part<C: HasDocument>(
                         continue;
                     }
 
-                    if match_selector_parts::<C>(doc, child_id, rest, pseudo, scope) {
+                    if match_selector_parts::<C>(doc, ix, child_id, rest, pseudo, scope) {
                         return true;
                     }
                 }
