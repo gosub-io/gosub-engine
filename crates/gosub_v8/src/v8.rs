@@ -115,7 +115,8 @@ pub struct V8Context {
 /// The isolate is the thread's current one for as long as this lives: a thread can hold
 /// the contexts of several pages, and V8 works on the isolate that was entered last.
 /// Keep it in a local, like a scope: wrappers have to go in the reverse order they came.
-pub struct IsolateWrapper {
+/// Nothing checks that order, which is why code outside this crate gets no wrapper.
+pub(crate) struct IsolateWrapper {
     iso: NonNull<Isolate>,    // we are not responsible for dropping the Isolate
     _ctx: Rc<RefCell<V8Ctx>>, //ctx to keep the isolate alive
 }
@@ -143,7 +144,7 @@ impl Drop for IsolateWrapper {
 }
 
 impl V8Context {
-    pub fn isolate(&self) -> IsolateWrapper {
+    pub(crate) fn isolate(&self) -> IsolateWrapper {
         let mut this = self.ctx.borrow_mut();
         let iso = NonNull::from(this.isolate().as_mut());
         // Safety: left again when the wrapper is dropped
