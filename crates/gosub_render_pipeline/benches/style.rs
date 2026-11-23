@@ -49,6 +49,7 @@ use gosub_html5::parser::Html5Parser;
 use gosub_interface::config::ModuleConfiguration;
 use gosub_interface::css3::{CssOrigin, CssPropertyMap as _, CssSystem as _};
 use gosub_interface::document::Document as _;
+use gosub_interface::interaction::InteractionSnapshot;
 use gosub_interface::node::NodeType;
 use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
 use gosub_render_pipeline::rendertree_builder::RenderTree;
@@ -146,7 +147,8 @@ fn style_subtree(
     styled: &mut u64,
 ) {
     let own = if doc.node_type(id) == NodeType::ElementNode {
-        let mut map = Css3System::properties_from_node::<Config>(doc, id, sheets, parent);
+        let mut map =
+            Css3System::properties_from_node::<Config>(doc, &InteractionSnapshot::default(), id, sheets, parent);
         if let Some(map) = map.as_mut() {
             // The adapter computes every property right after the cascade; so does this.
             for (_, property) in map.iter_mut() {

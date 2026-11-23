@@ -960,7 +960,7 @@ impl Painter {
                 .with_radius(Radius::new(6.0)),
         ));
 
-        let open = doc.open_select();
+        let open = doc.interaction().open_select();
         let (hovered, active, first) = open.map_or((None, None, 0), |o| (o.hover, o.active, o.first_row));
         let chosen = doc.selected_option(popup.select);
         let bar_w = popup.scrollbar_width();
@@ -1121,9 +1121,11 @@ impl Painter {
                 // The typed value/caret/selection are read here, not at layout, so typing is
                 // paint-only.
                 let doc = &self.layer_list.layout_tree.render_tree.doc;
-                let focused = doc.is_focused(dom_node_id);
-                let state = doc
+                let ix = doc.interaction();
+                let focused = ix.is_focused(dom_node_id);
+                let state = ix
                     .control_edit_state(dom_node_id)
+                    .cloned()
                     .unwrap_or_else(|| ControlEditState::new(initial_value.clone(), initial_value.chars().count()));
                 let value = state.value.clone();
                 // A date/time kind holds an ISO string and shows it the way its placeholder
@@ -1351,6 +1353,7 @@ impl Painter {
                     .layout_tree
                     .render_tree
                     .doc
+                    .interaction()
                     .control_edit_state(dom_node_id)
                     .and_then(|s| parse_floating_point_number(&s.value))
                     .map(|v| fraction_between(v, *min, *max).clamp(0.0, 1.0));
@@ -1435,8 +1438,8 @@ impl Painter {
             FormControl::ColorSwatch { value } => {
                 // What the picker chose lives on the document, like typed text; the markup
                 // value is only the default. Unparsable is black, per value sanitisation.
-                let doc = &self.layer_list.layout_tree.render_tree.doc;
-                let live = doc.control_edit_state(dom_node_id).map(|s| s.value);
+                let ix = self.layer_list.layout_tree.render_tree.doc.interaction();
+                let live = ix.control_edit_state(dom_node_id).map(|s| s.value.clone());
                 let color = Color::try_from_css(live.as_deref().unwrap_or(value)).unwrap_or(Color::BLACK);
                 commands.push(PaintCommand::rectangle(
                     Rectangle::new(content_box)

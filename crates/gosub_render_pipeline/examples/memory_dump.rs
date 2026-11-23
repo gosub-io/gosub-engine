@@ -22,6 +22,7 @@ use gosub_html5::parser::Html5Parser;
 use gosub_interface::config::ModuleConfiguration;
 use gosub_interface::css3::{CssOrigin, CssPropertyMap as _, CssSystem as _};
 use gosub_interface::document::Document as _;
+use gosub_interface::interaction::InteractionSnapshot;
 use gosub_interface::node::NodeType;
 use gosub_interface::style::ComputedStyle;
 use gosub_shared::config::ParserConfig;
@@ -100,7 +101,13 @@ fn walk(
     styles: &mut Vec<ComputedStyle>,
 ) {
     let own = if doc.node_type(id) == NodeType::ElementNode {
-        let mut map = Css3System::properties_from_node::<Config>(doc, id, doc.stylesheets(), parent_map);
+        let mut map = Css3System::properties_from_node::<Config>(
+            doc,
+            &InteractionSnapshot::default(),
+            id,
+            doc.stylesheets(),
+            parent_map,
+        );
         if let Some(map) = map.as_mut() {
             for (_, property) in map.iter_mut() {
                 property.compute_value();

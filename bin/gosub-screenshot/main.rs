@@ -288,6 +288,15 @@ fn parse_interaction(spec: &str) -> Vec<Step> {
     }
 }
 
+/// The URL argument as it is loaded: with `https://` in front when it names no scheme.
+fn with_scheme(arg: &str) -> String {
+    if arg.contains("://") {
+        arg.to_string()
+    } else {
+        format!("https://{arg}")
+    }
+}
+
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000003");
 
 /// Default viewport height used for layout, in CSS pixels; `--viewport-height` overrides it.
@@ -316,18 +325,20 @@ fn main() {
         .unwrap_or_default();
 
     let args = Args::parse();
-    let url_str = if args.url.contains("://") {
-        args.url.clone()
-    } else {
-        format!("https://{}", args.url)
-    };
+    let url_str = with_scheme(&args.url);
     let output = args.output;
     let viewport_w = args.width;
     let viewport_h = args.viewport_height.max(1);
 
     eprintln!("gosub-screenshot {BUILD_VERSION} — headless full-page screenshot via the gosub render pipeline (CPU rasterization)");
 
-    let url = Url::parse(&url_str).expect("invalid URL");
+    let url = match Url::parse(&url_str) {
+        Ok(url) => url,
+        Err(err) => {
+            eprintln!("Invalid URL '{url_str}': {err}");
+            std::process::exit(2);
+        }
+    };
 
     // ── Engine setup (CPU backend - no GPU) ───────────────────────────────────
     #[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
@@ -769,6 +780,13 @@ mod tests {
         let mut first_render = FirstRender::default();
         first_render.poll(&mut rx, tab_id).unwrap();
         first_render
+    }
+
+    #[test]
+    fn a_url_without_a_scheme_gets_https() {
+        assert_eq!(with_scheme("example.com/a"), "https://example.com/a");
+        assert_eq!(with_scheme("http://example.com"), "http://example.com");
+        assert_eq!(with_scheme("file:///tmp/a.html"), "file:///tmp/a.html");
     }
 
     #[test]

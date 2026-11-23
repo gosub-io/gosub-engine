@@ -39,18 +39,20 @@ impl Token {
     /// Returns true when there is a mixture of white and non-white and \0 characters in the token
     pub(crate) fn is_mixed(&self) -> bool {
         if let Token::Text { text: value, .. } = self {
-            let mut found = 0;
-
-            if value.chars().any(|ch| ch.is_ascii_whitespace()) {
-                found += 1;
+            // One pass over the bytes, stopping at the second kind found. Whitespace and \0
+            // are ASCII; every byte of a non-ASCII character is "other", like the character.
+            let (mut white, mut null, mut other) = (false, false, false);
+            for &b in value.as_bytes() {
+                match b {
+                    b'\t' | b'\n' | 0x0C | b'\r' | b' ' => white = true,
+                    0 => null = true,
+                    _ => other = true,
+                }
+                if u8::from(white) + u8::from(null) + u8::from(other) > 1 {
+                    return true;
+                }
             }
-            if value.chars().any(|ch| ch == '\0') {
-                found += 1;
-            }
-            if value.chars().any(|ch| !ch.is_ascii_whitespace() && ch != '\0') {
-                found += 1;
-            }
-            found > 1
+            false
         } else {
             false
         }
@@ -59,7 +61,8 @@ impl Token {
     /// Returns true when there is a mixture of \0 and non-\0 characters in the token
     pub(crate) fn is_mixed_null(&self) -> bool {
         if let Token::Text { text: value, .. } = self {
-            value.chars().any(|ch| ch == '\0') && value.chars().any(|ch| ch != '\0')
+            let bytes = value.as_bytes();
+            bytes.contains(&0) && bytes.iter().any(|&b| b != 0)
         } else {
             false
         }
@@ -92,7 +95,7 @@ impl Token {
     #[must_use]
     pub fn is_null(&self) -> bool {
         if let Token::Text { text: value, .. } = self {
-            value.chars().any(|ch| ch == CHAR_NUL)
+            value.as_bytes().contains(&(CHAR_NUL as u8))
         } else {
             false
         }
@@ -108,11 +111,7 @@ impl Token {
     #[must_use]
     pub fn is_empty_or_white(&self) -> bool {
         if let Token::Text { text: value, .. } = self {
-            if value.is_empty() {
-                return true;
-            }
-
-            value.chars().all(|ch| ch.is_ascii_whitespace())
+            value.bytes().all(|b| b.is_ascii_whitespace())
         } else {
             false
         }
@@ -227,6 +226,49 @@ mod tests {
             location: Location::default(),
         };
         assert!(!token.is_mixed_null());
+    }
+
+    #[test]
+    fn test_text_checks_match_char_definitions() {
+        let texts = [
+            "",
+            "\0",
+            "\0\0",
+            " \t\n\r\x0C",
+            "\r\nx",
+            "x\r\n",
+            "\u{e9}\u{3000}",
+            "\u{a0}\0",
+            "\0\u{a0}",
+            "a \0",
+            "\x0B",
+            "abc",
+            "  \0",
+            "\0  ",
+        ];
+        for text in texts {
+            let token = Token::Text {
+                text: text.to_string(),
+                location: Location::default(),
+            };
+            let white = text.chars().any(|ch| ch.is_ascii_whitespace());
+            let null = text.contains('\0');
+            let other = text.chars().any(|ch| !ch.is_ascii_whitespace() && ch != '\0');
+            let kinds = u8::from(white) + u8::from(null) + u8::from(other);
+
+            assert_eq!(token.is_mixed(), kinds > 1, "{text:?}");
+            assert_eq!(
+                token.is_mixed_null(),
+                null && text.chars().any(|ch| ch != '\0'),
+                "{text:?}"
+            );
+            assert_eq!(token.is_null(), null, "{text:?}");
+            assert_eq!(
+                token.is_empty_or_white(),
+                text.chars().all(|ch| ch.is_ascii_whitespace()),
+                "{text:?}"
+            );
+        }
     }
 
     #[test]

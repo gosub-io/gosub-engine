@@ -21,6 +21,7 @@ use gosub_css3::media_query::{media_environment, MediaEnvironment};
 use gosub_css3::system::Css3System;
 use gosub_interface::css3::{CssPropertyMap as _, CssSystem as _};
 use gosub_interface::document::Document as _;
+use gosub_interface::interaction::InteractionSnapshot;
 use gosub_interface::node::NodeType;
 use gosub_shared::node::NodeId;
 
@@ -82,7 +83,13 @@ fn cached(id: NodeId) -> Option<Arc<CssProperties>> {
 /// Run the cascade for one element and resolve every value it settled, so the elements below it
 /// inherit computed values rather than cascaded ones.
 fn resolve(doc: &Doc, id: NodeId, parent: Option<&CssProperties>) -> Option<CssProperties> {
-    let mut map = Css3System::properties_from_node::<DomConfig>(doc, id, doc.stylesheets(), parent)?;
+    let mut map = Css3System::properties_from_node::<DomConfig>(
+        doc,
+        &InteractionSnapshot::default(),
+        id,
+        doc.stylesheets(),
+        parent,
+    )?;
     for (_, property) in map.iter_mut() {
         property.compute_value();
     }
@@ -133,15 +140,20 @@ pub(crate) fn pseudo_style(doc: &Doc, id: NodeId, pseudo: &str) -> Option<Arc<Cs
     }
 
     let owner = element_style(doc, id);
-    let map =
-        Css3System::pseudo_properties_from_node::<DomConfig>(doc, id, doc.stylesheets(), pseudo, owner.as_deref()).map(
-            |mut map| {
-                for (_, property) in map.iter_mut() {
-                    property.compute_value();
-                }
-                Arc::new(map)
-            },
-        );
+    let map = Css3System::pseudo_properties_from_node::<DomConfig>(
+        doc,
+        &InteractionSnapshot::default(),
+        id,
+        doc.stylesheets(),
+        pseudo,
+        owner.as_deref(),
+    )
+    .map(|mut map| {
+        for (_, property) in map.iter_mut() {
+            property.compute_value();
+        }
+        Arc::new(map)
+    });
     CACHE.with(|cache| cache.borrow_mut().pseudos.insert(key, map.clone()));
     map
 }

@@ -5,6 +5,7 @@ use crate::engine::events::PickerKind;
 use crate::html::{EngineDocument, RenderConfiguration};
 use cow_utils::CowUtils;
 use gosub_interface::document::{ControlEditState, Document as _};
+use gosub_interface::interaction::InteractionSnapshot;
 use gosub_shared::node::NodeId;
 
 /// `Some(multiline)` when `id` is an enabled, writable text-entry control.
@@ -100,10 +101,15 @@ pub fn sanitize_picker_value(kind: PickerKind, raw: &str) -> String {
 }
 
 /// The live value of a picker input, sanitised.
-pub fn picker_value<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId, kind: PickerKind) -> String {
-    let raw = doc
+pub fn picker_value<C: RenderConfiguration>(
+    doc: &EngineDocument<C>,
+    ix: &InteractionSnapshot,
+    id: NodeId,
+    kind: PickerKind,
+) -> String {
+    let raw = ix
         .control_edit_state(id)
-        .map(|s| s.value)
+        .map(|s| s.value.clone())
         .unwrap_or_else(|| initial_value(doc, id));
     sanitize_picker_value(kind, &raw)
 }
@@ -303,13 +309,17 @@ pub fn toggle_kind<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) 
 /// A checkbox flips; a radio becomes checked and the rest of its group is unchecked: the radios
 /// in the same tree with the same form owner (or none) and the same `name` (HTML 4.10.5.1.15).
 /// Returns the `(node, checked)` changes.
-pub fn toggle<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> Vec<(NodeId, bool)> {
+pub fn toggle<C: RenderConfiguration>(
+    doc: &EngineDocument<C>,
+    ix: &InteractionSnapshot,
+    id: NodeId,
+) -> Vec<(NodeId, bool)> {
     match toggle_kind(doc, id) {
         None => Vec::new(),
-        Some(false) => vec![(id, !doc.is_checked(id))],
+        Some(false) => vec![(id, !ix.is_checked::<C>(doc, id))],
         Some(true) => {
             let mut changes = Vec::new();
-            if !doc.is_checked(id) {
+            if !ix.is_checked::<C>(doc, id) {
                 changes.push((id, true));
             }
             let Some(name) = doc.attribute(id, "name").filter(|n| !n.is_empty()) else {
@@ -321,7 +331,7 @@ pub fn toggle<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> Ve
                 if n != id
                     && toggle_kind(doc, n) == Some(true)
                     && doc.attribute(n, "name") == Some(name)
-                    && doc.is_checked(n)
+                    && ix.is_checked::<C>(doc, n)
                     && crate::engine::form::form_owner(doc, n) == owner
                 {
                     changes.push((n, false));
@@ -559,8 +569,14 @@ pub fn range_params<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId)
 
 /// The slider's current value: what the user dragged to, else the `value` attribute, else the
 /// midpoint (HTML's default for range).
-pub fn range_value<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId, min: f64, max: f64) -> f64 {
-    doc.control_edit_state(id)
+pub fn range_value<C: RenderConfiguration>(
+    doc: &EngineDocument<C>,
+    ix: &InteractionSnapshot,
+    id: NodeId,
+    min: f64,
+    max: f64,
+) -> f64 {
+    ix.control_edit_state(id)
         .and_then(|s| s.value.trim().parse::<f64>().ok())
         .or_else(|| doc.attribute(id, "value").and_then(|v| v.trim().parse::<f64>().ok()))
         .unwrap_or((min + max) / 2.0)
@@ -614,7 +630,7 @@ mod tests {
             .node_by_named_id(id)
             .or_else(|| shadow.and_then(|s| doc.node_by_named_id_in(s, id)))
             .unwrap();
-        toggle(&doc, target)
+        toggle(&doc, &InteractionSnapshot::default(), target)
             .into_iter()
             .map(|(n, c)| (doc.attribute(n, "id").unwrap_or_default().to_string(), c))
             .collect()
@@ -653,7 +669,10 @@ mod tests {
         let root = radio(&mut doc, true);
         let child = radio(&mut doc, false);
         doc.attach(child, root, None).unwrap();
-        assert_eq!(toggle(&doc, child), [(child, true), (root, false)]);
+        assert_eq!(
+            toggle(&doc, &InteractionSnapshot::default(), child),
+            [(child, true), (root, false)]
+        );
     }
 
     #[test]
