@@ -442,6 +442,10 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
             self.reprocess_token = false;
 
+            // The handlers swap the token out for a placeholder, so the trace keeps its own copy.
+            #[cfg(all(feature = "debug_parser", test))]
+            let traced = self.current_token.clone();
+
             // Check how we should dispatch the token, and dispatch to the correct function
             match dispatcher_mode {
                 DispatcherMode::Foreign => {
@@ -453,7 +457,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             }
 
             #[cfg(all(feature = "debug_parser", test))]
-            self.display_debug_info();
+            self.display_debug_info(&traced);
         }
 
         Ok(self.error_logger.borrow().get_errors())
@@ -689,9 +693,9 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     }
 
     #[cfg(all(feature = "debug_parser", test))]
-    fn display_debug_info(&self) {
+    fn display_debug_info(&self, token: &Token) {
         println!("-----------------------------------------\n");
-        println!("current token   : '{}'", self.current_token);
+        println!("current token   : '{token}'");
         println!("insertion mode  : {:?}", self.insertion_mode);
         print!("Open elements   : [ ");
         for node_id in &self.open_elements {

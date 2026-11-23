@@ -552,7 +552,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                 self.adoption_agency_algorithm(token);
 
                 #[cfg(all(feature = "debug_parser", test))]
-                self.display_debug_info();
+                self.display_debug_info(token);
             }
             Token::StartTag { name, .. } if name == "applet" || name == "marquee" || name == "object" => {
                 self.reconstruct_formatting();
