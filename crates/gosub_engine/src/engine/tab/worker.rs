@@ -283,7 +283,11 @@ pub struct TabWorker<C: RenderConfiguration> {
     document_in_renderer: bool,
     /// Counts the documents this tab committed. A script that was sent under an earlier
     /// count ran in a page that is gone.
-    script_page: Arc<std::sync::atomic::AtomicU64>,
+    script_page: u64,
+    /// Answers of the scripts that ran here, from the script thread, each with the page
+    /// it was sent to.
+    local_script_replies: tokio::sync::mpsc::UnboundedSender<LocalScriptReply>,
+    local_script_inbox: tokio::sync::mpsc::UnboundedReceiver<LocalScriptReply>,
     /// Answers of the scripts sent to the renderer, from the threads that waited for them.
     remote_script_replies: tokio::sync::mpsc::UnboundedSender<RemoteScriptReply>,
     remote_script_inbox: tokio::sync::mpsc::UnboundedReceiver<RemoteScriptReply>,
@@ -481,6 +485,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let runtime = TabRuntime::with_fps(config_store.get_uint("renderer.tab.default_fps") as u32);
 
         let (remote_script_replies, remote_script_inbox) = tokio::sync::mpsc::unbounded_channel();
+        let (local_script_replies, local_script_inbox) = tokio::sync::mpsc::unbounded_channel();
         Self {
             tab_id,
             zone_id,
@@ -491,7 +496,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
             remote_script_replies,
             remote_script_inbox,
             remote_script_next: 0,
-            script_page: Arc::default(),
+            script_page: 0,
+            local_script_replies,
+            local_script_inbox,
             remote_script_published: 0,
             remote_script_done: Default::default(),
             zone_context,
@@ -683,6 +690,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
                 // The answer of a script that ran in the renderer
                 Some(reply) = self.remote_script_inbox.recv() => self.on_remote_script_reply(reply),
+
+                // The answer of a script that ran here
+                Some((sent_to, result)) = self.local_script_inbox.recv() => {
+                    let event = local_script_event(self.tab_id, sent_to, self.script_page, result);
+                    self.send_event(event);
+                }
 
                 // Handle incoming tab commands from the UA
                 msg = self.cmd_rx.recv() => {
@@ -918,7 +931,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     .filter(|a| a.nav_id == nav_id)
                     .map(|a| a.cancel.clone());
                 // scripts still running in the page this one replaces answer with an error
-                self.script_page.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                self.script_page += 1;
                 match (doc, source) {
                     (Some(doc), source) => {
                         // the thread the document's own scripts ran on, if it had any to run
@@ -1953,31 +1966,17 @@ impl<C: RenderConfiguration> TabWorker<C> {
             line: 0,
         };
         let limit = self.script_time_limit();
-        let tab_id = self.tab_id;
-        let event_tx = self.zone_context.event_tx.clone();
         let (finished, done) = oneshot::channel();
-        let page = Arc::clone(&self.script_page);
-        let sent_to = page.load(std::sync::atomic::Ordering::Acquire);
+        let replies = self.local_script_replies.clone();
+        let sent_to = self.script_page;
         // Queued here, not in the task below: scripts run in the order their commands came.
-        // The answer goes out from the script thread, so the answers keep that order too.
+        // The script thread hands its answers over in that order, and the worker sends
+        // them out: it is the one that knows whether the page is still there.
         let queued = thread.submit(
             source,
             origin,
             Box::new(move |result| {
-                // as a renderer's answer: one for a page that is gone is an error
-                let result = if page.load(std::sync::atomic::Ordering::Acquire) == sent_to {
-                    result
-                } else {
-                    Err(script::unavailable("the page was replaced while the script ran"))
-                };
-                let event = match result {
-                    Ok(value) => EngineEvent::ScriptResult {
-                        tab_id,
-                        result: script::to_json(value),
-                    },
-                    Err(e) => script_error_event(tab_id, e),
-                };
-                let _ = event_tx.send(event);
+                let _ = replies.send((sent_to, result.map(script::to_json)));
                 let _ = finished.send(());
             }),
         );
@@ -3923,6 +3922,27 @@ fn take_ready<T>(done: &mut RemoteScriptsDone<T>, published: &mut u64, current: 
     ready
 }
 
+/// A script's answer from the script thread: the page it was sent to, and its value.
+type LocalScriptReply = (u64, Result<serde_json::Value, ScriptError>);
+
+/// The event for the answer of a script that ran here. As a renderer's answer: one for a
+/// page that is gone is an error.
+fn local_script_event(
+    tab_id: TabId,
+    sent_to: u64,
+    page: u64,
+    result: Result<serde_json::Value, ScriptError>,
+) -> EngineEvent {
+    if sent_to != page {
+        let gone = crate::engine::script::unavailable("the page was replaced while the script ran");
+        return script_error_event(tab_id, gone);
+    }
+    match result {
+        Ok(result) => EngineEvent::ScriptResult { tab_id, result },
+        Err(e) => script_error_event(tab_id, e),
+    }
+}
+
 /// A script's answer from the renderer: the order it was sent in, the context's epoch
 /// then, and what it reported or why it did not run.
 type RemoteScriptReply = (
@@ -4010,6 +4030,22 @@ mod tests {
             super::take_ready(&mut done, &mut published, 8),
             vec![Ok("third"), Ok("fourth")]
         );
+    }
+
+    #[test]
+    fn a_local_answer_for_a_page_that_was_replaced_is_an_error() {
+        use crate::engine::events::EngineEvent;
+        let tab_id = crate::engine::tab::TabId::new();
+        let answer = || Ok(serde_json::json!(7));
+
+        let event = super::local_script_event(tab_id, 3, 3, answer());
+        assert!(
+            matches!(&event, EngineEvent::ScriptResult { result, .. } if *result == serde_json::json!(7)),
+            "{event:?}"
+        );
+        // the page was replaced between the script's end and the answer going out
+        let event = super::local_script_event(tab_id, 3, 4, answer());
+        assert!(matches!(event, EngineEvent::JavaScriptError { .. }), "{event:?}");
     }
 
     mod same_origin {
