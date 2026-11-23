@@ -155,6 +155,15 @@ const NET_RUNTIME_EXTRA: &[libc::c_long] = &[
     libc::SYS_getegid,
 ];
 
+/// What a script engine (V8, interpreter only) asks of the kernel in a renderer, on top
+/// of the baseline. Both are queries about this process: `uname` at startup, and
+/// `prlimit64` (argument-filtered to "self" in `install_with`) for the stack limit.
+///
+/// The rest of what V8 reaches for is not granted but answered with an error it has a
+/// fallback for - see [`refuse_script_probe`].
+#[cfg(feature = "multi-process")]
+const SCRIPT_EXTRA: &[libc::c_long] = &[libc::SYS_uname, libc::SYS_prlimit64];
+
 /// Extra syscalls the fork server needs on top of the baseline: making
 /// renderers, and reaping them.
 #[cfg(feature = "multi-process")]
@@ -297,7 +306,12 @@ pub fn lock_down_fork_server() {
         );
         std::process::exit(1);
     }
-    let allowed: Vec<libc::c_long> = BASELINE.iter().chain(FORK_SERVER_EXTRA).copied().collect();
+    let allowed: Vec<libc::c_long> = BASELINE
+        .iter()
+        .chain(FORK_SERVER_EXTRA)
+        .chain(SCRIPT_EXTRA)
+        .copied()
+        .collect();
     enforce("fork-server", install_fork_server(allowed));
 }
 
@@ -321,6 +335,7 @@ pub fn lock_down_fork_server_with_font_access(fs_allow: &[(&std::path::Path, boo
     let allowed: Vec<libc::c_long> = BASELINE
         .iter()
         .chain(FORK_SERVER_EXTRA)
+        .chain(SCRIPT_EXTRA)
         .chain(FS_EXTRA)
         .chain(FONT_READ_EXTRA)
         .copied()
@@ -334,6 +349,7 @@ pub fn lock_down_fork_server_with_font_access(fs_allow: &[(&std::path::Path, boo
 #[cfg(feature = "multi-process")]
 pub fn lock_down_forked_renderer(font_access: bool) {
     let mut allowed = BASELINE.to_vec();
+    allowed.extend_from_slice(SCRIPT_EXTRA);
     if font_access {
         allowed.extend_from_slice(FS_EXTRA);
         allowed.extend_from_slice(FONT_READ_EXTRA);
@@ -373,6 +389,8 @@ pub fn fork_process() -> std::io::Result<Forked> {
 /// End this process with `SIGALRM` after `after`; see the public wrapper.
 #[cfg(feature = "multi-process")]
 pub fn arm_deadline(after: std::time::Duration) -> std::io::Result<()> {
+    // A timer still running is stopped first: it is not to expire under the new disposition.
+    disarm_deadline();
     // SAFETY: a zeroed sigaction with SIG_DFL is a valid disposition, set for a
     // signal this process never handles itself.
     unsafe {
@@ -388,6 +406,58 @@ pub fn arm_deadline(after: std::time::Duration) -> std::io::Result<()> {
             tv_sec: after.as_secs().min(i64::MAX as u64) as libc::time_t,
             tv_usec: after.subsec_micros() as libc::suseconds_t,
         },
+    };
+    // SAFETY: a valid itimerval in, no old value requested.
+    if unsafe { libc::setitimer(libc::ITIMER_REAL, &timer, std::ptr::null_mut()) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// What [`arm_soft_deadline`] calls when the time is up: a `fn()`, as an address.
+#[cfg(feature = "multi-process")]
+static SOFT_DEADLINE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(feature = "multi-process")]
+extern "C" fn soft_deadline_handler(_sig: libc::c_int) {
+    let expired = SOFT_DEADLINE.load(std::sync::atomic::Ordering::Acquire);
+    if expired != 0 {
+        // SAFETY: only `arm_soft_deadline` stores here, and it stores a `fn()`.
+        let expired: fn() = unsafe { std::mem::transmute::<usize, fn()>(expired) };
+        expired();
+    }
+}
+
+/// See [`crate::arm_soft_deadline`].
+#[cfg(feature = "multi-process")]
+pub fn arm_soft_deadline(after: std::time::Duration, grace: std::time::Duration, expired: fn()) -> std::io::Result<()> {
+    // A timer still running is stopped first, or its expiry would use up the handler.
+    disarm_deadline();
+    SOFT_DEADLINE.store(expired as usize, std::sync::atomic::Ordering::Release);
+    // One call of the handler only (`SA_RESETHAND`), and `SIGALRM` not held back while it
+    // runs (`SA_NODEFER`): the second expiry ends the process whatever the first one is
+    // doing, a handler that never returns included.
+    // SAFETY: a zeroed sigaction with the handler, flags and an empty mask filled in.
+    unsafe {
+        let mut action: libc::sigaction = std::mem::zeroed();
+        action.sa_sigaction = soft_deadline_handler as extern "C" fn(libc::c_int) as usize;
+        action.sa_flags = libc::SA_NODEFER | libc::SA_RESETHAND;
+        libc::sigemptyset(&mut action.sa_mask);
+        if libc::sigaction(libc::SIGALRM, &action, std::ptr::null_mut()) < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    // a zero value would disarm the timer, a zero interval would leave no second expiry
+    let timeval = |d: std::time::Duration| {
+        let d = d.max(std::time::Duration::from_millis(1));
+        libc::timeval {
+            tv_sec: d.as_secs().min(i64::MAX as u64) as libc::time_t,
+            tv_usec: d.subsec_micros() as libc::suseconds_t,
+        }
+    };
+    let timer = libc::itimerval {
+        it_interval: timeval(grace),
+        it_value: timeval(after),
     };
     // SAFETY: a valid itimerval in, no old value requested.
     if unsafe { libc::setitimer(libc::ITIMER_REAL, &timer, std::ptr::null_mut()) } < 0 {
@@ -496,6 +566,29 @@ pub fn exit_now(code: i32) -> ! {
 /// `libharfbuzz.so.0`. In a locked-down renderer that open is a SIGSYS.
 /// Loaded `RTLD_GLOBAL` here, FreeType's lookup finds it without touching the
 /// filesystem. A host without HarfBuzz just keeps FreeType's own fallback.
+#[cfg(feature = "multi-process")]
+pub fn prime_time_zone() {
+    const LOCALTIME: &str = "/etc/localtime";
+    if std::env::var_os("TZ").is_none() {
+        let target = std::fs::read_link(LOCALTIME).ok();
+        let zone = target
+            .as_deref()
+            .and_then(std::path::Path::to_str)
+            .and_then(|path| path.split_once("zoneinfo/"))
+            .and_then(|(_, zone)| std::ffi::CString::new(zone).ok());
+        if let Some(zone) = zone {
+            // SAFETY: both are NUL-terminated; called while the process has one thread.
+            unsafe { libc::setenv(c"TZ".as_ptr(), zone.as_ptr(), 1) };
+        }
+    }
+    extern "C" {
+        fn tzset();
+    }
+    // SAFETY: no preconditions. Reads the zone's rules now; libc keeps them for as long
+    // as `TZ` does not change.
+    unsafe { tzset() };
+}
+
 #[cfg(feature = "multi-process")]
 pub fn preload_lazy_libraries() {
     // SAFETY: a NUL-terminated constant; the handle is never closed, so the
@@ -650,7 +743,9 @@ pub fn hold_pid_namespace_anchor(parent_only: &[libc::c_int]) -> std::io::Result
 #[cfg(feature = "multi-process")]
 pub fn lock_down_renderer() {
     deny_debugger_attach();
-    enforce("renderer", install(BASELINE.to_vec()));
+    let mut allowed = BASELINE.to_vec();
+    allowed.extend_from_slice(SCRIPT_EXTRA);
+    enforce("renderer", install(allowed));
 }
 
 /// The image decoder's confinement: the renderer's pixels-only baseline -
@@ -711,6 +806,7 @@ pub fn scope_renderer_font_filesystem(fs_allow: &[(&std::path::Path, bool)]) {
 pub fn lock_down_renderer_with_font_access() {
     deny_debugger_attach();
     let mut allowed = BASELINE.to_vec();
+    allowed.extend_from_slice(SCRIPT_EXTRA);
     allowed.extend_from_slice(FS_EXTRA);
     allowed.extend_from_slice(FONT_READ_EXTRA);
     enforce("renderer+fonts", install(allowed));
@@ -2280,6 +2376,50 @@ pub(crate) fn emulate_fd_stat(nr: i32, ctx: *mut libc::c_void) -> Option<i64> {
     Some(-(libc::EPERM as i64))
 }
 
+/// The paths a script engine probes and has a fallback for: the stack bounds of the main
+/// thread (glibc's `pthread_getattr_np`; V8 then takes `__libc_stack_end`) and the system
+/// time zone (set up before the lockdown by [`prime_time_zone`]).
+#[cfg(feature = "multi-process")]
+const SCRIPT_PROBE_PATHS: &[&[u8]] = &[b"/proc/self/maps", b"/etc/localtime"];
+
+/// Traps of a script engine that do not end the process either: it gets an error it
+/// can handle instead of the thing it asked for.
+///
+/// - `pkey_alloc`: `ENOSYS`, as on a kernel without protection keys. V8 then uses none.
+/// - opening or reading the link of one of [`SCRIPT_PROBE_PATHS`]: `EACCES`. Any other
+///   path stays fatal.
+#[cfg(feature = "multi-process")]
+pub(crate) fn refuse_script_probe(nr: i32, ctx: *mut libc::c_void) -> Option<i64> {
+    if nr as i64 == libc::SYS_pkey_alloc {
+        return Some(-(libc::ENOSYS as i64));
+    }
+
+    let opens = nr as i64 == libc::SYS_openat || nr as i64 == libc::SYS_readlinkat;
+    #[cfg(target_arch = "x86_64")]
+    let opens = opens || nr as i64 == libc::SYS_open || nr as i64 == libc::SYS_readlink;
+    if !opens {
+        return None;
+    }
+    let path = syscall_arg(ctx, path_arg_index(nr)?)?;
+    if path == 0 {
+        return None;
+    }
+    let is_path = |expected: &[u8]| {
+        // SAFETY: the caller's own NUL-terminated argument, read as the kernel would
+        // have; the comparison stops at the first byte that differs, so never past its end.
+        expected
+            .iter()
+            .chain(std::iter::once(&0u8))
+            .enumerate()
+            .all(|(at, byte)| unsafe { std::ptr::read_volatile((path as *const u8).add(at)) } == *byte)
+    };
+
+    SCRIPT_PROBE_PATHS
+        .iter()
+        .any(|expected| is_path(expected))
+        .then_some(-(libc::EACCES as i64))
+}
+
 /// SIGSYS handler for `SECCOMP_RET_TRAP`: name the blocked syscall (and, for
 /// path-taking calls, the path it was given), then terminate with SIGSYS
 /// exactly as `KillProcess` would have. The one exception is the fd-stat
@@ -2305,7 +2445,7 @@ pub(crate) fn trapped_syscall_nr(info: *const libc::siginfo_t) -> i32 {
 extern "C" fn sigsys_handler(_sig: libc::c_int, info: *mut libc::siginfo_t, ctx: *mut libc::c_void) {
     let nr = trapped_syscall_nr(info);
 
-    if let Some(ret) = emulate_fd_stat(nr, ctx) {
+    if let Some(ret) = emulate_fd_stat(nr, ctx).or_else(|| refuse_script_probe(nr, ctx)) {
         set_syscall_return(ctx, ret);
         return;
     }
@@ -2560,15 +2700,16 @@ fn write_i32(out: &mut [u8], v: i32) -> usize {
 pub fn apply_child_rlimits_with(data_limit: u64) -> std::io::Result<()> {
     // Bound the heap, not the address space: `RLIMIT_DATA` caps committed
     // writable anonymous memory (brk + writable mmap) and since Linux 4.7 does
-    // not count PROT_NONE reservations, so V8's ~4 GiB virtual cage still
-    // fits while a runaway allocation aborts only that process. `RLIMIT_AS`
-    // would kill V8 at init for reserving space it never commits. A cgroup
+    // not count PROT_NONE reservations, so V8's virtual cage still fits while
+    // a runaway allocation aborts only that process. `RLIMIT_AS` at the same
+    // size would kill V8 at init for reserving space it never commits. A cgroup
     // `memory.max` bounds true RSS; this rlimit is the cheap approximation
     // (see the architecture doc).
     set_rlimit(libc::RLIMIT_DATA, data_limit as libc::rlim_t)?;
-    // A generous virtual ceiling on top: high enough to clear a JIT's cage,
-    // low enough to catch a runaway reserving absurd address space.
-    set_rlimit(libc::RLIMIT_AS, 16 * 1024 * 1024 * 1024)?;
+    // A generous virtual ceiling on top: high enough to clear what V8 reserves
+    // at startup (about 48 GiB with v8 152, none of it committed), low enough
+    // to catch a runaway reserving absurd address space.
+    set_rlimit(libc::RLIMIT_AS, 64 * 1024 * 1024 * 1024)?;
     // A child needs only a handful of fds (its IPC socket + std streams).
     set_rlimit(libc::RLIMIT_NOFILE, 128)?;
     // No core dumps - a crash must not spill page contents (cookies, tokens).

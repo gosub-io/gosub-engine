@@ -58,16 +58,31 @@ impl V8Context {
             match run(try_catch, code, url, line_offset) {
                 Some(value) => Ok(value),
                 None if try_catch.has_terminated() => Err(None),
-                None => Err(Some(exception(try_catch))),
+                None => {
+                    let thrown = exception(try_catch);
+                    // the thrown value's own `toString()` ran for that, and can be ended
+                    // like any script
+                    if try_catch.has_terminated() {
+                        Err(None)
+                    } else {
+                        Err(Some(thrown))
+                    }
+                }
             }
         };
 
         match result {
-            Ok(value) => Ok(value),
-            Err(Some(e)) => Err(V8EvalError::Exception(e)),
             Err(None) => Err(V8EvalError::Ended(
                 self.take_termination(true).unwrap_or(V8Error::Terminated),
             )),
+            // A script that a native function ran was ended, and this one got past it:
+            // with a value, or with what the function threw instead. It was ended as well.
+            result => match (self.take_termination(false), result) {
+                (Some(by), _) => Err(V8EvalError::Ended(by)),
+                (None, Ok(value)) => Ok(value),
+                (None, Err(Some(e))) => Err(V8EvalError::Exception(e)),
+                (None, Err(None)) => Err(V8EvalError::Ended(V8Error::Terminated)),
+            },
         }
     }
 }
@@ -235,6 +250,23 @@ mod tests {
         let ctx = context();
         assert_eq!(ctx.evaluate("var kept = 41", "a.js", 0), Ok(V8Plain::Undefined));
         assert_eq!(ctx.evaluate("kept + 1", "b.js", 0), Ok(V8Plain::Number(42.0)));
+    }
+
+    #[test]
+    fn a_script_ended_while_its_exception_is_read_was_terminated() {
+        let ctx = context();
+        let terminator = ctx.terminator();
+        let stopper = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            terminator.terminate();
+        });
+
+        assert_eq!(
+            ctx.evaluate("throw { toString() { for (;;) {} } }", "test.js", 0),
+            Err(V8EvalError::Ended(V8Error::Terminated))
+        );
+        stopper.join().unwrap();
+        assert_eq!(ctx.evaluate("1 + 1", "test.js", 0), Ok(V8Plain::Number(2.0)));
     }
 
     #[test]

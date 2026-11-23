@@ -23,6 +23,8 @@ pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
     gosub_sandbox::set_process_title("gosub-forksrv", "gosub: renderer fork server");
     // Inherited by every forked renderer, which could not load them itself.
     gosub_sandbox::preload_lazy_libraries();
+    // And the time zone, which a renderer's scripts could not look up.
+    gosub_sandbox::prime_time_zone();
 
     match C::FontSystem::confinement() {
         Confinement::Full => serve_warmed::<C>(link),
@@ -551,6 +553,10 @@ fn fork_and_render<C: RenderConfiguration>(
                         }
                         FromRenderer::Audit(_) => {
                             return Err(std::io::Error::other("a one-shot renderer sent an audit report"));
+                        }
+                        // A one-shot renderer is given no script host.
+                        FromRenderer::Script(_) => {
+                            return Err(std::io::Error::other("a one-shot renderer sent a script report"));
                         }
                     }
                 }

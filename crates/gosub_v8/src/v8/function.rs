@@ -128,7 +128,10 @@ impl V8Function {
             is_error: false,
         };
 
-        f(&mut cb);
+        {
+            let _running = InCallback::enter(ctx);
+            f(&mut cb);
+        }
 
         ctx_scope!(scope, cb.ctx);
 
@@ -148,6 +151,23 @@ impl V8Function {
                 ctx.error(e);
             }
         }
+    }
+}
+
+/// A native function is running for as long as this lives. A script it runs is not the
+/// outermost one (see [`V8Context::take_termination`]).
+struct InCallback<'a>(&'a V8Context);
+
+impl<'a> InCallback<'a> {
+    fn enter(ctx: &'a V8Context) -> Self {
+        ctx.borrow_mut().in_callback += 1;
+        Self(ctx)
+    }
+}
+
+impl Drop for InCallback<'_> {
+    fn drop(&mut self) {
+        self.0.borrow_mut().in_callback -= 1;
     }
 }
 
@@ -226,6 +246,10 @@ impl WebFunction for V8Function {
         let ret = function.call(scope, recv, &args);
 
         if let Some(value) = ret {
+            // a script that a native function ran was ended, and this call got past it
+            if let Some(e) = self.ctx.take_termination(false) {
+                return Err(e.into());
+            }
             let value = Global::new(scope, value);
 
             Ok(V8Value {
@@ -420,7 +444,10 @@ impl V8FunctionVariadic {
 
         drop(c);
 
-        f(&mut cb);
+        {
+            let _running = InCallback::enter(ctx);
+            f(&mut cb);
+        }
 
         ctx_scope!(scope, ctx);
 
@@ -515,6 +542,10 @@ impl WebFunctionVariadic for V8FunctionVariadic {
         let ret = function.call(scope, recv, &args);
 
         if let Some(value) = ret {
+            // a script that a native function ran was ended, and this call got past it
+            if let Some(e) = self.ctx.take_termination(false) {
+                return Err(e.into());
+            }
             let value = Global::new(scope, value);
 
             Ok(V8Value {

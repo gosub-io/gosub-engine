@@ -26,6 +26,50 @@ struct Arg {
 
 type Method = fn(&mut Console, &[Arg]);
 
+/// The most text one console call passes on, in bytes, each argument counting for one
+/// more (the space after it, and an empty argument is not free either). The argument that
+/// goes over it is cut and marked, and the ones after it are not looked at: a call cannot
+/// take memory by the number of its arguments.
+pub(super) const MAX_CALL_TEXT: usize = 64 * 1024;
+
+/// Ends the text of a call that was cut.
+pub(super) const CUT: &str = "... (cut)";
+
+/// The arguments of a call as text, up to [`MAX_CALL_TEXT`] in all.
+fn bounded<V: WebValue>(values: &[V]) -> Vec<Arg> {
+    let mut args: Vec<Arg> = Vec::new();
+    let mut left = MAX_CALL_TEXT;
+
+    for value in values {
+        if left == 0 {
+            if let Some(last) = args.last_mut().filter(|last| !last.text.ends_with(CUT)) {
+                last.text.push_str(CUT);
+            }
+            break;
+        }
+
+        let mut text = value.as_string().unwrap_or_default();
+        if text.len() > left {
+            let mut end = left;
+            while !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            text.truncate(end);
+            text.shrink_to_fit();
+            text.push_str(CUT);
+            left = 0;
+        } else {
+            left = (left - text.len()).saturating_sub(1);
+        }
+        args.push(Arg {
+            text,
+            truthy: value.as_bool().unwrap_or(false),
+        });
+    }
+
+    args
+}
+
 const METHODS: &[(&str, Method)] = &[
     ("assert", |console, args| {
         let condition = args.first().is_some_and(|arg| arg.truthy);
@@ -86,15 +130,7 @@ pub(super) fn install<RT: WebRuntime>(mut context: RT::Context, sink: ConsoleSin
         let function = RT::FunctionVariadic::new(context.clone(), move |cb| {
             let ctx = cb.context();
             // read before the console is borrowed: a toString() may itself log
-            let args: Vec<Arg> = cb
-                .args()
-                .as_vec(ctx.clone())
-                .iter()
-                .map(|value| Arg {
-                    text: value.as_string().unwrap_or_default(),
-                    truthy: value.as_bool().unwrap_or(false),
-                })
-                .collect();
+            let args = bounded(&cb.args().as_vec(ctx.clone()));
 
             method(&mut console.borrow_mut(), &args);
 

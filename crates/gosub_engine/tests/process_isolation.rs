@@ -656,6 +656,26 @@ fn input_through_the_engine_reaches_the_resident_renderer() {
     );
 }
 
+/// Scripts through the engine: a page's own scripts and `ExecuteScript` run in the
+/// resident renderer, under its confinement, and report back as events; a script that
+/// does not end is ended there without taking the renderer down.
+#[cfg(target_os = "linux")]
+#[test]
+fn scripts_run_in_the_resident_renderer() {
+    let out = run("engine-remote-scripts");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "scripts in the resident renderer failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// Every control through the engine: a text burst, a toggle, a select changed
 /// closed and scrolled open, a date from the picker round trip and a slider
 /// dragged through the broker, proved by one submission; scroll keys with

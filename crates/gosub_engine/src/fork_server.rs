@@ -18,5 +18,7 @@ pub mod protocol;
 pub mod renderer;
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
 pub mod resident;
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+mod scripts;
 #[cfg(feature = "process-isolation")]
 pub mod site;

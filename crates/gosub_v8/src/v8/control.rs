@@ -22,6 +22,10 @@ pub struct V8Options {
 #[derive(Clone, Debug, Default)]
 pub struct V8ContextOptions {
     /// Maximum heap size in bytes. A script that reaches it ends with [`V8Error::OutOfMemory`].
+    ///
+    /// That holds with [`V8Options::jitless`]. With the JIT on, optimized code can allocate
+    /// past the request to stop, and V8 then aborts the process: it has no other answer to
+    /// a heap that is full.
     pub heap_limit: Option<usize>,
     /// Run promise jobs only at [`V8Context::microtask_checkpoint`], not whenever a script returns.
     pub explicit_microtasks: bool,
@@ -150,12 +154,30 @@ impl V8Context {
     /// Call when JavaScript returned without a value. `terminated` is the try-catch's
     /// `has_terminated()`: if set, this clears the termination so the context can run again
     /// and says what ended the script.
+    ///
+    /// Not for a script that a native function ran: the script that called the function
+    /// is still on the stack, and the request is for all of it. It is made again, and
+    /// cleared when the outermost call returns - which then was ended too, also when the
+    /// function was all there was to it and V8 saw no script to end.
     pub(crate) fn take_termination(&self, terminated: bool) -> Option<V8Error> {
-        if !terminated {
+        let _entered = self.isolate();
+        let mut ctx = self.borrow_mut();
+        if !terminated && !(ctx.unwinding && ctx.in_callback == 0) {
             return None;
         }
 
-        let mut ctx = self.borrow_mut();
+        if ctx.in_callback > 0 {
+            // asked again: the try-catch that saw this one end has used the request up
+            ctx.isolate().terminate_execution();
+            ctx.unwinding = true;
+            let by_heap = ctx.heap.as_ref().is_some_and(|heap| heap.hit.load(Ordering::SeqCst));
+            return Some(if by_heap {
+                V8Error::OutOfMemory
+            } else {
+                V8Error::Terminated
+            });
+        }
+        ctx.unwinding = false;
         ctx.isolate().cancel_terminate_execution();
 
         if ctx.restore_heap_limit() {
@@ -272,6 +294,68 @@ mod tests {
 
         assert_eq!(number(&mut ctx, "1 + 1"), 2.0);
         drop(V8Object::new(ctx).unwrap());
+    }
+
+    #[test]
+    fn a_script_run_by_a_native_function_takes_its_caller_with_it() {
+        let mut ctx = context(V8ContextOptions::default());
+
+        // a native function that runs a spinning script, and passes its failure on as an
+        // exception the calling script can catch
+        let inner = ctx.clone();
+        let function = V8Function::new(ctx.clone(), move |cb| {
+            if let Err(e) = inner.clone().run("while (true) {}") {
+                cb.error(e);
+            }
+        })
+        .unwrap();
+        let object = V8Object::new(ctx.clone()).unwrap();
+        object.set_method("spin", &function).unwrap();
+        ctx.set_on_global_object("native", object.into()).unwrap();
+
+        // one request ends the script the function ran and the script that called it:
+        // the catch does not get to go on
+        let stopper = terminate_soon(&ctx);
+        let outer = ctx.run("try { native.spin() } catch (e) {} (function () { globalThis.after = 1 })()");
+        assert_eq!(error_of(outer), Some(V8Error::Terminated));
+        assert!(stopper.join().unwrap());
+
+        // and the context runs scripts again
+        assert_eq!(ctx.run("typeof after").unwrap().as_string().unwrap(), "undefined");
+
+        // also when the calling script ends with a value before V8 looks for the request
+        let stopper = terminate_soon(&ctx);
+        let outer = ctx.run("try { native.spin() } catch (e) {} 1");
+        assert_eq!(error_of(outer), Some(V8Error::Terminated));
+        assert!(stopper.join().unwrap());
+        assert_eq!(ctx.run("1 + 1").unwrap().as_string().unwrap(), "2");
+
+        // `evaluate` too, also when the function's exception is all it sees: nothing
+        // after the call that V8 could end
+        for source in ["native.spin()", "try { native.spin() } catch (e) {} 1"] {
+            let stopper = terminate_soon(&ctx);
+            let outer = ctx.evaluate(source, "test.js", 0);
+            assert!(
+                matches!(outer, Err(crate::V8EvalError::Ended(V8Error::Terminated))),
+                "{source}: {outer:?}"
+            );
+            assert!(stopper.join().unwrap());
+            assert!(matches!(ctx.evaluate("1 + 1", "test.js", 0), Ok(crate::V8Plain::Number(n)) if n == 2.0));
+        }
+    }
+
+    #[test]
+    fn contexts_on_one_thread_are_used_and_dropped_in_any_order() {
+        let mut first = context(V8ContextOptions::default());
+        let mut second = context(V8ContextOptions::default());
+
+        // the one made first, with the other still there
+        assert_eq!(number(&mut first, "globalThis.a = 1; a + 1"), 2.0);
+        assert_eq!(number(&mut second, "typeof a === 'undefined' ? 3 : 0"), 3.0);
+        assert_eq!(number(&mut first, "a"), 1.0);
+
+        drop(first);
+        assert_eq!(number(&mut second, "1 + 1"), 2.0);
     }
 
     // tests/init_options.rs has the jitless run, with a loop the JIT does not stop in time

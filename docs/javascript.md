@@ -3,9 +3,7 @@
 Five crates make up Gosub's scripting story. **Status up front: a first slice is wired.**
 With the cargo feature `js`, `gosub_engine` runs `TabCommand::ExecuteScript` in V8 for a
 page that lives in the engine's own process and answers with `ScriptResult` or
-`JavaScriptError` (see [Scripts in a tab](#scripts-in-a-tab)). Page scripts do not run yet:
-`<script>` elements are parsed into the DOM and (their sources prefetched by the
-[resource pipeline](resource-pipeline.md)) go no further. Without `js` nothing links V8.
+`JavaScriptError` (see [Scripts in a tab](#scripts-in-a-tab)). Page scripts run during the parse: inline, `<script src>`, `defer` and `async`. Without `js` the engine does not link V8.
 `gosub_html5` has no JS dependency. The other consumer is the `run-js` component tool
 (`src/bin/run-js.rs`, see [binaries.md](binaries.md)).
 
@@ -79,22 +77,89 @@ source text in, plain data out (`ScriptValue`, `ScriptError`). No script value c
 `gosub_engine::engine::script` holds the V8-backed host (`script/v8.rs`, the only file in
 the engine that names `gosub_v8`) and `ScriptThread`: each document gets a thread of its
 own with one global scope, started by its first script and dropped when the tab commits
-another document. V8 runs jitless there.
+another document. V8 runs jitless there, provided the host is what starts V8 in the
+process: V8 is initialized once, and an embedder that starts it first with other options
+(`V8Engine::new()`) keeps those.
 
 | Setting | Meaning |
 |---|---|
-| `ZoneConfig::javascript_enabled` | Off: nothing runs in the zone, and its documents parse with scripting disabled (`<noscript>` content is markup). |
+| `ZoneConfig::javascript_enabled` | Off: nothing runs in the zone, and its documents parse with scripting disabled: `<noscript>` content is markup and is shown, and `@media (scripting)` is false. |
 | `scripting.javascript_enabled` | The same switch, engine-wide. Both have to be on. |
-| `scripting.max_run_ms` | A script still running after this long is terminated. |
+| `scripting.max_run_ms` | A script still running after this long is terminated. Its promise jobs count toward the same limit. |
 | `scripting.heap_limit_mb` | Heap size per page at which a script is ended. |
 
 `console` is on the global object: `gosub_jsapi`'s console, bound in `script/console.rs`
 by hand against the `gosub_webexecutor` traits. Each line goes out as
 `EngineEvent::ConsoleMessage` (level, text, URL of the document) and into the engine's log
-under the target `console`. Arguments are stringified as `String(value)` does it.
+under the target `console`. Arguments are stringified as `String(value)` does it. One
+call passes on at most 64 KiB of text: the argument that goes over is cut and ends in
+`... (cut)`, and the arguments after it are left out.
 
-Not there yet: a page that lives in a renderer process (`ExecuteScript` answers with an
-error), and every DOM binding.
+Inline classic scripts run while the page is parsed. `Html5ParserOptions::scripts` takes a
+`ScriptHost`; the parser calls it at each `</script>` (HTML and SVG) with the element's
+text, after the stylesheets before it have settled, and runs a microtask checkpoint when
+no script is left on the stack. Not run as inline: a script with a `src` (see below).
+Not run at all: a `type` that is not
+JavaScript (modules included), a script in a `<template>` or a fragment, and anything when
+scripting is disabled. A script that fails does not stop the parse. The engine hands the
+parser a host that forwards to the script thread of the document being loaded
+(`ParserScripts`); that thread becomes the tab's when the navigation commits, so
+`ExecuteScript` sees what the page's scripts left. A failing page script is a
+`JavaScriptError` event.
+
+External scripts come through `Html5ParserOptions::script_sources` (`ScriptSource`, the
+counterpart of `StylesheetSource`). A blocking `<script src>` is fetched and run at its
+end tag; `defer` and `async` scripts are collected and run in document order once the
+document is parsed (`async` does not run earlier yet). The `defer` ones wait for the
+document's stylesheets, the `async` ones do not. In the engine the parse's
+`ParseSheetGate` is the source: every `<script src>` the document scan finds is fetched
+once into a per-parse map, and the parser takes it from there, or fetches a `src` the scan
+missed. A script that cannot be loaded is logged and skipped. Script text is read as
+UTF-8; a `charset` is not looked at.
+
+### In a renderer process
+
+With process isolation the page lives in a resident renderer, and so do its scripts
+(`fork_server/scripts.rs`). `ToRenderer::Navigate` carries the tab's limits
+(`ScriptSettings`, `None` when JavaScript is off); the renderer gives the document a host
+and parses it with that host and with a `ScriptSource` that fetches through the broker.
+`ToRenderer::ExecuteScript` runs a script in the document a tab shows. What scripts say
+comes back as `FromRenderer::Script` messages ahead of the closing `Rendered` - console
+lines, errors, a result as JSON text - and the tab worker raises the same events as for a
+page it parsed itself. They are a renderer's claims: bounded in number and size
+(`MAX_SCRIPT_REPORTS`, `MAX_SCRIPT_TEXT`) and passed on as data.
+
+Differences from a page parsed in the broker:
+
+- The renderer has one thread and may start no other, so there is no script thread and
+  no watchdog. A script's time limit is the process's alarm
+  (`gosub_sandbox::arm_soft_deadline`): its handler asks V8 to end the script, and if the
+  script is still there two seconds later the alarm ends the renderer.
+- A document's script output arrives when its renderer has loaded it: with the first
+  frame, or with the first `ExecuteScript` when no frame is drawn. That can be after the
+  navigation's `Finished`.
+- Every full render sends the document to the renderer again, which parses it again: its
+  scripts run again, in a new global scope. That is a renderer replaced after a crash, a
+  page let go of past the retained-page limit, and anything else that rebuilds the whole
+  page (a change of device pixel ratio does). An `ExecuteScript` in flight then answers
+  with an error.
+- An `ExecuteScript` for a page the renderer let go of answers with an error and is not
+  run again, and so do the ones sent before that answer came. The page is loaded again
+  before the next one after it.
+- A page's stylesheets do not hold its scripts back there; nothing a script can do shows
+  the difference yet.
+- The heap limit is capped at a quarter of the renderer's memory limit.
+- Each document has its own isolate, not one isolate per process with a context each.
+- A one-shot renderer (fork server without a pool, exec per render) runs no scripts.
+
+V8 under the renderer's confinement: `uname` and `prlimit64` on itself are allowed;
+`pkey_alloc` is answered `ENOSYS`; opening `/proc/self/maps` or `/etc/localtime` is
+answered `EACCES` (V8 and libc have fallbacks); the time zone is settled before the
+lockdown (`gosub_sandbox::prime_time_zone`); `RLIMIT_AS` is 64 GiB, for the address space
+V8 reserves and never commits. No executable memory, no threads.
+
+Not there yet: modules, `integrity`, the MIME type check on a fetched script, and every
+DOM binding - there is no `document`.
 
 ## What wiring it up would take
 

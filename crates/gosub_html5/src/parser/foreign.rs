@@ -220,6 +220,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         }
 
         if handle_as_script_endtag {
+            let script = current_node_id!(self);
             self.open_elements.pop();
 
             let old_insertion_point = self.insertion_point;
@@ -227,11 +228,14 @@ impl<C: HasDocument> Html5Parser<'_, C> {
 
             self.script_nesting_level += 1;
 
-            // @todo: do script stuff
+            let ran = self.run_script(script);
 
             self.script_nesting_level -= 1;
             if self.script_nesting_level == 0 {
                 self.parser_pause_flag = false;
+                if ran {
+                    self.script_checkpoint();
+                }
             }
 
             self.insertion_point = old_insertion_point;

@@ -15,6 +15,7 @@ impl V8ScriptHost {
         // The first initialization in a process decides, and this is the only one.
         V8Engine::initialize_with(&V8Options {
             jitless: true,
+            single_threaded: limits.single_threaded,
             ..Default::default()
         });
 
@@ -33,9 +34,6 @@ impl V8ScriptHost {
 
 impl ScriptHost for V8ScriptHost {
     fn execute(&mut self, source: &str, origin: &ScriptOrigin) -> Result<ScriptValue, ScriptError> {
-        // a termination request that came too late for the previous script is not for this one
-        self.context.cancel_termination();
-
         match self.context.evaluate(source, &origin.url, origin.line) {
             Ok(value) => Ok(match value {
                 V8Plain::Undefined => ScriptValue::Undefined,
@@ -70,6 +68,10 @@ impl ScriptHost for V8ScriptHost {
             terminator.terminate();
         })
     }
+
+    fn forget_termination(&mut self) {
+        self.context.cancel_termination();
+    }
 }
 
 fn ended(by: V8Error) -> ScriptError {
@@ -96,6 +98,7 @@ mod tests {
         let host = V8ScriptHost::new(
             ScriptLimits {
                 heap_bytes: 32 * 1024 * 1024,
+                single_threaded: false,
             },
             Arc::new(move |level, text| seen.lock().push((level, text))),
         )
@@ -177,23 +180,59 @@ mod tests {
     fn a_running_script_is_terminated_and_the_host_runs_again() {
         let mut host = host();
         let terminator = host.terminator();
+        let ended = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let seen = std::sync::Arc::clone(&ended);
+        // asked until it has worked
         let stopper = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(100));
-            terminator.terminate();
+            while !seen.load(std::sync::atomic::Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(50));
+                terminator.terminate();
+            }
         });
 
         let error = host.execute("for (;;) {}", &origin()).unwrap_err();
+        ended.store(true, std::sync::atomic::Ordering::SeqCst);
         assert_eq!(error.kind, ScriptErrorKind::Terminated);
         stopper.join().unwrap();
+        // the stopper may have asked once more after the script ended
+        host.forget_termination();
         assert_eq!(host.execute("1 + 1", &origin()), Ok(ScriptValue::Number(2.0)));
     }
 
     #[test]
-    fn a_termination_request_before_a_script_does_not_end_it() {
+    fn a_forgotten_termination_request_does_not_end_the_next_script() {
         let mut host = host();
 
         host.terminator().terminate();
+        host.forget_termination();
         assert_eq!(host.execute("1 + 1", &origin()), Ok(ScriptValue::Number(2.0)));
+    }
+
+    #[test]
+    fn a_termination_request_made_before_the_work_starts_ends_it() {
+        // whoever times a script forgets the old request first and starts the clock
+        // then; a request that follows is for this script, however early it comes
+        let mut host = host();
+        host.forget_termination();
+        host.terminator().terminate();
+        assert_eq!(
+            host.execute("globalThis.ran = 1", &origin()).unwrap_err().kind,
+            ScriptErrorKind::Terminated
+        );
+
+        host.execute("Promise.resolve().then(() => { globalThis.job = 1 })", &origin())
+            .unwrap();
+        host.terminator().terminate();
+        assert_eq!(
+            host.microtask_checkpoint().unwrap_err().kind,
+            ScriptErrorKind::Terminated
+        );
+
+        host.forget_termination();
+        assert_eq!(
+            host.execute("typeof ran + typeof job", &origin()),
+            Ok(ScriptValue::String("undefinedundefined".to_owned()))
+        );
     }
 
     #[test]
@@ -223,6 +262,47 @@ mod tests {
             console("console.log(1.5, true, null, undefined, [1, 2], {})"),
             [line(ConsoleLevel::Log, "1.5 true null undefined 1,2 [object Object]")]
         );
+    }
+
+    #[test]
+    fn console_prints_a_symbol_as_its_description() {
+        // `console` asserts that the script did not throw
+        assert_eq!(
+            console("console.log(Symbol('x'), Symbol(), Symbol.iterator)"),
+            [line(ConsoleLevel::Log, "Symbol(x) Symbol() Symbol(Symbol.iterator)")]
+        );
+    }
+
+    #[test]
+    fn a_console_call_passes_on_a_bounded_amount_of_text() {
+        use super::console::{CUT, MAX_CALL_TEXT};
+
+        // one argument over the limit: cut, and what follows it is left out
+        let lines = console("console.log('a'.repeat(100000), 'tail')");
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].1, format!("{}{CUT}", "a".repeat(MAX_CALL_TEXT)));
+
+        // many arguments that add up to more
+        let lines = console("console.log(...new Array(5000).fill('b'.repeat(1000)))");
+        assert_eq!(lines.len(), 1);
+        let text = &lines[0].1;
+        assert!(text.ends_with(CUT), "{}", &text[text.len() - 20..]);
+        assert!(text.len() <= MAX_CALL_TEXT + CUT.len(), "{}", text.len());
+
+        // nor do arguments without text come for free
+        let lines = console("console.log(...new Array(100000).fill(''))");
+        assert_eq!(lines[0].1, format!("{}{CUT}", " ".repeat(MAX_CALL_TEXT - 1)));
+
+        // cut between characters, not inside one
+        let lines = console("console.log('x' + '\\u00e9'.repeat(40000))");
+        assert_eq!(
+            lines[0].1,
+            format!("x{}{CUT}", "\u{e9}".repeat((MAX_CALL_TEXT - 1) / 2))
+        );
+
+        // text up to the limit is left alone
+        let lines = console("console.log('c'.repeat(65536))");
+        assert_eq!(lines[0].1, "c".repeat(MAX_CALL_TEXT));
     }
 
     #[test]

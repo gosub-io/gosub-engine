@@ -170,7 +170,9 @@ die with a SIGSYS naming the syscall and, for path-taking calls, the path;
 the one exception is `stat` by path, which a role without files gets back as
 `EPERM` so a library's `exists()` probe on page input is a missing file and
 not a dead renderer, while `fstat` on its own descriptors keeps working in
-every spelling libc and std use. The filter's default is a trap rather than a
+every spelling libc and std use; a script engine's probes - `pkey_alloc`, and
+opening `/proc/self/maps` or `/etc/localtime` - are answered with an error it
+has a fallback for, see [javascript.md](javascript.md). The filter's default is a trap rather than a
 kill so the signal can be reported; a compromised child can install its own
 handler and survive the signal, but the refused syscall still never runs),
 Landlock filesystem scoping where a role needs any files at all, namespace

@@ -120,6 +120,11 @@ pub trait ScriptHost {
 
     /// A handle that ends the running script with [`ScriptErrorKind::Terminated`].
     fn terminator(&self) -> ScriptTerminator;
+
+    /// Drops a request to end a script that came too late for the script it was meant
+    /// for, so it does not end the next one. For whoever times the scripts, before the
+    /// time of the next one starts: a request made after this call counts.
+    fn forget_termination(&mut self) {}
 }
 
 /// Runs nothing: every script evaluates to undefined. For where scripting is off or no

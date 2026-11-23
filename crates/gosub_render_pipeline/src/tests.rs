@@ -2355,6 +2355,8 @@ mod rendertree_from_engine {
         let options = gosub_html5::parser::Html5ParserOptions {
             scripting_enabled: true,
             stylesheets: Some(Arc::new(DiskSheets)),
+            scripts: None,
+            script_sources: None,
         };
         let _ = gosub_html5::parser::Html5Parser::<Config>::parse_document(&mut stream, &mut doc, Some(options));
         doc
@@ -4604,6 +4606,45 @@ mod rendertree_from_engine {
         });
         let light = width_px_of(html, "target");
         assert!((light - 100.0).abs() < 0.5, "light scheme: expected 100px, got {light}");
+    }
+
+    /// The display of the `<noscript id="n">` in `html`, parsed and styled with scripting
+    /// on or off.
+    fn noscript_display(html: &str, scripting: bool) -> gosub_interface::style::Display {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use gosub_shared::byte_stream::{ByteStream, Encoding};
+
+        let mut stream = ByteStream::from_str(html, Encoding::UTF8);
+        let mut doc = gosub_html5::document::builder::DocumentBuilderImpl::new_document::<Config>(None);
+        let options = gosub_html5::parser::Html5ParserOptions {
+            scripting_enabled: scripting,
+            ..Default::default()
+        };
+        let _ = gosub_html5::parser::Html5Parser::<Config>::parse_document(&mut stream, &mut doc, Some(options));
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        gosub_css3::stylesheet::set_scripting(doc.scripting_enabled());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let id = find_node_by_id_attr(&adapter.doc, adapter.doc.root(), "n").expect("no noscript");
+        adapter.computed_style(id).box_group.display
+    }
+
+    /// A `noscript` element is hidden only in a document with scripting: there its contents
+    /// are text the page is not to show. Without scripting they are the page's fallback.
+    #[test]
+    fn noscript_is_hidden_only_with_scripting() {
+        use gosub_interface::style::Display;
+
+        let plain = r#"<html><body><noscript id="n"><p>fallback</p></noscript></body></html>"#;
+        assert_eq!(noscript_display(plain, true), Display::None);
+        assert_ne!(noscript_display(plain, false), Display::None);
+
+        // the page does not get to show it either way round
+        let shown = r#"<html><head><style>noscript { display: block !important }</style></head>
+            <body><noscript id="n"><p>fallback</p></noscript></body></html>"#;
+        assert_eq!(noscript_display(shown, true), Display::None);
+        let hidden = r#"<html><head><style>noscript { display: none }</style></head>
+            <body><noscript id="n"><p>fallback</p></noscript></body></html>"#;
+        assert_eq!(noscript_display(hidden, false), Display::None);
     }
 
     /// `@supports` gates a block on what the engine can actually do. The condition is settled

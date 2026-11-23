@@ -32,6 +32,10 @@ impl WebCompiled for V8Compiled {
             }
             return Err(V8Ctx::report_exception(try_catch).into()); //catch compile errors
         };
+        // a script that a native function ran was ended, and this one got past it
+        if let Some(e) = self.context.take_termination(false) {
+            return Err(e.into());
+        }
 
         Ok(V8Value::from_local(V8Context::clone(&self.context), value))
     }

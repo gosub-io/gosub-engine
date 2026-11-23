@@ -23,6 +23,7 @@ use gosub_interface::node::{ShadowRootInit, ShadowRootMode, SlotAssignmentMode};
 
 use gosub_interface::html5::ParserOptions;
 use gosub_interface::node::QuirksMode;
+use gosub_interface::script::ScriptHost;
 use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
 use gosub_shared::node::NodeId;
 use gosub_shared::timing::{self, Timer};
@@ -93,10 +94,13 @@ mod formatting;
 mod fragment;
 mod modes;
 mod scope;
+mod scripts;
 mod stylesheets;
 
 use formatting::ActiveElement;
 use scope::Scope;
+pub use scripts::ScriptSource;
+use scripts::ScriptTiming;
 pub use stylesheets::StylesheetSource;
 
 pub struct Html5ParserOptions {
@@ -106,6 +110,12 @@ pub struct Html5ParserOptions {
     /// `None` means nothing waits: the sheets are resolved after the parse instead, which
     /// is right for a document with no scripts in it and for every test in this crate.
     pub stylesheets: Option<Arc<dyn StylesheetSource>>,
+    /// Runs the document's inline classic scripts, each when its end tag is seen. `None`
+    /// means no script runs.
+    pub scripts: Option<Box<dyn ScriptHost>>,
+    /// Where the text of a `<script src>` comes from. `None` means external scripts do not
+    /// run. Only asked when `scripts` is set.
+    pub script_sources: Option<Arc<dyn ScriptSource>>,
 }
 
 impl ParserOptions for Html5ParserOptions {
@@ -113,6 +123,8 @@ impl ParserOptions for Html5ParserOptions {
         Self {
             scripting_enabled: scripting,
             stylesheets: None,
+            scripts: None,
+            script_sources: None,
         }
     }
 }
@@ -122,6 +134,8 @@ impl Default for Html5ParserOptions {
         Self {
             scripting_enabled: true,
             stylesheets: None,
+            scripts: None,
+            script_sources: None,
         }
     }
 }
@@ -173,6 +187,15 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     /// one with a `src` does unless it is marked `async` or `defer`. Read at the start tag,
     /// where the attributes are, and acted on at the end tag, where the script would run.
     current_script_blocks: bool,
+    /// What runs the document's scripts, if anything does.
+    script_host: Option<Box<dyn ScriptHost>>,
+    script_source: Option<Arc<dyn ScriptSource>>,
+    /// URLs of the `defer` and `async` scripts seen so far, in document order. They run
+    /// when the document has been parsed.
+    deferred_scripts: Vec<(String, ScriptTiming)>,
+    /// Time spent running scripts and waiting for external ones, in microseconds: not part
+    /// of the time the parse itself took.
+    script_us: u64,
     /// Pending table character tokens
     pending_table_character_tokens: String,
     /// Location of the first pending table character token
@@ -311,6 +334,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     ) -> Self {
         let scripting_enabled = options.as_ref().is_none_or(|o| o.scripting_enabled);
         document.set_scripting_enabled(scripting_enabled);
+        let (stylesheet_source, script_host, script_source) =
+            options.map_or((None, None, None), |o| (o.stylesheets, o.scripts, o.script_sources));
         Self {
             tokenizer,
             insertion_mode: InsertionMode::Initial,
@@ -326,7 +351,11 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             head_element: None,
             form_element: None,
             scripting_enabled,
-            stylesheet_source: options.and_then(|o| o.stylesheets),
+            stylesheet_source,
+            script_host,
+            script_source,
+            deferred_scripts: Vec::new(),
+            script_us: 0,
             frameset_ok: true,
             foster_parenting: false,
             script_already_started: false,
@@ -372,6 +401,10 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             form_element: None,
             scripting_enabled: true,
             stylesheet_source: None,
+            script_host: None,
+            script_source: None,
+            deferred_scripts: Vec::new(),
+            script_us: 0,
             frameset_ok: true,
             foster_parenting: false,
             script_already_started: false,
@@ -410,13 +443,19 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         let mut parser = Html5Parser::<C>::init(tokenizer, document, error_logger, options);
 
         // Bytes to DOM only. The time spent waiting for stylesheets at a blocking script is
-        // recorded under `script.blocked_on_css` and taken back out here.
+        // recorded under `script.blocked_on_css` and taken back out here, as is the time the
+        // scripts themselves took.
         let mut wall = Timer::new(Some(context.clone()));
         let ret = parser.do_parse();
         wall.end();
 
-        let parse_us = wall.duration().saturating_sub(parser.blocked_on_css_us.get());
+        let parse_us = wall
+            .duration()
+            .saturating_sub(parser.blocked_on_css_us.get())
+            .saturating_sub(parser.script_us);
         timing::record(gosub_shared::timing::Timing::DecodeHtml, parse_us, Some(context));
+
+        parser.run_deferred_scripts();
 
         ret
     }

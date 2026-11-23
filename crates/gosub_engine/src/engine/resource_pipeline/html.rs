@@ -22,6 +22,9 @@ use tokio_util::io::StreamReader;
 
 /// One `oneshot` per stylesheet this parse discovered, keyed by URL.
 type SheetBodies = Arc<Mutex<HashMap<String, tokio::sync::oneshot::Receiver<SheetBody>>>>;
+/// The same for scripts, where each element that names a URL has a fetch of its own, in
+/// document order.
+type ScriptBodies = Arc<Mutex<HashMap<String, std::collections::VecDeque<tokio::sync::oneshot::Receiver<SheetBody>>>>>;
 
 /// A fetched stylesheet: its `Content-Type` and its bytes. `None` when it could not be had.
 pub(crate) type SheetBody = Option<(Option<String>, Vec<u8>)>;
@@ -142,6 +145,8 @@ pub struct HtmlPipelineImpl<C: RenderConfiguration> {
     source_only: bool,
     /// Whether the document's scripts may run (see `HtmlParseConfig::scripting_enabled`).
     scripting: bool,
+    /// What runs the document's inline scripts during the parse, if anything.
+    scripts: Option<Arc<dyn crate::html::ScriptHostSource>>,
     /// What the last parse's web font load kept back; see [`HtmlPipeline::take_deferred_fonts`].
     deferred_fonts: super::webfonts::DeferredFonts,
 }
@@ -156,6 +161,12 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
     /// Parse for a page whose scripts do not run.
     pub fn scripting(mut self, on: bool) -> Self {
         self.scripting = on;
+        self
+    }
+
+    /// Run the document's inline scripts through hosts from `scripts`.
+    pub fn scripts(mut self, scripts: Option<Arc<dyn crate::html::ScriptHostSource>>) -> Self {
+        self.scripts = scripts;
         self
     }
 
@@ -185,6 +196,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             capture_source,
             source_only: false,
             scripting: true,
+            scripts: None,
             deferred_fonts: super::webfonts::DeferredFonts::default(),
         }
     }
@@ -252,6 +264,8 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             referrer_policy: header_policy,
             settled_referrer_policy: Some(settled_policy.clone()),
             scripting_enabled: self.scripting,
+            scripts: self.scripts.clone(),
+            script_sources: None,
         };
 
         let io_tx = self.io_tx.clone();
@@ -268,10 +282,15 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
         // consumer -- a per-parse channel says that, where a process-wide store keyed by URL
         // would leave it looking like anyone's to take.
         let sheet_bodies: SheetBodies = Arc::new(Mutex::new(HashMap::new()));
+        // The same for scripts, when this parse runs them: each `<script src>` the scan
+        // finds is fetched once, and the parser takes it from here when it gets there.
+        let script_bodies: ScriptBodies = Arc::new(Mutex::new(HashMap::new()));
+        let scripts_run = self.scripts.is_some();
 
         let child_handles_for_closure = child_handles.clone();
         let child_tasks_for_closure = child_tasks.clone();
         let sheet_bodies_for_closure = sheet_bodies.clone();
+        let script_bodies_for_closure = script_bodies.clone();
 
         let mut sub_headers = http::HeaderMap::new();
         if let Some(langs) = &self.accept_language {
@@ -330,9 +349,19 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             // A stylesheet goes to this parse's own channel; everything else is announced in
             // the global hand-off, where the media store and the font loader look for it.
             let is_stylesheet = matches!(hint.kind, crate::net::types::ResourceKind::Stylesheet);
+            let is_script = scripts_run && matches!(hint.kind, crate::net::types::ResourceKind::Script { .. });
             let sheet_tx = if is_stylesheet {
                 let (tx, rx) = tokio::sync::oneshot::channel();
                 sheet_bodies_for_closure.lock().insert(sub_url.to_string(), rx);
+                Some(tx)
+            } else if is_script {
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                // behind the one of an earlier element with the same src, not in its place
+                script_bodies_for_closure
+                    .lock()
+                    .entry(sub_url.to_string())
+                    .or_default()
+                    .push_back(rx);
                 Some(tx)
             } else {
                 if let Some(scope) = nav_scope {
@@ -382,8 +411,9 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             child_tasks.lock().push(join_handle);
         };
 
-        cfg.stylesheets = Some(Arc::new(ParseSheetGate {
+        let gate = Arc::new(ParseSheetGate {
             bodies: sheet_bodies.clone(),
+            scripts: script_bodies,
             runtime: tokio::runtime::Handle::current(),
             zone_id,
             tab_id,
@@ -394,7 +424,11 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             referrer: doc_url.clone(),
             referrer_policy: settled_policy,
             header_policy,
-        }));
+        });
+        if scripts_run {
+            cfg.script_sources = Some(gate.clone());
+        }
+        cfg.stylesheets = Some(gate);
 
         let was_cancelled = handle.cancel.is_cancelled();
 
@@ -516,6 +550,8 @@ impl<C: RenderConfiguration> HtmlPipeline<C> for HtmlPipelineImpl<C> {
 #[derive(Debug)]
 struct ParseSheetGate {
     bodies: SheetBodies,
+    /// The external scripts in flight, for a parse that runs them.
+    scripts: ScriptBodies,
     runtime: tokio::runtime::Handle,
     zone_id: ZoneId,
     tab_id: TabId,
@@ -530,6 +566,38 @@ struct ParseSheetGate {
     header_policy: gosub_sonar::ReferrerPolicy,
 }
 
+impl ParseSheetGate {
+    /// The body of `url`: the fetch already in flight for it, or a new one for a URL the
+    /// document scan did not see.
+    async fn body(
+        &self,
+        waiting: Option<tokio::sync::oneshot::Receiver<SheetBody>>,
+        url: &str,
+        kind: crate::net::types::ResourceKind,
+    ) -> SheetBody {
+        match waiting {
+            Some(rx) => rx.await.ok().flatten(),
+            None => {
+                fetch_subresource(
+                    url,
+                    kind,
+                    &SubFetch {
+                        zone_id: self.zone_id,
+                        tab_id: self.tab_id,
+                        io_tx: &self.io_tx,
+                        parent_ref: self.parent_ref,
+                        parent_cancel: &self.parent_cancel,
+                        headers: &self.headers,
+                        referrer: &self.referrer,
+                        referrer_policy: self.referrer_policy.get().copied().unwrap_or(self.header_policy),
+                    },
+                )
+                .await
+            }
+        }
+    }
+}
+
 impl gosub_html5::parser::StylesheetSource for ParseSheetGate {
     fn fetch_blocking(&self, urls: &[String]) -> Vec<Option<Vec<u8>>> {
         // `block_on` from inside a `spawn_blocking` thread, which is allowed precisely
@@ -539,31 +607,36 @@ impl gosub_html5::parser::StylesheetSource for ParseSheetGate {
             let mut out = Vec::with_capacity(urls.len());
             for url in urls {
                 let waiting = self.bodies.lock().remove(url);
-                let body = match waiting {
-                    Some(rx) => rx.await.ok().flatten(),
-                    None => {
-                        fetch_subresource(
-                            url,
-                            crate::net::types::ResourceKind::Stylesheet,
-                            &SubFetch {
-                                zone_id: self.zone_id,
-                                tab_id: self.tab_id,
-                                io_tx: &self.io_tx,
-                                parent_ref: self.parent_ref,
-                                parent_cancel: &self.parent_cancel,
-                                headers: &self.headers,
-                                referrer: &self.referrer,
-                                referrer_policy: self.referrer_policy.get().copied().unwrap_or(self.header_policy),
-                            },
-                        )
-                        .await
-                    }
-                };
+                let body = self
+                    .body(waiting, url, crate::net::types::ResourceKind::Stylesheet)
+                    .await;
                 out.push(body.map(|(_, bytes)| bytes));
             }
             out
         })
     }
+}
+
+impl gosub_html5::parser::ScriptSource for ParseSheetGate {
+    fn fetch_blocking(&self, url: &str) -> Option<String> {
+        // on the parse's blocking thread, like the stylesheets above
+        let waiting = self.scripts.lock().get_mut(url).and_then(|fetches| fetches.pop_front());
+        let (_, bytes) = self.runtime.block_on(self.body(
+            waiting,
+            url,
+            crate::net::types::ResourceKind::Script { blocking: true },
+        ))?;
+
+        Some(script_text(&bytes))
+    }
+}
+
+/// The bytes of a script as text: UTF-8, without a byte order mark. A `charset` on the
+/// element or the response is not looked at.
+pub(crate) fn script_text(bytes: &[u8]) -> String {
+    let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
+
+    String::from_utf8_lossy(bytes).into_owned()
 }
 
 /// What the post-parse stages need to fetch something the document scan missed.

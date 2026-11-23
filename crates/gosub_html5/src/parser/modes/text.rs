@@ -51,27 +51,31 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                 self.insertion_mode = self.original_insertion_mode;
             }
             Token::EndTag { name, .. } if name == "script" => {
-                // @todo: If the active speculative HTML parser is null and the JavaScript execution context stack is empty, then perform a microtask checkpoint.
-
+                // The microtask checkpoint the spec has here finds nothing to do: no
+                // script is on the stack, and the one before this ran its own.
+                let script = current_node_id!(self);
                 self.open_elements.pop();
                 self.insertion_mode = self.original_insertion_mode;
 
                 let old_insertion_point = self.insertion_point;
                 self.insertion_point = Some(self.tokenizer.get_location().offset);
 
-                // Nothing runs the script yet, but a blocking script still waits for
-                // the stylesheets before it.
+                // A blocking script waits for the stylesheets before it, whether or
+                // not anything runs it.
                 if self.current_script_blocks {
                     self.settle_stylesheets();
                 }
 
                 self.script_nesting_level += 1;
 
-                // @todo: run the script here.
+                let ran = self.run_script(script);
 
                 self.script_nesting_level -= 1;
                 if self.script_nesting_level == 0 {
                     self.parser_pause_flag = false;
+                    if ran {
+                        self.script_checkpoint();
+                    }
                 }
 
                 self.insertion_point = old_insertion_point;

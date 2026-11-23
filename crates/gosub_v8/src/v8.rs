@@ -111,7 +111,12 @@ pub struct V8Context {
 }
 
 /// Just a thin wrapper around the V8 Isolate. It has a strong reference to the V8Context to keep the Isolate alive
-pub struct IsolateWrapper {
+///
+/// The isolate is the thread's current one for as long as this lives: a thread can hold
+/// the contexts of several pages, and V8 works on the isolate that was entered last.
+/// Keep it in a local, like a scope: wrappers have to go in the reverse order they came.
+/// Nothing checks that order, which is why code outside this crate gets no wrapper.
+pub(crate) struct IsolateWrapper {
     iso: NonNull<Isolate>,    // we are not responsible for dropping the Isolate
     _ctx: Rc<RefCell<V8Ctx>>, //ctx to keep the isolate alive
 }
@@ -130,12 +135,23 @@ impl DerefMut for IsolateWrapper {
     }
 }
 
+impl Drop for IsolateWrapper {
+    fn drop(&mut self) {
+        // Safety: entered in `V8Context::isolate`, and wrappers go in the reverse order
+        // they came in, so this isolate is the current one
+        unsafe { self.iso.as_ref().exit() }
+    }
+}
+
 impl V8Context {
-    pub fn isolate(&self) -> IsolateWrapper {
+    pub(crate) fn isolate(&self) -> IsolateWrapper {
         let mut this = self.ctx.borrow_mut();
+        let iso = NonNull::from(this.isolate().as_mut());
+        // Safety: left again when the wrapper is dropped
+        unsafe { iso.as_ref().enter() }
 
         IsolateWrapper {
-            iso: NonNull::from(this.isolate().as_mut()),
+            iso,
             _ctx: Rc::clone(&self.ctx),
         }
     }

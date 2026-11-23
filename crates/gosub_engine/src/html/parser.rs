@@ -9,6 +9,7 @@ use gosub_html5::parser::Html5Parser;
 use gosub_interface::css3::CssSystem;
 use gosub_interface::document::Document as _;
 use gosub_interface::node::QuirksMode;
+use gosub_interface::script::{ScriptError, ScriptErrorKind, ScriptHost, ScriptOrigin, ScriptTerminator, ScriptValue};
 use gosub_shared::byte_stream::{ByteStream, Confidence, Encoding};
 use gosub_sonar::ReferrerPolicy;
 use once_cell::sync::Lazy;
@@ -60,6 +61,45 @@ pub enum DocumentError {
     Cancelled,
 }
 
+/// Hands a parse the host that runs its document's scripts.
+pub trait ScriptHostSource: Send + Sync + std::fmt::Debug {
+    fn host(&self) -> Box<dyn ScriptHost + Send>;
+}
+
+/// Runs the scripts of a document that is being loaded until its navigation is cancelled.
+/// The parse cannot be stopped half way, but what it runs from then on is nobody's page.
+struct UntilCancelled {
+    host: Box<dyn ScriptHost + Send>,
+    cancel: CancellationToken,
+}
+
+impl ScriptHost for UntilCancelled {
+    fn execute(&mut self, source: &str, origin: &ScriptOrigin) -> Result<ScriptValue, ScriptError> {
+        if self.cancel.is_cancelled() {
+            return Err(ScriptError::new(
+                ScriptErrorKind::Unavailable,
+                "the navigation was cancelled",
+            ));
+        }
+        self.host.execute(source, origin)
+    }
+
+    fn microtask_checkpoint(&mut self) -> Result<(), ScriptError> {
+        if self.cancel.is_cancelled() {
+            return Ok(());
+        }
+        self.host.microtask_checkpoint()
+    }
+
+    fn terminator(&self) -> ScriptTerminator {
+        self.host.terminator()
+    }
+
+    fn forget_termination(&mut self) {
+        self.host.forget_termination();
+    }
+}
+
 /// Configuration for parsing a main document (see [`parse_main_document_stream`]).
 #[derive(Debug, Clone)]
 pub struct HtmlParseConfig {
@@ -92,6 +132,12 @@ pub struct HtmlParseConfig {
     pub settled_referrer_policy: Option<std::sync::Arc<std::sync::OnceLock<ReferrerPolicy>>>,
     /// Parse as a document whose scripts run. Off, `<noscript>` content is markup.
     pub scripting_enabled: bool,
+    /// Where the host comes from that runs the document's inline scripts as they are parsed.
+    /// `None` runs nothing.
+    pub scripts: Option<std::sync::Arc<dyn ScriptHostSource>>,
+    /// Where the parse gets the text of a `<script src>` from. `None` leaves external
+    /// scripts alone.
+    pub script_sources: Option<std::sync::Arc<dyn gosub_html5::parser::ScriptSource>>,
 }
 
 impl Default for HtmlParseConfig {
@@ -105,6 +151,8 @@ impl Default for HtmlParseConfig {
             referrer_policy: ReferrerPolicy::default(),
             settled_referrer_policy: None,
             scripting_enabled: true,
+            scripts: None,
+            script_sources: None,
         }
     }
 }
@@ -251,6 +299,9 @@ where
     let timing_scope = cfg.timing_scope;
     let stylesheets = cfg.stylesheets.clone();
     let scripting_enabled = cfg.scripting_enabled;
+    let scripts = cfg.scripts.clone();
+    let script_sources = cfg.script_sources.clone();
+    let script_cancel = cancel.clone();
     let parse = move || -> Result<EngineDocument<C>, DocumentError> {
         let _scope = timing_scope.map(gosub_shared::timing::enter_scope);
 
@@ -265,6 +316,13 @@ where
         let options = gosub_html5::parser::Html5ParserOptions {
             stylesheets,
             scripting_enabled,
+            scripts: scripts.map(|source| {
+                Box::new(UntilCancelled {
+                    host: source.host(),
+                    cancel: script_cancel,
+                }) as Box<dyn ScriptHost>
+            }),
+            script_sources,
         };
         match Html5Parser::<C>::parse_document(&mut stream, &mut doc, Some(options)) {
             Ok(errors) => doc.set_parse_errors(errors),
@@ -606,6 +664,46 @@ fn decode_ampersands(url: &str) -> std::borrow::Cow<'_, str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scripts_stop_running_once_the_navigation_is_cancelled() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct Counting(std::sync::Arc<AtomicUsize>);
+        impl ScriptHost for Counting {
+            fn execute(&mut self, _source: &str, _origin: &ScriptOrigin) -> Result<ScriptValue, ScriptError> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Ok(ScriptValue::Undefined)
+            }
+            fn microtask_checkpoint(&mut self) -> Result<(), ScriptError> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+            fn terminator(&self) -> ScriptTerminator {
+                ScriptTerminator::noop()
+            }
+        }
+
+        let calls = std::sync::Arc::new(AtomicUsize::new(0));
+        let cancel = CancellationToken::new();
+        let mut host = UntilCancelled {
+            host: Box::new(Counting(calls.clone())),
+            cancel: cancel.clone(),
+        };
+        let origin = ScriptOrigin::default();
+
+        assert_eq!(host.execute("a()", &origin), Ok(ScriptValue::Undefined));
+        assert_eq!(host.microtask_checkpoint(), Ok(()));
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+        cancel.cancel();
+        assert_eq!(
+            host.execute("b()", &origin).map_err(|e| e.kind),
+            Err(ScriptErrorKind::Unavailable)
+        );
+        assert_eq!(host.microtask_checkpoint(), Ok(()));
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
 
     /// The source handed to a renderer process is the text the parser read, BOM
     /// and all encodings it knows accounted for.

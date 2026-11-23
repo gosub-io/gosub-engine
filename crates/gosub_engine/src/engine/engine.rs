@@ -6486,6 +6486,47 @@ mod tests {
 
     #[cfg(feature = "js")]
     #[tokio::test]
+    async fn a_script_that_outlives_its_page_answers_with_an_error() {
+        let (mut engine, mut events, tab) = script_tab(true).await;
+        load_html(&tab, &mut events, "<html><body><p>first</p></body></html>").await;
+
+        tab.send(crate::events::TabCommand::ExecuteScript {
+            source: "const from = Date.now(); while (Date.now() - from < 1000) {} 'late'".to_owned(),
+        })
+        .await
+        .expect("send script");
+        tab.send(crate::events::TabCommand::LoadHtml {
+            html: "<html><body><p>next</p></body></html>".to_owned(),
+            base_url: "https://example.test/next.html".into(),
+        })
+        .await
+        .expect("load");
+
+        let answer = tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::ScriptResult { result, .. }) => return Ok(result),
+                    Ok(EngineEvent::JavaScriptError { message, .. }) => return Err(message),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("no answer to the script");
+        assert_eq!(answer, Err("the page was replaced while the script ran".to_owned()));
+
+        // the page that replaced it runs scripts as any other
+        assert_eq!(
+            script_value(script_answer(&tab, &mut events, "1 + 1").await),
+            serde_json::json!(2.0)
+        );
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
     async fn console_output_reaches_the_embedder() {
         use gosub_interface::script::ConsoleLevel;
 
@@ -6533,6 +6574,346 @@ mod tests {
         );
 
         engine.shutdown().await.expect("shutdown");
+    }
+
+    /// Loads `html` and returns what its scripts wrote to the console and the errors they
+    /// ended with, as they came.
+    #[cfg(feature = "js")]
+    async fn page_script_output(javascript_enabled: bool, html: &str) -> Vec<String> {
+        use crate::events::{NavigationEvent, TabCommand};
+
+        let (mut engine, mut events, tab) = script_tab(javascript_enabled).await;
+        tab.send(TabCommand::LoadHtml {
+            html: html.to_owned(),
+            base_url: "https://example.test/page.html".into(),
+        })
+        .await
+        .expect("load");
+
+        let mut output = Vec::new();
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::ConsoleMessage { text, origin, .. }) => {
+                        assert_eq!(origin, "https://example.test/page.html");
+                        output.push(text);
+                    }
+                    Ok(EngineEvent::JavaScriptError {
+                        message, line, column, ..
+                    }) => output.push(format!("{message} @{line}:{column}")),
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    }) => break,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("the page did not load");
+
+        // what the scripts left behind is what a later ExecuteScript sees
+        if javascript_enabled {
+            let left =
+                script_value(script_answer(&tab, &mut events, "typeof left === 'undefined' ? null : left").await);
+            if !left.is_null() {
+                output.push(format!("left: {left}"));
+            }
+        }
+
+        engine.shutdown().await.expect("shutdown");
+        output
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn inline_scripts_run_while_the_page_is_parsed() {
+        let html = "<html><head><script>console.log(1 + 1); var left = 'head'</script></head>\
+                    <body><p>text</p><script>console.log('second'); left += ' body'</script></body></html>";
+
+        assert_eq!(
+            page_script_output(true, html).await,
+            ["2", "second", "left: \"head body\""]
+        );
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn an_inline_script_that_fails_is_reported_and_the_next_one_runs() {
+        let html = "<html>\n<body>\n<script>\n  missing()\n</script>\n<script>console.log('after')</script>";
+
+        assert_eq!(
+            page_script_output(true, html).await,
+            ["ReferenceError: missing is not defined @4:3", "after"]
+        );
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn promise_jobs_of_an_inline_script_run_before_the_next_script() {
+        let html = "<script>Promise.resolve().then(() => console.log('job')); console.log('script')</script>\
+                    <script>console.log('next')</script>";
+
+        assert_eq!(page_script_output(true, html).await, ["script", "job", "next"]);
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn promise_jobs_of_a_script_that_throws_run_before_the_next_script() {
+        let html = "<script>Promise.resolve().then(() => console.log('job')); missing()</script>\
+                    <script>console.log('next')</script>";
+
+        assert_eq!(
+            page_script_output(true, html).await,
+            ["job", "ReferenceError: missing is not defined @1:51", "next"]
+        );
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn a_runaway_promise_job_is_terminated() {
+        let (mut engine, mut events, tab) = script_tab(true).await;
+        engine
+            .settings()
+            .set_transient("scripting.max_run_ms", gosub_config::settings::Setting::UInt(200))
+            .expect("setting");
+
+        let spin = "Promise.resolve().then(() => { for (;;) {} }); 1";
+        let (message, ..) = script_error(script_answer(&tab, &mut events, spin).await);
+        assert_eq!(message, "script execution was terminated");
+        assert_eq!(
+            script_value(script_answer(&tab, &mut events, "1 + 1").await),
+            serde_json::json!(2.0)
+        );
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn scripts_run_and_answer_in_the_order_they_were_sent() {
+        let (mut engine, mut events, tab) = script_tab(true).await;
+
+        for n in 0..40 {
+            tab.send(crate::events::TabCommand::ExecuteScript { source: n.to_string() })
+                .await
+                .expect("send script");
+        }
+
+        let mut answers = Vec::new();
+        tokio::time::timeout(Duration::from_secs(20), async {
+            while answers.len() < 40 {
+                match events.recv().await {
+                    Ok(EngineEvent::ScriptResult { result, .. }) => answers.push(result),
+                    Ok(EngineEvent::JavaScriptError { message, .. }) => panic!("script failed: {message}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("not every script answered");
+
+        let expected: Vec<serde_json::Value> = (0..40).map(|n| serde_json::json!(f64::from(n))).collect();
+        assert_eq!(answers, expected);
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn inline_scripts_do_not_run_with_javascript_disabled() {
+        let html = "<script>console.log('ran')</script><noscript><p>off</p></noscript>";
+
+        assert_eq!(page_script_output(false, html).await, [] as [&str; 0]);
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn a_runaway_inline_script_is_terminated_and_the_page_loads() {
+        use crate::events::TabCommand;
+
+        let (mut engine, mut events, tab) = script_tab(true).await;
+        engine
+            .settings()
+            .set_transient("scripting.max_run_ms", gosub_config::settings::Setting::UInt(200))
+            .expect("setting");
+        tab.send(TabCommand::LoadHtml {
+            html: "<script>for (;;) {}</script><script>var after = 1</script>".to_owned(),
+            base_url: "https://example.test/".into(),
+        })
+        .await
+        .expect("load");
+
+        let (message, ..) = script_error(
+            tokio::time::timeout(Duration::from_secs(20), async {
+                loop {
+                    match events.recv().await {
+                        Ok(ev @ EngineEvent::JavaScriptError { .. }) => return ev,
+                        Ok(_) => continue,
+                        Err(e) => panic!("event stream closed: {e}"),
+                    }
+                }
+            })
+            .await
+            .expect("the script was not terminated"),
+        );
+        assert_eq!(message, "script execution was terminated");
+        // the parse went on to the second script, and the page committed
+        let finished = wait_for(&mut events, |ev| {
+            matches!(
+                ev,
+                EngineEvent::Navigation {
+                    event: crate::events::NavigationEvent::Finished { .. },
+                    ..
+                }
+            )
+        })
+        .await;
+        assert!(finished, "the page did not load");
+        assert_eq!(
+            script_value(script_answer(&tab, &mut events, "after").await),
+            serde_json::json!(1.0)
+        );
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// Serves `page` at `/` and `console.log('<name>')` at `/<name>.js` (404 for
+    /// `/missing.js`), loads the page in a tab, and returns what its scripts logged and how
+    /// often each path was requested.
+    #[cfg(feature = "js")]
+    async fn served_page_output(page: &'static str) -> (Vec<String>, HashMap<String, usize>) {
+        use crate::events::NavigationEvent;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let requests = Arc::new(Mutex::new(HashMap::<String, usize>::new()));
+        let counted = requests.clone();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let counted = counted.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let Some(path) = req.split_whitespace().nth(1).map(str::to_owned) else {
+                        return;
+                    };
+                    *counted.lock().entry(path.clone()).or_default() += 1;
+
+                    let script = path.strip_prefix('/').and_then(|p| p.strip_suffix(".js"));
+                    let (status, ctype, body) = match script {
+                        Some("missing") => ("404 Not Found", "text/plain", "gone".to_owned()),
+                        // one with a byte order mark, which is not part of the script
+                        Some("bom") => ("200 OK", "text/javascript", "\u{feff}console.log('bom')".to_owned()),
+                        Some(name) => ("200 OK", "text/javascript", format!("console.log('{name}')")),
+                        None if path == "/" => ("200 OK", "text/html", page.to_owned()),
+                        None => ("404 Not Found", "text/plain", "gone".to_owned()),
+                    };
+                    let response = format!(
+                        "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(response.as_bytes()).await;
+                });
+            }
+        });
+
+        let (mut engine, mut events, tab) = script_tab(true).await;
+        tab.navigate(format!("http://127.0.0.1:{port}/"))
+            .await
+            .expect("navigate");
+
+        let mut output = Vec::new();
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::ConsoleMessage { text, origin, .. }) => {
+                        // a line is from the script that wrote it
+                        let file = origin.rsplit('/').next().unwrap_or_default();
+                        assert!(
+                            file.is_empty() || file == format!("{text}.js"),
+                            "{text} logged from {origin}"
+                        );
+                        output.push(text);
+                    }
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    }) => break,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("the page did not load");
+
+        engine.shutdown().await.expect("shutdown");
+        let requests = requests.lock().clone();
+        (output, requests)
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn external_scripts_run_in_order_and_are_fetched_once() {
+        let page = "<html><head>\
+            <script defer src=\"/defer1.js\"></script>\
+            <script>console.log('inline1')</script>\
+            <script src=\"/block1.js\"></script>\
+            <script async src=\"/async1.js\"></script>\
+            </head><body>\
+            <script src=\"/missing.js\"></script>\
+            <script src=\"/bom.js\"></script>\
+            <script>console.log('inline2')</script>\
+            <script defer src=\"/defer2.js\"></script>\
+            </body></html>";
+
+        let (output, requests) = served_page_output(page).await;
+
+        assert_eq!(
+            output,
+            ["inline1", "block1", "bom", "inline2", "defer1", "async1", "defer2"]
+        );
+        for path in [
+            "/defer1.js",
+            "/block1.js",
+            "/async1.js",
+            "/missing.js",
+            "/bom.js",
+            "/defer2.js",
+        ] {
+            assert_eq!(requests.get(path), Some(&1), "{path}: {requests:?}");
+        }
+    }
+
+    /// Two elements with the same `src` each run what the scan had fetched for them, which
+    /// is one request: neither falls back to a fetch of its own.
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn a_script_named_twice_is_not_fetched_again_by_the_parse() {
+        let page = "<script src=\"/twice.js\"></script><script src=\"/twice.js\"></script>";
+
+        let (output, requests) = served_page_output(page).await;
+
+        assert_eq!(output, ["twice", "twice"]);
+        assert_eq!(requests.get("/twice.js"), Some(&1), "{requests:?}");
+    }
+
+    /// A `src` the document scan does not see is fetched when the parser gets to it.
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn a_script_the_scan_missed_is_fetched_by_the_parse() {
+        // the scan reads the attribute as it is written, the parser as what it says
+        let page = "<script src=\"/sca&#110;.js\"></script>";
+
+        let (output, requests) = served_page_output(page).await;
+
+        assert_eq!(output, ["scan"]);
+        assert_eq!(requests.get("/scan.js"), Some(&1), "{requests:?}");
     }
 
     #[cfg(not(feature = "js"))]

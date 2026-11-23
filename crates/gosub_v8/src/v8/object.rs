@@ -153,6 +153,10 @@ impl WebObject for V8Object {
             }
             return Err(V8Ctx::report_exception(try_catch).into());
         };
+        // a script that a native function ran was ended, and this call got past it
+        if let Some(e) = self.ctx.take_termination(false) {
+            return Err(e.into());
+        }
 
         Ok(ret)
     }

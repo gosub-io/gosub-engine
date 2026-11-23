@@ -316,6 +316,18 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
         loader: Arc<dyn ResourceLoader>,
     ) -> Self {
+        Self::build_with(page, fonts, media_store, loader, Html5ParserOptions::default())
+    }
+
+    /// [`Self::build`] with the parser set up by the caller: whether the document's
+    /// scripts run, and through what.
+    pub fn build_with(
+        page: PageRequest<'_>,
+        fonts: Arc<Mutex<dyn FontSystem>>,
+        media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
+        loader: Arc<dyn ResourceLoader>,
+        parser: Html5ParserOptions,
+    ) -> Self {
         let PageRequest {
             html,
             page_url,
@@ -330,6 +342,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         // Viewport-relative CSS units resolve against the real viewport; must
         // precede parse(), which computes styles for display:none filtering.
         gosub_css3::stylesheet::set_layout_viewport(viewport_width as f32, viewport_height as f32);
+        gosub_css3::stylesheet::set_scripting(parser.scripting_enabled);
 
         // Parse with the page's base URL (relative subresource URLs resolve
         // against it). The parser records `<link rel="stylesheet">` and moves on;
@@ -340,7 +353,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         let base_url = Url::parse(page_url).ok();
         let mut stream = ByteStream::from_str(html, Encoding::UTF8);
         let mut doc = DocumentBuilderImpl::new_document::<C>(base_url.clone());
-        match Html5Parser::<C>::parse_document(&mut stream, &mut doc, Some(Html5ParserOptions::default())) {
+        match Html5Parser::<C>::parse_document(&mut stream, &mut doc, Some(parser)) {
             Ok(errors) => doc.set_parse_errors(errors),
             Err(e) => log::warn!("HTML parse of {page_url} stopped early: {e}"),
         }
@@ -508,6 +521,9 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             }
         }
         self.sync_interaction();
+        // the restyle below answers `@media (scripting)` for this document, not for the
+        // one another tab loaded last
+        gosub_css3::stylesheet::set_scripting(self.doc.scripting_enabled());
         self.adapter.invalidate_style_for_nodes(&dirty_nodes);
 
         // Everything either element covers, as laid out.
@@ -547,6 +563,8 @@ impl<C: RenderConfiguration> RetainedPage<C> {
     /// not survive a layout. What the input asked of the broker travels as
     /// effects.
     pub fn input(&mut self, scroll: (f64, f64), known_tiles: &HashSet<u64>, event: InputEvent) -> InputPass {
+        // as in `hover`: what the input restyles is this document's
+        gosub_css3::stylesheet::set_scripting(self.doc.scripting_enabled());
         (self.scroll_x, self.scroll_y) = scroll;
         self.dirty = Dirty::None;
         let focus_before = self.interaction_snapshot().focused_node();
@@ -759,6 +777,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         // Process-wide state another tab's navigate may have moved since.
         apply_media_prefs(self.dpr, self.media);
         gosub_css3::stylesheet::set_layout_viewport(self.viewport_width as f32, self.viewport_height as f32);
+        gosub_css3::stylesheet::set_scripting(self.doc.scripting_enabled());
         // Under the environment the layout is about to use: what the cascade
         // would produce now, against what it produced last time.
         let fingerprint = C::CssSystem::style_environment_fingerprint(self.doc.stylesheets());
@@ -1533,6 +1552,107 @@ mod tests {
         assert!(!red(&page, a) && red(&page, b));
         page.render(Some((0.0, 0.0)), &known);
         assert!(!red(&page, a) && red(&page, b), "after a pass");
+    }
+
+    /// A hover restyles under the scripting flag of its own document, whatever page the
+    /// renderer loaded since.
+    #[test]
+    fn a_hover_restyles_with_the_scripting_of_its_document() {
+        use crate::html::{DefaultRenderConfig, RenderConfiguration};
+        use gosub_interface::style::Display;
+        use gosub_render_pipeline::common::document::pipeline_doc::PipelineDocument;
+        type Fonts = <DefaultRenderConfig as RenderConfiguration>::FontSystem;
+        let build = |scripting_enabled: bool| {
+            let fonts: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(Fonts::default()));
+            RetainedPage::<DefaultRenderConfig>::build_with(
+                PageRequest {
+                    html: "<!DOCTYPE html><body><noscript id=\"n\"><p id=\"p\">fallback</p></noscript>",
+                    page_url: "https://example.test/",
+                    viewport_width: 800.0,
+                    viewport_height: 600.0,
+                    known_tiles: &HashSet::new(),
+                    hovered_node: None,
+                    dpr: 1,
+                    media: MediaPrefs::default(),
+                },
+                fonts,
+                Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
+                Arc::new(crate::net::resource_loader::NoResourceLoader),
+                Html5ParserOptions {
+                    scripting_enabled,
+                    ..Default::default()
+                },
+            )
+        };
+
+        let mut without = build(false);
+        let noscript = without.doc.node_by_named_id("n").expect("the noscript element");
+        let fallback = without.doc.node_by_named_id("p").expect("its paragraph");
+        assert_ne!(
+            without.adapter.computed_style(noscript).box_group.display,
+            Display::None
+        );
+
+        // another tab's page, with scripting
+        let _with = build(true);
+
+        without.hover(Some(fallback.into()));
+        assert_ne!(
+            without.adapter.computed_style(noscript).box_group.display,
+            Display::None
+        );
+    }
+
+    /// So does a focus change, which restyles without a layout.
+    #[test]
+    fn a_focus_change_restyles_with_the_scripting_of_its_document() {
+        use crate::html::{DefaultRenderConfig, RenderConfiguration};
+        use gosub_interface::style::Color;
+        use gosub_render_pipeline::common::document::pipeline_doc::PipelineDocument;
+        type Fonts = <DefaultRenderConfig as RenderConfiguration>::FontSystem;
+        let build = |scripting_enabled: bool| {
+            let fonts: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(Fonts::default()));
+            RetainedPage::<DefaultRenderConfig>::build_with(
+                PageRequest {
+                    html: "<!DOCTYPE html><style>@media (scripting: none) { input { color: red } }</style><body><input id=\"p\">",
+                    page_url: "https://example.test/",
+                    viewport_width: 800.0,
+                    viewport_height: 600.0,
+                    known_tiles: &HashSet::new(),
+                    hovered_node: None,
+                    dpr: 1,
+                    media: MediaPrefs::default(),
+                },
+                fonts,
+                Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
+                Arc::new(crate::net::resource_loader::NoResourceLoader),
+                Html5ParserOptions {
+                    scripting_enabled,
+                    ..Default::default()
+                },
+            )
+        };
+
+        let mut without = build(false);
+        let field = without.doc.node_by_named_id("p").expect("the field");
+        let red = |page: &RetainedPage<DefaultRenderConfig>| {
+            page.adapter.computed_style(field).inherited.color == Color::rgba(255, 0, 0, 255)
+        };
+        assert!(red(&without));
+
+        // another tab's page, with scripting
+        let _with = build(true);
+
+        without.input(
+            (0.0, 0.0),
+            &HashSet::new(),
+            InputEvent::KeyDown {
+                key: "Tab".into(),
+                modifiers: 0,
+            },
+        );
+        assert_eq!(without.interaction_snapshot().focused_node(), Some(field));
+        assert!(red(&without), "restyled as a page with scripting");
     }
 
     /// A viewport with no width yet keeps every column, so what the broker holds stays there.

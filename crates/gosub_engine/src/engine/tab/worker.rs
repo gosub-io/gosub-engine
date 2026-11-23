@@ -275,9 +275,28 @@ pub struct TabWorker<C: RenderConfiguration> {
     services: EffectiveTabServices,
     /// The script thread of the current document, started by its first script.
     script: Option<Arc<crate::engine::script::ScriptThread>>,
+    /// The script thread of the document a navigation is loading: its parser runs the inline
+    /// scripts there. It becomes `script` when that navigation commits.
+    pending_script: Option<(NavigationId, Arc<crate::engine::script::ScriptThread>)>,
     /// The current document was handed to a renderer process as source: there is no page
     /// here to run a script in.
     document_in_renderer: bool,
+    /// Counts the documents this tab committed. A script that was sent under an earlier
+    /// count ran in a page that is gone.
+    script_page: u64,
+    /// Answers of the scripts that ran here, from the script thread, each with the page
+    /// it was sent to.
+    local_script_replies: tokio::sync::mpsc::UnboundedSender<LocalScriptReply>,
+    local_script_inbox: tokio::sync::mpsc::UnboundedReceiver<LocalScriptReply>,
+    /// Answers of the scripts sent to the renderer, from the threads that waited for them.
+    remote_script_replies: tokio::sync::mpsc::UnboundedSender<RemoteScriptReply>,
+    remote_script_inbox: tokio::sync::mpsc::UnboundedReceiver<RemoteScriptReply>,
+    /// The number of the next script sent to the renderer, and of the next answer to
+    /// publish; answers that came ahead of an earlier one wait in `remote_script_done`.
+    #[cfg_attr(not(all(feature = "process-isolation", target_os = "linux")), allow(dead_code))]
+    remote_script_next: u64,
+    remote_script_published: u64,
+    remote_script_done: RemoteScriptsDone<Vec<crate::fork_server::protocol::ScriptReport>>,
 
     /// Sink for sending events upwards
     sink: Arc<TabSink>,
@@ -465,12 +484,23 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
         let runtime = TabRuntime::with_fps(config_store.get_uint("renderer.tab.default_fps") as u32);
 
+        let (remote_script_replies, remote_script_inbox) = tokio::sync::mpsc::unbounded_channel();
+        let (local_script_replies, local_script_inbox) = tokio::sync::mpsc::unbounded_channel();
         Self {
             tab_id,
             zone_id,
             services,
             script: None,
+            pending_script: None,
             document_in_renderer: false,
+            remote_script_replies,
+            remote_script_inbox,
+            remote_script_next: 0,
+            script_page: 0,
+            local_script_replies,
+            local_script_inbox,
+            remote_script_published: 0,
+            remote_script_done: Default::default(),
             zone_context,
             sink,
             cmd_rx,
@@ -656,6 +686,15 @@ impl<C: RenderConfiguration> TabWorker<C> {
                             log::error!("Tab {:?} load receive error: {}", self.tab_id, e);
                         }
                     }
+                }
+
+                // The answer of a script that ran in the renderer
+                Some(reply) = self.remote_script_inbox.recv() => self.on_remote_script_reply(reply),
+
+                // The answer of a script that ran here
+                Some((sent_to, result)) = self.local_script_inbox.recv() => {
+                    let event = local_script_event(self.tab_id, sent_to, self.script_page, result);
+                    self.send_event(event);
                 }
 
                 // Handle incoming tab commands from the UA
@@ -891,9 +930,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     .as_ref()
                     .filter(|a| a.nav_id == nav_id)
                     .map(|a| a.cancel.clone());
+                // scripts still running in the page this one replaces answer with an error
+                self.script_page += 1;
                 match (doc, source) {
                     (Some(doc), source) => {
-                        self.script = None;
+                        // the thread the document's own scripts ran on, if it had any to run
+                        self.script = adopt_pending(&mut self.pending_script, nav_id);
                         self.document_in_renderer = false;
                         self.context.set_document(Arc::clone(&doc), source);
                         self.context.set_document_referrer_policy(referrer_policy);
@@ -909,7 +951,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     // its first render (see `apply_remote_document_meta`).
                     (None, Some(source)) => {
                         self.script = None;
+                        // a newer navigation's thread stays for when that one commits
+                        drop(adopt_pending(&mut self.pending_script, nav_id));
                         self.document_in_renderer = true;
+                        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+                        {
+                            let scripts = self.remote_script_settings();
+                            self.context.set_remote_scripts(scripts);
+                        }
                         self.context.set_document_source(final_url.clone(), source);
                         self.context.set_document_referrer_policy(referrer_policy);
                         self.context.set_document_navigation(nav_id);
@@ -1898,6 +1947,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
     fn execute_script(&mut self, source: String) {
         use crate::engine::script;
 
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        if self.document_in_renderer && self.javascript_enabled() && cfg!(feature = "js") {
+            self.execute_script_in_renderer(source);
+            return;
+        }
+
         let thread = match self.script_thread() {
             Ok(thread) => thread,
             Err(e) => {
@@ -1910,19 +1965,100 @@ impl<C: RenderConfiguration> TabWorker<C> {
             url: self.script_origin(),
             line: 0,
         };
-        let limit = Duration::from_millis(self.zone_context.config_store.get_uint("scripting.max_run_ms") as u64);
-        let tab_id = self.tab_id;
-        let event_tx = self.zone_context.event_tx.clone();
-        tokio::spawn(async move {
-            let event = match thread.execute(source, origin, limit).await {
-                Ok(value) => EngineEvent::ScriptResult {
-                    tab_id,
-                    result: script::to_json(value),
-                },
-                Err(e) => script_error_event(tab_id, e),
-            };
-            let _ = event_tx.send(event);
-        });
+        let limit = self.script_time_limit();
+        let (finished, done) = oneshot::channel();
+        let replies = self.local_script_replies.clone();
+        let sent_to = self.script_page;
+        // Queued here, not in the task below: scripts run in the order their commands came.
+        // The script thread hands its answers over in that order, and the worker sends
+        // them out: it is the one that knows whether the page is still there.
+        let queued = thread.submit(
+            source,
+            origin,
+            Box::new(move |result| {
+                let _ = replies.send((sent_to, result.map(script::to_json)));
+                let _ = finished.send(());
+            }),
+        );
+        match queued {
+            Ok(id) => {
+                tokio::spawn(async move { thread.watch(id, limit, done).await });
+            }
+            Err(e) => self.send_event(script_error_event(self.tab_id, e)),
+        }
+    }
+
+    /// `execute_script` for a document that lives in a renderer process: the script runs
+    /// there, and what it reports comes back through `remote_script_replies`.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn execute_script_in_renderer(&mut self, source: String) {
+        // The renderer loads a document for its first frame. A script does not wait for
+        // one: drawing may be suspended. Nor does a page the renderer let go of come back
+        // without a frame.
+        self.context.reload_lost_remote_page();
+        if !self.context.remote_page_ready() {
+            self.context.rebuild_pipeline_cache_if_needed();
+        }
+        // what the page's own scripts said comes before the answer to this one
+        self.publish_remote_script_reports();
+
+        let seq = self.remote_script_next;
+        self.remote_script_next += 1;
+        let max_run_ms = self.script_time_limit().as_millis().min(u128::from(u64::MAX)) as u64;
+        let replies = self.remote_script_replies.clone();
+        let queued = self.context.remote_execute_script(
+            source,
+            max_run_ms,
+            Box::new(move |epoch, result| {
+                let _ = replies.send((seq, epoch, result));
+            }),
+        );
+        if let Err(why) = queued {
+            let epoch = self.context.remote_epoch();
+            self.on_remote_script_reply((seq, epoch, Err(why)));
+        }
+    }
+
+    /// What the document's scripts reported while its renderer loaded it, as events.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn publish_remote_script_reports(&mut self) {
+        for report in self.context.take_remote_script_reports() {
+            self.send_event(script_report_event(self.tab_id, report));
+        }
+    }
+
+    /// A script sent to the renderer has its answer. Answers go out in the order the
+    /// scripts were sent; one for a page that is gone goes out as an error.
+    fn on_remote_script_reply(&mut self, (seq, epoch, result): RemoteScriptReply) {
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        let current = self.context.remote_epoch();
+        #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
+        let current = epoch;
+
+        self.remote_script_done.insert(seq, (epoch, result));
+        for result in take_ready(&mut self.remote_script_done, &mut self.remote_script_published, current) {
+            match result {
+                Ok(reports) => {
+                    for report in reports {
+                        self.send_event(script_report_event(self.tab_id, report));
+                    }
+                }
+                Err(why) => {
+                    let error = crate::engine::script::unavailable(&why);
+                    self.send_event(script_error_event(self.tab_id, error));
+                }
+            }
+        }
+    }
+
+    /// The limits a renderer process runs this tab's scripts under, `None` when it runs
+    /// none.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn remote_script_settings(&self) -> Option<crate::fork_server::protocol::ScriptSettings> {
+        (cfg!(feature = "js") && self.javascript_enabled()).then(|| crate::fork_server::protocol::ScriptSettings {
+            max_run_ms: self.zone_context.config_store.get_uint("scripting.max_run_ms") as u64,
+            heap_limit_mb: self.zone_context.config_store.get_uint("scripting.heap_limit_mb") as u64,
+        })
     }
 
     /// What scripts of the current document are named after: its URL.
@@ -1940,11 +2076,24 @@ impl<C: RenderConfiguration> TabWorker<C> {
             return Err(script::unavailable("JavaScript is disabled"));
         }
         if self.document_in_renderer {
-            return Err(script::unavailable("scripts do not run in a renderer process yet"));
+            // with an engine, `execute_script` has sent it to the renderer
+            return Err(script::unavailable(
+                "this build has no JavaScript engine (cargo feature `js`)",
+            ));
         }
         if let Some(thread) = &self.script {
             return Ok(Arc::clone(thread));
         }
+
+        let thread = self.new_script_thread();
+        self.script = Some(Arc::clone(&thread));
+
+        Ok(thread)
+    }
+
+    /// A script thread for a document, with its console wired to this tab.
+    fn new_script_thread(&self) -> Arc<crate::engine::script::ScriptThread> {
+        use crate::engine::script;
 
         let limits = script::ScriptLimits {
             heap_bytes: self
@@ -1952,25 +2101,56 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 .config_store
                 .get_uint("scripting.heap_limit_mb")
                 .saturating_mul(1024 * 1024),
+            single_threaded: false,
         };
         let tab_id = self.tab_id;
         let event_tx = self.zone_context.event_tx.clone();
-        let origin = self.script_origin();
+        // the thread keeps this at the URL of the script that is running
+        let origin = Arc::new(parking_lot::Mutex::new(String::new()));
+        let running = Arc::clone(&origin);
         let console: script::ConsoleSink = Arc::new(move |level, text| {
             script::log_console(level, &text);
             let _ = event_tx.send(EngineEvent::ConsoleMessage {
                 tab_id,
                 level,
                 text,
-                origin: origin.clone(),
+                origin: running.lock().clone(),
             });
         });
-        let thread = script::ScriptThread::spawn(Box::new(move || script::page_host(limits, console)))
-            .map_err(|e| script::unavailable(&format!("no script thread: {e}")))?;
-        let thread = Arc::new(thread);
-        self.script = Some(Arc::clone(&thread));
 
-        Ok(thread)
+        Arc::new(script::ScriptThread::new(
+            Box::new(move || script::page_host(limits, console)),
+            origin,
+        ))
+    }
+
+    /// What the parser of the document `nav_id` loads runs its inline scripts through, and
+    /// `None` when they do not run. The script thread behind it becomes the tab's when the
+    /// navigation commits.
+    fn document_scripts(&mut self, nav_id: NavigationId) -> Option<Arc<dyn crate::html::ScriptHostSource>> {
+        use crate::engine::script;
+
+        self.pending_script = None;
+        if !cfg!(feature = "js") || !self.javascript_enabled() {
+            return None;
+        }
+
+        let thread = self.new_script_thread();
+        self.pending_script = Some((nav_id, Arc::clone(&thread)));
+
+        let tab_id = self.tab_id;
+        let event_tx = self.zone_context.event_tx.clone();
+        Some(Arc::new(script::ParserScripts {
+            thread,
+            limit: self.script_time_limit(),
+            on_error: Arc::new(move |error| {
+                let _ = event_tx.send(script_error_event(tab_id, error.clone()));
+            }),
+        }))
+    }
+
+    fn script_time_limit(&self) -> Duration {
+        Duration::from_millis(self.zone_context.config_store.get_uint("scripting.max_run_ms") as u64)
     }
 
     /// Hand a finished frame to the zone's compositor sink and ring the wakeup.
@@ -2490,11 +2670,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
         let download_spool = self.download_spool_limits();
         let font_system = self.zone_context.font_system.clone();
-        let media_environment = self.context.media_environment();
         // Capture the document source only when a renderer process may need it
         // (it re-parses there); otherwise skip the copy.
         let capture_source = self.remote_render_available();
         let scripting = self.javascript_enabled();
+        // for the document about to be loaded, not the one this tab shows
+        let media_environment = gosub_css3::media_query::MediaEnvironment {
+            scripting,
+            ..self.context.media_environment()
+        };
+        let scripts = self.document_scripts(nav_id);
 
         let span = tracing::info_span!(
             "tab_nav",
@@ -2571,6 +2756,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 capture_source,
                 capture_source,
                 scripting,
+                scripts,
             );
 
             // The URL a source-only document lands on: the response's, after redirects.
@@ -2836,10 +3022,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
         let download_spool = self.download_spool_limits();
         let font_system = self.zone_context.font_system.clone();
-        let media_environment = self.context.media_environment();
         // Same rule as navigate(): keep the source only when a renderer process may re-parse it.
         let capture_source = self.remote_render_available();
         let scripting = self.javascript_enabled();
+        let media_environment = gosub_css3::media_query::MediaEnvironment {
+            scripting,
+            ..self.context.media_environment()
+        };
+        let scripts = self.document_scripts(nav_id);
         // The engine's own pages are parsed here too: they are the ones allowed to
         // fall back to in-process rendering, which needs a document. `LoadHtml`
         // content is the embedder's page and goes to the renderer like any other.
@@ -2930,6 +3120,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 capture_source,
                 source_only,
                 scripting,
+                scripts,
             );
 
             match hooks.html.parse_bytes(req, handle, meta, html.as_bytes()).await {
@@ -3100,6 +3291,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.runtime.dirty = true;
             }
             self.apply_remote_effects();
+            self.publish_remote_script_reports();
         }
         // A zoom that has held still is drawn again, sharp at its scale.
         if self.pinch_at.is_some_and(|at| at.elapsed() >= PINCH_SETTLE) {
@@ -3166,6 +3358,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // Full render: rebuild stages 1-6 only (no display list), then submit TileCache.
             self.apply_viewport();
             self.context.rebuild_pipeline_cache_if_needed();
+            // what the document's scripts said while the renderer loaded it
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            self.publish_remote_script_reports();
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             if let Some(error) = self.context.take_remote_failure() {
                 let site = self
@@ -3696,6 +3891,100 @@ fn same_origin(from: &Url, url: &Url) -> bool {
     from == url || from.origin() == url.origin()
 }
 
+/// Takes what is pending for `nav_id`. What is pending for another navigation stays: a
+/// result that was overtaken must not take the newer document's script thread away.
+fn adopt_pending<T>(pending: &mut Option<(NavigationId, T)>, nav_id: NavigationId) -> Option<T> {
+    if pending.as_ref().is_some_and(|(id, _)| *id == nav_id) {
+        pending.take().map(|(_, value)| value)
+    } else {
+        None
+    }
+}
+
+/// Answers of scripts sent to the renderer that wait for an earlier one, by the order
+/// the scripts were sent in, each with the context's epoch when its script was sent.
+type RemoteScriptsDone<T> = std::collections::BTreeMap<u64, (u64, Result<T, String>)>;
+
+/// The answers that are next in line, starting at `published`. One for a page that is
+/// gone is an error. That is decided here, with the epoch as it is now: an answer may
+/// have waited for an earlier one while its page was replaced.
+fn take_ready<T>(done: &mut RemoteScriptsDone<T>, published: &mut u64, current: u64) -> Vec<Result<T, String>> {
+    let mut ready = Vec::new();
+    while let Some((epoch, result)) = done.remove(published) {
+        *published += 1;
+        ready.push(if epoch == current {
+            result
+        } else {
+            Err("the page was replaced while the script ran".to_owned())
+        });
+    }
+
+    ready
+}
+
+/// A script's answer from the script thread: the page it was sent to, and its value.
+type LocalScriptReply = (u64, Result<serde_json::Value, ScriptError>);
+
+/// The event for the answer of a script that ran here. As a renderer's answer: one for a
+/// page that is gone is an error.
+fn local_script_event(
+    tab_id: TabId,
+    sent_to: u64,
+    page: u64,
+    result: Result<serde_json::Value, ScriptError>,
+) -> EngineEvent {
+    if sent_to != page {
+        let gone = crate::engine::script::unavailable("the page was replaced while the script ran");
+        return script_error_event(tab_id, gone);
+    }
+    match result {
+        Ok(result) => EngineEvent::ScriptResult { tab_id, result },
+        Err(e) => script_error_event(tab_id, e),
+    }
+}
+
+/// A script's answer from the renderer: the order it was sent in, the context's epoch
+/// then, and what it reported or why it did not run.
+type RemoteScriptReply = (
+    u64,
+    u64,
+    Result<Vec<crate::fork_server::protocol::ScriptReport>, String>,
+);
+
+/// The event for what a script in a renderer reported. The report is the renderer's
+/// claim and is passed on as data; a result that is not JSON is an error.
+fn script_report_event(tab_id: TabId, report: crate::fork_server::protocol::ScriptReport) -> EngineEvent {
+    use crate::fork_server::protocol::ScriptReport;
+
+    match report {
+        ScriptReport::Console { level, text, origin } => {
+            let level = level.into();
+            crate::engine::script::log_console(level, &text);
+            EngineEvent::ConsoleMessage {
+                tab_id,
+                level,
+                text,
+                origin,
+            }
+        }
+        ScriptReport::Error { message, line, column } => EngineEvent::JavaScriptError {
+            tab_id,
+            message,
+            line,
+            column,
+        },
+        ScriptReport::Result { json } => match serde_json::from_str(&json) {
+            Ok(result) => EngineEvent::ScriptResult { tab_id, result },
+            Err(e) => EngineEvent::JavaScriptError {
+                tab_id,
+                message: format!("the renderer answered with a value that is not JSON: {e}"),
+                line: 0,
+                column: 0,
+            },
+        },
+    }
+}
+
 fn script_error_event(tab_id: TabId, error: ScriptError) -> EngineEvent {
     EngineEvent::JavaScriptError {
         tab_id,
@@ -3707,6 +3996,58 @@ fn script_error_event(tab_id: TabId, error: ScriptError) -> EngineEvent {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_overtaken_navigation_leaves_the_pending_script_thread() {
+        let (older, newer) = (super::NavigationId::new(), super::NavigationId::new());
+        let mut pending = Some((newer, "thread"));
+
+        assert_eq!(super::adopt_pending(&mut pending, older), None);
+        assert_eq!(pending, Some((newer, "thread")));
+        assert_eq!(super::adopt_pending(&mut pending, newer), Some("thread"));
+        assert_eq!(pending, None);
+    }
+
+    #[test]
+    fn an_answer_that_waited_while_its_page_was_replaced_is_an_error() {
+        let mut done = super::RemoteScriptsDone::<&str>::new();
+        let mut published = 0;
+
+        // the second script's answer comes first and waits for the first one's
+        done.insert(1, (7, Ok("second")));
+        assert!(super::take_ready(&mut done, &mut published, 7).is_empty());
+
+        // which comes when the page has been replaced: neither is about this page
+        done.insert(0, (7, Ok("first")));
+        let ready = super::take_ready(&mut done, &mut published, 8);
+        assert_eq!(ready.len(), 2);
+        assert!(ready.iter().all(Result::is_err), "{ready:?}");
+        assert_eq!(published, 2);
+
+        // on the page they were sent to, answers go out as they are, in order
+        done.insert(3, (8, Ok("fourth")));
+        done.insert(2, (8, Ok("third")));
+        assert_eq!(
+            super::take_ready(&mut done, &mut published, 8),
+            vec![Ok("third"), Ok("fourth")]
+        );
+    }
+
+    #[test]
+    fn a_local_answer_for_a_page_that_was_replaced_is_an_error() {
+        use crate::engine::events::EngineEvent;
+        let tab_id = crate::engine::tab::TabId::new();
+        let answer = || Ok(serde_json::json!(7));
+
+        let event = super::local_script_event(tab_id, 3, 3, answer());
+        assert!(
+            matches!(&event, EngineEvent::ScriptResult { result, .. } if *result == serde_json::json!(7)),
+            "{event:?}"
+        );
+        // the page was replaced between the script's end and the answer going out
+        let event = super::local_script_event(tab_id, 3, 4, answer());
+        assert!(matches!(event, EngineEvent::JavaScriptError { .. }), "{event:?}");
+    }
+
     mod same_origin {
         use super::super::same_origin;
         use url::Url;
