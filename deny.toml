@@ -3,10 +3,6 @@ version = 2
 unmaintained = "all"
 yanked = "warn"
 ignore = [
-    # `adler` is unmaintained but is pinned transitively by v8's build-dependency
-    # (miniz_oxide 0.7.x, which requires `adler` ^0.7.2). It cannot be removed
-    # without v8 itself moving to miniz_oxide 0.8 (which uses adler2).
-    "RUSTSEC-2025-0056", # adler unmaintained
     # `paste` is unmaintained but only pulled in transitively; no maintained
     # drop-in replacement is wired through our dependencies yet.
     "RUSTSEC-2024-0436", # paste unmaintained

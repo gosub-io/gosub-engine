@@ -12,7 +12,7 @@ pub struct V8Compiled {
 
 impl FromContext<Local<'_, Script>> for V8Compiled {
     fn from_ctx(ctx: V8Context, value: Local<Script>) -> Self {
-        let compiled = Global::new(&mut ctx.isolate(), value);
+        let compiled = Global::new(&ctx.isolate(), value);
 
         Self { context: ctx, compiled }
     }
@@ -21,11 +21,10 @@ impl FromContext<Local<'_, Script>> for V8Compiled {
 impl WebCompiled for V8Compiled {
     type RT = V8Engine;
     fn run(&mut self) -> Result<<Self::RT as WebRuntime>::Value> {
-        let mut scope = self.context.scope();
+        ctx_scope!(scope, self.context);
+        v8::tc_scope!(try_catch, scope);
 
-        let try_catch = &mut v8::TryCatch::new(&mut scope);
-
-        let compiled = self.compiled.open(try_catch);
+        let compiled = Local::new(try_catch, &self.compiled);
 
         let Some(value) = compiled.run(try_catch) else {
             return Err(V8Ctx::report_exception(try_catch).into()); //catch compile errors

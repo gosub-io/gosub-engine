@@ -15,7 +15,7 @@ pub struct V8Array {
 
 impl FromContext<Local<'_, Array>> for V8Array {
     fn from_ctx(ctx: V8Context, value: Local<Array>) -> Self {
-        let value = Global::new(&mut ctx.isolate(), value);
+        let value = Global::new(&ctx.isolate(), value);
 
         Self { value, ctx, next: 0 }
     }
@@ -30,9 +30,9 @@ impl FromContext<Global<Array>> for V8Array {
 impl Iterator for V8Array {
     type Item = V8Value;
     fn next(&mut self) -> Option<Self::Item> {
-        let scope = &mut self.ctx.scope();
+        ctx_scope!(scope, self.ctx);
 
-        let array = self.value.open(scope);
+        let array = Local::new(scope, &self.value);
 
         if self.next >= array.length() {
             return None;
@@ -60,9 +60,9 @@ impl WebArray for V8Array {
     type RT = V8Engine;
 
     fn get(&self, index: usize) -> Result<<Self::RT as WebRuntime>::Value> {
-        let scope = &mut self.ctx.scope();
+        ctx_scope!(scope, self.ctx);
 
-        let array = self.value.open(scope);
+        let array = Local::new(scope, &self.value);
 
         let Some(value) = array.get_index(scope, index as u32) else {
             return Err(Error::JS(JSError::Generic("failed to get a value from an array".to_owned())).into());
@@ -74,9 +74,9 @@ impl WebArray for V8Array {
     }
 
     fn set(&self, index: usize, value: &V8Value) -> Result<()> {
-        let scope = &mut self.ctx.scope();
+        ctx_scope!(scope, self.ctx);
 
-        let array = self.value.open(scope);
+        let array = Local::new(scope, &self.value);
 
         let value = Local::new(scope, value.value.clone());
 
@@ -87,9 +87,9 @@ impl WebArray for V8Array {
     }
 
     fn push(&self, value: V8Value) -> Result<()> {
-        let scope = &mut self.ctx.scope();
+        ctx_scope!(scope, self.ctx);
 
-        let array = self.value.open(scope);
+        let array = Local::new(scope, &self.value);
 
         let value = Local::new(scope, value.value.clone());
 
@@ -102,9 +102,9 @@ impl WebArray for V8Array {
     }
 
     fn pop(&self) -> Result<<Self::RT as WebRuntime>::Value> {
-        let scope = &mut self.ctx.scope();
+        ctx_scope!(scope, self.ctx);
 
-        let array = self.value.open(scope);
+        let array = Local::new(scope, &self.value);
 
         let index = array.length() - 1;
 
@@ -122,9 +122,9 @@ impl WebArray for V8Array {
     }
 
     fn remove(&self, index: usize) -> Result<()> {
-        let scope = &mut self.ctx.scope();
+        ctx_scope!(scope, self.ctx);
 
-        let array = self.value.open(scope);
+        let array = Local::new(scope, &self.value);
 
         if array.delete_index(scope, index as u32).is_none() {
             return Err(Error::JS(JSError::Generic("failed to delete a value from an array".to_owned())).into());
@@ -134,9 +134,9 @@ impl WebArray for V8Array {
     }
 
     fn len(&self) -> usize {
-        let scope = &mut self.ctx.scope();
+        ctx_scope!(scope, self.ctx);
 
-        let array = self.value.open(scope);
+        let array = Local::new(scope, &self.value);
         array.length() as usize
     }
 
@@ -145,28 +145,24 @@ impl WebArray for V8Array {
     }
 
     fn new(ctx: V8Context, cap: usize) -> Result<Self> {
-        let mut scope = ctx.scope();
+        ctx_scope!(scope, ctx);
 
-        let value = Array::new(&mut scope, cap as i32);
-        let value = Global::new(&mut scope, value);
-
-        drop(scope);
+        let value = Array::new(scope, cap as i32);
+        let value = Global::new(scope, value);
 
         Ok(Self { value, ctx, next: 0 })
     }
 
     fn new_with_data(ctx: V8Context, data: &[V8Value]) -> Result<Self> {
-        let mut scope = ctx.scope();
+        ctx_scope!(scope, ctx);
 
         let elements = data
             .iter()
-            .map(|v| Local::new(&mut scope, v.value.clone()))
+            .map(|v| Local::new(scope, v.value.clone()))
             .collect::<Vec<_>>();
 
-        let value = Array::new_with_elements(&mut scope, &elements);
-        let value = Global::new(&mut scope, value);
-
-        drop(scope);
+        let value = Array::new_with_elements(scope, &elements);
+        let value = Global::new(scope, value);
 
         Ok(Self { value, ctx, next: 0 })
     }

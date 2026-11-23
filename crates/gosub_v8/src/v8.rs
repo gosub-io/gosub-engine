@@ -1,13 +1,12 @@
 use std::cell::RefCell;
 use std::fmt::Display;
-use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Once;
 
-use v8::{CreateParams, Exception, HandleScope, Isolate, Local, Value};
+use v8::{CreateParams, Exception, Global, Isolate, Local, PinScope, Value};
 
 pub use array::*;
 pub use compile::*;
@@ -108,7 +107,7 @@ impl V8Context {
     }
 
     pub fn error(&self, error: impl Display) {
-        let scope = &mut self.scope();
+        ctx_scope!(scope, self);
         let err = error.to_string();
         let Some(e) = v8::String::new(scope, &err) else {
             log::error!("failed to create exception string\nexception was: {err}");
@@ -119,7 +118,7 @@ impl V8Context {
         scope.throw_exception(e);
     }
 
-    pub fn create_exception<'b>(scope: &mut HandleScope<'b>, error: impl Display) -> Option<Local<'b, Value>> {
+    pub fn create_exception<'b>(scope: &mut PinScope<'b, '_>, error: impl Display) -> Option<Local<'b, Value>> {
         let err = error.to_string();
         let Some(e) = v8::String::new(scope, &err) else {
             log::error!("failed to create exception string\nexception was: {err}");
@@ -129,18 +128,11 @@ impl V8Context {
         Some(Exception::error(scope, e))
     }
 
-    pub fn scope(&self) -> HandleScope<'_> {
-        // let iso = unsafe { self.isolate_static() };
-        //
-        // let this = self.borrow();
-        //
-        // let c = this.ctx.clone();
-        //
-        // let x = HandleScope::with_context(iso, c);
+    /// The isolate and context a scope is opened on, see `ctx_scope!`.
+    pub(crate) fn scope_parts(&self) -> (IsolateWrapper, Global<v8::Context>) {
+        let context = self.ctx.borrow().ctx.clone();
 
-        let mut this = self.ctx.borrow_mut();
-
-        unsafe { mem::transmute(this.new_scope()) }
+        (self.isolate(), context)
     }
 }
 
