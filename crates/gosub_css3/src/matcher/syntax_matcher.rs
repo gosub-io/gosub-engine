@@ -6,6 +6,7 @@ use crate::matcher::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentM
 use crate::stylesheet::CssValue;
 use crate::tokenizer::NumberKind;
 use cow_utils::CowUtils;
+use smallvec::{smallvec, SmallVec};
 
 /// Structure to return from a matching function.
 #[derive(Debug, Clone)]
@@ -15,8 +16,11 @@ pub struct MatchResult<'a> {
     /// True when this matched did some matching (todo: we might remove this and check for `matched_values.is_empty`)
     pub matched: bool,
     /// List of the matched values
-    pub matched_values: Vec<CssValue>,
+    pub matched_values: Values,
 }
+
+/// Matched values. Most matches are a single value, which is kept inline.
+pub type Values = SmallVec<[CssValue; 1]>;
 
 /// Whether `unit` is a length, asked of the one table that knows.
 ///
@@ -81,7 +85,7 @@ impl CssSyntaxTree {
             "Syntax tree must have exactly one root component"
         );
         let res = match_component(input, &self.components[0], None);
-        (res.matched && res.remainder.is_empty()).then_some(res.matched_values)
+        (res.matched && res.remainder.is_empty()).then_some(res.matched_values.into_vec())
     }
 
     pub fn matches_and_shorthands(&self, input: &[CssValue], resolver: ShorthandResolver) -> bool {
@@ -161,7 +165,7 @@ fn match_component_inner<'a>(
     let mut input = raw_input;
     // Every repetition's values, one after another, and whether each repetition matched exactly
     // one value - what `collapse_repetitions` needs to know.
-    let mut matched_values: Vec<CssValue> = vec![];
+    let mut matched_values = Values::new();
     let mut one_value_each = true;
 
     // Loop through the input values and try to match them against the component. It's possible
@@ -176,7 +180,7 @@ fn match_component_inner<'a>(
                 return MatchResult {
                     remainder: &[],
                     matched: true,
-                    matched_values: vec![],
+                    matched_values: Values::new(),
                 };
             }
 
@@ -199,13 +203,13 @@ fn match_component_inner<'a>(
             // Every repetition's values are kept. This used to return the last repetition's
             // result alone once the multiplier was satisfied, so `margin: 1px 2px 3px 4px`
             // reported `4px` as what it matched.
-            let mut values = res.matched_values;
+            let values = res.matched_values;
             one_value_each &= values.len() == 1;
             if matched_values.is_empty() {
-                // Most components match once: keep the first repetition's Vec rather than copy it.
+                // Most components match once: keep the first repetition's values rather than copy them.
                 matched_values = values;
             } else {
-                matched_values.append(&mut values);
+                matched_values.extend(values);
             }
 
             // Check if we fulfilled the multiplier for this component
@@ -276,7 +280,7 @@ fn match_component<'a>(
     let mut csv_cnt = 0;
     let mut csv_min = 0;
     let mut csv_max = 0;
-    let mut matched_values = vec![];
+    let mut matched_values = Values::new();
     for multiplier in component.get_multipliers() {
         if let SyntaxComponentMultiplier::CommaSeparatedRepeat(min, max) = *multiplier {
             comma_separated = true;
@@ -307,7 +311,7 @@ fn match_component<'a>(
         if csv_cnt > 1 {
             matched_values.push(CssValue::Comma);
         }
-        matched_values.append(&mut inner_result.matched_values.clone());
+        matched_values.extend(inner_result.matched_values);
 
         input = inner_result.remainder;
 
@@ -766,7 +770,7 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                     Some(value) => MatchResult {
                         remainder: input.get(1..).unwrap_or(&[]),
                         matched: true,
-                        matched_values: vec![value],
+                        matched_values: smallvec![value],
                     },
                     None => no_match(input),
                 };
@@ -790,9 +794,9 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                         return MatchResult {
                             remainder: input.get(1..).unwrap_or(&[]),
                             matched: true,
-                            matched_values: vec![CssValue::Function(
+                            matched_values: smallvec![CssValue::Function(
                                 c_name.clone(),
-                                canonical_gradient(c_name, res.matched_values),
+                                canonical_gradient(c_name, res.matched_values.into_vec()),
                             )],
                         };
                     }
@@ -877,7 +881,7 @@ fn match_group_exactly_one<'a>(
                 }
             }
             Ok(None) => {}
-            Err(complete) => complete.complete(winner.matched_values.clone()),
+            Err(complete) => complete.complete(winner.matched_values.to_vec()),
         }
     }
 
@@ -909,7 +913,7 @@ fn match_group_at_least_one_any_order<'a>(
     let mut input = raw_input;
     // Collected per operand and flattened in grammar order at the end: the canonical
     // serialization of `a || b` lists a before b however the author ordered them.
-    let mut per_component: Vec<Vec<CssValue>> = vec![Vec::new(); components.len()];
+    let mut per_component: Vec<Values> = vec![Values::new(); components.len()];
     let mut components_matched = vec![];
 
     let mut pos = 0;
@@ -948,7 +952,7 @@ fn match_group_at_least_one_any_order<'a>(
                 pos = 0;
 
                 if let Some(complete) = complete {
-                    complete.complete(res.matched_values);
+                    complete.complete(res.matched_values.into_vec());
                 }
             } else {
                 // Element didn't match. That might be alright, and we continue with the next unmatched component
@@ -982,7 +986,7 @@ fn at_least_one_any_order_pass<'a>(
     let mut input = raw_input;
     // Collected per operand and flattened in grammar order at the end: the canonical
     // serialization of `a || b` lists a before b however the author ordered them.
-    let mut per_component: Vec<Vec<CssValue>> = vec![Vec::new(); components.len()];
+    let mut per_component: Vec<Values> = vec![Values::new(); components.len()];
     let mut components_matched: Vec<usize> = vec![];
 
     let mut pos = 0;
@@ -998,7 +1002,7 @@ fn at_least_one_any_order_pass<'a>(
 
         let res = match_component(input, &components[c_idx], None);
         if res.matched {
-            per_component[c_idx] = res.matched_values.clone();
+            per_component[c_idx] = res.matched_values;
             components_matched.push(c_idx);
             input = res.remainder;
             pos = 0;
@@ -1045,7 +1049,7 @@ fn match_group_all_any_order<'a>(
     let mut input = raw_input;
     // Collected per operand and flattened in grammar order at the end: the canonical
     // serialization of `a || b` lists a before b however the author ordered them.
-    let mut per_component: Vec<Vec<CssValue>> = vec![Vec::new(); components.len()];
+    let mut per_component: Vec<Values> = vec![Values::new(); components.len()];
     let mut components_matched = vec![];
 
     let mut pos = 0;
@@ -1094,7 +1098,7 @@ fn match_group_all_any_order<'a>(
                 pos = 0;
 
                 if let Some(complete) = complete {
-                    complete.complete(res.matched_values);
+                    complete.complete(res.matched_values.into_vec());
                 }
             } else {
                 // Element didn't match. That might be alright, and we continue with the next unmatched component
@@ -1188,7 +1192,7 @@ fn all_any_order_pass<'a>(
     let mut input = raw_input;
     // Collected per operand and flattened in grammar order at the end: the canonical
     // serialization of `a || b` lists a before b however the author ordered them.
-    let mut per_component: Vec<Vec<CssValue>> = vec![Vec::new(); components.len()];
+    let mut per_component: Vec<Values> = vec![Values::new(); components.len()];
     let mut components_matched: Vec<usize> = vec![];
 
     let mut pos = 0;
@@ -1212,7 +1216,7 @@ fn all_any_order_pass<'a>(
             Fulfillment::Fulfilled | Fulfillment::FulfilledButMoreAllowed
         );
         if res.matched && (consumed || !optional) {
-            per_component[c_idx] = res.matched_values.clone();
+            per_component[c_idx] = res.matched_values;
             components_matched.push(c_idx);
             input = res.remainder;
             pos = 0;
@@ -1245,7 +1249,7 @@ fn match_group_juxtaposition<'a>(
     mut shorthand_resolver: Option<ShorthandResolver>,
 ) -> MatchResult<'a> {
     let mut input = raw_input;
-    let mut matched_values = vec![];
+    let mut matched_values = Values::new();
     // Whether the previously matched component consumed input. Grammar commas next to an
     // OMITTED optional component are elided (CSS Values & Units §2.2), so a comma right
     // after an omitted component may be skipped. The group start counts as "consumed".
@@ -1270,7 +1274,7 @@ fn match_group_juxtaposition<'a>(
             let res = match_component(input, component, resolver);
             if res.matched {
                 if let Some(complete) = complete {
-                    complete.complete(res.matched_values.clone());
+                    complete.complete(res.matched_values.to_vec());
                 }
             }
             res
@@ -1427,7 +1431,7 @@ fn no_match(input: &[CssValue]) -> MatchResult<'_> {
     MatchResult {
         remainder: input,
         matched: false,
-        matched_values: vec![],
+        matched_values: Values::new(),
     }
 }
 
@@ -1545,7 +1549,7 @@ fn matched_as(input: &[CssValue], value: CssValue) -> MatchResult<'_> {
     MatchResult {
         remainder: input.get(1..).unwrap_or(&[]),
         matched: true,
-        matched_values: vec![value],
+        matched_values: smallvec![value],
     }
 }
 
@@ -1554,7 +1558,7 @@ fn matched_as(input: &[CssValue], value: CssValue) -> MatchResult<'_> {
 /// `1px`, `1px 2px 1px 2px` is `1px 2px`, `1px 2px 3px 2px` is `1px 2px 3px`. Only when every
 /// repetition matched exactly one value (`one_value_each`, so `values` holds one per
 /// repetition); anything else is returned as it was.
-fn collapse_repetitions(component: &SyntaxComponent, mut values: Vec<CssValue>, one_value_each: bool) -> Vec<CssValue> {
+fn collapse_repetitions(component: &SyntaxComponent, mut values: Values, one_value_each: bool) -> Values {
     let box_like = component.get_multipliers().iter().any(|m| {
         matches!(
             m,
@@ -1849,8 +1853,18 @@ mod tests {
         let input = [str!("auto"), str!("none"), str!("block")];
         let res = match_group_exactly_one(&input, components, None);
         assert_match!(res);
-        assert_eq!(vec![str!("auto"), str!("none")], res.matched_values);
+        assert_eq!(vec![str!("auto"), str!("none")], res.matched_values.as_slice());
         assert_eq!(vec![str!("block")], res.remainder);
+    }
+
+    #[test]
+    fn a_single_matched_value_is_kept_inline() {
+        let tree = CssSyntax::new("auto | none").compile().unwrap();
+        let input = [str!("none")];
+        let res = match_component(&input, &tree.components[0], None);
+        assert_match!(res);
+        assert_eq!(vec![str!("none")], res.matched_values.as_slice());
+        assert!(!res.matched_values.spilled());
     }
 
     #[test]
@@ -1888,12 +1902,12 @@ mod tests {
 
             let res = match_group_at_least_one_any_order(&input, components, None);
             assert_match!(res);
-            assert_eq!(vec![str!("none"), str!("block")], res.matched_values);
+            assert_eq!(vec![str!("none"), str!("block")], res.matched_values.as_slice());
 
             let input = [str!("none"), str!("block"), str!("banana"), str!("auto")];
             let res = match_group_at_least_one_any_order(&input, components, None);
             assert_match!(res);
-            assert_eq!(vec![str!("none"), str!("block")], res.matched_values);
+            assert_eq!(vec![str!("none"), str!("block")], res.matched_values.as_slice());
             assert_eq!(vec![str!("banana"), str!("auto")], res.remainder);
 
             let res = match_group_at_least_one_any_order(&[], components, None);
