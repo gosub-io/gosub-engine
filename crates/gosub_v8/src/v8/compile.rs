@@ -27,6 +27,9 @@ impl WebCompiled for V8Compiled {
         let compiled = Local::new(try_catch, &self.compiled);
 
         let Some(value) = compiled.run(try_catch) else {
+            if let Some(e) = self.context.take_termination(try_catch.has_terminated()) {
+                return Err(e.into());
+            }
             return Err(V8Ctx::report_exception(try_catch).into()); //catch compile errors
         };
 

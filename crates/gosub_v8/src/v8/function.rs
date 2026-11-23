@@ -232,6 +232,8 @@ impl WebFunction for V8Function {
                 context: V8Context::clone(&self.ctx),
                 value,
             })
+        } else if let Some(e) = self.ctx.take_termination(scope.has_terminated()) {
+            Err(e.into())
         } else {
             Err(Error::JS(JSError::Execution("failed to call a function".to_owned())).into())
         }
@@ -519,6 +521,8 @@ impl WebFunctionVariadic for V8FunctionVariadic {
                 context: V8Context::clone(&self.ctx),
                 value,
             })
+        } else if let Some(e) = self.ctx.take_termination(scope.has_terminated()) {
+            Err(e.into())
         } else {
             Err(Error::JS(JSError::Execution("failed to call a function".to_owned())).into())
         }

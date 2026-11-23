@@ -7,16 +7,27 @@ use gosub_shared::types::Result;
 use gosub_webexecutor::js::{JSError, WebCompiled, WebContext, WebRuntime};
 use gosub_webexecutor::Error;
 
-use crate::{FromContext, V8Compiled, V8Context, V8Engine};
+use crate::v8::control::HeapLimit;
+use crate::{FromContext, V8Compiled, V8Context, V8ContextOptions, V8Engine};
 
 pub struct V8Ctx {
     isolate: OwnedIsolate, // Safety: this should NEVER be replaced with a new isolate
     pub ctx: Global<v8::Context>,
+    pub(crate) heap: Option<Box<HeapLimit>>,
 }
 
 impl V8Ctx {
-    pub(crate) fn new(params: CreateParams) -> Self {
+    pub(crate) fn new(params: CreateParams, options: &V8ContextOptions) -> Self {
+        let params = match options.heap_limit {
+            Some(limit) => params.heap_limits(0, limit),
+            None => params,
+        };
         let mut isolate = Isolate::new(params);
+
+        if options.explicit_microtasks {
+            isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        }
+        let heap = options.heap_limit.map(|limit| HeapLimit::install(&mut isolate, limit));
 
         let ctx = {
             v8::scope!(handle_scope, &mut isolate);
@@ -26,7 +37,7 @@ impl V8Ctx {
             Global::new(handle_scope, ctx)
         };
 
-        Self { isolate, ctx }
+        Self { isolate, ctx, heap }
     }
 
     pub(crate) fn isolate(&mut self) -> &mut OwnedIsolate {

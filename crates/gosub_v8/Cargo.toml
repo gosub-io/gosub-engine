@@ -12,6 +12,7 @@ gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared"
 gosub_webexecutor = { version = "0.1.1", registry = "gosub", path = "../gosub_webexecutor" }
 v8 = "152.2.0"
 anyhow = { workspace = true }
+getrandom = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]

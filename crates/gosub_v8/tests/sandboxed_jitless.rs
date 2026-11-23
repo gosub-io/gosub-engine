@@ -29,14 +29,14 @@ mod probe {
 
     fn evaluate() -> bool {
         // No worker threads: a renderer may not create any, and none would survive a fork.
-        v8::V8::set_flags_from_string("--jitless --single-threaded");
-        // Otherwise V8 opens /dev/urandom for every isolate and context.
-        v8::V8::set_entropy_source(|buf| {
-            buf.fill(7);
-            true
-        });
-        v8::V8::initialize_platform(v8::new_single_threaded_default_platform(false).make_shared());
-        v8::V8::initialize();
+        let options = gosub_v8::V8Options {
+            jitless: true,
+            single_threaded: true,
+            ..Default::default()
+        };
+        if !gosub_v8::V8Engine::initialize_with(&options) {
+            return false;
+        }
 
         let isolate = &mut v8::Isolate::new(Default::default());
         v8::scope!(scope, isolate);
