@@ -289,8 +289,7 @@ pub struct TabWorker<C: RenderConfiguration> {
     #[cfg_attr(not(all(feature = "process-isolation", target_os = "linux")), allow(dead_code))]
     remote_script_next: u64,
     remote_script_published: u64,
-    remote_script_done:
-        std::collections::BTreeMap<u64, Result<Vec<crate::fork_server::protocol::ScriptReport>, String>>,
+    remote_script_done: RemoteScriptsDone<Vec<crate::fork_server::protocol::ScriptReport>>,
 
     /// Sink for sending events upwards
     sink: Arc<TabSink>,
@@ -2019,17 +2018,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// scripts were sent; one for a page that is gone goes out as an error.
     fn on_remote_script_reply(&mut self, (seq, epoch, result): RemoteScriptReply) {
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-        let result = if epoch == self.context.remote_epoch() {
-            result
-        } else {
-            Err("the page was replaced while the script ran".to_owned())
-        };
+        let current = self.context.remote_epoch();
         #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
-        let _ = epoch;
+        let current = epoch;
 
-        self.remote_script_done.insert(seq, result);
-        while let Some(result) = self.remote_script_done.remove(&self.remote_script_published) {
-            self.remote_script_published += 1;
+        self.remote_script_done.insert(seq, (epoch, result));
+        for result in take_ready(&mut self.remote_script_done, &mut self.remote_script_published, current) {
             match result {
                 Ok(reports) => {
                     for report in reports {
@@ -3894,6 +3888,27 @@ fn adopt_pending<T>(pending: &mut Option<(NavigationId, T)>, nav_id: NavigationI
     }
 }
 
+/// Answers of scripts sent to the renderer that wait for an earlier one, by the order
+/// the scripts were sent in, each with the context's epoch when its script was sent.
+type RemoteScriptsDone<T> = std::collections::BTreeMap<u64, (u64, Result<T, String>)>;
+
+/// The answers that are next in line, starting at `published`. One for a page that is
+/// gone is an error. That is decided here, with the epoch as it is now: an answer may
+/// have waited for an earlier one while its page was replaced.
+fn take_ready<T>(done: &mut RemoteScriptsDone<T>, published: &mut u64, current: u64) -> Vec<Result<T, String>> {
+    let mut ready = Vec::new();
+    while let Some((epoch, result)) = done.remove(published) {
+        *published += 1;
+        ready.push(if epoch == current {
+            result
+        } else {
+            Err("the page was replaced while the script ran".to_owned())
+        });
+    }
+
+    ready
+}
+
 /// A script's answer from the renderer: the order it was sent in, the context's epoch
 /// then, and what it reported or why it did not run.
 type RemoteScriptReply = (
@@ -3956,6 +3971,31 @@ mod tests {
         assert_eq!(pending, Some((newer, "thread")));
         assert_eq!(super::adopt_pending(&mut pending, newer), Some("thread"));
         assert_eq!(pending, None);
+    }
+
+    #[test]
+    fn an_answer_that_waited_while_its_page_was_replaced_is_an_error() {
+        let mut done = super::RemoteScriptsDone::<&str>::new();
+        let mut published = 0;
+
+        // the second script's answer comes first and waits for the first one's
+        done.insert(1, (7, Ok("second")));
+        assert!(super::take_ready(&mut done, &mut published, 7).is_empty());
+
+        // which comes when the page has been replaced: neither is about this page
+        done.insert(0, (7, Ok("first")));
+        let ready = super::take_ready(&mut done, &mut published, 8);
+        assert_eq!(ready.len(), 2);
+        assert!(ready.iter().all(Result::is_err), "{ready:?}");
+        assert_eq!(published, 2);
+
+        // on the page they were sent to, answers go out as they are, in order
+        done.insert(3, (8, Ok("fourth")));
+        done.insert(2, (8, Ok("third")));
+        assert_eq!(
+            super::take_ready(&mut done, &mut published, 8),
+            vec![Ok("third"), Ok("fourth")]
+        );
     }
 
     mod same_origin {
