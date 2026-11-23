@@ -322,7 +322,8 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-    /// Spins until terminated, for sources that say so; else answers with the source length.
+    /// Spins until terminated or sleeps, for sources that say so; else answers with the
+    /// source length. A sleep that was asked to end says so when it wakes.
     struct StubHost {
         stop: Arc<AtomicBool>,
         checkpoints: Arc<AtomicUsize>,
@@ -337,6 +338,9 @@ mod tests {
             }
             if let Some(ms) = source.strip_prefix("sleep ") {
                 std::thread::sleep(Duration::from_millis(ms.parse().unwrap()));
+                if self.stop.load(Ordering::SeqCst) {
+                    return Err(ScriptError::new(ScriptErrorKind::Terminated, "terminated"));
+                }
                 return Ok(ScriptValue::Null);
             }
             if source == "spin" {
