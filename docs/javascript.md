@@ -1,12 +1,13 @@
 # The JavaScript stack
 
-Five crates make up Gosub's scripting story. **Status up front: built but not wired.** No
-workspace crate depends on any of them — the only consumer is the `run-js` component tool
-(`src/bin/run-js.rs`, see [binaries.md](binaries.md)) and a prelude re-export.
-`gosub_html5` and `gosub_engine` have zero JS dependencies, so today no page script is
-ever executed: `<script>` elements are parsed into the DOM and (their sources prefetched
-by the [resource pipeline](resource-pipeline.md)) go no further. This stack exists ahead of
-its integration.
+Five crates make up Gosub's scripting story. **Status up front: a first slice is wired.**
+With the cargo feature `js`, `gosub_engine` runs `TabCommand::ExecuteScript` in V8 for a
+page that lives in the engine's own process and answers with `ScriptResult` or
+`JavaScriptError` (see [Scripts in a tab](#scripts-in-a-tab)). Page scripts do not run yet:
+`<script>` elements are parsed into the DOM and (their sources prefetched by the
+[resource pipeline](resource-pipeline.md)) go no further. Without `js` nothing links V8.
+`gosub_html5` has no JS dependency. The other consumer is the `run-js` component tool
+(`src/bin/run-js.rs`, see [binaries.md](binaries.md)).
 
 ```text
         page JS ──► gosub_v8 (V8 bindings)                     ── the engine
@@ -68,6 +69,27 @@ a script runtime: timers (`WebTimers`, the `setTimeout`/`setInterval` machinery)
 listeners, spawned futures, and `InputEvent` delivery (from `gosub_interface`). Its own
 doc comment says it serves "a JS or Lua runtime" — deliberately runtime-agnostic. This is
 the piece a tab would own, and the runtime would plug into it.
+
+## Scripts in a tab
+
+The engine and the parser see scripting through `gosub_interface::script::ScriptHost`:
+source text in, plain data out (`ScriptValue`, `ScriptError`). No script value crosses it.
+`NullScriptHost` runs nothing.
+
+`gosub_engine::engine::script` holds the V8-backed host (`script/v8.rs`, the only file in
+the engine that names `gosub_v8`) and `ScriptThread`: each document gets a thread of its
+own with one global scope, started by its first script and dropped when the tab commits
+another document. V8 runs jitless there.
+
+| Setting | Meaning |
+|---|---|
+| `ZoneConfig::javascript_enabled` | Off: nothing runs in the zone, and its documents parse with scripting disabled (`<noscript>` content is markup). |
+| `scripting.javascript_enabled` | The same switch, engine-wide. Both have to be on. |
+| `scripting.max_run_ms` | A script still running after this long is terminated. |
+| `scripting.heap_limit_mb` | Heap size per page at which a script is ended. |
+
+Not there yet: a page that lives in a renderer process (`ExecuteScript` answers with an
+error), `console`, and every DOM binding.
 
 ## What wiring it up would take
 

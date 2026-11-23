@@ -140,6 +140,8 @@ pub struct HtmlPipelineImpl<C: RenderConfiguration> {
     /// Keep only the source: the renderer process parses, this process never
     /// runs the HTML parser on page content.
     source_only: bool,
+    /// Whether the document's scripts may run (see `HtmlParseConfig::scripting_enabled`).
+    scripting: bool,
     /// What the last parse's web font load kept back; see [`HtmlPipeline::take_deferred_fonts`].
     deferred_fonts: super::webfonts::DeferredFonts,
 }
@@ -148,6 +150,12 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
     /// Skip parsing here and keep the source for a renderer process.
     pub fn source_only(mut self, on: bool) -> Self {
         self.source_only = on;
+        self
+    }
+
+    /// Parse for a page whose scripts do not run.
+    pub fn scripting(mut self, on: bool) -> Self {
+        self.scripting = on;
         self
     }
 
@@ -176,6 +184,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             media_environment: gosub_css3::media_query::media_environment(),
             capture_source,
             source_only: false,
+            scripting: true,
             deferred_fonts: super::webfonts::DeferredFonts::default(),
         }
     }
@@ -242,6 +251,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             capture_source: self.capture_source,
             referrer_policy: header_policy,
             settled_referrer_policy: Some(settled_policy.clone()),
+            scripting_enabled: self.scripting,
         };
 
         let io_tx = self.io_tx.clone();

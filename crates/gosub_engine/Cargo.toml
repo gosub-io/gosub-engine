@@ -18,6 +18,7 @@ gosub_config = { version = "0.1.1", path = "../gosub_config" }
 gosub_html5 = { version = "0.1.1", path = "../gosub_html5" }
 gosub_css3 = { version = "0.1.2", path = "../gosub_css3" }
 gosub_interface = { version = "0.1.2", path = "../gosub_interface" }
+gosub_v8 = { version = "0.1.2", path = "../gosub_v8", registry = "gosub", optional = true }
 gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }
 gosub_renderer_cairo = { version = "0.1.0", path = "../gosub_renderer_cairo", registry = "gosub", default-features = false, optional = true }
 gosub_renderer_skia = { version = "0.1.0", path = "../gosub_renderer_skia", registry = "gosub", default-features = false, optional = true }
@@ -110,6 +111,9 @@ metrics = []
 # Aspirational message vocabulary: variants the engine declares but does not yet emit or
 # handle. Off by default so the default surface is only what works.
 unstable-api = []
+# Compiles in the JavaScript engine (V8, through `gosub_v8`). Off by default: without it no
+# V8 is linked, and `ExecuteScript` answers with an error.
+js = ["dep:gosub_v8"]
 # Records fetch timings (net.queue, net.fetch.*, net.ttfb) into the shared timing table by
 # wrapping the per-request net observer. Off by default: it is opt-in instrumentation,
 # and with it off no wrapper is constructed at all.

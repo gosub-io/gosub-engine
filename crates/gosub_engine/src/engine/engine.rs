@@ -6285,4 +6285,300 @@ mod tests {
 
         engine.shutdown().await.expect("shutdown");
     }
+
+    /// A started engine with one tab in a zone that has `javascript_enabled` as given.
+    async fn script_tab(
+        javascript_enabled: bool,
+    ) -> (GosubEngine, broadcast::Receiver<EngineEvent>, crate::tab::TabHandle) {
+        let mut engine = engine_with_max_zones(1);
+        let events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let config = crate::zone::ZoneConfig::builder()
+            .javascript_enabled(javascript_enabled)
+            .build()
+            .expect("zone config");
+        let mut zone = engine
+            .zone_builder()
+            .config(config)
+            .services(services())
+            .create()
+            .expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        (engine, events, tab)
+    }
+
+    /// Runs `source` in the tab and returns the event that answers it.
+    async fn script_answer(
+        tab: &crate::tab::TabHandle,
+        events: &mut broadcast::Receiver<EngineEvent>,
+        source: &str,
+    ) -> EngineEvent {
+        tab.send(crate::events::TabCommand::ExecuteScript {
+            source: source.to_owned(),
+        })
+        .await
+        .expect("send script");
+
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                match events.recv().await {
+                    Ok(ev @ (EngineEvent::ScriptResult { .. } | EngineEvent::JavaScriptError { .. })) => return ev,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("no answer to the script")
+    }
+
+    fn script_error(answer: EngineEvent) -> (String, u32, u32) {
+        match answer {
+            EngineEvent::JavaScriptError {
+                message, line, column, ..
+            } => (message, line, column),
+            other => panic!("expected JavaScriptError, got {other:?}"),
+        }
+    }
+
+    #[cfg(feature = "js")]
+    fn script_value(answer: EngineEvent) -> serde_json::Value {
+        match answer {
+            EngineEvent::ScriptResult { result, .. } => result,
+            other => panic!("expected ScriptResult, got {other:?}"),
+        }
+    }
+
+    async fn load_html(tab: &crate::tab::TabHandle, events: &mut broadcast::Receiver<EngineEvent>, html: &str) {
+        use crate::events::{NavigationEvent, TabCommand};
+
+        tab.send(TabCommand::LoadHtml {
+            html: html.to_owned(),
+            base_url: "https://example.test/".into(),
+        })
+        .await
+        .expect("load");
+        let finished = wait_for(events, |ev| {
+            matches!(
+                ev,
+                EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { .. },
+                    ..
+                }
+            )
+        })
+        .await;
+        assert!(finished, "the page did not load");
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn execute_script_answers_with_the_value() {
+        use serde_json::json;
+
+        let (mut engine, mut events, tab) = script_tab(true).await;
+
+        let answer = script_answer(&tab, &mut events, "1 + 1").await;
+        assert!(
+            matches!(&answer, EngineEvent::ScriptResult { tab_id, .. } if *tab_id == tab.tab_id),
+            "{answer:?}"
+        );
+        assert_eq!(script_value(answer), json!(2.0));
+        assert_eq!(
+            script_value(script_answer(&tab, &mut events, "({a: [1, 'b']})").await),
+            json!({"a": [1, "b"]})
+        );
+        assert_eq!(
+            script_value(script_answer(&tab, &mut events, "undefined").await),
+            json!(null)
+        );
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn a_script_that_fails_answers_with_a_javascript_error() {
+        let (mut engine, mut events, tab) = script_tab(true).await;
+
+        let (message, line, column) = script_error(script_answer(&tab, &mut events, "var = 1").await);
+        assert!(message.starts_with("SyntaxError"), "{message}");
+        assert_eq!((line, column), (1, 5));
+
+        let (message, line, column) = script_error(script_answer(&tab, &mut events, "\n  missing()").await);
+        assert_eq!(message, "ReferenceError: missing is not defined");
+        assert_eq!((line, column), (2, 3));
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn a_runaway_script_is_terminated() {
+        let (mut engine, mut events, tab) = script_tab(true).await;
+        engine
+            .settings()
+            .set_transient("scripting.max_run_ms", gosub_config::settings::Setting::UInt(200))
+            .expect("setting");
+
+        let (message, ..) = script_error(script_answer(&tab, &mut events, "for (;;) {}").await);
+        assert_eq!(message, "script execution was terminated");
+        // the page's scope is still there and still runs
+        assert_eq!(
+            script_value(script_answer(&tab, &mut events, "1 + 1").await),
+            serde_json::json!(2.0)
+        );
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn a_script_that_fills_the_heap_is_ended() {
+        let (mut engine, mut events, tab) = script_tab(true).await;
+        engine
+            .settings()
+            .set_transient("scripting.heap_limit_mb", gosub_config::settings::Setting::UInt(32))
+            .expect("setting");
+
+        let hoard = "(function () { const a = []; for (;;) a.push(new Array(1000).fill(0)); })()";
+        let (message, ..) = script_error(script_answer(&tab, &mut events, hoard).await);
+        assert_eq!(message, "script reached the heap limit");
+        assert_eq!(
+            script_value(script_answer(&tab, &mut events, "1 + 1").await),
+            serde_json::json!(2.0)
+        );
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    #[cfg(feature = "js")]
+    #[tokio::test]
+    async fn globals_last_as_long_as_the_document() {
+        use serde_json::json;
+
+        let (mut engine, mut events, tab) = script_tab(true).await;
+
+        assert_eq!(
+            script_value(script_answer(&tab, &mut events, "var kept = 41").await),
+            json!(null)
+        );
+        assert_eq!(
+            script_value(script_answer(&tab, &mut events, "kept + 1").await),
+            json!(42.0)
+        );
+
+        load_html(&tab, &mut events, "<html><body><p>next</p></body></html>").await;
+        assert_eq!(
+            script_value(script_answer(&tab, &mut events, "typeof kept").await),
+            json!("undefined")
+        );
+        // named after the document it runs in
+        let stack = script_value(script_answer(&tab, &mut events, "new Error('x').stack").await);
+        assert!(
+            stack.as_str().is_some_and(|s| s.contains("https://example.test/:1")),
+            "{stack}"
+        );
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    #[cfg(not(feature = "js"))]
+    #[tokio::test]
+    async fn execute_script_without_the_js_feature_is_an_error() {
+        let (mut engine, mut events, tab) = script_tab(true).await;
+
+        let (message, ..) = script_error(script_answer(&tab, &mut events, "1 + 1").await);
+        assert!(message.contains("`js`"), "{message}");
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    #[tokio::test]
+    async fn nothing_runs_in_a_zone_with_javascript_disabled() {
+        let (mut engine, mut events, tab) = script_tab(false).await;
+
+        let (message, line, column) = script_error(script_answer(&tab, &mut events, "1 + 1").await);
+        assert_eq!(message, "JavaScript is disabled");
+        assert_eq!((line, column), (0, 0));
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    #[tokio::test]
+    async fn nothing_runs_with_javascript_disabled_engine_wide() {
+        let (mut engine, mut events, tab) = script_tab(true).await;
+        engine
+            .settings()
+            .set_transient(
+                "scripting.javascript_enabled",
+                gosub_config::settings::Setting::Bool(false),
+            )
+            .expect("setting");
+
+        let (message, ..) = script_error(script_answer(&tab, &mut events, "1 + 1").await);
+        assert_eq!(message, "JavaScript is disabled");
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// Whether the first thing Tab focuses is editable, in a page whose only link is inside
+    /// `<noscript>` and is followed by a text field.
+    async fn first_focus_is_editable(javascript_enabled: bool) -> bool {
+        use crate::events::TabCommand;
+
+        let (mut engine, mut events, tab) = script_tab(javascript_enabled).await;
+        tab.send(TabCommand::SetViewport {
+            x: 0,
+            y: 0,
+            width: 640,
+            height: 480,
+        })
+        .await
+        .expect("viewport");
+        load_html(
+            &tab,
+            &mut events,
+            "<html><body><noscript><a href=\"/plain\">plain</a></noscript><input type=\"text\"></body></html>",
+        )
+        .await;
+
+        tab.send(TabCommand::KeyDown {
+            key: "Tab".into(),
+            code: "Tab".into(),
+            modifiers: crate::engine::events::Modifiers::empty(),
+        })
+        .await
+        .expect("tab key");
+        let editable = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::FocusChanged {
+                        focused: true,
+                        editable,
+                        ..
+                    }) => return editable,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("nothing got focus");
+
+        engine.shutdown().await.expect("shutdown");
+        editable
+    }
+
+    /// `javascript_enabled` reaches the parser: `<noscript>` holds markup only when scripts
+    /// do not run.
+    #[tokio::test]
+    async fn noscript_content_is_markup_only_with_javascript_disabled() {
+        assert!(first_focus_is_editable(true).await, "the link in <noscript> took focus");
+        assert!(
+            !first_focus_is_editable(false).await,
+            "the link in <noscript> was skipped"
+        );
+    }
 }
