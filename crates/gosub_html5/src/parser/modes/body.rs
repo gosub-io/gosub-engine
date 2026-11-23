@@ -130,9 +130,8 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                     }
                 }
 
-                while node_tag!(self, current_node_id!(self)) != "html" {
-                    self.open_elements.pop();
-                }
+                // Everything up to, but not including, the root html element.
+                self.open_elements.truncate(1);
 
                 self.insert_html_element(token);
 

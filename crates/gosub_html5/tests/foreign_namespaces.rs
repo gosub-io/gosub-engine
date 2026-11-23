@@ -53,3 +53,13 @@ fn an_svg_template_is_not_closed_by_a_template_end_tag() {
         ])
     );
 }
+
+/// A `<frameset>` that replaces the body pops everything above the document's `html`, not up to
+/// whatever element is named `html`.
+#[test]
+fn a_frameset_unwinds_past_an_svg_html_element() {
+    assert_eq!(
+        tree("<svg><html><foreignObject><frameset><frame>"),
+        lines(&["| <html>", "|   <head>", "|   <frameset>", "|     <frame>"])
+    );
+}
