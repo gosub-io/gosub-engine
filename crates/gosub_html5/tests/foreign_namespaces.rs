@@ -5,11 +5,13 @@
 use gosub_css3::system::Css3System;
 use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::document::document_impl::DocumentImpl;
+use gosub_html5::node::{HTML_NAMESPACE, SVG_NAMESPACE};
 use gosub_html5::parser::Html5Parser;
 use gosub_html5::testing::tree_construction::generator::TreeOutputGenerator;
 use gosub_interface::config::ModuleConfiguration;
 use gosub_interface::document::Document;
-use gosub_shared::byte_stream::{ByteStream, Encoding};
+use gosub_shared::attributes::Attributes;
+use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
 
 #[derive(Clone, Debug, PartialEq)]
 struct Config;
@@ -27,6 +29,26 @@ fn tree(html: &str) -> String {
     Html5Parser::<Config>::parse_document(&mut stream, &mut doc, None).unwrap();
     let root = doc.root();
     TreeOutputGenerator::<Config>::new(doc).generate_from(root).join("\n")
+}
+
+/// The tree of `html` parsed as a fragment with a `name` element in `namespace` as context, the
+/// context sitting under an HTML `body`.
+fn fragment(namespace: &str, name: &str, html: &str) -> String {
+    let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+    let body = doc.create_element("body", Some(HTML_NAMESPACE), Attributes::new(), Location::default());
+    let root = doc.root();
+    doc.attach(body, root, None).unwrap();
+    let context = doc.create_element(name, Some(namespace), Attributes::new(), Location::default());
+    doc.attach(context, body, None).unwrap();
+
+    let mut stream = ByteStream::from_str(html, Encoding::UTF8);
+    Html5Parser::<Config>::parse_fragment(&mut stream, &mut doc, context, None, Location::default()).unwrap();
+
+    // The parser appends its own `html` element to the document root; the fragment is below it.
+    let html_id = *doc.children(doc.root()).last().unwrap();
+    TreeOutputGenerator::<Config>::new(doc)
+        .generate_from(html_id)
+        .join("\n")
 }
 
 fn lines(lines: &[&str]) -> String {
@@ -61,5 +83,50 @@ fn a_frameset_unwinds_past_an_svg_html_element() {
     assert_eq!(
         tree("<svg><html><foreignObject><frameset><frame>"),
         lines(&["| <html>", "|   <head>", "|   <frameset>", "|     <frame>"])
+    );
+}
+
+/// Resetting the insertion mode looks at HTML elements only, so an SVG `frameset`, `select` or
+/// context element does not pick the mode.
+#[test]
+fn foreign_elements_do_not_choose_the_insertion_mode() {
+    // Closing the template resets the mode; an SVG frameset used to make it "in frameset",
+    // which dropped the div.
+    assert_eq!(
+        tree("<svg><frameset><foreignObject><template></template><div>x"),
+        lines(&[
+            "| <html>",
+            "|   <head>",
+            "|   <body>",
+            "|     <svg svg>",
+            "|       <svg frameset>",
+            "|         <svg foreignObject>",
+            "|           <template>",
+            "|             content",
+            "|           <div>",
+            "|             \"x\"",
+        ])
+    );
+    // An SVG select used to give "in select in table", whose recovery emptied the stack.
+    assert_eq!(
+        tree("<table><svg><select><foreignObject><template></template><tr>"),
+        lines(&[
+            "| <html>",
+            "|   <head>",
+            "|   <body>",
+            "|     <svg svg>",
+            "|       <svg select>",
+            "|         <svg foreignObject>",
+            "|           <template>",
+            "|             content",
+            "|     <table>",
+            "|       <tbody>",
+            "|         <tr>",
+        ])
+    );
+    // A fragment with an SVG select as context starts "in body", so a breakout div is kept.
+    assert_eq!(
+        fragment(SVG_NAMESPACE, "select", "<div>x</div>"),
+        lines(&["| <div>", "|   \"x\""])
     );
 }
