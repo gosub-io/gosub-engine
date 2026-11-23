@@ -1,9 +1,11 @@
 //! Tree construction in HTML content: one handler per insertion mode.
 
+use crate::node::HTML_NAMESPACE;
 use crate::parser::{location_after, Html5Parser, InsertionMode};
 use crate::tokenizer::token::Token;
 use gosub_interface::config::HasDocument;
 use gosub_interface::document::Document;
+use gosub_shared::node::NodeId;
 
 mod after;
 mod body;
@@ -72,6 +74,15 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         }
     }
 
+    /// The tag name of `node_id` when it is an HTML element, and "" for anything else.
+    fn html_tag_name(&self, node_id: NodeId) -> &str {
+        if self.document.namespace(node_id) == Some(HTML_NAMESPACE) {
+            self.document.tag_name(node_id).unwrap_or_default()
+        } else {
+            ""
+        }
+    }
+
     /// Reset insertion mode based on all kind of rules
     pub(crate) fn reset_insertion_mode(&mut self) {
         if self.open_elements.is_empty() {
@@ -97,7 +108,8 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                     }
                 }
             }
-            match self.document.tag_name(node_id).unwrap_or_default() {
+            // Only HTML elements choose a mode: an SVG `select` or `frameset` is passed over.
+            match self.html_tag_name(node_id) {
                 "select" => {
                     if last {
                         self.insertion_mode = InsertionMode::InSelect;
@@ -113,7 +125,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
 
                         ancestor_idx -= 1;
                         let ancestor_id = self.open_elements[ancestor_idx];
-                        match self.document.tag_name(ancestor_id).unwrap_or_default() {
+                        match self.html_tag_name(ancestor_id) {
                             "template" => {
                                 self.insertion_mode = InsertionMode::InSelect;
                                 return;

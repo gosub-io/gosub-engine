@@ -130,9 +130,8 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                     }
                 }
 
-                while node_tag!(self, current_node_id!(self)) != "html" {
-                    self.open_elements.pop();
-                }
+                // Everything up to, but not including, the root html element.
+                self.open_elements.truncate(1);
 
                 self.insert_html_element(token);
 
@@ -829,7 +828,9 @@ impl<C: HasDocument> Html5Parser<'_, C> {
 
         for idx in (0..self.open_elements.len()).rev() {
             let node_id = self.open_elements[idx];
-            if self.document.tag_name(node_id).unwrap_or_default() == tag_name {
+            if self.document.tag_name(node_id).unwrap_or_default() == tag_name
+                && self.document.namespace(node_id) == Some(HTML_NAMESPACE)
+            {
                 self.generate_implied_end_tags(Some(tag_name), false);
 
                 // It might be possible that the last item is not our node_id. Emit parse error if so
