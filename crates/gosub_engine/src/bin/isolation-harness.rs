@@ -2883,10 +2883,13 @@ fn engine_remote_scripts<F: FontSystem + Default>() -> i32 {
                     }
                 }
             }
-            println!(
-                "page scripts, 24 commands and 2 runaway scripts ran in the renderer ({:?} for the runaways)",
-                started.elapsed()
-            );
+            // two scripts ended at 300 ms each, not at the limit the page was loaded under
+            let took = started.elapsed();
+            if took >= std::time::Duration::from_millis(2500) {
+                eprintln!("two runaway scripts took {took:?} to end under a 300 ms limit");
+                return 1;
+            }
+            println!("page scripts, 24 commands and 2 runaway scripts ran in the renderer ({took:?} for the runaways)");
 
             // The time limit covers a script and its promise jobs together: one that
             // spends two thirds of it leaves its jobs the last third, not a limit of
