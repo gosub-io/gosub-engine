@@ -63,11 +63,17 @@ impl V8Context {
         };
 
         match result {
-            Ok(value) => Ok(value),
-            Err(Some(e)) => Err(V8EvalError::Exception(e)),
             Err(None) => Err(V8EvalError::Ended(
                 self.take_termination(true).unwrap_or(V8Error::Terminated),
             )),
+            // A script that a native function ran was ended, and this one got past it:
+            // with a value, or with what the function threw instead. It was ended as well.
+            result => match (self.take_termination(false), result) {
+                (Some(by), _) => Err(V8EvalError::Ended(by)),
+                (None, Ok(value)) => Ok(value),
+                (None, Err(Some(e))) => Err(V8EvalError::Exception(e)),
+                (None, Err(None)) => Err(V8EvalError::Ended(V8Error::Terminated)),
+            },
         }
     }
 }

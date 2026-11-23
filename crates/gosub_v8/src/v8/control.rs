@@ -321,6 +321,19 @@ mod tests {
 
         // and the context runs scripts again
         assert_eq!(ctx.run("typeof after").unwrap().as_string().unwrap(), "undefined");
+
+        // `evaluate` too, also when the function's exception is all it sees: nothing
+        // after the call that V8 could end
+        for source in ["native.spin()", "try { native.spin() } catch (e) {} 1"] {
+            let stopper = terminate_soon(&ctx);
+            let outer = ctx.evaluate(source, "test.js", 0);
+            assert!(
+                matches!(outer, Err(crate::V8EvalError::Ended(V8Error::Terminated))),
+                "{source}: {outer:?}"
+            );
+            assert!(stopper.join().unwrap());
+            assert!(matches!(ctx.evaluate("1 + 1", "test.js", 0), Ok(crate::V8Plain::Number(n)) if n == 2.0));
+        }
     }
 
     // tests/init_options.rs has the jitless run, with a loop the JIT does not stop in time
