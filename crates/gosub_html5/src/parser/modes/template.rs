@@ -76,8 +76,9 @@ impl<C: HasDocument> Html5Parser<'_, C> {
 
                 self.pop_until_named("template");
                 self.active_formatting_elements_clear_until_marker();
-                self.reset_insertion_mode();
+                // Pop the closed template's mode first: the reset reads the one below it.
                 self.template_insertion_mode.pop();
+                self.reset_insertion_mode();
                 self.reprocess_token = true;
             }
         }
