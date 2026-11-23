@@ -34,9 +34,6 @@ impl V8ScriptHost {
 
 impl ScriptHost for V8ScriptHost {
     fn execute(&mut self, source: &str, origin: &ScriptOrigin) -> Result<ScriptValue, ScriptError> {
-        // a termination request that came too late for the previous script is not for this one
-        self.context.cancel_termination();
-
         match self.context.evaluate(source, &origin.url, origin.line) {
             Ok(value) => Ok(match value {
                 V8Plain::Undefined => ScriptValue::Undefined,
@@ -57,9 +54,6 @@ impl ScriptHost for V8ScriptHost {
     }
 
     fn microtask_checkpoint(&mut self) -> Result<(), ScriptError> {
-        // as in `execute`: a request that is still meant is made again
-        self.context.cancel_termination();
-
         self.context
             .microtask_checkpoint()
             .map_err(|e| match e.downcast_ref::<V8Error>() {
@@ -73,6 +67,10 @@ impl ScriptHost for V8ScriptHost {
         ScriptTerminator::new(move || {
             terminator.terminate();
         })
+    }
+
+    fn forget_termination(&mut self) {
+        self.context.cancel_termination();
     }
 }
 
@@ -184,7 +182,7 @@ mod tests {
         let terminator = host.terminator();
         let ended = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let seen = std::sync::Arc::clone(&ended);
-        // asked until it has worked: a request before the script starts is dropped
+        // asked until it has worked
         let stopper = std::thread::spawn(move || {
             while !seen.load(std::sync::atomic::Ordering::SeqCst) {
                 std::thread::sleep(Duration::from_millis(50));
@@ -196,15 +194,45 @@ mod tests {
         ended.store(true, std::sync::atomic::Ordering::SeqCst);
         assert_eq!(error.kind, ScriptErrorKind::Terminated);
         stopper.join().unwrap();
+        // the stopper may have asked once more after the script ended
+        host.forget_termination();
         assert_eq!(host.execute("1 + 1", &origin()), Ok(ScriptValue::Number(2.0)));
     }
 
     #[test]
-    fn a_termination_request_before_a_script_does_not_end_it() {
+    fn a_forgotten_termination_request_does_not_end_the_next_script() {
         let mut host = host();
 
         host.terminator().terminate();
+        host.forget_termination();
         assert_eq!(host.execute("1 + 1", &origin()), Ok(ScriptValue::Number(2.0)));
+    }
+
+    #[test]
+    fn a_termination_request_made_before_the_work_starts_ends_it() {
+        // whoever times a script forgets the old request first and starts the clock
+        // then; a request that follows is for this script, however early it comes
+        let mut host = host();
+        host.forget_termination();
+        host.terminator().terminate();
+        assert_eq!(
+            host.execute("globalThis.ran = 1", &origin()).unwrap_err().kind,
+            ScriptErrorKind::Terminated
+        );
+
+        host.execute("Promise.resolve().then(() => { globalThis.job = 1 })", &origin())
+            .unwrap();
+        host.terminator().terminate();
+        assert_eq!(
+            host.microtask_checkpoint().unwrap_err().kind,
+            ScriptErrorKind::Terminated
+        );
+
+        host.forget_termination();
+        assert_eq!(
+            host.execute("typeof ran + typeof job", &origin()),
+            Ok(ScriptValue::String("undefinedundefined".to_owned()))
+        );
     }
 
     #[test]

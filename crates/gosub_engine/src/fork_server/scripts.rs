@@ -92,6 +92,8 @@ impl Inner {
     /// deadline back after it.
     fn bounded<T>(&mut self, limit: Duration, work: impl FnOnce(&mut dyn ScriptHost) -> T) -> T {
         let left = self.request_ends.saturating_duration_since(Instant::now());
+        // before the alarm is set: what it asks for from here on is about this work
+        self.host.forget_termination();
         *RUNNING.lock() = Some(self.host.terminator());
         if gosub_sandbox::arm_soft_deadline(limit.min(left), GRACE, expired).is_err() {
             gosub_sandbox::exit_now(1);

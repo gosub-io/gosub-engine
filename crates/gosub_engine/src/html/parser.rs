@@ -94,6 +94,10 @@ impl ScriptHost for UntilCancelled {
     fn terminator(&self) -> ScriptTerminator {
         self.host.terminator()
     }
+
+    fn forget_termination(&mut self) {
+        self.host.forget_termination();
+    }
 }
 
 /// Configuration for parsing a main document (see [`parse_main_document_stream`]).

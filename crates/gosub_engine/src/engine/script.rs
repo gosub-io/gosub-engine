@@ -241,12 +241,16 @@ fn run_jobs(make: HostFactory, queue: &mpsc::Receiver<Job>, shared: &Shared) {
 }
 
 fn run(host: &mut dyn ScriptHost, job: &Job) -> ScriptResult {
+    // A request to stop that came too late for the previous script is not for this one.
+    // One that is still meant is made again (`TERMINATE_RETRY`).
+    host.forget_termination();
     let result = host.execute(&job.source, &job.origin);
     // A script that threw still has the promise jobs it queued run now, before the next
     // script. One that was ended does not: there is no telling what its jobs would do.
     if matches!(&result, Err(e) if e.kind != ScriptErrorKind::Exception) {
         return result;
     }
+    host.forget_termination();
     let jobs = host.microtask_checkpoint();
 
     let value = result?;
