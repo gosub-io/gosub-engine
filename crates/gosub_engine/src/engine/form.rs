@@ -5,6 +5,7 @@ use crate::engine::edit;
 use crate::html::{EngineDocument, RenderConfiguration};
 use cow_utils::CowUtils;
 use gosub_interface::document::Document as _;
+use gosub_interface::interaction::InteractionSnapshot;
 use gosub_shared::node::NodeId;
 use url::Url;
 
@@ -78,6 +79,7 @@ pub fn button_kind<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) 
 /// `submitter` is the button that triggered the submit (other buttons don't contribute).
 pub fn data_set<C: RenderConfiguration>(
     doc: &EngineDocument<C>,
+    ix: &InteractionSnapshot,
     form: NodeId,
     submitter: Option<NodeId>,
 ) -> Vec<(String, String)> {
@@ -94,7 +96,7 @@ pub fn data_set<C: RenderConfiguration>(
         let value = match tag {
             "input" => match input_type(doc, id).as_str() {
                 "checkbox" | "radio" => {
-                    if !doc.is_checked(id) {
+                    if !ix.is_checked::<C>(doc, id) {
                         continue;
                     }
                     doc.attribute(id, "value").unwrap_or("on").to_string()
@@ -106,11 +108,11 @@ pub fn data_set<C: RenderConfiguration>(
                     doc.attribute(id, "value").unwrap_or_default().to_string()
                 }
                 "file" => continue,
-                _ => live_value(doc, id),
+                _ => live_value(doc, ix, id),
             },
-            "textarea" => live_value(doc, id),
+            "textarea" => live_value(doc, ix, id),
             "select" => {
-                let Some(opt) = doc.selected_option(id) else {
+                let Some(opt) = ix.selected_option::<C>(doc, id) else {
                     continue;
                 };
                 option_value(doc, opt)
@@ -128,9 +130,9 @@ pub fn data_set<C: RenderConfiguration>(
     out
 }
 
-fn live_value<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> String {
-    doc.control_edit_state(id)
-        .map(|s| s.value)
+fn live_value<C: RenderConfiguration>(doc: &EngineDocument<C>, ix: &InteractionSnapshot, id: NodeId) -> String {
+    ix.control_edit_state(id)
+        .map(|s| s.value.clone())
         .unwrap_or_else(|| edit::initial_value(doc, id))
 }
 
@@ -151,6 +153,7 @@ fn option_value<C: RenderConfiguration>(doc: &EngineDocument<C>, opt: NodeId) ->
 /// urlencoded GET/POST; other methods/enctypes fall back to that.
 pub fn submission<C: RenderConfiguration>(
     doc: &EngineDocument<C>,
+    ix: &InteractionSnapshot,
     form: NodeId,
     submitter: Option<NodeId>,
     base: &Url,
@@ -169,7 +172,7 @@ pub fn submission<C: RenderConfiguration>(
     };
     let post = attr("formmethod", "method").is_some_and(|m| m.eq_ignore_ascii_case("post"));
 
-    let data = data_set(doc, form, submitter);
+    let data = data_set(doc, ix, form, submitter);
     let mut encoded = url::form_urlencoded::Serializer::new(String::new());
     for (k, v) in &data {
         encoded.append_pair(k, v);
@@ -243,7 +246,7 @@ mod tests {
         );
         let form = doc.node_by_named_id("x").unwrap();
         let base = url::Url::parse("https://site.test/page").unwrap();
-        let submission = submission(&doc, form, None, &base).expect("a submission");
+        let submission = submission(&doc, &InteractionSnapshot::default(), form, None, &base).expect("a submission");
         assert_eq!(
             submission.referrer_policy,
             Some(gosub_sonar::ReferrerPolicy::NoReferrer)
@@ -288,7 +291,7 @@ mod tests {
         );
         let form = doc.node_by_named_id("x").unwrap();
         let base = url::Url::parse("gemini://h.test/search").unwrap();
-        let submission = submission(&doc, form, None, &base).expect("a submission");
+        let submission = submission(&doc, &InteractionSnapshot::default(), form, None, &base).expect("a submission");
         assert_eq!(submission.url.as_str(), "gemini://h.test/search?");
     }
 }

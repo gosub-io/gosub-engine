@@ -10,14 +10,6 @@ ignore = [
     # (resvg -> usvg -> fontdb) and font shaping (ab_glyph -> owned_ttf_parser).
     # Nothing we control depends on it directly.
     "RUSTSEC-2026-0192", # ttf-parser unmaintained
-    # `rustybuzz` is unmaintained (maintainer declared it EOL) but pulled in transitively
-    # by SVG rendering (resvg -> usvg -> rustybuzz). No safe upgrade is available; the
-    # maintained alternative (harfrust) requires resvg/usvg to migrate first. Nothing we
-    # control depends on it directly.
-    "RUSTSEC-2026-0206", # rustybuzz unmaintained
-    # `chrono` is unmaintained but only pulled in by our own gosub-sonar. No safe upgrade is
-    # available; the way out is sonar moving to `jiff` or `time`.
-    "RUSTSEC-2026-0543", # chrono unmaintained
     # `quick-xml` 0.39 DoS advisories. Not exploitable here; nothing hands it untrusted
     # input. Two paths lead to it:
     # - `wayland-scanner`, a build-time proc-macro under winit's Wayland backend, which

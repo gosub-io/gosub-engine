@@ -10,7 +10,6 @@ description = "HTML5 parser for Gosub"
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared", features = [] }
 gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface", features = [] }
 gosub_css3 = { version = "0.1.1", registry = "gosub", path = "../gosub_css3", features = [] }
-parking_lot = { workspace = true }
 phf = { version = "0.14.0", features = ["macros"] }
 lazy_static = { workspace = true }
 url = { workspace = true, features = [] }
@@ -27,6 +26,7 @@ cow-utils = { workspace = true }
 
 [dev-dependencies]
 test-case = { workspace = true }
+parking_lot = { workspace = true }
 criterion = { workspace = true, features = ["html_reports"] }
 flate2 = "1"
 gosub_html5 = { path = ".", features = ["testing"] }

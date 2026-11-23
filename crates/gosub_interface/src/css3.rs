@@ -1,4 +1,5 @@
 use crate::config::HasDocument;
+use crate::interaction::InteractionSnapshot;
 use crate::style::{Color, ComputedStyle};
 use gosub_shared::async_executor::{WasmNotSend, WasmNotSendSync};
 use gosub_shared::config::ParserConfig;
@@ -59,9 +60,11 @@ pub trait CssSystem: Clone + Debug + 'static {
     /// If `None` is returned, the node is not renderable.
     ///
     /// `parent` is the parent element's computed map (`None` at the root): custom properties
-    /// (`--*`) inherit through it, so callers must compute styles top-down.
+    /// (`--*`) inherit through it, so callers must compute styles top-down. `ix` answers the
+    /// user-interaction pseudo-classes (`:hover`, `:focus`, `:checked`, ...).
     fn properties_from_node<C: HasDocument<CssSystem = Self>>(
         doc: &C::Document,
+        ix: &InteractionSnapshot,
         id: NodeId,
         sheets: &[Self::Stylesheet],
         parent: Option<&Self::PropertyMap>,
@@ -76,6 +79,7 @@ pub trait CssSystem: Clone + Debug + 'static {
     /// The default implementation reports no pseudo-element styling.
     fn pseudo_properties_from_node<C: HasDocument<CssSystem = Self>>(
         _doc: &C::Document,
+        _ix: &InteractionSnapshot,
         _id: NodeId,
         _sheets: &[Self::Stylesheet],
         _pseudo: &str,

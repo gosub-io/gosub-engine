@@ -5,6 +5,7 @@ use crate::rendertree_builder::tree::INVISIBLE_ELEMENTS;
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem, CssValue};
 use gosub_interface::document::Document as _;
+use gosub_interface::interaction::InteractionSnapshot;
 use gosub_interface::node::NodeType as GosubNodeType;
 use gosub_interface::style::{Color, ComputedStyle, Display, ListStyleType, Paint, Prop};
 use gosub_shared::node::NodeId;
@@ -18,17 +19,6 @@ pub enum PipelineNodeKind {
     Text,
     Comment,
     Element,
-}
-
-/// The open `<select>` dropdown as the pipeline sees it (mirrors the engine's state).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct OpenPopup {
-    pub select: NodeId,
-    pub hover: Option<usize>,
-    pub active: Option<usize>,
-    pub first_row: usize,
-    pub viewport_top: f64,
-    pub viewport_height: f64,
 }
 
 // ── PipelineDocument trait ────────────────────────────────────────────────────
@@ -69,15 +59,13 @@ pub trait PipelineDocument: Send + Sync {
     /// `z-index` stacks differently from `z-index: auto`.
     fn computed_style(&self, id: NodeId) -> Arc<ComputedStyle>;
 
-    fn is_focused(&self, _id: NodeId) -> bool {
-        false
+    /// The user-interaction state this pass styles and paints with: focus, typed values,
+    /// resized controls, the open dropdown.
+    fn interaction(&self) -> Arc<InteractionSnapshot> {
+        Arc::default()
     }
 
-    /// Typed value, caret and selection of a text control; `None` = untouched.
-    fn control_edit_state(&self, _id: NodeId) -> Option<gosub_interface::document::ControlEditState> {
-        None
-    }
-
+    /// Live checkedness of a checkbox or radio, the `checked` attribute until the user toggles it.
     fn is_checked(&self, _id: NodeId) -> bool {
         false
     }
@@ -94,17 +82,8 @@ pub trait PipelineDocument: Send + Sync {
         None
     }
 
+    /// The chosen `<option>` of a `<select>`.
     fn selected_option(&self, _select: NodeId) -> Option<NodeId> {
-        None
-    }
-
-    /// The open `<select>` dropdown, if any.
-    fn open_select(&self) -> Option<OpenPopup> {
-        None
-    }
-
-    /// Border-box size the user resized a control to.
-    fn control_size(&self, _id: NodeId) -> Option<(f64, f64)> {
         None
     }
 
@@ -781,6 +760,9 @@ where
     <C::CssSystem as CssSystem>::PropertyMap: Send + Sync,
 {
     pub doc: Arc<C::Document>,
+    /// What `:hover`, `:focus` and `:checked` match and the painter shows; see
+    /// [`Self::set_interaction`].
+    interaction: Mutex<Arc<InteractionSnapshot>>,
     /// Per-node computed-style cache (from CSS selector matching). Populated lazily.
     style_cache: Mutex<HashMap<NodeId, CachedStyles<C>>>,
     /// The typed style each node resolved to, built from `style_cache` and the parent's struct.
@@ -905,6 +887,7 @@ where
         let slots = compute_slot_assignment::<C>(&doc);
         Self {
             doc,
+            interaction: Mutex::default(),
             style_cache: Mutex::new(HashMap::new()),
             computed_cache: Mutex::new(HashMap::new()),
             pseudo_cache: Mutex::new(HashMap::new()),
@@ -914,6 +897,12 @@ where
             parent_cache: Mutex::new(HashMap::new()),
             slots,
         }
+    }
+
+    /// The interaction state to style and paint with from here on. Styles already cached stay
+    /// as they are: the caller invalidates the nodes whose answer changed, as for any damage.
+    pub fn set_interaction(&self, interaction: InteractionSnapshot) {
+        *self.interaction.lock() = Arc::new(interaction);
     }
 
     /// Whether `id` is a `<slot>`. There is no `slot` element in any other namespace, so the
@@ -1176,8 +1165,10 @@ where
         }
         let sheets = self.doc.stylesheets();
         let owner_styles = self.cached_styles(owner);
+        let ix = Arc::clone(&self.interaction.lock());
         let mut prop_map = C::CssSystem::pseudo_properties_from_node::<C>(
             &*self.doc,
+            &ix,
             owner,
             sheets,
             kind.name(),
@@ -1435,8 +1426,10 @@ where
             .flat_parent(id)
             .filter(|&p| self.doc.node_type(p) == GosubNodeType::ElementNode)
             .map(|p| self.cached_styles(p));
-        let mut prop_map = C::CssSystem::properties_from_node::<C>(&*self.doc, id, sheets, parent_styles.as_deref())
-            .unwrap_or_default();
+        let ix = Arc::clone(&self.interaction.lock());
+        let mut prop_map =
+            C::CssSystem::properties_from_node::<C>(&*self.doc, &ix, id, sheets, parent_styles.as_deref())
+                .unwrap_or_default();
         for (_, prop) in prop_map.iter_mut() {
             prop.compute_value();
         }
@@ -1994,16 +1987,12 @@ where
         self.doc.tag_name(id).map(|s| s.to_string())
     }
 
-    fn is_focused(&self, id: NodeId) -> bool {
-        self.doc.is_focused(id)
-    }
-
-    fn control_edit_state(&self, id: NodeId) -> Option<gosub_interface::document::ControlEditState> {
-        self.doc.control_edit_state(id)
+    fn interaction(&self) -> Arc<InteractionSnapshot> {
+        Arc::clone(&self.interaction.lock())
     }
 
     fn is_checked(&self, id: NodeId) -> bool {
-        self.doc.is_checked(id)
+        self.interaction().is_checked::<C>(&self.doc, id)
     }
 
     fn attribute(&self, id: NodeId, name: &str) -> Option<String> {
@@ -2015,22 +2004,7 @@ where
     }
 
     fn selected_option(&self, select: NodeId) -> Option<NodeId> {
-        self.doc.selected_option(select)
-    }
-
-    fn open_select(&self) -> Option<OpenPopup> {
-        self.doc.open_select().map(|o| OpenPopup {
-            select: o.select,
-            hover: o.hover,
-            active: o.active,
-            first_row: o.first_row,
-            viewport_top: o.viewport.0,
-            viewport_height: o.viewport.1,
-        })
-    }
-
-    fn control_size(&self, id: NodeId) -> Option<(f64, f64)> {
-        self.doc.control_size(id)
+        self.interaction().selected_option::<C>(&self.doc, select)
     }
 
     fn is_display_none(&self, id: NodeId) -> bool {

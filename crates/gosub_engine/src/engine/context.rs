@@ -31,6 +31,7 @@ use crate::html::RenderConfiguration;
 use gosub_css3::media_query::{ColorScheme, MediaEnvironment, MediaType, ReducedMotion};
 use gosub_interface::css3::{CssSystem, HoverFingerprints};
 use gosub_interface::document::Document as _;
+use gosub_interface::interaction::{InteractionSnapshot, InteractionState};
 use gosub_interface::node::NodeType;
 use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
 use gosub_render_pipeline::common::document::pipeline_doc::{GosubDocumentAdapter, PipelineDocument};
@@ -221,6 +222,9 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// the whole document even when nothing about the cascade had changed. Cleared only when
     /// the document itself changes.
     document_adapter: Option<Arc<GosubDocumentAdapter<C>>>,
+    /// What the user did to the document: focus, hover, typed values, toggles, picks, the open
+    /// dropdown. Belongs to the document, so it goes with it.
+    interaction: InteractionState,
     /// Layout state reused across frames; see [`RetainedLayout`].
     retained_layout: Option<RetainedLayout>,
     /// The style environment the currently cached computed styles were produced under
@@ -469,6 +473,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             hover_layout_element: None,
             hover_fingerprints: None,
             document_adapter: None,
+            interaction: InteractionState::default(),
             retained_layout: None,
             style_fingerprint: None,
             deferred_fonts: Default::default(),
@@ -798,6 +803,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.hover_layout_element = None;
         self.hover_fingerprints = None;
         self.document_adapter = None;
+        self.interaction = InteractionState::default();
         self.retained_layout = None;
         self.style_fingerprint = None;
         self.deferred_fonts = Default::default();
@@ -1113,12 +1119,28 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             None => {
                 let doc = self.document.as_ref()?;
                 let adapter = Arc::new(GosubDocumentAdapter::<C>::new(Arc::clone(doc)));
+                adapter.set_interaction(InteractionSnapshot::new::<C>(&self.interaction, doc));
                 self.document_adapter = Some(Arc::clone(&adapter));
                 adapter
             }
         };
 
         Some(adapter)
+    }
+
+    /// Hand the adapter the interaction state as it is now, read against the tree as it is now:
+    /// what this pass styles and paints with. Entries for deleted nodes are dropped here.
+    /// Every pass goes through here first: [`Self::refresh_pipeline_cache`] for the tiles
+    /// (full, raster window, paint-only) and [`Self::rebuild_scene_cache_if_needed`] for the
+    /// GPU scene.
+    fn sync_interaction(&mut self) {
+        let Some(doc) = &self.document else {
+            return;
+        };
+        self.interaction.prune::<C>(doc);
+        if let Some(adapter) = &self.document_adapter {
+            adapter.set_interaction(InteractionSnapshot::new::<C>(&self.interaction, doc));
+        }
     }
 
     /// Drop exactly as much of the cached computed styles as the accumulated damage requires.
@@ -2179,6 +2201,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// Shared by [`Self::rebuild_pipeline_cache_if_needed`] and
     /// [`Self::rebuild_render_list_if_needed`] so both backends make the same choice.
     fn refresh_pipeline_cache(&mut self) {
+        self.sync_interaction();
         let level = self.damage.level();
         if level.needs_geometry() {
             self.rebuild_full_pipeline();
@@ -2319,6 +2342,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         // the cached layout the way the tile path does, but a GPU re-paint is cheap and avoids
         // the partial-repaint bookkeeping; revisit if it proves hot.
         if !self.damage.is_none() {
+            self.sync_interaction();
             let media_env = self.media_environment();
             // Release the previous scene's handle on the retained layout tree before laying out.
             // It is the other owner, and a geometry-only pass has to be sole owner or
@@ -2692,7 +2716,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     }
 
     pub fn focused_node(&self) -> Option<NodeId> {
-        self.document.as_ref().and_then(|d| d.focused_node())
+        self.interaction_snapshot().focused_node()
     }
 
     /// Flush the document's autofocus candidates once it has laid out (HTML, "update the
@@ -2708,7 +2732,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let rendered: std::collections::HashSet<NodeId> =
             ll.layout_tree.arena.values().map(|el| el.dom_node_id).collect();
         let fragment = self.document_url.as_ref().and_then(Url::fragment);
-        let Some(target) = self.autofocus.flush(&doc, Some(&rendered), fragment) else {
+        let focused = self.focused_node();
+        let Some(target) = self.autofocus.flush(&doc, focused, Some(&rendered), fragment) else {
             return false;
         };
         // The focusing steps; a text control shows the ring, as a click into it would.
@@ -3011,9 +3036,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.hover_chain_sensitive = new_sensitive;
 
         if visual_dirty {
-            if let Some(doc) = &self.document {
+            {
                 let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::HoverSetHovered);
-                doc.set_hovered_nodes(new_leaf);
+                self.interaction.hover_leaf = new_leaf;
             }
             // Hover changes only paint (colour, background, outline): the boxes do not move,
             // so record paint-level damage over the old and new hovered elements and let the
@@ -3056,6 +3081,14 @@ impl<C: RenderConfiguration> InputHost for BrowsingContext<C> {
 
     fn document(&self) -> Option<Arc<EngineDocument<C>>> {
         self.document.clone()
+    }
+
+    fn interaction(&self) -> &InteractionState {
+        &self.interaction
+    }
+
+    fn interaction_mut(&mut self) -> &mut InteractionState {
+        &mut self.interaction
     }
 
     fn layer_list(&self) -> Option<Arc<LayerList>> {
@@ -4593,10 +4626,10 @@ mod tests {
             assert_eq!(ctx.focused_node(), Some(button), "shift-tab goes back");
             assert_ne!(a, input);
 
-            // The document agrees (this is what :focus matching reads).
-            let doc = ctx.document.as_ref().unwrap();
-            assert!(doc.is_focused(button));
-            assert!(!doc.is_focused(a));
+            // The snapshot agrees (this is what :focus matching reads).
+            let ix = ctx.interaction_snapshot();
+            assert!(ix.is_focused(button));
+            assert!(!ix.is_focused(a));
 
             // Clicking the <span> inside the link focuses the link (nearest focusable
             // ancestor); clicking the plain div blurs.
@@ -4604,6 +4637,40 @@ mod tests {
             assert_eq!(ctx.focused_node(), Some(a));
             assert!(ctx.focus_at(10.0, 75.0));
             assert_eq!(ctx.focused_node(), None);
+        }
+
+        /// Moving focus restyles both controls with the new focus once the next pass runs, as
+        /// the out-of-process renderer does (`moving_focus_restyles_both_controls` there).
+        #[test]
+        fn moving_focus_restyles_both_controls() {
+            use gosub_interface::style::Color;
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 500,
+            });
+            let html = r#"<!DOCTYPE html><style>input:focus { color: rgb(255, 0, 0) }</style>
+                <input id="a"><input id="b">"#;
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            let a = doc.node_by_named_id("a").expect("input a");
+            let b = doc.node_by_named_id("b").expect("input b");
+            ctx.set_document(Arc::new(doc), None);
+            ctx.rebuild_pipeline_cache_if_needed();
+            let red = |ctx: &BrowsingContext<DefaultRenderConfig>, id| {
+                let adapter = ctx.document_adapter.as_ref().expect("an adapter after a pass");
+                adapter.computed_style(id).inherited.color == Color::rgba(255, 0, 0, 255)
+            };
+
+            assert!(ctx.set_focus(Some(a), true));
+            ctx.rebuild_pipeline_cache_if_needed();
+            assert!(red(&ctx, a) && !red(&ctx, b));
+
+            assert!(ctx.set_focus(Some(b), true));
+            ctx.rebuild_pipeline_cache_if_needed();
+            assert!(!red(&ctx, a) && red(&ctx, b));
         }
 
         /// Regression: a layer whose elements sit entirely outside the page box (fixed

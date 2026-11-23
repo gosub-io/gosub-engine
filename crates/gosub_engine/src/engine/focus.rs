@@ -145,11 +145,13 @@ impl Autofocus {
     }
 
     /// HTML "flush autofocus candidates": the element to run the focusing steps for, if
-    /// any. `rendered` = elements that have a box (`None` = no render yet, see
-    /// [`tab_order`]); `fragment` = the document URL's fragment, for its target element.
+    /// any. `focused` = what has focus now; `rendered` = elements that have a box (`None` = no
+    /// render yet, see [`tab_order`]); `fragment` = the document URL's fragment, for its target
+    /// element.
     pub fn flush<C: RenderConfiguration>(
         &mut self,
         doc: &EngineDocument<C>,
+        focused: Option<NodeId>,
         rendered: Option<&HashSet<NodeId>>,
         fragment: Option<&str>,
     ) -> Option<NodeId> {
@@ -163,7 +165,7 @@ impl Autofocus {
             return None;
         }
         // 4. The focused area is the document itself when nothing is focused.
-        if doc.focused_node().is_some() || fragment.is_some_and(|f| indicated_element(doc, f).is_some()) {
+        if focused.is_some() || fragment.is_some_and(|f| indicated_element(doc, f).is_some()) {
             candidates.clear();
             self.processed = true;
             return None;

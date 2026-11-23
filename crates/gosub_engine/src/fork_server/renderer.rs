@@ -20,6 +20,7 @@ use gosub_html5::parser::{Html5Parser, Html5ParserOptions};
 use gosub_interface::css3::CssSystem as _;
 use gosub_interface::document::Document as _;
 use gosub_interface::font_system::FontSystem;
+use gosub_interface::interaction::{InteractionSnapshot, InteractionState};
 use gosub_interface::node::QuirksMode;
 use gosub_render_pipeline::common::document::pipeline_doc::{GosubDocumentAdapter, PipelineDocument};
 use gosub_render_pipeline::common::geo::{Dimension, Rect};
@@ -150,8 +151,8 @@ struct Shipped {
 pub struct RetainedPage<C: RenderConfiguration> {
     title: Option<String>,
     favicon: Option<String>,
-    /// The parsed document, typed: the input layer's setters and the
-    /// hit-region walk need the concrete type, not the pipeline's view of it.
+    /// The parsed document, typed: the input layer and the hit-region walk
+    /// need the concrete type, not the pipeline's view of it.
     doc: Arc<EngineDocument<C>>,
     /// The pipeline's view of the document, with the per-node style cache a
     /// re-layout keeps.
@@ -195,8 +196,9 @@ pub struct RetainedPage<C: RenderConfiguration> {
     /// Where the viewport was last: a hover repaint stays within that window.
     scroll_x: f64,
     scroll_y: f64,
-    /// The DOM node under the pointer, as the broker last told us.
-    hovered: Option<NodeId>,
+    /// What the user did to the page. The node under the pointer is the one the broker last
+    /// told us; the rest is the input layer's.
+    interaction: InteractionState,
     /// Gestures in progress and what the last one asked of the embedder.
     input: PageInput,
     /// The page's autofocus candidates and whether they were processed.
@@ -367,10 +369,10 @@ impl<C: RenderConfiguration> RetainedPage<C> {
 
         // Hover state, as the broker hit-tested it. Applied before the render
         // tree is built, which is when styles (including `:hover`) are computed.
-        let hovered = hovered_node.map(NodeId::from);
-        if hovered.is_some() {
-            doc.set_hovered_nodes(hovered);
-        }
+        let interaction = InteractionState {
+            hover_leaf: hovered_node.map(NodeId::from),
+            ..Default::default()
+        };
 
         // `@font-face` web fonts: the same walk the tab worker runs, fetching
         // through this renderer's loader and registering into the inherited font
@@ -394,6 +396,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         // Stages 1-3, from the document kept beside the pipeline's view of it.
         let doc = Arc::new(doc);
         let adapter = Arc::new(GosubDocumentAdapter::<C>::new(Arc::clone(&doc)));
+        adapter.set_interaction(InteractionSnapshot::new::<C>(&interaction, &doc));
         let (layer_list, layer_ids, page_width, page_height, render_tree_us, layout_us, layouter) =
             lay_out::<C>(&adapter, &fonts, &media_store, viewport_width, viewport_height);
         let style_fingerprint = C::CssSystem::style_environment_fingerprint(doc.stylesheets());
@@ -434,7 +437,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             shipped: HashMap::new(),
             scroll_x: 0.0,
             scroll_y: 0.0,
-            hovered,
+            interaction,
             input: PageInput::default(),
             autofocus: Default::default(),
             dirty: Dirty::None,
@@ -459,7 +462,8 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             .map(|el| el.dom_node_id)
             .collect();
         let fragment = self.base_url.as_ref().and_then(Url::fragment);
-        let target = self.autofocus.flush(&self.doc, Some(&rendered), fragment)?;
+        let focused = self.interaction_snapshot().focused_node();
+        let target = self.autofocus.flush(&self.doc, focused, Some(&rendered), fragment)?;
         let visible = crate::engine::focus::click_shows_ring(&self.doc, target);
         if !self.with_input(|input, host| input.set_focus(host, Some(target), visible)) {
             return None;
@@ -495,11 +499,11 @@ impl<C: RenderConfiguration> RetainedPage<C> {
     /// content comes out identical are not shipped again.
     pub fn hover(&mut self, node: Option<u64>) -> RenderPass {
         let new_leaf = node.map(NodeId::from);
-        let old_leaf = self.hovered;
+        let old_leaf = self.interaction.hover_leaf;
         if new_leaf == old_leaf {
             return self.empty_pass();
         }
-        self.hovered = new_leaf;
+        self.interaction.hover_leaf = new_leaf;
 
         // Only the two ancestor chains can gain or lose `:hover`.
         let mut dirty_nodes: Vec<NodeId> = Vec::new();
@@ -516,7 +520,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
                 }
             }
         }
-        self.doc.set_hovered_nodes(new_leaf);
+        self.sync_interaction();
         // the restyle below answers `@media (scripting)` for this document, not for the
         // one another tab loaded last
         gosub_css3::stylesheet::set_scripting(self.doc.scripting_enabled());
@@ -561,7 +565,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
     pub fn input(&mut self, scroll: (f64, f64), known_tiles: &HashSet<u64>, event: InputEvent) -> InputPass {
         (self.scroll_x, self.scroll_y) = scroll;
         self.dirty = Dirty::None;
-        let focus_before = self.doc.focused_node();
+        let focus_before = self.interaction_snapshot().focused_node();
         let capture_before = self.holds_pointer();
         let pointer = match &event {
             InputEvent::PointerDown { x, y, .. }
@@ -655,7 +659,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         if self.input.take_paste_request() {
             effects.push(Effect::PasteRequested);
         }
-        let focus_after = self.doc.focused_node();
+        let focus_after = self.interaction_snapshot().focused_node();
         if focus_after != focus_before {
             effects.push(Effect::Focus {
                 focused: focus_after.is_some(),
@@ -767,6 +771,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
     /// Returns the cost in microseconds and whether the shortcut was taken.
     fn lay_out_again(&mut self, relayout: Relayout) -> (u64, bool) {
         let started = std::time::Instant::now();
+        self.sync_interaction();
         // Process-wide state another tab's navigate may have moved since.
         apply_media_prefs(self.dpr, self.media);
         gosub_css3::stylesheet::set_layout_viewport(self.viewport_width as f32, self.viewport_height as f32);
@@ -837,7 +842,15 @@ impl<C: RenderConfiguration> RetainedPage<C> {
     /// an open dropdown, whose rows highlight under the pointer and scroll
     /// under the wheel.
     fn holds_pointer(&self) -> bool {
-        self.input.has_capture() || self.doc.open_select().is_some()
+        self.input.has_capture() || self.interaction_snapshot().open_select().is_some()
+    }
+
+    /// Hand the adapter the interaction state as it is now, read against the tree as it is now,
+    /// dropping entries for deleted nodes. Every pass and re-layout goes through here first.
+    fn sync_interaction(&mut self) {
+        self.interaction.prune::<C>(&self.doc);
+        self.adapter
+            .set_interaction(InteractionSnapshot::new::<C>(&self.interaction, &self.doc));
     }
 
     /// The input layer, run against this page as its host. Taken out for the
@@ -887,7 +900,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
     /// What the hovered node's ancestry says: whether a link encloses it and
     /// the cursor for it, as a hit region would carry them.
     fn hover_facts(&self) -> (bool, CursorShape) {
-        let Some(leaf) = self.hovered else {
+        let Some(leaf) = self.interaction.hover_leaf else {
             return (false, CursorShape::Default);
         };
         let (link, _, cursor, _, _) = describe_hit::<C>(&self.doc, leaf, self.base_url.as_ref());
@@ -940,6 +953,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         use gosub_render_pipeline::painter::Painter;
 
         let started = std::time::Instant::now();
+        self.sync_interaction();
         let mut timings = std::mem::take(&mut self.build_timings);
         let lap = |name: &str, timings: &mut Vec<(String, u64)>, since: &mut u64| {
             let now = started.elapsed().as_micros() as u64;
@@ -1163,6 +1177,14 @@ impl<C: RenderConfiguration> InputHost for RetainedPage<C> {
         Some(Arc::clone(&self.doc))
     }
 
+    fn interaction(&self) -> &InteractionState {
+        &self.interaction
+    }
+
+    fn interaction_mut(&mut self) -> &mut InteractionState {
+        &mut self.interaction
+    }
+
     fn layer_list(&self) -> Option<Arc<LayerList>> {
         Some(Arc::clone(&self.layer_list))
     }
@@ -1205,6 +1227,9 @@ impl<C: RenderConfiguration> InputHost for RetainedPage<C> {
     }
 
     fn damage_nodes(&mut self, nodes: &[NodeId]) {
+        // The adapter restyles these nodes right away, so it has to see the focus the caller
+        // just moved, not the one from the last pass.
+        self.sync_interaction();
         self.adapter.invalidate_style_for_nodes(nodes);
     }
 
@@ -1473,12 +1498,58 @@ mod tests {
             ),
             "{effect:?}"
         );
-        assert_eq!(page.doc.focused_node(), page.doc.node_by_named_id("i"));
+        assert_eq!(
+            page.interaction_snapshot().focused_node(),
+            page.doc.node_by_named_id("i")
+        );
         assert!(page.flush_autofocus().is_none(), "only once");
 
         let mut page = build("https://example.test/#p");
         assert!(page.flush_autofocus().is_none());
-        assert_eq!(page.doc.focused_node(), None);
+        assert_eq!(page.interaction_snapshot().focused_node(), None);
+    }
+
+    /// Moving focus restyles both controls with the new focus: `:focus` leaves the one that lost
+    /// it and lands on the one that got it, and a pass afterwards keeps it that way.
+    #[test]
+    fn moving_focus_restyles_both_controls() {
+        use crate::html::{DefaultRenderConfig, RenderConfiguration};
+        use gosub_interface::style::Color;
+        type Fonts = <DefaultRenderConfig as RenderConfiguration>::FontSystem;
+        let fonts: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(Fonts::default()));
+        let known = HashSet::new();
+        let mut page = RetainedPage::<DefaultRenderConfig>::build(
+            PageRequest {
+                html: "<!DOCTYPE html><style>input:focus { color: rgb(255, 0, 0) }</style>\
+<input id=\"a\"><input id=\"b\">",
+                page_url: "https://example.test/",
+                viewport_width: 800.0,
+                viewport_height: 600.0,
+                known_tiles: &known,
+                hovered_node: None,
+                dpr: 1,
+                media: MediaPrefs::default(),
+            },
+            fonts,
+            Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
+            Arc::new(crate::net::resource_loader::NoResourceLoader),
+        );
+        page.render(Some((0.0, 0.0)), &known);
+        let a = page.doc.node_by_named_id("a").expect("input a");
+        let b = page.doc.node_by_named_id("b").expect("input b");
+        let red = |page: &RetainedPage<DefaultRenderConfig>, id| {
+            page.adapter.computed_style(id).inherited.color == Color::rgba(255, 0, 0, 255)
+        };
+
+        assert!(page.with_input(|input, host| input.set_focus(host, Some(a), true)));
+        assert!(red(&page, a) && !red(&page, b));
+        page.render(Some((0.0, 0.0)), &known);
+        assert!(red(&page, a) && !red(&page, b), "after a pass");
+
+        assert!(page.with_input(|input, host| input.set_focus(host, Some(b), true)));
+        assert!(!red(&page, a) && red(&page, b));
+        page.render(Some((0.0, 0.0)), &known);
+        assert!(!red(&page, a) && red(&page, b), "after a pass");
     }
 
     /// A hover restyles under the scripting flag of its own document, whatever page the
@@ -1603,13 +1674,69 @@ mod tests {
                 button: MouseButton::Left,
             },
         );
-        assert_eq!(page.doc.focused_node(), page.doc.node_by_named_id("i"));
+        assert_eq!(
+            page.interaction_snapshot().focused_node(),
+            page.doc.node_by_named_id("i")
+        );
         let bounds = out.effects.iter().find_map(|effect| match effect {
             Effect::Focus { bounds, .. } => *bounds,
             _ => None,
         });
         let bounds = bounds.expect("a focus effect with bounds");
         assert!((bounds.x - 100.0).abs() < 1.0, "{bounds:?}");
+    }
+
+    /// A key typed into a laid-out field repaints it with the new value, without a re-layout.
+    #[test]
+    fn a_retained_page_paints_what_was_typed() {
+        use crate::html::{DefaultRenderConfig, RenderConfiguration};
+        type Fonts = <DefaultRenderConfig as RenderConfiguration>::FontSystem;
+        let fonts: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(Fonts::default()));
+        let known = HashSet::new();
+        let mut page = RetainedPage::<DefaultRenderConfig>::build(
+            PageRequest {
+                html: "<!DOCTYPE html><body style=\"margin:0\"><input id=\"i\" value=\"ab\" \
+style=\"width:100px;height:40px\"></body>",
+                page_url: "https://example.test/",
+                viewport_width: 800.0,
+                viewport_height: 600.0,
+                known_tiles: &known,
+                hovered_node: None,
+                dpr: 1,
+                media: MediaPrefs::default(),
+            },
+            fonts,
+            Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
+            Arc::new(crate::net::resource_loader::NoResourceLoader),
+        );
+        page.render(Some((0.0, 0.0)), &known);
+        page.input(
+            (0.0, 0.0),
+            &known,
+            InputEvent::PointerDown {
+                x: 50.0,
+                y: 20.0,
+                button: MouseButton::Left,
+            },
+        );
+        let node = page.doc.node_by_named_id("i").expect("the field");
+        let layer_list = Arc::clone(&page.layer_list);
+
+        page.input(
+            (0.0, 0.0),
+            &known,
+            InputEvent::KeyDown {
+                key: "c".into(),
+                modifiers: 0,
+            },
+        );
+
+        assert!(
+            Arc::ptr_eq(&layer_list, &page.layer_list),
+            "typing does not lay out again"
+        );
+        let painted = page.adapter.interaction();
+        assert_eq!(painted.control_edit_state(node).map(|s| s.value.as_str()), Some("abc"));
     }
 
     /// The broker's deferred loader for one image: "not yet" until it has landed.
@@ -1714,7 +1841,11 @@ mod tests {
         let out = page.media_landed((0.0, 0.0), &known);
         assert!(out.relayouted);
         assert!(out.effects.is_empty(), "{:?}", out.effects);
-        assert_eq!(page.doc.focused_node(), b, "the focus went back to the autofocus field");
+        assert_eq!(
+            page.interaction_snapshot().focused_node(),
+            b,
+            "the focus went back to the autofocus field"
+        );
         assert!(
             page.page_height >= before + 400.0,
             "the image took no room: {before} -> {}",
