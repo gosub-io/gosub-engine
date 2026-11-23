@@ -265,6 +265,15 @@ mod tests {
     }
 
     #[test]
+    fn console_prints_a_symbol_as_its_description() {
+        // `console` asserts that the script did not throw
+        assert_eq!(
+            console("console.log(Symbol('x'), Symbol(), Symbol.iterator)"),
+            [line(ConsoleLevel::Log, "Symbol(x) Symbol() Symbol(Symbol.iterator)")]
+        );
+    }
+
+    #[test]
     fn console_assert_prints_only_when_the_condition_fails() {
         assert_eq!(console("console.assert(true, 'fine')"), []);
         assert_eq!(

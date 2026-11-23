@@ -92,6 +92,13 @@ impl WebValue for V8Value {
         ctx_scope!(scope, self.context);
 
         let value = Local::new(scope, &self.value);
+        // as `String(value)` has it: a symbol gives its description, where ToString throws
+        if value.is_symbol() {
+            return Ok(value
+                .to_detail_string(scope)
+                .map(|s| s.to_rust_string_lossy(scope))
+                .unwrap_or_default());
+        }
 
         Ok(value.to_rust_string_lossy(scope))
     }
@@ -276,6 +283,17 @@ mod tests {
 
         assert!(value.is_string());
         assert_eq!(value.as_string().unwrap(), "Hello World!");
+    }
+
+    #[test]
+    fn a_symbol_as_a_string_is_its_description() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        let value = context.run("Symbol('x')").unwrap();
+        assert_eq!(value.as_string().unwrap(), "Symbol(x)");
+        // and no exception is left behind for the next script
+        assert_eq!(context.run("1 + 1").unwrap().as_number().unwrap(), 2.0);
     }
 
     #[test]
