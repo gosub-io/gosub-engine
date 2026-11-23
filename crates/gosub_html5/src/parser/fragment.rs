@@ -56,7 +56,9 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         parser.open_elements.push(html_id);
 
         // 8.
-        if parser.document.tag_name(context_node_id).unwrap_or_default() == "template" {
+        if parser.document.tag_name(context_node_id).unwrap_or_default() == "template"
+            && parser.document.namespace(context_node_id) == Some(HTML_NAMESPACE)
+        {
             parser.template_insertion_mode.push(InsertionMode::InTemplate);
         }
 

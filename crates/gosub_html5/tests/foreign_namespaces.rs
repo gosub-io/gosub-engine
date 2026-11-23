@@ -34,6 +34,11 @@ fn tree(html: &str) -> String {
 /// The tree of `html` parsed as a fragment with a `name` element in `namespace` as context, the
 /// context sitting under an HTML `body`.
 fn fragment(namespace: &str, name: &str, html: &str) -> String {
+    parse_fragment(namespace, name, html).0
+}
+
+/// [`fragment`], with the parse errors.
+fn parse_fragment(namespace: &str, name: &str, html: &str) -> (String, Vec<String>) {
     let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
     let body = doc.create_element("body", Some(HTML_NAMESPACE), Attributes::new(), Location::default());
     let root = doc.root();
@@ -42,13 +47,15 @@ fn fragment(namespace: &str, name: &str, html: &str) -> String {
     doc.attach(context, body, None).unwrap();
 
     let mut stream = ByteStream::from_str(html, Encoding::UTF8);
-    Html5Parser::<Config>::parse_fragment(&mut stream, &mut doc, context, None, Location::default()).unwrap();
+    let errors =
+        Html5Parser::<Config>::parse_fragment(&mut stream, &mut doc, context, None, Location::default()).unwrap();
 
     // The parser appends its own `html` element to the document root; the fragment is below it.
     let html_id = *doc.children(doc.root()).last().unwrap();
-    TreeOutputGenerator::<Config>::new(doc)
+    let tree = TreeOutputGenerator::<Config>::new(doc)
         .generate_from(html_id)
-        .join("\n")
+        .join("\n");
+    (tree, errors.into_iter().map(|error| error.message).collect())
 }
 
 /// The parse error messages `html` produces.
@@ -180,4 +187,27 @@ fn an_open_foreign_element_at_the_end_of_the_body_is_an_error() {
     // The listed HTML elements may stay open.
     let errors = errors("<!DOCTYPE html><p>x");
     assert!(!errors.iter().any(|error| error == OPEN), "{errors:?}");
+}
+
+/// Only an HTML `template` context starts the fragment "in template". An SVG one used to push
+/// that mode anyway, so EOF went to the template rules and skipped the end-of-body check.
+#[test]
+fn an_svg_template_context_is_not_a_template() {
+    let (tree, errors) = parse_fragment(SVG_NAMESPACE, "template", "<div>x");
+    assert_eq!(tree, lines(&["| <div>", "|   \"x\""]));
+    assert!(
+        errors
+            .iter()
+            .any(|error| error == "open element not allowed at end of body"),
+        "{errors:?}"
+    );
+
+    // An HTML template context still is one: its contents are parsed "in template".
+    let (_, errors) = parse_fragment(HTML_NAMESPACE, "template", "<div>x");
+    assert!(
+        !errors
+            .iter()
+            .any(|error| error == "open element not allowed at end of body"),
+        "{errors:?}"
+    );
 }
