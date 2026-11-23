@@ -14,6 +14,11 @@ pub struct V8Ctx {
     isolate: OwnedIsolate, // Safety: this should NEVER be replaced with a new isolate
     pub ctx: Global<v8::Context>,
     pub(crate) heap: Option<Box<HeapLimit>>,
+    /// How many native functions are running, one inside the other.
+    pub(crate) in_callback: usize,
+    /// A script that a native function ran was ended, and the request that ended it is
+    /// still to end what called the function.
+    pub(crate) unwinding: bool,
 }
 
 impl V8Ctx {
@@ -37,7 +42,13 @@ impl V8Ctx {
             Global::new(handle_scope, ctx)
         };
 
-        Self { isolate, ctx, heap }
+        Self {
+            isolate,
+            ctx,
+            heap,
+            in_callback: 0,
+            unwinding: false,
+        }
     }
 
     pub(crate) fn isolate(&mut self) -> &mut OwnedIsolate {
