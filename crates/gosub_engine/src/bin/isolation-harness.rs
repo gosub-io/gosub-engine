@@ -2975,8 +2975,10 @@ fn engine_remote_scripts<F: FontSystem + Default>() -> i32 {
 
             // JavaScript off: the renderer parses without scripting (a noscript element's
             // contents are markup, here a stylesheet and the paragraph it makes tall), shows
-            // what is in it and runs nothing. With it on, the same page is short and its script runs.
-            for (on, expected) in [(true, "ran"), (false, "error: JavaScript is disabled")] {
+            // what is in it and runs nothing. With it on, the same page is short and its script
+            // runs. Off first: the frame that is up when the page is loaded again is the tall
+            // one, so a short one is the new page's.
+            for (on, expected) in [(false, "error: JavaScript is disabled"), (true, "ran")] {
                 if let Err(e) = engine.settings().set("scripting.javascript_enabled", Setting::Bool(on)) {
                     eprintln!("could not switch JavaScript: {e}");
                     return 1;
@@ -3008,12 +3010,15 @@ fn engine_remote_scripts<F: FontSystem + Default>() -> i32 {
                     }
                 }
                 if on {
-                    // drawn by now: the script's line came with the render
-                    match compositor.frame_for(first.tab_id) {
-                        Some(ExternalHandle::TileCache { page_height, .. }) if page_height < 3000.0 => {}
-                        other => {
-                            eprintln!("with scripting the noscript contents are text, got {other:?}");
+                    // the script's line comes with the render, the frame a little later
+                    loop {
+                        if tokio::time::Instant::now() >= deadline {
+                            eprintln!("with scripting the noscript contents are text, but the page stayed tall");
                             return 1;
+                        }
+                        match compositor.frame_for(first.tab_id) {
+                            Some(ExternalHandle::TileCache { page_height, .. }) if page_height < 3000.0 => break,
+                            _ => tokio::time::sleep(std::time::Duration::from_millis(50)).await,
                         }
                     }
                 }
