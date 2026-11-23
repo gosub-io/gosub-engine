@@ -19,9 +19,15 @@ A direct implementation of the spec's tokenizer state machine: `state.rs` define
 
 The tokenizer produces `Token`s (`token.rs`: start/end tags with attributes, text, comment, doctype, EOF) and reports errors into an `ErrorLogger` shared with the parser, so tokenizer and tree-construction errors end up in one list with source locations.
 
-## Tree construction (`parser.rs`)
+## Tree construction (`parser.rs`, `parser/`)
 
-`Html5Parser` is the spec's tree-construction stage: a loop that dispatches each token on the current **insertion mode** (all 23 spec modes, from `Initial` through `InBody`, the table modes, `InTemplate`, to `AfterAfterFrameset`). The spec's machinery is all here:
+`Html5Parser` is the spec's tree-construction stage: a loop that dispatches each token on the current **insertion mode** (all 23 spec modes, from `Initial` through `InBody`, the table modes, `InTemplate`, to `AfterAfterFrameset`). `parser.rs` holds the parser state, the main loop and the dispatcher; the rest lives under `parser/`:
+
+-   `modes.rs` - the per-mode dispatch, with one `handle_*` method per mode in `modes/` (`initial.rs`, `head.rs`, `body.rs`, `text.rs`, `table.rs`, `select.rs`, `template.rs`, `after.rs`);
+-   `foreign.rs` - foreign content; `fragment.rs` - fragment parsing; `scope.rs` - element scopes; `formatting.rs` - the list of active formatting elements;
+-   `stylesheets.rs` - stylesheets met while parsing: a `<style>` sheet is parsed at its end tag, a `<link>` sheet is recorded as pending, and before a blocking script the parser waits while the pending ones are fetched through the `StylesheetSource` option (without one they stay pending for whoever drives the parse). Their `@import`s are not followed at that point; only an inline `<style>` resolves its imports during the parse.
+
+The spec's machinery is all here:
 
 -   the **stack of open elements** and the **list of active formatting elements** (with markers), including the **adoption agency algorithm** for misnested formatting tags (`<b><i></b></i>`);
 -   **foster parenting** for content that appears illegally inside tables;
