@@ -933,7 +933,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     // its first render (see `apply_remote_document_meta`).
                     (None, Some(source)) => {
                         self.script = None;
-                        self.pending_script = None;
+                        // a newer navigation's thread stays for when that one commits
+                        drop(adopt_pending(&mut self.pending_script, nav_id));
                         self.document_in_renderer = true;
                         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
                         {
