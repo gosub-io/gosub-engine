@@ -130,3 +130,26 @@ fn foreign_elements_do_not_choose_the_insertion_mode() {
         lines(&["| <div>", "|   \"x\""])
     );
 }
+
+/// An end tag in body closes an HTML element of that name. Walking down from the current node
+/// it stops at the first special element instead, and an SVG `desc` or `title` is one, so the
+/// end tag is ignored and the text stays in the span.
+#[test]
+fn an_end_tag_does_not_close_an_svg_element_of_that_name() {
+    for name in ["desc", "title"] {
+        assert_eq!(
+            tree(&format!("<!DOCTYPE html><svg><{name}><span></{name}>after")),
+            lines(&[
+                "| <!DOCTYPE html>",
+                "| <html>",
+                "|   <head>",
+                "|   <body>",
+                "|     <svg svg>",
+                &format!("|       <svg {name}>"),
+                "|         <span>",
+                "|           \"after\"",
+            ]),
+            "{name}"
+        );
+    }
+}
