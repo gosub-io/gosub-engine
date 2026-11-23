@@ -128,3 +128,24 @@ fn a_table_tag_inside_a_template_does_not_reach_the_table_outside() {
         .join("\n")
     );
 }
+
+/// `</colgroup>` closes the column group and is done: it is not handed on to "in table",
+/// which would report it as a stray end tag.
+#[test]
+fn a_colgroup_end_tag_is_not_reprocessed() {
+    let parsed = parse("<!DOCTYPE html><table><colgroup><col></colgroup></table>");
+    assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+    assert_eq!(
+        parsed.tree,
+        [
+            "| <!DOCTYPE html>",
+            "| <html>",
+            "|   <head>",
+            "|   <body>",
+            "|     <table>",
+            "|       <colgroup>",
+            "|         <col>",
+        ]
+        .join("\n")
+    );
+}

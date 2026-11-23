@@ -337,7 +337,6 @@ impl<C: HasDocument> Html5Parser<'_, C> {
 
                 self.open_elements.pop();
                 self.insertion_mode = InsertionMode::InTable;
-                self.reprocess_token = true;
             }
             Token::EndTag { name, .. } if name == "col" => {
                 self.parse_error("col end tag not allowed in column group insertion mode");
