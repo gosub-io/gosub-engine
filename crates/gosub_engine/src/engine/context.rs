@@ -363,10 +363,11 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// to run a script in.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     remote_page_ready: bool,
-    /// Set by a script that found the renderer had let go of the page: it is loaded
-    /// again before the next one.
+    /// Set by a script that found the renderer had let go of the page, to the
+    /// `remote_epoch` it ran under plus one (0: none): that page is loaded again before
+    /// the next script.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-    remote_page_lost: Arc<std::sync::atomic::AtomicBool>,
+    remote_page_lost: Arc<std::sync::atomic::AtomicU64>,
     /// The thread that sends this tab's scripts to its renderer, one after the other;
     /// started with the first script.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -763,7 +764,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             // and its scripts' output
             self.remote_script_reports.clear();
             self.remote_page_ready = false;
-            self.remote_page_lost.store(false, std::sync::atomic::Ordering::Release);
+            self.remote_page_lost.store(0, std::sync::atomic::Ordering::Release);
         }
         // Nothing the last document loaded answers for this one: whether a URL loads at all is
         // the document's call.
@@ -1586,7 +1587,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 self.adopt_remote_page(page);
                 // the document is in its renderer now, and scripts can be sent to it
                 self.remote_page_ready = true;
-                self.remote_page_lost.store(false, std::sync::atomic::Ordering::Release);
+                self.remote_page_lost.store(0, std::sync::atomic::Ordering::Release);
                 Ok(())
             }
             Err(e) => Err(e.to_string()),
@@ -1616,7 +1617,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// full render, which loads it there again. Call before sending the next script.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub fn reload_lost_remote_page(&mut self) {
-        if self.remote_page_lost.swap(false, std::sync::atomic::Ordering::AcqRel) {
+        let lost_under = self.remote_page_lost.swap(0, std::sync::atomic::Ordering::AcqRel);
+        // a page that has been replaced since is not the one that was lost
+        if lost_under == self.remote_epoch().wrapping_add(1) {
             log::warn!("resident renderer has no retained page for this tab; rendering it again");
             self.remote_page_ready = false;
             // Whatever input waited was for that page.
@@ -1677,8 +1680,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 let reports = renderer.execute_script(&remote_tab, &source, max_run_ms, &resources);
                 // The script did not run. It is not sent again; the next one finds the
                 // page loaded.
-                if matches!(&reports, Err(e) if e.is::<crate::fork_server::client::PageNotRetained>()) && current() {
-                    lost.store(true, std::sync::atomic::Ordering::Release);
+                if matches!(&reports, Err(e) if e.is::<crate::fork_server::client::PageNotRetained>()) {
+                    lost.store(started_for.wrapping_add(1), std::sync::atomic::Ordering::Release);
                 }
                 reports
             })();
@@ -3929,6 +3932,36 @@ mod tests {
         use super::super::*;
         use crate::engine::settings_store;
         use crate::html::DefaultRenderConfig;
+
+        /// A script that found its page gone has it loaded again - unless the page was
+        /// replaced since, and it is another page's turn.
+        #[test]
+        fn a_lost_page_is_loaded_again_only_while_it_is_the_page() {
+            use std::sync::atomic::Ordering;
+
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.remote_page_ready = true;
+
+            // nothing was lost
+            ctx.reload_lost_remote_page();
+            assert!(ctx.remote_page_ready());
+
+            // lost under an epoch that has passed
+            let then = ctx.remote_epoch();
+            ctx.remote_epoch.fetch_add(1, Ordering::AcqRel);
+            ctx.remote_page_lost.store(then.wrapping_add(1), Ordering::Release);
+            ctx.reload_lost_remote_page();
+            assert!(ctx.remote_page_ready(), "that was another page");
+
+            // lost under the current one, and only acted on once
+            ctx.remote_page_lost
+                .store(ctx.remote_epoch().wrapping_add(1), Ordering::Release);
+            ctx.reload_lost_remote_page();
+            assert!(!ctx.remote_page_ready());
+            ctx.remote_page_ready = true;
+            ctx.reload_lost_remote_page();
+            assert!(ctx.remote_page_ready());
+        }
 
         /// A context waiting on `what`, answered with `page`.
         fn answered(
