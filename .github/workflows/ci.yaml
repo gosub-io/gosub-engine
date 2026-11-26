@@ -4,6 +4,15 @@ on:
   push:
     branches: [ main ]
   pull_request:
+  # The full run, on any branch, by hand.
+  workflow_dispatch:
+
+# Two sizes of run. The full one is for main: pushes, PRs into it, and runs started by
+# hand. A PR into any other branch (a feature branch such as javascript-v8) gets the
+# quick one: stable only, Linux only. The rest runs once the feature branch goes into
+# main. GitHub Actions has no variables for `if:` and matrices, so the test is written
+# out where it is used:
+#   github.event_name != 'pull_request' || github.base_ref == 'main'
 
 # Cancel superseded runs: without this, every push to a PR leaves the previous
 # full CI run burning runners to completion alongside the new one.
@@ -24,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust_version: [ stable, nightly, 1.92.0 ]
+        rust_version: ${{ fromJSON((github.event_name != 'pull_request' || github.base_ref == 'main') && '["stable", "nightly", "1.92.0"]' || '["stable"]') }}
     env:
       RUSTUP_TOOLCHAIN: ${{ matrix.rust_version }}
     steps:
@@ -154,7 +163,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust_version: [ stable, nightly ]
+        rust_version: ${{ fromJSON((github.event_name != 'pull_request' || github.base_ref == 'main') && '["stable", "nightly"]' || '["stable"]') }}
     env:
       RUSTUP_TOOLCHAIN: ${{ matrix.rust_version }}
     steps:
@@ -256,6 +265,8 @@ jobs:
   # earlier one failed, as they did when they were separate jobs.
   native:
     name: native (${{ matrix.os }})
+    # full runs only
+    if: github.event_name != 'pull_request' || github.base_ref == 'main'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
