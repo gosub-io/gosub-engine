@@ -293,7 +293,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                         self.generate_implied_end_tags(Some(&tag), false);
 
                         if node_tag!(self, current_node_id!(self)) != tag.as_str() {
-                            self.parse_error("{tag} tag not at top of stack");
+                            self.parse_error(&format!("{tag} tag not at top of stack"));
                         }
 
                         self.pop_until_named(&tag);
