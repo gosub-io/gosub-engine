@@ -31,6 +31,7 @@ use crate::html::RenderConfiguration;
 use gosub_css3::media_query::{ColorScheme, MediaEnvironment, MediaType, ReducedMotion};
 use gosub_interface::css3::{CssSystem, HoverFingerprints};
 use gosub_interface::document::Document as _;
+use gosub_interface::interaction::{InteractionSnapshot, InteractionState};
 use gosub_interface::node::NodeType;
 use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
 use gosub_render_pipeline::common::document::pipeline_doc::{GosubDocumentAdapter, PipelineDocument};
@@ -221,6 +222,9 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// the whole document even when nothing about the cascade had changed. Cleared only when
     /// the document itself changes.
     document_adapter: Option<Arc<GosubDocumentAdapter<C>>>,
+    /// What the user did to the document: focus, hover, typed values, toggles, picks, the open
+    /// dropdown. Belongs to the document, so it goes with it.
+    interaction: InteractionState,
     /// Layout state reused across frames; see [`RetainedLayout`].
     retained_layout: Option<RetainedLayout>,
     /// The style environment the currently cached computed styles were produced under
@@ -352,6 +356,26 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// the tab worker to judge and act on.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     remote_effects: Vec<(InputProvenance, crate::fork_server::protocol::Effect)>,
+    /// The limits the renderer runs this tab's scripts under; `None` when it runs none.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_scripts: Option<crate::fork_server::protocol::ScriptSettings>,
+    /// What the document's scripts reported while a renderer loaded it, for the tab
+    /// worker to pass on.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_script_reports: Vec<crate::fork_server::protocol::ScriptReport>,
+    /// Whether a renderer has loaded the current document: before that there is nothing
+    /// to run a script in.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_page_ready: bool,
+    /// Set by a script that found the renderer had let go of the page, to the
+    /// `remote_epoch` it ran under plus one (0: none): that page is loaded again before
+    /// the next script.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_page_lost: Arc<std::sync::atomic::AtomicU64>,
+    /// The thread that sends this tab's scripts to its renderer, one after the other;
+    /// started with the first script.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_script_queue: Option<std::sync::mpsc::Sender<RemoteScriptJob>>,
     /// Why the last out-of-process render could not happen at all - page
     /// content is never rendered in-process instead; the tab worker takes
     /// this and tells the embedder.
@@ -449,6 +473,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             hover_layout_element: None,
             hover_fingerprints: None,
             document_adapter: None,
+            interaction: InteractionState::default(),
             retained_layout: None,
             style_fingerprint: None,
             deferred_fonts: Default::default(),
@@ -496,6 +521,16 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             remote_input_queue: std::collections::VecDeque::new(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_effects: Vec::new(),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_scripts: None,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_script_reports: Vec::new(),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_page_ready: false,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_page_lost: Default::default(),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_script_queue: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_failure: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -731,6 +766,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             // Input queued for the page that is going would land on the next.
             self.remote_input_queue.clear();
             self.remote_effects.clear();
+            // and its scripts' output
+            self.remote_script_reports.clear();
+            self.remote_page_ready = false;
+            self.remote_page_lost.store(0, std::sync::atomic::Ordering::Release);
         }
         // Nothing the last document loaded answers for this one: whether a URL loads at all is
         // the document's call.
@@ -764,6 +803,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.hover_layout_element = None;
         self.hover_fingerprints = None;
         self.document_adapter = None;
+        self.interaction = InteractionState::default();
         self.retained_layout = None;
         self.style_fingerprint = None;
         self.deferred_fonts = Default::default();
@@ -995,9 +1035,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             media_type: MediaType::Screen,
             color_scheme,
             reduced_motion,
-            // Flip to `true` when the JS runtime is wired in (M2), so `@media (scripting)`
-            // and the `no-js` class pattern report the truth.
-            scripting: false,
+            // the document's own flag, not the tab's setting now: it is what the parser went by
+            scripting: self.document.as_ref().is_some_and(|doc| doc.scripting_enabled()),
         }
     }
 
@@ -1080,12 +1119,28 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             None => {
                 let doc = self.document.as_ref()?;
                 let adapter = Arc::new(GosubDocumentAdapter::<C>::new(Arc::clone(doc)));
+                adapter.set_interaction(InteractionSnapshot::new::<C>(&self.interaction, doc));
                 self.document_adapter = Some(Arc::clone(&adapter));
                 adapter
             }
         };
 
         Some(adapter)
+    }
+
+    /// Hand the adapter the interaction state as it is now, read against the tree as it is now:
+    /// what this pass styles and paints with. Entries for deleted nodes are dropped here.
+    /// Every pass goes through here first: [`Self::refresh_pipeline_cache`] for the tiles
+    /// (full, raster window, paint-only) and [`Self::rebuild_scene_cache_if_needed`] for the
+    /// GPU scene.
+    fn sync_interaction(&mut self) {
+        let Some(doc) = &self.document else {
+            return;
+        };
+        self.interaction.prune::<C>(doc);
+        if let Some(adapter) = &self.document_adapter {
+            adapter.set_interaction(InteractionSnapshot::new::<C>(&self.interaction, doc));
+        }
     }
 
     /// Drop exactly as much of the cached computed styles as the accumulated damage requires.
@@ -1491,7 +1546,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     .unwrap_or_else(|_| "about:".to_string());
                 let renderer = pool.renderer_for(*zone, &site, *tab)?;
                 let mut renderer = renderer.lock();
-                renderer.navigate(
+                renderer.navigate_with(
                     source,
                     &page_url,
                     &self.remote_tab,
@@ -1500,6 +1555,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     &resources,
                     &self.remote_tile_memory,
                     self.hover_leaf.map(|id| id.into()),
+                    self.remote_scripts,
                 )
             }
             RemoteRenderer::ForkServer(server) => server.lock().render_page(
@@ -1551,10 +1607,132 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 self.remote_hover_pending = false;
                 self.remote_resize_pending = None;
                 self.adopt_remote_page(page);
+                // the document is in its renderer now, and scripts can be sent to it
+                self.remote_page_ready = true;
+                self.remote_page_lost.store(0, std::sync::atomic::Ordering::Release);
                 Ok(())
             }
             Err(e) => Err(e.to_string()),
         }
+    }
+
+    /// Whether, and within what limits, the renderer runs the scripts of the documents
+    /// this tab loads from now on.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn set_remote_scripts(&mut self, scripts: Option<crate::fork_server::protocol::ScriptSettings>) {
+        self.remote_scripts = scripts;
+    }
+
+    /// What the document's scripts reported while a renderer loaded it, once.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn take_remote_script_reports(&mut self) -> Vec<crate::fork_server::protocol::ScriptReport> {
+        std::mem::take(&mut self.remote_script_reports)
+    }
+
+    /// Whether a renderer has loaded the current document.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn remote_page_ready(&self) -> bool {
+        self.remote_page_ready
+    }
+
+    /// A script found that the renderer no longer holds this tab's page: mark it for a
+    /// full render, which loads it there again. Call before sending the next script.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn reload_lost_remote_page(&mut self) {
+        let lost_under = self.remote_page_lost.swap(0, std::sync::atomic::Ordering::AcqRel);
+        // a page that has been replaced since is not the one that was lost
+        if lost_under == self.remote_epoch().wrapping_add(1) {
+            log::warn!("resident renderer has no retained page for this tab; rendering it again");
+            self.remote_page_ready = false;
+            // Whatever input waited was for that page.
+            self.remote_input_queue.clear();
+            self.damage.rebuild();
+        }
+    }
+
+    /// Counts the documents and full renders a renderer was asked for. What a pass or a
+    /// script started under an earlier count is about a page that is gone.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn remote_epoch(&self) -> u64 {
+        self.remote_epoch.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// Run `source` in this tab's document in its resident renderer, for at most
+    /// `max_run_ms`. `done` gets [`Self::remote_epoch`] as it was when the script was
+    /// queued and what the script reported - console lines, then its value or its error -
+    /// or why it did not run; on another thread. Scripts run in the order they are given.
+    /// `Err` when the script could not be queued at all; `done` is not called then.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn remote_execute_script(
+        &mut self,
+        source: String,
+        max_run_ms: u64,
+        done: RemoteScriptDone,
+    ) -> Result<(), String> {
+        let (Some(RemoteRenderer::Resident { pool, zone, tab }), Some(page_url)) = (
+            &self.remote_renderer,
+            self.document_url.as_ref().map(|url| url.to_string()),
+        ) else {
+            return Err("this tab has no renderer that runs scripts".to_owned());
+        };
+        if !self.remote_page_ready {
+            return Err("the page is not loaded in its renderer".to_owned());
+        }
+        let (pool, zone, tab) = (Arc::clone(pool), *zone, *tab);
+        let epoch = Arc::clone(&self.remote_epoch);
+        let started_for = epoch.load(std::sync::atomic::Ordering::Acquire);
+        let remote_tab = self.remote_tab.clone();
+        let resources = crate::fork_server::client::TabResources {
+            loader: self.loader_for_document(),
+            media: Arc::clone(&self.remote_media),
+        };
+        let lost = Arc::clone(&self.remote_page_lost);
+        let job: RemoteScriptJob = Box::new(move || {
+            let result = (|| {
+                let site = url::Url::parse(&page_url)
+                    .map(|u| crate::fork_server::site::site_of(&u))
+                    .unwrap_or_else(|_| "about:".to_string());
+                let current = || epoch.load(std::sync::atomic::Ordering::Acquire) == started_for;
+                let renderer = pool.renderer_for_live(zone, &site, tab, &current)?;
+                let mut renderer = renderer.lock();
+                // the renderer has loaded another document for this tab since, or is about to
+                if !current() {
+                    anyhow::bail!("the page was replaced before the script could run");
+                }
+                let reports = renderer.execute_script(&remote_tab, &source, max_run_ms, &resources);
+                // The script did not run. It is not sent again; the next one finds the
+                // page loaded.
+                if matches!(&reports, Err(e) if e.is::<crate::fork_server::client::PageNotRetained>()) {
+                    lost.store(started_for.wrapping_add(1), std::sync::atomic::Ordering::Release);
+                }
+                reports
+            })();
+            done(started_for, result.map_err(|e| e.to_string()));
+        });
+
+        // One thread per tab, so the scripts reach the renderer in the order they came.
+        let job = match &self.remote_script_queue {
+            Some(queue) => match queue.send(job) {
+                Ok(()) => return Ok(()),
+                // the thread is gone; the job comes back for a new one
+                Err(std::sync::mpsc::SendError(job)) => job,
+            },
+            None => job,
+        };
+        let (queue, jobs) = std::sync::mpsc::channel::<RemoteScriptJob>();
+        std::thread::Builder::new()
+            .name("gosub-remote-script".into())
+            .spawn(move || {
+                for job in jobs {
+                    job();
+                }
+            })
+            .map_err(|e| format!("could not start the remote script thread: {e}"))?;
+        queue
+            .send(job)
+            .map_err(|_| "the remote script thread ended at once".to_owned())?;
+        self.remote_script_queue = Some(queue);
+        Ok(())
     }
 
     /// A whole page from a renderer replaces what this tab holds.
@@ -1594,6 +1772,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 .filter(|effect| matches!(effect, crate::fork_server::protocol::Effect::Focus { .. }))
                 .map(|effect| (unprompted, effect)),
         );
+        self.remote_script_reports.extend(page.scripts);
     }
 
     /// The viewport moved on a page a resident renderer retains: fetch what
@@ -2022,6 +2201,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// Shared by [`Self::rebuild_pipeline_cache_if_needed`] and
     /// [`Self::rebuild_render_list_if_needed`] so both backends make the same choice.
     fn refresh_pipeline_cache(&mut self) {
+        self.sync_interaction();
         let level = self.damage.level();
         if level.needs_geometry() {
             self.rebuild_full_pipeline();
@@ -2162,6 +2342,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         // the cached layout the way the tile path does, but a GPU re-paint is cheap and avoids
         // the partial-repaint bookkeeping; revisit if it proves hot.
         if !self.damage.is_none() {
+            self.sync_interaction();
             let media_env = self.media_environment();
             // Release the previous scene's handle on the retained layout tree before laying out.
             // It is the other owner, and a geometry-only pass has to be sole owner or
@@ -2535,7 +2716,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     }
 
     pub fn focused_node(&self) -> Option<NodeId> {
-        self.document.as_ref().and_then(|d| d.focused_node())
+        self.interaction_snapshot().focused_node()
     }
 
     /// Flush the document's autofocus candidates once it has laid out (HTML, "update the
@@ -2551,7 +2732,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let rendered: std::collections::HashSet<NodeId> =
             ll.layout_tree.arena.values().map(|el| el.dom_node_id).collect();
         let fragment = self.document_url.as_ref().and_then(Url::fragment);
-        let Some(target) = self.autofocus.flush(&doc, Some(&rendered), fragment) else {
+        let focused = self.focused_node();
+        let Some(target) = self.autofocus.flush(&doc, focused, Some(&rendered), fragment) else {
             return false;
         };
         // The focusing steps; a text control shows the ring, as a click into it would.
@@ -2854,9 +3036,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.hover_chain_sensitive = new_sensitive;
 
         if visual_dirty {
-            if let Some(doc) = &self.document {
+            {
                 let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::HoverSetHovered);
-                doc.set_hovered_nodes(new_leaf);
+                self.interaction.hover_leaf = new_leaf;
             }
             // Hover changes only paint (colour, background, outline): the boxes do not move,
             // so record paint-level damage over the old and new hovered elements and let the
@@ -2899,6 +3081,14 @@ impl<C: RenderConfiguration> InputHost for BrowsingContext<C> {
 
     fn document(&self) -> Option<Arc<EngineDocument<C>>> {
         self.document.clone()
+    }
+
+    fn interaction(&self) -> &InteractionState {
+        &self.interaction
+    }
+
+    fn interaction_mut(&mut self) -> &mut InteractionState {
+        &mut self.interaction
     }
 
     fn layer_list(&self) -> Option<Arc<LayerList>> {
@@ -3225,6 +3415,15 @@ fn pipeline_extend_raster(
 }
 
 /// The incremental exchanges a resident renderer answers from its retained page.
+/// What a script run in a renderer comes back with: the epoch it was queued under, and
+/// its reports or why it did not run.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+pub type RemoteScriptDone =
+    Box<dyn FnOnce(u64, Result<Vec<crate::fork_server::protocol::ScriptReport>, String>) + Send>;
+
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+type RemoteScriptJob = Box<dyn FnOnce() + Send>;
+
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
 #[derive(Clone)]
 enum RemotePass {
@@ -3767,6 +3966,36 @@ mod tests {
         use crate::engine::settings_store;
         use crate::html::DefaultRenderConfig;
 
+        /// A script that found its page gone has it loaded again - unless the page was
+        /// replaced since, and it is another page's turn.
+        #[test]
+        fn a_lost_page_is_loaded_again_only_while_it_is_the_page() {
+            use std::sync::atomic::Ordering;
+
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.remote_page_ready = true;
+
+            // nothing was lost
+            ctx.reload_lost_remote_page();
+            assert!(ctx.remote_page_ready());
+
+            // lost under an epoch that has passed
+            let then = ctx.remote_epoch();
+            ctx.remote_epoch.fetch_add(1, Ordering::AcqRel);
+            ctx.remote_page_lost.store(then.wrapping_add(1), Ordering::Release);
+            ctx.reload_lost_remote_page();
+            assert!(ctx.remote_page_ready(), "that was another page");
+
+            // lost under the current one, and only acted on once
+            ctx.remote_page_lost
+                .store(ctx.remote_epoch().wrapping_add(1), Ordering::Release);
+            ctx.reload_lost_remote_page();
+            assert!(!ctx.remote_page_ready());
+            ctx.remote_page_ready = true;
+            ctx.reload_lost_remote_page();
+            assert!(ctx.remote_page_ready());
+        }
+
         /// A context waiting on `what`, answered with `page`.
         fn answered(
             what: RemotePass,
@@ -3793,6 +4022,7 @@ mod tests {
                 hit_regions: Vec::new(),
                 evicted: Vec::new(),
                 effects: Vec::new(),
+                scripts: Vec::new(),
             }
         }
 
@@ -4062,6 +4292,33 @@ mod tests {
             ctx
         }
 
+        /// `@media (scripting)` answers for the document the tab shows: the flag its parser
+        /// went by, which is what hides or shows its `noscript` elements.
+        #[test]
+        fn the_scripting_media_feature_follows_the_document() {
+            use gosub_shared::byte_stream::{ByteStream, Encoding};
+
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            assert!(!ctx.media_environment().scripting, "no document, no scripting");
+
+            for scripting in [true, false] {
+                let mut stream = ByteStream::from_str("<html><body><p>page</p></body></html>", Encoding::UTF8);
+                let mut doc =
+                    gosub_html5::document::builder::DocumentBuilderImpl::new_document::<DefaultRenderConfig>(None);
+                let options = gosub_html5::parser::Html5ParserOptions {
+                    scripting_enabled: scripting,
+                    ..Default::default()
+                };
+                let _ = gosub_html5::parser::Html5Parser::<DefaultRenderConfig>::parse_document(
+                    &mut stream,
+                    &mut doc,
+                    Some(options),
+                );
+                ctx.set_document(Arc::new(doc), None);
+                assert_eq!(ctx.media_environment().scripting, scripting);
+            }
+        }
+
         /// A whole page's render passes on where the renderer's autofocus put the focus, and
         /// nothing else it asks for: no input produced that pass.
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -4074,6 +4331,7 @@ mod tests {
                 tiles: Vec::new(),
                 hit_regions: Vec::new(),
                 evicted: Default::default(),
+                scripts: Vec::new(),
                 effects: vec![
                     Effect::Navigate {
                         url: "https://elsewhere.test/".into(),
@@ -4116,6 +4374,7 @@ mod tests {
                 hit_regions: Vec::new(),
                 evicted: Default::default(),
                 effects: Vec::new(),
+                scripts: Vec::new(),
             });
             assert!(ctx.active_layer_list().is_none(), "a remote page keeps no layout");
 
@@ -4162,6 +4421,7 @@ mod tests {
                 ],
                 evicted: Default::default(),
                 effects: Vec::new(),
+                scripts: Vec::new(),
             });
             assert!(ctx.document.is_none(), "a remote page keeps no document");
 
@@ -4366,10 +4626,10 @@ mod tests {
             assert_eq!(ctx.focused_node(), Some(button), "shift-tab goes back");
             assert_ne!(a, input);
 
-            // The document agrees (this is what :focus matching reads).
-            let doc = ctx.document.as_ref().unwrap();
-            assert!(doc.is_focused(button));
-            assert!(!doc.is_focused(a));
+            // The snapshot agrees (this is what :focus matching reads).
+            let ix = ctx.interaction_snapshot();
+            assert!(ix.is_focused(button));
+            assert!(!ix.is_focused(a));
 
             // Clicking the <span> inside the link focuses the link (nearest focusable
             // ancestor); clicking the plain div blurs.
@@ -4377,6 +4637,40 @@ mod tests {
             assert_eq!(ctx.focused_node(), Some(a));
             assert!(ctx.focus_at(10.0, 75.0));
             assert_eq!(ctx.focused_node(), None);
+        }
+
+        /// Moving focus restyles both controls with the new focus once the next pass runs, as
+        /// the out-of-process renderer does (`moving_focus_restyles_both_controls` there).
+        #[test]
+        fn moving_focus_restyles_both_controls() {
+            use gosub_interface::style::Color;
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 500,
+            });
+            let html = r#"<!DOCTYPE html><style>input:focus { color: rgb(255, 0, 0) }</style>
+                <input id="a"><input id="b">"#;
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            let a = doc.node_by_named_id("a").expect("input a");
+            let b = doc.node_by_named_id("b").expect("input b");
+            ctx.set_document(Arc::new(doc), None);
+            ctx.rebuild_pipeline_cache_if_needed();
+            let red = |ctx: &BrowsingContext<DefaultRenderConfig>, id| {
+                let adapter = ctx.document_adapter.as_ref().expect("an adapter after a pass");
+                adapter.computed_style(id).inherited.color == Color::rgba(255, 0, 0, 255)
+            };
+
+            assert!(ctx.set_focus(Some(a), true));
+            ctx.rebuild_pipeline_cache_if_needed();
+            assert!(red(&ctx, a) && !red(&ctx, b));
+
+            assert!(ctx.set_focus(Some(b), true));
+            ctx.rebuild_pipeline_cache_if_needed();
+            assert!(!red(&ctx, a) && red(&ctx, b));
         }
 
         /// Regression: a layer whose elements sit entirely outside the page box (fixed

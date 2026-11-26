@@ -9,4 +9,3 @@ pub mod arena;
 pub mod data;
 pub(crate) mod elements;
 pub mod node_impl;
-pub mod visitor;

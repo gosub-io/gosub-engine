@@ -70,8 +70,9 @@ pub struct MediaEnvironment {
     pub media_type: MediaType,
     pub color_scheme: ColorScheme,
     pub reduced_motion: ReducedMotion,
-    /// Whether scripting is enabled, for the `scripting` feature. False until the JS runtime
-    /// is wired into the engine.
+    /// Whether scripting is enabled for the document being styled, for the `scripting` feature.
+    /// It decides whether a `noscript` element is shown, so it has to be the flag the
+    /// document was parsed with.
     pub scripting: bool,
 }
 
@@ -86,7 +87,8 @@ impl Default for MediaEnvironment {
             media_type: MediaType::Screen,
             color_scheme: ColorScheme::Light,
             reduced_motion: ReducedMotion::NoPreference,
-            scripting: false,
+            // as the HTML parser's default options have it
+            scripting: true,
         }
     }
 }
@@ -105,7 +107,8 @@ thread_local! {
             media_type: MediaType::Screen,
             color_scheme: ColorScheme::Light,
             reduced_motion: ReducedMotion::NoPreference,
-            scripting: false,
+            // as the HTML parser's default options have it
+            scripting: true,
         })
     };
 }
@@ -1034,7 +1037,13 @@ mod tests {
         assert!(matches("(hover)", &MediaEnvironment::default()));
         assert!(matches("(color)", &MediaEnvironment::default()));
         assert!(!matches("(monochrome)", &MediaEnvironment::default()));
-        assert!(!matches("(scripting)", &MediaEnvironment::default()));
+        assert!(matches("(scripting)", &MediaEnvironment::default()));
+        let no_scripting = MediaEnvironment {
+            scripting: false,
+            ..Default::default()
+        };
+        assert!(!matches("(scripting)", &no_scripting));
+        assert!(matches("(scripting: none)", &no_scripting));
     }
 
     #[test]

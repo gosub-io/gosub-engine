@@ -1,0 +1,387 @@
+use std::ffi::c_void;
+use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use v8::IsolateHandle;
+
+use gosub_shared::types::Result;
+
+use crate::{V8Context, V8Ctx};
+
+/// How V8 is started. V8 is initialized once per process, so the first initialization wins.
+#[derive(Clone, Debug, Default)]
+pub struct V8Options {
+    /// Interpret only. V8 then maps no executable memory.
+    pub jitless: bool,
+    /// Start no worker threads. Needed where the process may not create threads.
+    pub single_threaded: bool,
+    /// Further V8 flags, each as it would be given on a command line.
+    pub flags: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct V8ContextOptions {
+    /// Maximum heap size in bytes. A script that reaches it ends with [`V8Error::OutOfMemory`].
+    ///
+    /// That holds with [`V8Options::jitless`]. With the JIT on, optimized code can allocate
+    /// past the request to stop, and V8 then aborts the process: it has no other answer to
+    /// a heap that is full.
+    pub heap_limit: Option<usize>,
+    /// Run promise jobs only at [`V8Context::microtask_checkpoint`], not whenever a script returns.
+    pub explicit_microtasks: bool,
+}
+
+/// Why a script ended without finishing or throwing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum V8Error {
+    /// Stopped through a [`V8Terminator`].
+    Terminated,
+    /// Reached the heap limit of its context.
+    OutOfMemory,
+}
+
+impl fmt::Display for V8Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Terminated => f.write_str("script execution was terminated"),
+            Self::OutOfMemory => f.write_str("script reached the heap limit"),
+        }
+    }
+}
+
+impl std::error::Error for V8Error {}
+
+/// Stops the script a context is running. Can be used from any thread.
+///
+/// The request stays pending when no script is running, and then ends the next one.
+#[derive(Clone)]
+pub struct V8Terminator(IsolateHandle);
+
+impl V8Terminator {
+    /// Returns false when the context is gone.
+    pub fn terminate(&self) -> bool {
+        self.0.terminate_execution()
+    }
+}
+
+pub(crate) struct HeapLimit {
+    limit: usize,
+    hit: AtomicBool,
+    isolate: IsolateHandle,
+}
+
+impl HeapLimit {
+    pub(crate) fn install(isolate: &mut v8::Isolate, limit: usize) -> Box<Self> {
+        let heap = Box::new(Self {
+            limit,
+            hit: AtomicBool::new(false),
+            isolate: isolate.thread_safe_handle(),
+        });
+        isolate.add_near_heap_limit_callback(near_heap_limit, heap.data());
+
+        heap
+    }
+
+    fn data(&self) -> *mut c_void {
+        self as *const Self as *mut c_void
+    }
+}
+
+/// V8 calls this when the heap is about to exceed its limit, and aborts the process if the
+/// limit is not raised. So end the script and raise the limit to let it unwind - but to at
+/// most twice the configured limit. A script that is still allocating by then takes the
+/// process down. Seen with the JIT on, where an optimized allocation loop can run past the
+/// termination request; not seen jitless.
+unsafe extern "C" fn near_heap_limit(data: *mut c_void, current_limit: usize, _initial_limit: usize) -> usize {
+    // SAFETY: `data` is the `HeapLimit` boxed in the `V8Ctx` that owns the isolate.
+    let heap = unsafe { &*(data as *const HeapLimit) };
+    heap.hit.store(true, Ordering::SeqCst);
+    heap.isolate.terminate_execution();
+
+    let ceiling = heap.limit.saturating_mul(2);
+    current_limit
+        .saturating_add(heap.limit / 2)
+        .min(ceiling)
+        .max(current_limit)
+}
+
+impl V8Ctx {
+    /// Puts the heap limit back after `near_heap_limit` raised it.
+    fn restore_heap_limit(&mut self) -> bool {
+        let Some(heap) = &self.heap else {
+            return false;
+        };
+        if !heap.hit.swap(false, Ordering::SeqCst) {
+            return false;
+        }
+
+        let (limit, data) = (heap.limit, heap.data());
+        // collect what the ended script left behind first, or the old limit is exceeded at once
+        self.isolate().low_memory_notification();
+        self.isolate().remove_near_heap_limit_callback(near_heap_limit, limit);
+        self.isolate().add_near_heap_limit_callback(near_heap_limit, data);
+
+        true
+    }
+}
+
+impl V8Context {
+    pub fn terminator(&self) -> V8Terminator {
+        V8Terminator(self.isolate().thread_safe_handle())
+    }
+
+    /// Drops a termination request that has not ended a script yet.
+    pub fn cancel_termination(&self) {
+        self.isolate().cancel_terminate_execution();
+    }
+
+    /// Runs the pending promise jobs.
+    pub fn microtask_checkpoint(&self) -> Result<()> {
+        let terminated = {
+            ctx_scope!(scope, self);
+            v8::tc_scope!(try_catch, scope);
+            try_catch.perform_microtask_checkpoint();
+
+            try_catch.has_terminated()
+        };
+
+        match self.take_termination(terminated) {
+            Some(e) => Err(e.into()),
+            None => Ok(()),
+        }
+    }
+
+    /// Call when JavaScript returned without a value. `terminated` is the try-catch's
+    /// `has_terminated()`: if set, this clears the termination so the context can run again
+    /// and says what ended the script.
+    ///
+    /// Not for a script that a native function ran: the script that called the function
+    /// is still on the stack, and the request is for all of it. It is made again, and
+    /// cleared when the outermost call returns - which then was ended too, also when the
+    /// function was all there was to it and V8 saw no script to end.
+    pub(crate) fn take_termination(&self, terminated: bool) -> Option<V8Error> {
+        let _entered = self.isolate();
+        let mut ctx = self.borrow_mut();
+        if !terminated && !(ctx.unwinding && ctx.in_callback == 0) {
+            return None;
+        }
+
+        if ctx.in_callback > 0 {
+            // asked again: the try-catch that saw this one end has used the request up
+            ctx.isolate().terminate_execution();
+            ctx.unwinding = true;
+            let by_heap = ctx.heap.as_ref().is_some_and(|heap| heap.hit.load(Ordering::SeqCst));
+            return Some(if by_heap {
+                V8Error::OutOfMemory
+            } else {
+                V8Error::Terminated
+            });
+        }
+        ctx.unwinding = false;
+        ctx.isolate().cancel_terminate_execution();
+
+        if ctx.restore_heap_limit() {
+            Some(V8Error::OutOfMemory)
+        } else {
+            Some(V8Error::Terminated)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use gosub_webexecutor::js::{WebContext, WebFunction, WebFunctionCallBack, WebObject, WebValue};
+
+    use crate::{V8Context, V8ContextOptions, V8Engine, V8Error, V8Function, V8Object};
+
+    fn context(options: V8ContextOptions) -> V8Context {
+        V8Engine::initialize();
+        V8Context::with_options(&options).unwrap()
+    }
+
+    fn number(ctx: &mut V8Context, code: &str) -> f64 {
+        ctx.run(code).unwrap().as_number().unwrap()
+    }
+
+    fn error_of<T>(result: gosub_shared::types::Result<T>) -> Option<V8Error> {
+        result.err().and_then(|e| e.downcast_ref::<V8Error>().copied())
+    }
+
+    /// Stops whatever `ctx` runs next, shortly after it started.
+    fn terminate_soon(ctx: &V8Context) -> std::thread::JoinHandle<bool> {
+        let terminator = ctx.terminator();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            terminator.terminate()
+        })
+    }
+
+    const PROMISE: &str = "globalThis.x = 0; Promise.resolve().then(() => { x = 1 }); x";
+
+    #[test]
+    fn promise_jobs_wait_for_the_checkpoint() {
+        let mut ctx = context(V8ContextOptions {
+            explicit_microtasks: true,
+            ..Default::default()
+        });
+
+        assert_eq!(number(&mut ctx, PROMISE), 0.0);
+        assert_eq!(number(&mut ctx, "x"), 0.0);
+
+        ctx.microtask_checkpoint().unwrap();
+        assert_eq!(number(&mut ctx, "x"), 1.0);
+    }
+
+    #[test]
+    fn promise_jobs_run_on_return_by_default() {
+        let mut ctx = context(V8ContextOptions::default());
+
+        assert_eq!(number(&mut ctx, PROMISE), 0.0);
+        assert_eq!(number(&mut ctx, "x"), 1.0);
+    }
+
+    #[test]
+    fn a_running_script_is_terminated() {
+        let mut ctx = context(V8ContextOptions::default());
+
+        let stopper = terminate_soon(&ctx);
+        assert_eq!(error_of(ctx.run("while (true) {}")), Some(V8Error::Terminated));
+        assert!(stopper.join().unwrap());
+
+        // the context runs scripts again afterwards
+        assert_eq!(number(&mut ctx, "1 + 1"), 2.0);
+    }
+
+    #[test]
+    fn a_running_promise_job_is_terminated() {
+        let mut ctx = context(V8ContextOptions {
+            explicit_microtasks: true,
+            ..Default::default()
+        });
+        ctx.run("Promise.resolve().then(() => { while (true) {} })").unwrap();
+
+        let stopper = terminate_soon(&ctx);
+        assert_eq!(error_of(ctx.microtask_checkpoint()), Some(V8Error::Terminated));
+        assert!(stopper.join().unwrap());
+
+        assert_eq!(number(&mut ctx, "1 + 1"), 2.0);
+    }
+
+    #[test]
+    fn a_called_function_is_terminated() {
+        let mut ctx = context(V8ContextOptions::default());
+        ctx.run("globalThis.o = { spin() { while (true) {} } }").unwrap();
+        let object = ctx.run("o").unwrap().as_object().unwrap();
+
+        let stopper = terminate_soon(&ctx);
+        assert_eq!(error_of(object.call_method("spin", &[])), Some(V8Error::Terminated));
+        assert!(stopper.join().unwrap());
+
+        // a native function that calls back into a spinning script
+        let inner = ctx.clone();
+        let mut function = V8Function::new(ctx.clone(), move |cb| {
+            if let Err(e) = inner.clone().run("while (true) {}") {
+                cb.error(e);
+            }
+        })
+        .unwrap();
+
+        let stopper = terminate_soon(&ctx);
+        assert!(function.call(&[]).is_err());
+        assert!(stopper.join().unwrap());
+
+        assert_eq!(number(&mut ctx, "1 + 1"), 2.0);
+        drop(V8Object::new(ctx).unwrap());
+    }
+
+    #[test]
+    fn a_script_run_by_a_native_function_takes_its_caller_with_it() {
+        let mut ctx = context(V8ContextOptions::default());
+
+        // a native function that runs a spinning script, and passes its failure on as an
+        // exception the calling script can catch
+        let inner = ctx.clone();
+        let function = V8Function::new(ctx.clone(), move |cb| {
+            if let Err(e) = inner.clone().run("while (true) {}") {
+                cb.error(e);
+            }
+        })
+        .unwrap();
+        let object = V8Object::new(ctx.clone()).unwrap();
+        object.set_method("spin", &function).unwrap();
+        ctx.set_on_global_object("native", object.into()).unwrap();
+
+        // one request ends the script the function ran and the script that called it:
+        // the catch does not get to go on
+        let stopper = terminate_soon(&ctx);
+        let outer = ctx.run("try { native.spin() } catch (e) {} (function () { globalThis.after = 1 })()");
+        assert_eq!(error_of(outer), Some(V8Error::Terminated));
+        assert!(stopper.join().unwrap());
+
+        // and the context runs scripts again
+        assert_eq!(ctx.run("typeof after").unwrap().as_string().unwrap(), "undefined");
+
+        // also when the calling script ends with a value before V8 looks for the request
+        let stopper = terminate_soon(&ctx);
+        let outer = ctx.run("try { native.spin() } catch (e) {} 1");
+        assert_eq!(error_of(outer), Some(V8Error::Terminated));
+        assert!(stopper.join().unwrap());
+        assert_eq!(ctx.run("1 + 1").unwrap().as_string().unwrap(), "2");
+
+        // `evaluate` too, also when the function's exception is all it sees: nothing
+        // after the call that V8 could end
+        for source in ["native.spin()", "try { native.spin() } catch (e) {} 1"] {
+            let stopper = terminate_soon(&ctx);
+            let outer = ctx.evaluate(source, "test.js", 0);
+            assert!(
+                matches!(outer, Err(crate::V8EvalError::Ended(V8Error::Terminated))),
+                "{source}: {outer:?}"
+            );
+            assert!(stopper.join().unwrap());
+            assert!(matches!(ctx.evaluate("1 + 1", "test.js", 0), Ok(crate::V8Plain::Number(n)) if n == 2.0));
+        }
+    }
+
+    #[test]
+    fn contexts_on_one_thread_are_used_and_dropped_in_any_order() {
+        let mut first = context(V8ContextOptions::default());
+        let mut second = context(V8ContextOptions::default());
+
+        // the one made first, with the other still there
+        assert_eq!(number(&mut first, "globalThis.a = 1; a + 1"), 2.0);
+        assert_eq!(number(&mut second, "typeof a === 'undefined' ? 3 : 0"), 3.0);
+        assert_eq!(number(&mut first, "a"), 1.0);
+
+        drop(first);
+        assert_eq!(number(&mut second, "1 + 1"), 2.0);
+    }
+
+    // tests/init_options.rs has the jitless run, with a loop the JIT does not stop in time
+    const HOARD: &str = "(function () { const a = []; for (;;) a.push({ x: 1 }); })()";
+
+    #[test]
+    fn the_heap_limit_ends_the_script() {
+        let mut ctx = context(V8ContextOptions {
+            heap_limit: Some(32 * 1024 * 1024),
+            ..Default::default()
+        });
+
+        assert_eq!(error_of(ctx.run(HOARD)), Some(V8Error::OutOfMemory));
+        assert_eq!(number(&mut ctx, "1 + 1"), 2.0);
+
+        // the limit is back in place, not left where the first script pushed it
+        assert_eq!(error_of(ctx.run(HOARD)), Some(V8Error::OutOfMemory));
+        assert_eq!(error_of(ctx.run(HOARD)), Some(V8Error::OutOfMemory));
+        assert_eq!(number(&mut ctx, "1 + 1"), 2.0);
+    }
+
+    #[test]
+    fn a_context_without_options_has_wasm() {
+        // the counterpart of tests/init_options.rs, where jitless takes it away
+        let mut ctx = context(V8ContextOptions::default());
+
+        assert_eq!(ctx.run("typeof WebAssembly").unwrap().as_string().unwrap(), "object");
+    }
+}

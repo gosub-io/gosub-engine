@@ -82,14 +82,16 @@ pub fn build_model<T: TableTree>(tree: &T, table_node: T::NodeId) -> TableModel<
             TableRole::ColumnGroup => {
                 model.column_groups.push(build_col_group(tree, child));
             }
-            TableRole::HeaderGroup => {
+            // Only the first header and footer group move; later ones stay in source order as
+            // body groups (css-tables-3 §3.2).
+            TableRole::HeaderGroup if model.header_groups.is_empty() => {
                 model.header_groups.push(build_row_group(tree, child));
             }
-            TableRole::RowGroup => {
-                model.row_groups.push(build_row_group(tree, child));
-            }
-            TableRole::FooterGroup => {
+            TableRole::FooterGroup if model.footer_groups.is_empty() => {
                 model.footer_groups.push(build_row_group(tree, child));
+            }
+            TableRole::HeaderGroup | TableRole::RowGroup | TableRole::FooterGroup => {
+                model.row_groups.push(build_row_group(tree, child));
             }
             // Bare row directly inside the table -> anonymous tbody
             TableRole::Row => {

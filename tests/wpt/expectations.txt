@@ -863,12 +863,15 @@ FILE html/dom/elements/global-attributes/document-dir.html
 FILE html/dom/elements/global-attributes/id-attribute.html
 PASS html/dom/elements/global-attributes/id-attribute.html :: User agents must associate the element with an id value for purposes of getElementById.
 PASS html/dom/elements/global-attributes/id-attribute.html :: Association is exact and therefore case-sensitive for getElementById.
+PASS html/dom/elements/global-attributes/id-attribute.html :: Spaces are allowed in an id and still make an association for getElementByID.
 PASS html/dom/elements/global-attributes/id-attribute.html :: Non-ASCII is allowed in an id and still make an association for getElementById.
 PASS html/dom/elements/global-attributes/id-attribute.html :: The id IDL attribute must reflect the id content attribute, for getting.
 PASS html/dom/elements/global-attributes/id-attribute.html :: The id IDL attribute must reflect the id content attribute, for setting via IDL attribute.
 PASS html/dom/elements/global-attributes/id-attribute.html :: After setting id via id attribute, getElementById find the element by the new id.
+PASS html/dom/elements/global-attributes/id-attribute.html :: After setting id via id attribute, getElementById doesn't find the element by the old id.
 PASS html/dom/elements/global-attributes/id-attribute.html :: The id IDL attribute must reflect the id content attribute, for setting via setAttribute.
 PASS html/dom/elements/global-attributes/id-attribute.html :: After setting id via setAttribute attribute, getElementById find the element by the new id.
+PASS html/dom/elements/global-attributes/id-attribute.html :: After setting id via setAttribute attribute, getElementById doesn't find the element by the old id.
 FILE html/dom/elements/global-attributes/id-name.html
 PASS html/dom/elements/global-attributes/id-name.html :: Untitled
 FILE html/dom/elements/global-attributes/id-name-specialcase.html

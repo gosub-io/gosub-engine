@@ -20,6 +20,7 @@ use crate::{load_default_useragent_stylesheet, load_quirks_useragent_stylesheet,
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssOrigin, CssPropertyMap, CssSystem, HoverFingerprints};
 use gosub_interface::document::Document;
+use gosub_interface::interaction::InteractionSnapshot;
 use gosub_interface::node::NodeType;
 use gosub_shared::config::ParserConfig;
 use gosub_shared::errors::CssResult;
@@ -166,15 +167,17 @@ impl CssSystem for Css3System {
 
     fn properties_from_node<C: HasDocument<CssSystem = Self>>(
         doc: &C::Document,
+        ix: &InteractionSnapshot,
         id: NodeId,
         sheets: &[Self::Stylesheet],
         parent: Option<&Self::PropertyMap>,
     ) -> Option<Self::PropertyMap> {
-        compute_properties::<C>(doc, id, sheets, None, parent)
+        compute_properties::<C>(doc, ix, id, sheets, None, parent)
     }
 
     fn pseudo_properties_from_node<C: HasDocument<CssSystem = Self>>(
         doc: &C::Document,
+        ix: &InteractionSnapshot,
         id: NodeId,
         sheets: &[Self::Stylesheet],
         pseudo: &str,
@@ -184,7 +187,7 @@ impl CssSystem for Css3System {
         if !matches!(pseudo, "before" | "after" | "marker") {
             return None;
         }
-        let map = compute_properties::<C>(doc, id, sheets, Some(pseudo), owner)?;
+        let map = compute_properties::<C>(doc, ix, id, sheets, Some(pseudo), owner)?;
         // `::before` and `::after` only generate a box when a matching rule sets `content`. With
         // no `content` declaration there is nothing to render, so report "no pseudo-element".
         // A list item's `::marker` exists without one: its text comes from `list-style-type`.
@@ -302,6 +305,7 @@ fn style_environment_fingerprint_impl(sheets: &[CssStylesheet]) -> u64 {
 /// map; custom properties are read from it rather than by re-matching every ancestor.
 fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     doc: &C::Document,
+    ix: &InteractionSnapshot,
     id: NodeId,
     sheets: &[CssStylesheet],
     pseudo: Option<&str>,
@@ -419,7 +423,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                 .asks_about_ancestors()
                 .then(|| &**ancestors.get_or_insert_with(|| ancestor_filter::<C>(doc, id, known)));
             // A rule applies with the highest specificity among the matching selectors in its list.
-            let (matches, specificity) = match_selector::<C>(doc, id, rule.selector(), pseudo, scope, filter);
+            let (matches, specificity) = match_selector::<C>(doc, ix, id, rule.selector(), pseudo, scope, filter);
             if matches {
                 matched.push(MatchedRule {
                     sheet,

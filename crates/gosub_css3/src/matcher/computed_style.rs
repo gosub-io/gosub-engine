@@ -17,8 +17,8 @@ use cow_utils::CowUtils;
 use gosub_interface::style::{
     AlignValue, Anchor, AspectRatio, BackgroundImage, BackgroundLayer, BackgroundRepeat, BackgroundSize,
     BackgroundTile, BorderCollapse, BorderStyle, BoxShadow, BoxSizing, CaptionSide, Clear, Color, ComputedStyle,
-    Display, FlexDirection, FlexWrap, Float, FontStyle, FontWeight, GradientStop, GridAreas, GridAutoFlow, GridLine,
-    LengthPercentage, LengthPercentageAuto, LetterSpacing, LineHeight, LinearGradient, ListStylePosition,
+    Display, EmptyCells, FlexDirection, FlexWrap, Float, FontStyle, FontWeight, GradientStop, GridAreas, GridAutoFlow,
+    GridLine, LengthPercentage, LengthPercentageAuto, LetterSpacing, LineHeight, LinearGradient, ListStylePosition,
     ListStyleType, ObjectFit, Overflow, OverflowWrap, Paint, Position, Prop, RepeatCount, TabSize, TableLayout,
     TextAlign, TextDecorationLine, TextOverflow, TextTransform, TextWrap, TrackBreadth, TrackList, TrackListItem,
     TrackSize, VerticalAlign, Visibility, WhiteSpace, WordBreak, ZIndex,
@@ -28,7 +28,7 @@ use crate::colors::resolve::{resolve_color, ColorContext};
 use crate::colors::{CssColor, RgbColor};
 use crate::matcher::keywords::{
     BorderCollapseKeyword, BorderTopStyleKeyword, BoxSizingKeyword, CaptionSideKeyword, ClearKeyword,
-    FlexDirectionKeyword, Keyword, ListStylePositionKeyword, ObjectFitKeyword, OutlineStyleKeyword,
+    EmptyCellsKeyword, FlexDirectionKeyword, Keyword, ListStylePositionKeyword, ObjectFitKeyword, OutlineStyleKeyword,
     OverflowWrapKeyword, OverflowXKeyword, TableLayoutKeyword, TextAlignKeyword, TextOverflowKeyword,
     TextWrapModeKeyword, TextWrapStyleKeyword, VisibilityKeyword, WhiteSpaceKeyword, WordBreakKeyword,
 };
@@ -901,22 +901,7 @@ fn list_style_type(text: &str) -> ListStyleType {
     if !ident_like {
         return ListStyleType::String(Arc::from(text));
     }
-    match &*text.cow_to_ascii_lowercase() {
-        "none" => ListStyleType::None,
-        "disc" => ListStyleType::Disc,
-        "circle" => ListStyleType::Circle,
-        "square" => ListStyleType::Square,
-        "decimal-leading-zero" => ListStyleType::DecimalLeadingZero,
-        "lower-roman" => ListStyleType::LowerRoman,
-        "upper-roman" => ListStyleType::UpperRoman,
-        "lower-alpha" | "lower-latin" => ListStyleType::LowerAlpha,
-        "upper-alpha" | "upper-latin" => ListStyleType::UpperAlpha,
-        "lower-greek" => ListStyleType::LowerGreek,
-        "disclosure-open" => ListStyleType::DisclosureOpen,
-        "disclosure-closed" => ListStyleType::DisclosureClosed,
-        // `decimal` itself, and every counter style this engine does not define.
-        _ => ListStyleType::Decimal,
-    }
+    ListStyleType::from_name(text)
 }
 
 /// A `<line-style>`. The four `border-*-style` longhands share that grammar, so the top side's
@@ -1074,6 +1059,7 @@ static ENGINE_LONGHANDS: &[(LonghandId, Prop, u16)] = &[
     (LonghandId::LetterSpacing, Prop::LetterSpacing, G_INHERITED),
     (LonghandId::TabSize, Prop::TabSize, G_INHERITED),
     (LonghandId::CaptionSide, Prop::CaptionSide, G_INHERITED),
+    (LonghandId::EmptyCells, Prop::EmptyCells, G_INHERITED),
     (LonghandId::ListStyleType, Prop::ListStyleType, G_INHERITED),
     (LonghandId::ListStylePosition, Prop::ListStylePosition, G_INHERITED),
     (LonghandId::BorderCollapse, Prop::BorderCollapse, G_INHERITED),
@@ -1552,6 +1538,15 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
     .map(|keyword| match keyword {
         CaptionSideKeyword::Top => CaptionSide::Top,
         CaptionSideKeyword::Bottom => CaptionSide::Bottom,
+    }));
+
+    read!(map, style, EmptyCells, inherited_mut, empty_cells, |value| as_string(
+        value
+    )
+    .and_then(EmptyCellsKeyword::from_ident)
+    .map(|keyword| match keyword {
+        EmptyCellsKeyword::Show => EmptyCells::Show,
+        EmptyCellsKeyword::Hide => EmptyCells::Hide,
     }));
 
     read!(map, style, ListStyleType, inherited_mut, list_style_type, |value| {

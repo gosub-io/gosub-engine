@@ -6,8 +6,11 @@
 //! rasterizes what came into the raster window - no parse, no layout.
 
 use crate::fork_server::loader::ForkedResourceLoader;
-use crate::fork_server::protocol::{Effect, FromRenderer, HitRegion, PageSummary, TileHeader, ToRenderer};
+use crate::fork_server::protocol::{
+    Effect, FromRenderer, HitRegion, PageSummary, ScriptReport, TileHeader, ToRenderer,
+};
 use crate::fork_server::renderer::{self, RenderedTile, RetainedPage};
+use crate::fork_server::scripts::{LoaderScripts, PageScripts};
 use crate::html::RenderConfiguration;
 use gosub_interface::font_system::FontSystem;
 use gosub_ipc::Endpoint;
@@ -82,6 +85,8 @@ pub fn serve<C: RenderConfiguration>(
     // The media store's partition for each tab's document: the store is shared by every tab
     // of the site, and one document's answer for a URL is not another's.
     let mut documents: HashMap<String, u64> = HashMap::new();
+    // The script host of each tab's document, for as long as its page is retained.
+    let mut scripts: HashMap<String, PageScripts> = HashMap::new();
     // Tab names, most recently used last; parallel to `pages`.
     let mut recent: Vec<String> = Vec::new();
     let touch = |recent: &mut Vec<String>, tab: &str| {
@@ -100,11 +105,13 @@ pub fn serve<C: RenderConfiguration>(
         if gosub_sandbox::arm_deadline(REQUEST_DEADLINE).is_err() {
             gosub_sandbox::exit_now(1);
         }
+        let request_ends = std::time::Instant::now() + REQUEST_DEADLINE;
         match request {
             ToRenderer::OpenTab { .. } => {}
             ToRenderer::CloseTab { tab } => {
                 pages.remove(&tab);
                 documents.remove(&tab);
+                scripts.remove(&tab);
                 recent.retain(|t| t != &tab);
             }
             ToRenderer::Shutdown => gosub_sandbox::exit_now(0),
@@ -127,6 +134,7 @@ pub fn serve<C: RenderConfiguration>(
                 scroll_y,
                 known_tiles,
                 hovered_node,
+                scripts: script_settings,
             } => {
                 let _ = &url;
                 renderer::apply_media_prefs(dpr, media);
@@ -138,7 +146,19 @@ pub fn serve<C: RenderConfiguration>(
                 documents.insert(tab.clone(), partition);
                 media_store.set_partition(partition);
                 let known_tiles: HashSet<u64> = known_tiles.into_iter().collect();
-                let mut page = RetainedPage::<C>::build(
+                // The previous document's host goes first: one script heap per tab.
+                scripts.remove(&tab);
+                let page_scripts = script_settings.and_then(|settings| PageScripts::new(settings, &url, request_ends));
+                let parser = gosub_html5::parser::Html5ParserOptions {
+                    scripting_enabled: script_settings.is_some(),
+                    stylesheets: None,
+                    scripts: page_scripts.as_ref().map(PageScripts::for_parser),
+                    script_sources: page_scripts.as_ref().map(|_| {
+                        let loader = Arc::clone(&forked_loader) as Arc<dyn crate::net::resource_loader::ResourceLoader>;
+                        Arc::new(LoaderScripts(loader)) as Arc<dyn gosub_html5::parser::ScriptSource>
+                    }),
+                };
+                let mut page = RetainedPage::<C>::build_with(
                     renderer::PageRequest {
                         html: &html,
                         page_url: &url,
@@ -152,7 +172,12 @@ pub fn serve<C: RenderConfiguration>(
                     Arc::clone(&fonts),
                     Arc::clone(&media_store),
                     Arc::clone(&forked_loader) as Arc<dyn crate::net::resource_loader::ResourceLoader>,
+                    parser,
                 );
+                let reports = page_scripts.as_ref().map(PageScripts::take_reports).unwrap_or_default();
+                if let Some(page_scripts) = page_scripts {
+                    scripts.insert(tab.clone(), page_scripts);
+                }
                 // The page's first update of the rendering: autofocus, then the frame.
                 let focus = page.flush_autofocus();
                 let pass = page.render(Some((scroll_x, scroll_y)), &known_tiles);
@@ -165,6 +190,10 @@ pub fn serve<C: RenderConfiguration>(
                     };
                     recent.remove(0);
                     pages.remove(&oldest);
+                    scripts.remove(&oldest);
+                }
+                if !send_script_reports(&mut link.lock(), reports) {
+                    gosub_sandbox::exit_now(1);
                 }
                 if !stream_rendered(
                     &mut link.lock(),
@@ -277,6 +306,40 @@ pub fn serve<C: RenderConfiguration>(
                     hit_regions,
                     Vec::new(),
                 ) {
+                    gosub_sandbox::exit_now(1);
+                }
+            }
+            ToRenderer::ExecuteScript {
+                tab,
+                source,
+                max_run_ms,
+            } => {
+                let reports = match scripts.get(&tab) {
+                    Some(page_scripts) => {
+                        // a page whose scripts are being used is not the one to let go of
+                        if pages.contains_key(&tab) {
+                            touch(&mut recent, &tab);
+                        }
+                        page_scripts.begin_request(request_ends);
+                        page_scripts.execute(&source, std::time::Duration::from_millis(max_run_ms));
+                        page_scripts.take_reports()
+                    }
+                    // never loaded here with scripts, or let go of with its page
+                    None => vec![ScriptReport::Error {
+                        message: "this tab's document runs no scripts in its renderer".to_owned(),
+                        line: 0,
+                        column: 0,
+                    }],
+                };
+                // without the page the broker has it loaded again before the next script
+                let closing = if pages.contains_key(&tab) {
+                    PageSummary::default()
+                } else {
+                    no_page_pass().summary
+                };
+                if !send_script_reports(&mut link.lock(), reports)
+                    || !stream_rendered(&mut link.lock(), &[], &[], closing, Vec::new(), Vec::new())
+                {
                     gosub_sandbox::exit_now(1);
                 }
             }
@@ -437,6 +500,14 @@ pub(super) fn stream_rendered(
         effects,
     })
     .is_ok()
+}
+
+/// What the scripts of a request reported, ahead of the answer that closes it. `false`
+/// means the link is gone.
+fn send_script_reports(link: &mut Endpoint, reports: Vec<ScriptReport>) -> bool {
+    reports
+        .into_iter()
+        .all(|report| link.send(&FromRenderer::Script(report)).is_ok())
 }
 
 /// The header for a tile the broker already holds. Its physical dimensions

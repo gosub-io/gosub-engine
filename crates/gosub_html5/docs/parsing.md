@@ -38,13 +38,3 @@ we can simply print the document. This will output a tree-like structure of all 
 ```rust
     println!("Generated tree: \n\n {document}");
 ```
-
-It is possible to traverse the document tree with a visitor pattern. You can create a visitor struct that implements the `NodeVisitor` trait, and then pass
-it to the `visit` method.
-
-```rust
-    let mut visitor = Box::new(TextVisitor::default()) as Box<dyn Visitor<Node>>;
-    visit(&Document::clone(&document), &mut visitor);
-```
-
-A simple visitor could hide all non-renderable nodes, or change the text color based on the CSS properties, or even generate colored links for `<a>` tags.

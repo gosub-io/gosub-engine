@@ -10,14 +10,21 @@ description = "V8 bindings for Gosub"
 log = { workspace = true }
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
 gosub_webexecutor = { version = "0.1.1", registry = "gosub", path = "../gosub_webexecutor" }
-# TODO: v8 transitively pulls in adler via miniz_oxide (RUSTSEC-2025-0056, unmaintained).
-# Update this dependency once a new v8 release resolves it, then remove the advisory from audit.toml.
-v8 = "136.0.0"
+v8 = "152.2.0"
 anyhow = { workspace = true }
+getrandom = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
 gosub_webinterop = { version = "0.1.1", registry = "gosub", path = "../gosub_webinterop" }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+gosub_sandbox = { version = "0.1.0", registry = "gosub", path = "../gosub_sandbox" }
+
+[[test]]
+name = "sandboxed_jitless"
+harness = false
+
 # Mirrors the workspace lints, except unsafe_code: this is an FFI binding crate
 # around the V8 C++ API, where unsafe is inherent to nearly every operation.
 [lints.rust]

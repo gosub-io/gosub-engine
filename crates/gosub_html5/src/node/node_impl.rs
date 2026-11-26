@@ -4,7 +4,7 @@ use crate::node::data::document::DocumentData;
 use crate::node::data::element::ElementData;
 use crate::node::data::shadow_root::ShadowRootData;
 use crate::node::data::text::TextData;
-use gosub_interface::node::{NodeType, QuirksMode, ShadowRootInit};
+use gosub_interface::node::{NodeType, ShadowRootInit};
 use gosub_shared::attributes::Attributes;
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
@@ -73,8 +73,8 @@ impl NodeImpl {
     }
 
     #[must_use]
-    pub fn new_document(location: Location, quirks_mode: QuirksMode) -> Self {
-        Self::new(location, NodeDataTypeInternal::Document(DocumentData::new(quirks_mode)))
+    pub fn new_document(location: Location) -> Self {
+        Self::new(location, NodeDataTypeInternal::Document(DocumentData))
     }
 
     #[must_use]
@@ -89,7 +89,7 @@ impl NodeImpl {
     pub fn new_element(location: Location, name: &str, namespace: Option<&str>, attributes: Attributes) -> Self {
         Self::new(
             location,
-            NodeDataTypeInternal::Element(ElementData::new(name, namespace, attributes, Default::default())),
+            NodeDataTypeInternal::Element(ElementData::new(name, namespace, attributes)),
         )
     }
 
@@ -114,12 +114,9 @@ impl NodeImpl {
     /// Shallow clone: same data, no tree links, not registered
     pub fn new_from_node(org_node: &Self) -> Self {
         let mut data = org_node.data.clone();
-        // The clone must not inherit the host's side pointer to its shadow tree. Tree links are
-        // deliberately not copied here, but `shadow_root` lives in the element's data, so it
-        // would come along - leaving the clone sharing the original's root while
-        // `shadow_host(root)` still named the original. Two hosts for one root, and a back
-        // pointer that contradicts one of them. The spec gives a clone a shadow tree only when
-        // the root is `clonable`, and that needs the tree cloned too rather than an id copied.
+        // `shadow_root` lives in the element's data, so it would come along and the clone would
+        // share the original's shadow root. The spec gives a clone a shadow tree only when the
+        // root is `clonable`, and then as a copy, not the same root.
         if let NodeDataTypeInternal::Element(ref mut element) = data {
             element.shadow_root = None;
         }
@@ -238,7 +235,11 @@ impl NodeImpl {
     }
 
     pub fn remove(&mut self, node_id: NodeId) {
-        self.children.retain(|x| x != &node_id);
+        // A node is in a child list at most once: `attach_node` detaches before it inserts.
+        // Searched from the end, where the parser takes nodes from.
+        if let Some(idx) = self.children.iter().rposition(|&x| x == node_id) {
+            self.children.remove(idx);
+        }
     }
 
     pub fn insert(&mut self, node_id: NodeId, idx: usize) {
@@ -263,7 +264,7 @@ mod tests {
 
     #[test]
     fn new_document() {
-        let node = NodeImpl::new_document(Location::default(), QuirksMode::NoQuirks);
+        let node = NodeImpl::new_document(Location::default());
         assert_eq!(node.id, NodeId::default());
         assert_eq!(node.parent, None);
         assert!(node.children.is_empty());
@@ -324,7 +325,7 @@ mod tests {
 
     #[test]
     fn type_of() {
-        let node = NodeImpl::new_document(Location::default(), QuirksMode::NoQuirks);
+        let node = NodeImpl::new_document(Location::default());
         assert_eq!(node.type_of(), NodeType::DocumentNode);
         let node = NodeImpl::new_text(Location::default(), "test");
         assert_eq!(node.type_of(), NodeType::TextNode);
@@ -368,7 +369,7 @@ mod tests {
 
     #[test]
     fn type_of_node() {
-        let node = NodeImpl::new_document(Location::default(), QuirksMode::NoQuirks);
+        let node = NodeImpl::new_document(Location::default());
         assert_eq!(node.type_of(), NodeType::DocumentNode);
         let node = NodeImpl::new_text(Location::default(), "test");
         assert_eq!(node.type_of(), NodeType::TextNode);

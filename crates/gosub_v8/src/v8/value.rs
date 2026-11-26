@@ -21,7 +21,7 @@ impl V8Value {
 
     pub fn from_local(ctx: V8Context, value: Local<Value>) -> Self {
         Self {
-            value: Global::new(&mut ctx.isolate(), value),
+            value: Global::new(&ctx.isolate(), value),
             context: ctx,
         }
     }
@@ -38,9 +38,9 @@ impl V8Value {
 macro_rules! impl_is {
     ($name:ident) => {
         fn $name(&self) -> bool {
-            let mut iso = self.context.isolate();
+            ctx_scope!(scope, self.context);
 
-            let value = self.value.open(&mut iso);
+            let value = Local::new(scope, &self.value);
 
             value.$name()
         }
@@ -49,13 +49,11 @@ macro_rules! impl_is {
 
 impl From<V8Array> for V8Value {
     fn from(array: V8Array) -> Self {
-        let mut scope = array.ctx.scope();
+        ctx_scope!(scope, array.ctx);
 
-        let value: Local<Value> = Local::new(&mut scope, array.value).into();
+        let value: Local<Value> = Local::new(scope, array.value).into();
 
-        let value = Global::new(&mut scope, value);
-
-        drop(scope);
+        let value = Global::new(scope, value);
 
         Self {
             value,
@@ -66,13 +64,11 @@ impl From<V8Array> for V8Value {
 
 impl From<V8Object> for V8Value {
     fn from(object: V8Object) -> Self {
-        let mut scope = object.ctx.scope();
+        ctx_scope!(scope, object.ctx);
 
-        let value: Local<Value> = Local::new(&mut scope, object.value).into();
+        let value: Local<Value> = Local::new(scope, object.value).into();
 
-        let value = Global::new(&mut scope, value);
-
-        drop(scope);
+        let value = Global::new(scope, value);
 
         Self {
             value,
@@ -93,18 +89,25 @@ impl WebValue for V8Value {
     type RT = V8Engine;
 
     fn as_string(&self) -> Result<String> {
-        let mut scope = self.context.scope();
+        ctx_scope!(scope, self.context);
 
-        let value = self.value.open(&mut scope);
+        let value = Local::new(scope, &self.value);
+        // as `String(value)` has it: a symbol gives its description, where ToString throws
+        if value.is_symbol() {
+            return Ok(value
+                .to_detail_string(scope)
+                .map(|s| s.to_rust_string_lossy(scope))
+                .unwrap_or_default());
+        }
 
-        Ok(value.to_rust_string_lossy(&mut scope))
+        Ok(value.to_rust_string_lossy(scope))
     }
 
     fn as_number(&self) -> Result<f64> {
-        let mut scope = self.context.scope();
+        ctx_scope!(scope, self.context);
 
-        let value = self.value.open(&mut scope);
-        if let Some(value) = value.number_value(&mut scope) {
+        let value = Local::new(scope, &self.value);
+        if let Some(value) = value.number_value(scope) {
             Ok(value)
         } else {
             Err(Error::JS(JSError::Conversion("could not convert to number".to_owned())).into())
@@ -112,18 +115,18 @@ impl WebValue for V8Value {
     }
 
     fn as_bool(&self) -> Result<bool> {
-        let mut scope = self.context.scope();
+        ctx_scope!(scope, self.context);
 
-        let value = self.value.open(&mut scope);
-        Ok(value.boolean_value(&mut scope))
+        let value = Local::new(scope, &self.value);
+        Ok(value.boolean_value(scope))
     }
 
     fn as_object(&self) -> Result<<Self::RT as WebRuntime>::Object> {
-        let mut scope = self.context.scope();
+        ctx_scope!(scope, self.context);
 
-        let value = self.value.open(&mut scope);
+        let value = Local::new(scope, &self.value);
 
-        if let Some(value) = value.to_object(&mut scope) {
+        if let Some(value) = value.to_object(scope) {
             Ok(V8Object::from_ctx(V8Context::clone(&self.context), value))
         } else {
             Err(Error::JS(JSError::Conversion("could not convert to number".to_owned())).into())
@@ -141,9 +144,9 @@ impl WebValue for V8Value {
     fn as_array(&self) -> Result<<Self::RT as WebRuntime>::Array> {
         let value = self.value.clone();
 
-        let mut scope = self.context.scope();
+        ctx_scope!(scope, self.context);
 
-        let value = Local::new(&mut scope, value);
+        let value = Local::new(scope, value);
 
         let array: Local<Array> = value.try_into()?;
 
@@ -151,9 +154,9 @@ impl WebValue for V8Value {
     }
 
     fn is_bool(&self) -> bool {
-        let mut iso = self.context.isolate();
+        ctx_scope!(scope, self.context);
 
-        let value = self.value.open(&mut iso);
+        let value = Local::new(scope, &self.value);
 
         value.is_boolean()
     }
@@ -178,11 +181,11 @@ impl WebValue for V8Value {
         } else if self.is_object() {
             JSType::Object
         } else {
-            let mut scope = self.context.scope();
+            ctx_scope!(scope, self.context);
 
-            let value = self.value.open(&mut scope);
+            let value = Local::new(scope, &self.value);
 
-            let t = value.type_of(&mut scope).to_rust_string_lossy(&mut scope);
+            let t = value.type_of(scope).to_rust_string_lossy(scope);
 
             JSType::Other(t)
         }
@@ -204,7 +207,7 @@ impl WebValue for V8Value {
     }
 
     fn new_string(ctx: <Self::RT as WebRuntime>::Context, value: &str) -> Result<Self> {
-        let scope = &mut ctx.scope();
+        ctx_scope!(scope, ctx);
 
         if let Some(value) = v8::String::new(scope, value) {
             let value: Local<Value> = value.into();
@@ -219,7 +222,7 @@ impl WebValue for V8Value {
     }
 
     fn new_number<N: Into<f64>>(ctx: <Self::RT as WebRuntime>::Context, value: N) -> Result<Self> {
-        let scope = &mut ctx.scope();
+        ctx_scope!(scope, ctx);
 
         let value: Local<Value> = v8::Number::new(scope, value.into()).into();
         Ok(Self {
@@ -234,7 +237,7 @@ impl WebValue for V8Value {
         let value: Local<Value> = v8::Boolean::new(isolate.deref_mut(), value).into();
         Ok(Self {
             context: V8Context::clone(&ctx),
-            value: Global::new(&mut isolate, value),
+            value: Global::new(&isolate, value),
         })
     }
 
@@ -244,7 +247,7 @@ impl WebValue for V8Value {
 
         Ok(Self {
             context: V8Context::clone(&ctx),
-            value: Global::new(&mut isolate, null),
+            value: Global::new(&isolate, null),
         })
     }
 
@@ -254,7 +257,7 @@ impl WebValue for V8Value {
 
         Ok(Self {
             context: V8Context::clone(&ctx),
-            value: Global::new(&mut isolate, undefined),
+            value: Global::new(&isolate, undefined),
         })
     }
 }
@@ -280,6 +283,17 @@ mod tests {
 
         assert!(value.is_string());
         assert_eq!(value.as_string().unwrap(), "Hello World!");
+    }
+
+    #[test]
+    fn a_symbol_as_a_string_is_its_description() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        let value = context.run("Symbol('x')").unwrap();
+        assert_eq!(value.as_string().unwrap(), "Symbol(x)");
+        // and no exception is left behind for the next script
+        assert_eq!(context.run("1 + 1").unwrap().as_number().unwrap(), 2.0);
     }
 
     #[test]

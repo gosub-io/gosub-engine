@@ -7,7 +7,7 @@ use crate::common::geo;
 use crate::common::geo::Coordinate;
 use crate::common::media::MediaStore;
 use crate::common::media::{Media, MediaId, MediaInitiator, MediaRequest, MediaType};
-use crate::layouter::abspos::{post_process_abspos, RebasedInsets};
+use crate::layouter::abspos::{post_process_abspos, sizes_match, RebasedInsets};
 use crate::layouter::box_model::Edges;
 use crate::layouter::control_icons;
 use crate::layouter::css_taffy_converter::CssTaffyConverter;
@@ -38,6 +38,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use taffy::prelude::*;
 use taffy::NodeId as TaffyNodeId;
+use taffy::ResolveOrZero;
 
 /// Whether a text node is nothing but the whitespace CSS collapses.
 ///
@@ -381,6 +382,7 @@ pub struct TaffyLayouter {
     /// rebased from their CSS containing block onto the parent taffy measures from. Empty on the
     /// first pass - a box's containing block is only known once the page has been laid out - and
     /// replayed on the second so taffy sizes those boxes itself. See [`RebasedInsets`].
+    /// After a layout it holds what is baked into the taffy tree, which `relayout` compares against.
     abspos_insets: HashMap<DomNodeId, RebasedInsets>,
     /// Items pushed down to share their line's baseline: the item's own CSS `margin-top`, and
     /// the shift added to it. Kept with the taffy tree, so a relayout of the same tree starts
@@ -626,44 +628,44 @@ impl CanLayout for TaffyLayouter {
         // Two things are only knowable once the page has been laid out once: where a float landed
         // (text has to be wrapped around it) and which containing block an absolutely positioned
         // box actually belongs to (a box stretching between opposing insets has to be sized
-        // against it). Both are collected on the first pass and replayed on a second. A page that
+        // against it). Both are collected on the first pass and replayed on later ones. A page that
         // needs neither - most of them - pays for one pass.
         self.float_insets.clear();
         self.abspos_insets.clear();
-        let (mut layout_tree, placed, stretched) = self.layout_pass(render_tree, root_id, viewport);
+        let (mut layout_tree, mut placed, mut stretched) = self.layout_pass(render_tree, root_id, viewport);
 
-        // Float bands are resolved in document order from this one baseline layout rather than by
-        // laying the page out over and over until the answer stops moving - which it did not: see
-        // `resolve_bands_in_document_order`. Floats take two passes, always; only nested absolutely
-        // positioned boxes take more (see below).
-        let insets = resolve_bands_in_document_order(&layout_tree, &placed);
-        if insets.is_empty() && stretched.is_empty() {
-            translate_and_measure(&mut layout_tree);
-            self.settle_flattened_inlines(&mut layout_tree);
-            self.attach_select_popup(&mut layout_tree);
-            dump_layout_to_json(&layout_tree);
-            return layout_tree;
-        }
-
-        self.float_insets = insets;
-        self.abspos_insets = stretched;
-        let (mut final_tree, _, mut restretched) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
-        // An absolutely positioned box is measured against its containing block as the pass
-        // before laid it out. When that block is itself a corrected absolutely positioned box,
+        // Absolutely positioned boxes first. A box is measured against its containing block as the
+        // pass before laid it out; when that block is itself a corrected absolutely positioned box,
         // the correction moves it, and the box inside needs measuring again: one more pass per
         // level of such nesting, until the corrections stop changing. Bounded, so a page whose
         // corrections never settle still gets a layout.
-        let mut passes = 2;
-        while restretched != self.abspos_insets && passes < MAX_LAYOUT_PASSES {
-            self.abspos_insets = restretched;
-            let (tree, _, again) = self.layout_pass(final_tree.render_tree, root_id, viewport);
-            final_tree = tree;
-            restretched = again;
+        let mut passes = 1;
+        while stretched != self.abspos_insets && passes < MAX_LAYOUT_PASSES {
+            self.abspos_insets = stretched;
+            (layout_tree, placed, stretched) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
             passes += 1;
         }
-        layout_tree = final_tree;
+
+        // Then the float bands, resolved in document order from one baseline layout rather than by
+        // laying the page out over and over until the answer stops moving - which it did not: see
+        // `resolve_bands_in_document_order`. The baseline is the layout above, where every box has
+        // its final width: bands taken before a correction narrowed a box ran text through its
+        // floats.
+        let insets = resolve_bands_in_document_order(&layout_tree, &placed);
+        if !insets.is_empty() {
+            self.float_insets = insets;
+            (layout_tree, _, stretched) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
+            passes += 1;
+            // Shortened lines can move a box written in one, so it is measured again, against the
+            // same bands.
+            while stretched != self.abspos_insets && passes < MAX_LAYOUT_PASSES {
+                self.abspos_insets = stretched;
+                (layout_tree, _, stretched) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
+                passes += 1;
+            }
+        }
         self.float_insets.clear();
-        self.abspos_insets.clear();
+        // `abspos_insets` stays: it is what the tree was built with, for `relayout` to check.
         translate_and_measure(&mut layout_tree);
         self.settle_flattened_inlines(&mut layout_tree);
         self.attach_select_popup(&mut layout_tree);
@@ -762,16 +764,21 @@ impl TaffyLayouter {
     /// intrinsic sizes - which in practice means a viewport resize. Everything taffy needs is
     /// already in the tree, so this skips the ~half of layout that goes into building it.
     /// See `BrowsingContext`'s `DamageLevel::Geometry`.
-    /// Floats and absolutely positioned boxes are re-placed against the new geometry, but the
-    /// two-pass feedback is discarded: this path deliberately does not rebuild the taffy tree, so
-    /// the rebased insets and float line-boxes baked into it on the last full layout are reused.
-    /// A change that invalidates those needs a full rebuild, which is what `DamageLevel::Layout`
-    /// and above ask for.
+    /// Floats and absolutely positioned boxes are re-placed against the new geometry. The float
+    /// line-boxes baked into the tree on the last full layout are reused. The rebased insets and
+    /// sizes of absolutely positioned boxes are checked: they are lengths taken of a containing
+    /// block, so when the new viewport changes the size they give a box the tree is built again
+    /// with a full layout.
     pub fn relayout(&mut self, layout_tree: &mut LayoutTree, viewport: Option<geo::Dimension>) {
         // Line items' percentage heights can rest on the viewport's height, through a chain of
         // percentage heights up to the root: resolved again for the new one.
         self.resolve_line_percent_heights(viewport);
-        let _ = self.compute_and_populate(layout_tree, viewport);
+        let (_, stretched) = self.compute_and_populate(layout_tree, viewport);
+        if !sizes_match(&self.abspos_insets, &stretched) {
+            let render_tree = layout_tree.render_tree.clone();
+            *layout_tree = self.layout(render_tree, viewport, 1.0);
+            return;
+        }
         translate_and_measure(layout_tree);
         self.settle_flattened_inlines(layout_tree);
     }
@@ -809,7 +816,7 @@ impl TaffyLayouter {
         let root_id = layout_tree.root_id;
         let root_width = layout_tree.root_dimension.width;
         self.populate_boxmodel(layout_tree, root_id, Coordinate::ZERO, root_width);
-        post_process_tables(self, layout_tree);
+        post_process_tables(self, layout_tree, viewport.map(|v| v.width));
         // After tables: a float inside a table cell must be placed against the cell's final
         // position, which lattice only fixes during the table pass.
         let placed = post_process_floats(layout_tree);
@@ -829,9 +836,28 @@ impl TaffyLayouter {
         // Last: an absolutely positioned box is measured from its containing block's *final*
         // position, so every ancestor - tables and floats included - must have settled first.
         let icb = viewport.unwrap_or(layout_tree.root_dimension);
-        let stretched = post_process_abspos(layout_tree, icb);
+        let stretched = post_process_abspos(layout_tree, icb, &|tree, id| self.line_box_of(tree, id));
 
         (placed, stretched)
+    }
+
+    /// The padding box, in page coordinates, of the line box `id` was laid out in: its taffy
+    /// parent, which is the anonymous line container or a glue box inside it. `None` for a box
+    /// that is not in a line. Taken from the box's own position, so it holds after the post-passes
+    /// have moved the box and its ancestors.
+    fn line_box_of(&self, layout_tree: &LayoutTree, id: LayoutElementId) -> Option<geo::Rect> {
+        if !self.anon_container_map.contains_key(&id) {
+            return None;
+        }
+        let node = *self.layout_taffy_mapping.get(&id)?;
+        let item = self.tree.layout(node).ok()?;
+        let line = self.tree.layout(self.tree.parent(node)?).ok()?;
+        let border_box = layout_tree.arena.get(&id)?.box_model.border_box;
+        let x = border_box.x - item.location.x as f64 + (line.border.left + line.padding.left) as f64;
+        let y = border_box.y - item.location.y as f64 + (line.border.top + line.padding.top) as f64;
+        let width = line.size.width - line.border.left - line.border.right - line.padding.left - line.padding.right;
+        let height = line.size.height - line.border.top - line.border.bottom - line.padding.top - line.padding.bottom;
+        Some(geo::Rect::new(x, y, width as f64, height as f64))
     }
 
     /// Run taffy over the subtree at `node`, measuring leaves through the shared font system.
@@ -1037,6 +1063,20 @@ impl TaffyLayouter {
             _ => return false,
         }
         self.tree.set_style(item, style).is_ok()
+    }
+
+    /// The items whose top margin is not the one their baseline shift says.
+    #[cfg(test)]
+    pub(crate) fn stale_baseline_shifts(&self) -> Vec<TaffyNodeId> {
+        self.baseline_shifts
+            .iter()
+            .filter(|(&item, &(css, shift))| {
+                self.tree.style(item).map_or(true, |style| {
+                    lpa_length(style.margin.top).is_none_or(|top| (top - (css + shift)).abs() >= 0.25)
+                })
+            })
+            .map(|(&item, _)| item)
+            .collect()
     }
 
     /// Give `item` `shift` px of extra top margin. Returns whether that changed anything.
@@ -1323,23 +1363,90 @@ impl TaffyLayouter {
     /// cell itself afterwards via `apply_positions`). Returns the cell's
     /// content-box height at that width, or `None` when the cell is unknown or
     /// the compute fails.
+    ///
+    /// Captions come through here too, with `is_cell` false, and keep their own `width`.
+    ///
+    /// Measured, the cell's height is auto and so are the percentage heights under it, and the
+    /// height returned is its content box. At a final height, percentage heights under it resolve
+    /// against that, and the height returned is what its children take up.
     pub(super) fn relayout_cell(
         &mut self,
         layout_tree: &mut LayoutTree,
         cell_layout_id: LayoutElementId,
         border_box_width: f32,
+        is_cell: bool,
+        height: CellHeight,
     ) -> Option<f32> {
         let &taffy_id = self.layout_taffy_mapping.get(&cell_layout_id)?;
-        let old_origin = layout_tree
-            .get_node_by_id(cell_layout_id)
-            .map(|el| Coordinate::new(el.box_model.border_box.x, el.box_model.border_box.y))?;
+        let (old_origin, vertical_edges) = layout_tree.get_node_by_id(cell_layout_id).map(|el| {
+            let bm = &el.box_model;
+            (
+                Coordinate::new(bm.border_box.x, bm.border_box.y),
+                bm.border.top + bm.border.bottom + bm.padding.top + bm.padding.bottom,
+            )
+        })?;
+
+        // Lattice has settled the cell's width; its own `width` is one of the inputs to that and
+        // has done its job. Left in the style, a percentage would resolve a second time, now
+        // against the cell itself, since the cell is the root here: `width: 1%` on a 50px cell
+        // made a 0.5px box and squeezed the content to nothing. A caption's width is not one
+        // lattice settles, and its percentage resolves correctly against the table width it is
+        // handed here, so it stays.
+        let original = self.tree.style(taffy_id).ok()?.clone();
+        if is_cell {
+            let mut fixed = original.clone();
+            // In the cell's own box-sizing: switching it would also change what its `height`
+            // measures. Taffy resolves the root's percentage padding against `border_box_width`,
+            // so the edges come off that the same way; lattice's content width counts percentage
+            // padding as zero.
+            let width = match original.box_sizing {
+                BoxSizing::ContentBox => {
+                    let basis = Some(border_box_width);
+                    let edges = original.padding.resolve_or_zero(basis, |_, b| b)
+                        + original.border.resolve_or_zero(basis, |_, b| b);
+                    (border_box_width - edges.horizontal_axis_sum()).max(0.0)
+                }
+                BoxSizing::BorderBox => border_box_width,
+            };
+            fixed.size.width = Dimension::length(width);
+            fixed.min_size.width = LengthPercentageAuto::auto();
+            fixed.max_size.width = LengthPercentageAuto::auto();
+            if let Err(e) = self.tree.set_style(taffy_id, fixed) {
+                log::warn!("lattice: cell re-layout failed for {:?}: {:?}", cell_layout_id, e);
+                return None;
+            }
+        }
 
         let size = Size {
             width: AvailableSpace::Definite(border_box_width),
-            height: AvailableSpace::MaxContent,
+            height: match height {
+                CellHeight::Measure { .. } => AvailableSpace::MaxContent,
+                CellHeight::Final { height, .. } => AvailableSpace::Definite(height),
+            },
         };
+        // A cell's `height` is a minimum that lattice applies to the row (CSS 2 §17.5.3), and its
+        // `max-height` is undefined (§10.7), so neither caps what is measured here. For this
+        // compute only: the first pass keeps them, and the table's first height with them.
+        let Ok(mut measured) = self.tree.style(taffy_id).cloned() else {
+            self.restore_cell(taffy_id, &original, Vec::new());
+            return None;
+        };
+        measured.size.height = match height {
+            CellHeight::Final { height, .. } if measured.box_sizing == BoxSizing::ContentBox => {
+                Dimension::length((f64::from(height) - vertical_edges).max(0.0) as f32)
+            }
+            CellHeight::Final { height, .. } => Dimension::length(height),
+            CellHeight::Measure { .. } => Dimension::auto(),
+        };
+        measured.max_size.height = LengthPercentageAuto::auto();
+        if self.tree.set_style(taffy_id, measured).is_err() {
+            self.restore_cell(taffy_id, &original, Vec::new());
+            return None;
+        }
+        let saved = self.set_percent_heights_under(layout_tree, cell_layout_id, taffy_id, height);
         if let Err(e) = self.compute_taffy(taffy_id, size) {
             log::warn!("lattice: cell re-layout failed for {:?}: {:?}", cell_layout_id, e);
+            self.restore_cell(taffy_id, &original, saved);
             return None;
         }
         // The cell's lines wrap at its new width, so their rows - and the baselines shared
@@ -1357,9 +1464,168 @@ impl TaffyLayouter {
         let offset = Coordinate::new(old_origin.x - root_location.x, old_origin.y - root_location.y);
         self.populate_boxmodel(layout_tree, cell_layout_id, offset, border_box_width as f64);
 
-        layout_tree
+        self.restore_cell(taffy_id, &original, saved);
+
+        if matches!(height, CellHeight::Measure { .. }) {
+            let el = layout_tree.get_node_by_id(cell_layout_id)?;
+            return Some(el.box_model.content_box.height as f32);
+        }
+        // From taffy: an anonymous line box, a blank line from a `<br>` say, has no layout element.
+        // An absolutely positioned child takes up no room; a float, absolute in taffy, does.
+        let doc = &layout_tree.render_tree.doc;
+        let out_of_flow: Vec<TaffyNodeId> = layout_tree
+            .get_node_by_id(cell_layout_id)?
+            .children
+            .iter()
+            .filter(|&&child| {
+                layout_tree.get_node_by_id(child).is_some_and(|el| {
+                    let position = doc.computed_style(el.dom_node_id).box_group.position;
+                    matches!(position, CssPosition::Absolute | CssPosition::Fixed)
+                })
+            })
+            .filter_map(|child| self.layout_taffy_mapping.get(child).copied())
+            .collect();
+        let cell = self.tree.layout(taffy_id).ok()?;
+        let top = cell.border.top + cell.padding.top;
+        let bottom = self
+            .tree
+            .children(taffy_id)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|child| !out_of_flow.contains(child))
+            .filter_map(|child| self.tree.layout(child).ok())
+            .map(|child| child.location.y + child.size.height + child.margin.bottom)
+            .fold(top, f32::max);
+        Some(bottom - top)
+    }
+
+    /// The boxes under a cell whose percentage height resolves against it: its block children,
+    /// and the items on its lines.
+    fn percent_heights_under(
+        &self,
+        layout_tree: &LayoutTree,
+        cell_layout_id: LayoutElementId,
+        cell: TaffyNodeId,
+    ) -> Vec<PercentHeight> {
+        let doc = &layout_tree.render_tree.doc;
+        let mut found = Vec::new();
+        let mut stack = layout_tree
             .get_node_by_id(cell_layout_id)
-            .map(|el| el.box_model.content_box.height as f32)
+            .map(|el| el.children.clone())
+            .unwrap_or_default();
+        while let Some(id) = stack.pop() {
+            let Some(el) = layout_tree.get_node_by_id(id) else {
+                continue;
+            };
+            stack.extend(el.children.iter().copied());
+            let Some(&node) = self.layout_taffy_mapping.get(&id) else {
+                continue;
+            };
+            let line_fraction = match self.percent_line_items.get(&node) {
+                Some(&(line, fraction)) if self.block_around(line) == Some(cell) => Some(fraction),
+                Some(_) => continue,
+                None => None,
+            };
+            let percent = self
+                .tree
+                .style(node)
+                .is_ok_and(|style| matches!(style.size.height.expand(), taffy::ExpandedDimension::Percent(_)));
+            if line_fraction.is_none() && !(percent && self.tree.parent(node) == Some(cell)) {
+                continue;
+            }
+            let style = doc.computed_style(el.dom_node_id);
+            found.push(PercentHeight {
+                node,
+                line_fraction,
+                out_of_flow: matches!(style.box_group.position, CssPosition::Absolute | CssPosition::Fixed),
+                scroller: [style.box_group.overflow_x, style.box_group.overflow_y]
+                    .into_iter()
+                    .any(|o| matches!(o, CssOverflow::Auto | CssOverflow::Scroll)),
+            });
+        }
+        found
+    }
+
+    /// Whether anything under the cell has a percentage height that resolves against it: in flow,
+    /// and absolutely positioned.
+    pub(super) fn percent_heights_under_cell(
+        &self,
+        layout_tree: &LayoutTree,
+        cell_layout_id: LayoutElementId,
+    ) -> (bool, bool) {
+        let Some(&cell) = self.layout_taffy_mapping.get(&cell_layout_id) else {
+            return (false, false);
+        };
+        let found = self.percent_heights_under(layout_tree, cell_layout_id, cell);
+        (
+            found.iter().any(|p| !p.out_of_flow),
+            found.iter().any(|p| p.out_of_flow),
+        )
+    }
+
+    /// Set the percentage heights under a cell for one `relayout_cell` compute, and return the
+    /// heights to put back. In flow and measured, they count as auto - as 0 for a scroller under a
+    /// cell whose height they will resolve against later (css-tables-3 §3.10.6). At the final
+    /// height, a line item's is set from the cell's, which taffy cannot do through the line box,
+    /// and where they do not resolve they stay auto. An absolutely positioned box's always
+    /// resolves against its containing block (CSS 2 §10.5), in taffy.
+    fn set_percent_heights_under(
+        &mut self,
+        layout_tree: &LayoutTree,
+        cell_layout_id: LayoutElementId,
+        cell: TaffyNodeId,
+        height: CellHeight,
+    ) -> Vec<(TaffyNodeId, Dimension)> {
+        let basis = match height {
+            CellHeight::Final { .. } => self.definite_content_height(cell, None, 0),
+            CellHeight::Measure { .. } => None,
+        };
+        let mut saved = Vec::new();
+        for item in self.percent_heights_under(layout_tree, cell_layout_id, cell) {
+            if item.out_of_flow {
+                continue;
+            }
+            let Ok(style) = self.tree.style(item.node).cloned() else {
+                continue;
+            };
+            let set = match (height, item.line_fraction, basis) {
+                (CellHeight::Measure { specified }, _, _) => {
+                    if specified && item.scroller && !style.item_is_replaced {
+                        Dimension::length(0.0)
+                    } else {
+                        Dimension::auto()
+                    }
+                }
+                (CellHeight::Final { specified: false, .. }, _, _) => Dimension::auto(),
+                (CellHeight::Final { .. }, Some(fraction), Some(basis)) => Dimension::length(fraction * basis),
+                // A block child's resolves against the cell's height in taffy.
+                (CellHeight::Final { .. }, _, _) => continue,
+            };
+            let old = style.size.height;
+            let mut changed = style;
+            changed.size.height = set;
+            if self.tree.set_style(item.node, changed).is_ok() {
+                saved.push((item.node, old));
+            }
+        }
+        saved
+    }
+
+    /// Put back the sizes `relayout_cell` set for one compute, from the cell's `original` style
+    /// and the heights `saved` under it. Only those: a baseline shift made meanwhile stays.
+    fn restore_cell(&mut self, cell: TaffyNodeId, original: &Style, saved: Vec<(TaffyNodeId, Dimension)>) {
+        if let Ok(mut style) = self.tree.style(cell).cloned() {
+            style.size = original.size;
+            style.min_size.width = original.min_size.width;
+            style.max_size = original.max_size;
+            let _ = self.tree.set_style(cell, style);
+        }
+        for (node, height) in saved {
+            if let Ok(mut style) = self.tree.style(node).cloned() {
+                style.size.height = height;
+                let _ = self.tree.set_style(node, style);
+            }
+        }
     }
 
     fn populate_boxmodel(
@@ -2637,12 +2903,22 @@ impl TaffyLayouter {
 
     // Process node and turn it into a taffy node. It will recursively process any children and takes care to wrap any multiple inline elements
     // into an anonymous taffy block element. This way we can sort of emulate inline elements within taffy.
-    /// Take an outside marker out of flow and end it where the item's content box starts
-    /// (css-lists-3 §3.1). Taffy places an absolutely positioned child against its parent, which
-    /// is the list item here, whatever the CSS containing block would be; a marker's position is
-    /// the item's to give, so that is the box it belongs against. With no vertical inset it keeps
-    /// the static position, at the top of the content box, which is where the first line starts.
-    fn hang_outside_marker(&mut self, marker: TaffyNodeId) {
+    /// Take an outside marker out of flow and end it where the item's border box starts
+    /// (css-lists-3 §3.1), so the item's border and padding stay between marker and text, as in
+    /// Firefox. Taffy places an absolutely positioned child against its parent's padding box,
+    /// which is the list item here, whatever the CSS containing block would be; a marker's
+    /// position is the item's to give, so that is the box it belongs against. The right margin
+    /// takes it past the item's left border. With no vertical inset it keeps the static position,
+    /// at the top of the content box, which is where the first line starts.
+    fn hang_outside_marker(&mut self, item: TaffyNodeId, marker: TaffyNodeId) {
+        // Borders reach taffy as lengths only.
+        let item_border_left = self
+            .tree
+            .style(item)
+            .map_or(0.0, |style| match style.border.left.expand() {
+                taffy::ExpandedLengthPercentage::Length(px) => px,
+                _ => 0.0,
+            });
         let Ok(style) = self.tree.style(marker) else {
             return;
         };
@@ -2654,6 +2930,7 @@ impl TaffyLayouter {
             top: LengthPercentageAuto::auto(),
             bottom: LengthPercentageAuto::auto(),
         };
+        style.margin.right = LengthPercentageAuto::length(item_border_left);
         if let Err(e) = self.tree.set_style(marker, style) {
             log::warn!("Failed to set the marker's style: {:?}", e);
         }
@@ -2863,7 +3140,7 @@ impl TaffyLayouter {
                 if let Some((marker_id, marker_taffy_id)) =
                     self.generate_taffy_element(layout_tree, *child_id, depth + 1)
                 {
-                    self.hang_outside_marker(marker_taffy_id);
+                    self.hang_outside_marker(leaf_id, marker_taffy_id);
                     if let Err(e) = self.tree.add_child(leaf_id, marker_taffy_id) {
                         log::warn!("Failed to add child to taffy tree: {:?}", e);
                     }
@@ -3438,7 +3715,7 @@ impl TaffyLayouter {
                         // (css-sizing-3 §5.2.2, compressible replaced elements).
                         taffy_style.item_is_replaced = true;
                         // A drag-resized control keeps the size the user gave it (border box).
-                        if let Some((w, h)) = layout_tree.render_tree.doc.control_size(dom_node.node_id) {
+                        if let Some((w, h)) = layout_tree.render_tree.doc.interaction().control_size(dom_node.node_id) {
                             taffy_style.box_sizing = taffy::BoxSizing::BorderBox;
                             taffy_style.size = Size {
                                 width: Dimension::from_length(w as f32),
@@ -4243,6 +4520,26 @@ fn percent_height_resolves_in_line(layout_tree: &LayoutTree, id: LayoutElementId
 /// The content-box height of a box whose used `height` is `height`: clamped by any
 /// `min-height`/`max-height` lengths, less padding and border under `border-box`. `None` when an
 /// edge is not a length.
+/// What `relayout_cell` lays a table cell out at.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum CellHeight {
+    /// Its content height, for the row. `specified`: the percentage heights under it will
+    /// resolve against its final height.
+    Measure { specified: bool },
+    /// This border-box height. `specified`: the percentage heights in flow under it resolve
+    /// against it.
+    Final { height: f32, specified: bool },
+}
+
+/// A box under a cell with a percentage height that resolves against the cell.
+struct PercentHeight {
+    node: TaffyNodeId,
+    /// The fraction it was recorded with, for an item on one of the cell's lines.
+    line_fraction: Option<f32>,
+    out_of_flow: bool,
+    scroller: bool,
+}
+
 fn content_box_height(style: &Style, mut height: f32) -> Option<f32> {
     if let Some(max) = lpa_length(style.max_size.height) {
         height = height.min(max);
@@ -4709,7 +5006,7 @@ impl TaffyLayouter {
     /// (above it when there is no room below), sized to the widest option.
     fn attach_select_popup(&self, layout_tree: &mut LayoutTree) {
         let doc = Arc::clone(&layout_tree.render_tree.doc);
-        let Some(open) = doc.open_select() else {
+        let Some(open) = doc.interaction().open_select() else {
             return;
         };
         let select_id = open.select;
@@ -4744,8 +5041,7 @@ impl TaffyLayouter {
 
         let (sx, st, sb) = SELECT_POPUP_SHADOW;
         let chrome = pad_y * 2.0 + 2.0;
-        let (open_above, visible_rows) =
-            crate::layouter::popup_placement(anchor, (open.viewport_top, open.viewport_height), rows.len());
+        let (open_above, visible_rows) = crate::layouter::popup_placement(anchor, open.viewport, rows.len());
         let scrolls = rows.len() > visible_rows;
         // Text inset 10px each side, room for the checkmark and the scrollbar.
         let width = anchor

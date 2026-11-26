@@ -5,6 +5,7 @@ use crate::engine::edit;
 use crate::html::{EngineDocument, RenderConfiguration};
 use cow_utils::CowUtils;
 use gosub_interface::document::Document as _;
+use gosub_interface::interaction::InteractionSnapshot;
 use gosub_shared::node::NodeId;
 use url::Url;
 
@@ -21,10 +22,13 @@ pub struct Submission {
 }
 
 /// The `<form>` a control belongs to: its `form` attribute's target, else the nearest ancestor.
+/// A connected control with a `form` attribute that names no form has no owner (HTML 4.10.17.3,
+/// "reset the form owner").
 pub fn form_owner<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> Option<NodeId> {
-    if let Some(target) = doc.attribute(id, "form").and_then(|f| doc.node_by_named_id(f)) {
-        if doc.tag_name(target) == Some("form") {
-            return Some(target);
+    if let Some(f) = doc.attribute(id, "form") {
+        if is_connected(doc, id) {
+            let target = doc.node_by_named_id_in(doc.tree_root(id), f)?;
+            return (doc.tag_name(target) == Some("form")).then_some(target);
         }
     }
     let mut cur = doc.parent(id)?;
@@ -34,6 +38,15 @@ pub fn form_owner<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -
         }
         cur = doc.parent(cur)?;
     }
+}
+
+/// Whether `id`'s shadow-including root is the document: up through each shadow root's host.
+fn is_connected<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> bool {
+    let mut root = doc.tree_root(id);
+    while let Some(host) = doc.shadow_host(root) {
+        root = doc.tree_root(host);
+    }
+    root == doc.root()
 }
 
 fn input_type<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> String {
@@ -66,6 +79,7 @@ pub fn button_kind<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) 
 /// `submitter` is the button that triggered the submit (other buttons don't contribute).
 pub fn data_set<C: RenderConfiguration>(
     doc: &EngineDocument<C>,
+    ix: &InteractionSnapshot,
     form: NodeId,
     submitter: Option<NodeId>,
 ) -> Vec<(String, String)> {
@@ -82,7 +96,7 @@ pub fn data_set<C: RenderConfiguration>(
         let value = match tag {
             "input" => match input_type(doc, id).as_str() {
                 "checkbox" | "radio" => {
-                    if !doc.is_checked(id) {
+                    if !ix.is_checked::<C>(doc, id) {
                         continue;
                     }
                     doc.attribute(id, "value").unwrap_or("on").to_string()
@@ -94,11 +108,11 @@ pub fn data_set<C: RenderConfiguration>(
                     doc.attribute(id, "value").unwrap_or_default().to_string()
                 }
                 "file" => continue,
-                _ => live_value(doc, id),
+                _ => live_value(doc, ix, id),
             },
-            "textarea" => live_value(doc, id),
+            "textarea" => live_value(doc, ix, id),
             "select" => {
-                let Some(opt) = doc.selected_option(id) else {
+                let Some(opt) = ix.selected_option::<C>(doc, id) else {
                     continue;
                 };
                 option_value(doc, opt)
@@ -116,9 +130,9 @@ pub fn data_set<C: RenderConfiguration>(
     out
 }
 
-fn live_value<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> String {
-    doc.control_edit_state(id)
-        .map(|s| s.value)
+fn live_value<C: RenderConfiguration>(doc: &EngineDocument<C>, ix: &InteractionSnapshot, id: NodeId) -> String {
+    ix.control_edit_state(id)
+        .map(|s| s.value.clone())
         .unwrap_or_else(|| edit::initial_value(doc, id))
 }
 
@@ -139,6 +153,7 @@ fn option_value<C: RenderConfiguration>(doc: &EngineDocument<C>, opt: NodeId) ->
 /// urlencoded GET/POST; other methods/enctypes fall back to that.
 pub fn submission<C: RenderConfiguration>(
     doc: &EngineDocument<C>,
+    ix: &InteractionSnapshot,
     form: NodeId,
     submitter: Option<NodeId>,
     base: &Url,
@@ -157,7 +172,7 @@ pub fn submission<C: RenderConfiguration>(
     };
     let post = attr("formmethod", "method").is_some_and(|m| m.eq_ignore_ascii_case("post"));
 
-    let data = data_set(doc, form, submitter);
+    let data = data_set(doc, ix, form, submitter);
     let mut encoded = url::form_urlencoded::Serializer::new(String::new());
     for (k, v) in &data {
         encoded.append_pair(k, v);
@@ -231,11 +246,39 @@ mod tests {
         );
         let form = doc.node_by_named_id("x").unwrap();
         let base = url::Url::parse("https://site.test/page").unwrap();
-        let submission = submission(&doc, form, None, &base).expect("a submission");
+        let submission = submission(&doc, &InteractionSnapshot::default(), form, None, &base).expect("a submission");
         assert_eq!(
             submission.referrer_policy,
             Some(gosub_sonar::ReferrerPolicy::NoReferrer)
         );
+    }
+
+    /// `form=` resolves in the control's own tree: inside a shadow tree, a form there with that
+    /// id, never the document's.
+    #[test]
+    fn form_attribute_resolves_in_the_shadow_tree() {
+        let doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>(
+            r#"<form id="f"></form><form id="g"></form><div id="host"><template shadowrootmode="open"><form id="f"></form><input id="i" form="f"><input id="j" form="g"></template></div>"#,
+        );
+        let shadow = doc.shadow_root(doc.node_by_named_id("host").unwrap()).unwrap();
+        let inner_form = doc.node_by_named_id_in(shadow, "f").unwrap();
+        assert_ne!(Some(inner_form), doc.node_by_named_id("f"));
+        let input = doc.node_by_named_id_in(shadow, "i").unwrap();
+        assert_eq!(form_owner(&doc, input), Some(inner_form));
+        let unmatched = doc.node_by_named_id_in(shadow, "j").unwrap();
+        assert_eq!(form_owner(&doc, unmatched), None);
+    }
+
+    /// A connected control whose `form` names no form has no owner, even inside a form.
+    #[test]
+    fn a_form_attribute_that_misses_does_not_fall_back_to_the_ancestor() {
+        let doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>(
+            r#"<form id="a"><input id="miss" form="nope"><input id="div" form="d"><input id="plain"></form><div id="d"></div>"#,
+        );
+        let form = doc.node_by_named_id("a").unwrap();
+        assert_eq!(form_owner(&doc, doc.node_by_named_id("miss").unwrap()), None);
+        assert_eq!(form_owner(&doc, doc.node_by_named_id("div").unwrap()), None);
+        assert_eq!(form_owner(&doc, doc.node_by_named_id("plain").unwrap()), Some(form));
     }
 
     /// Gemini input that is empty is still input: the query is there, empty, so the server
@@ -248,7 +291,7 @@ mod tests {
         );
         let form = doc.node_by_named_id("x").unwrap();
         let base = url::Url::parse("gemini://h.test/search").unwrap();
-        let submission = submission(&doc, form, None, &base).expect("a submission");
+        let submission = submission(&doc, &InteractionSnapshot::default(), form, None, &base).expect("a submission");
         assert_eq!(submission.url.as_str(), "gemini://h.test/search?");
     }
 }

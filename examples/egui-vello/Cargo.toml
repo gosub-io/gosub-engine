@@ -23,8 +23,6 @@ anyhow = { workspace = true }
 log = { workspace = true }
 simple_logger = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
-tracing-log = { workspace = true }
 
 [lints.clippy]
 mod_module_files = "deny"

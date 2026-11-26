@@ -128,8 +128,11 @@ fn measure_cell<T: TableTree>(
     // Ask the implementor to lay out the cell's children and report their height.
     let content_h = tree.layout_cell(cell.node, inner_w);
 
-    // Explicit CSS `height` is a minimum - content can be taller.
+    // Explicit CSS `height` is a minimum - content can be taller. A `border-box` one counts the
+    // cell's border and padding.
+    let border_box = matches!(tree.css_length(cell.node, CssProp::BoxSizing), CssLength::Px(v) if v == 1.0);
     let explicit_h = match tree.css_length(cell.node, CssProp::Height) {
+        CssLength::Px(px) if border_box => (px - border.vertical() - padding.vertical()).max(0.0),
         CssLength::Px(px) => px,
         _ => 0.0,
     };
@@ -175,6 +178,17 @@ pub(crate) fn read_padding_against<T: TableTree>(tree: &T, node: T::NodeId, basi
     }
 }
 
+/// The margins of `node`, percentages against `basis` and `auto` as zero.
+pub(crate) fn read_margin_against<T: TableTree>(tree: &T, node: T::NodeId, basis: f64) -> BoxEdges {
+    let side = |prop| tree.css_length(node, prop).resolve(basis).unwrap_or(0.0);
+    BoxEdges {
+        top: side(CssProp::MarginTop),
+        right: side(CssProp::MarginRight),
+        bottom: side(CssProp::MarginBottom),
+        left: side(CssProp::MarginLeft),
+    }
+}
+
 pub(crate) fn read_padding<T: TableTree>(tree: &T, node: T::NodeId) -> BoxEdges {
     BoxEdges {
         top: tree.css_length(node, CssProp::PaddingTop).px_or(0.0),
@@ -216,12 +230,14 @@ pub fn distribute_table_height<T: TableTree>(
     spacing_y: f64,
 ) -> f64 {
     // The same stack `compute_table_layout` builds: one gutter above every group and one
-    // below the last, and one between adjacent rows inside a group.
-    let extent = spacing_y
-        + sections
-            .iter()
-            .map(|s| s.heights.iter().sum::<f64>() + s.heights.len().saturating_sub(1) as f64 * spacing_y + spacing_y)
-            .sum::<f64>();
+    // below the last, and one between adjacent rows inside a group. Groups without rows take
+    // no gutter, and without any rows there is none at all.
+    let rows: f64 = sections
+        .iter()
+        .map(|s| s.heights.iter().sum::<f64>() + s.heights.len() as f64 * spacing_y)
+        .sum();
+    let has_rows = sections.iter().any(|s| !s.heights.is_empty());
+    let extent = if has_rows { spacing_y + rows } else { 0.0 };
     let mut excess = target - extent;
     if excess <= 0.0 {
         return 0.0;

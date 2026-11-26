@@ -353,36 +353,7 @@ impl Stream for ByteStream {
 
     #[inline]
     fn location(&self) -> Location {
-        // Find the last line that starts at or before text_pos. The stream advances
-        // mostly monotonically, so start from the cached line index of the previous
-        // call and walk from there - amortized O(1) instead of a binary search per call.
-        let mut idx = self.last_line_idx.get().min(self.line_starts.len() - 1);
-        while idx > 0 && self.line_starts[idx] > self.text_pos {
-            idx -= 1;
-        }
-        while idx + 1 < self.line_starts.len() && self.line_starts[idx + 1] <= self.text_pos {
-            idx += 1;
-        }
-        self.last_line_idx.set(idx);
-
-        // Columns count characters, not bytes, so they must be tallied. Resume from
-        // the previous call's position when it lies on the same line; otherwise count
-        // from the line start. Monotonic scans stay amortized O(1) even on a single
-        // multi-megabyte (e.g. minified) line.
-        let line_start = self.line_starts[idx];
-        let (cache_pos, cache_col) = self.col_cache.get();
-        let column = if cache_pos >= line_start && cache_pos <= self.text_pos {
-            cache_col + count_chars(&self.text[cache_pos..self.text_pos])
-        } else {
-            1 + count_chars(&self.text[line_start..self.text_pos])
-        };
-        self.col_cache.set((self.text_pos, column));
-
-        Location {
-            line: idx + 1,
-            column,
-            offset: self.text_pos,
-        }
+        self.location_at(self.text_pos)
     }
 }
 
@@ -463,6 +434,56 @@ impl ByteStream {
         }
         // An all-ASCII byte range is always valid UTF-8.
         std::str::from_utf8(&self.text[start..self.text_pos]).unwrap_or_default()
+    }
+
+    /// Returns the line/column/offset location of byte offset `pos`, which must lie on a
+    /// character boundary (e.g. a value of `tell_bytes()`). Lets a caller note a position
+    /// cheaply and only work out its location when it is needed.
+    pub fn location_at(&self, pos: usize) -> Location {
+        let pos = pos.min(self.text.len());
+
+        // Find the last line that starts at or before pos. The stream advances
+        // mostly monotonically, so start from the cached line index of the previous
+        // call and walk from there - amortized O(1) instead of a binary search per call.
+        let mut idx = self.last_line_idx.get().min(self.line_starts.len() - 1);
+        while idx > 0 && self.line_starts[idx] > pos {
+            idx -= 1;
+        }
+        while idx + 1 < self.line_starts.len() && self.line_starts[idx + 1] <= pos {
+            idx += 1;
+        }
+        self.last_line_idx.set(idx);
+
+        // Columns count characters, not bytes, so they must be tallied. Resume from
+        // the previous call's position when it lies on the same line (counting back
+        // when pos is before it); otherwise count from the line start. Monotonic scans
+        // stay amortized O(1) even on a single multi-megabyte (e.g. minified) line.
+        let line_start = self.line_starts[idx];
+        let (cache_pos, cache_col) = self.col_cache.get();
+        let column = if cache_pos >= line_start && cache_pos <= pos {
+            cache_col + count_chars(&self.text[cache_pos..pos])
+        } else if cache_pos > pos && self.line_starts.get(idx + 1).is_none_or(|&next| cache_pos < next) {
+            cache_col - count_chars(&self.text[pos..cache_pos])
+        } else {
+            1 + count_chars(&self.text[line_start..pos])
+        };
+        self.col_cache.set((pos, column));
+
+        Location {
+            line: idx + 1,
+            column,
+            offset: pos,
+        }
+    }
+
+    /// Returns up to `len` bytes of the decoded text from the current position, without
+    /// advancing. These are bytes, not characters: anything non-ASCII shows up as bytes
+    /// >= 0x80, so this is for matching ASCII keywords without building a slice.
+    pub fn lookahead_bytes(&self, len: usize) -> &[u8] {
+        // A mark restored after a re-decode can leave text_pos past the end
+        let start = self.text_pos.min(self.text.len());
+        let end = start.saturating_add(len).min(self.text.len());
+        &self.text[start..end]
     }
 
     /// Take a snapshot of the current position for later restoration.
@@ -1149,6 +1170,50 @@ mod test {
     }
 
     // ── replace_cr_as_lf config ───────────────────────────────────────────────
+
+    #[test]
+    fn test_location_at_any_order() {
+        // 'é' is 2 bytes, so columns and offsets differ on line 2.
+        let text = "ab\n\u{e9}x\u{e9}y\nz";
+        let stream = ByteStream::from_str(text, Encoding::UTF8);
+        let expected = |pos: usize| {
+            let before = &text[..pos];
+            let line = before.matches('\n').count() + 1;
+            let line_start = before.rfind('\n').map_or(0, |i| i + 1);
+            Location::new(line, text[line_start..pos].chars().count() + 1, pos)
+        };
+        let boundaries: Vec<usize> = (0..=text.len()).filter(|&p| text.is_char_boundary(p)).collect();
+
+        // Forward, backward and jumping between lines must all agree with a recount.
+        for &p in boundaries.iter().chain(boundaries.iter().rev()) {
+            assert_eq!(stream.location_at(p), expected(p), "pos {p}");
+        }
+        for &p in &[9, 3, 8, 5, 0, 10, 6, 2] {
+            assert_eq!(stream.location_at(p), expected(p), "pos {p}");
+        }
+        // Past the end clamps to the end.
+        assert_eq!(stream.location_at(100), expected(text.len()));
+    }
+
+    #[test]
+    fn test_lookahead_bytes() {
+        let mut stream = ByteStream::from_str("<!\u{e9}-", Encoding::UTF8);
+        assert_eq!(stream.lookahead_bytes(2), b"<!");
+        assert_eq!(stream.lookahead_bytes(0), b"");
+        stream.next_n(2);
+        // A non-ASCII character comes back as its UTF-8 bytes
+        assert_eq!(stream.lookahead_bytes(3), "\u{e9}-".as_bytes());
+        // Near the end the slice is cut short, and the position is unchanged
+        assert_eq!(stream.lookahead_bytes(10), "\u{e9}-".as_bytes());
+        assert_eq!(stream.tell_bytes(), 2);
+        stream.next_n(2);
+        assert_eq!(stream.lookahead_bytes(usize::MAX), b"");
+
+        // A position past the end of the text reads as nothing
+        let mut short = ByteStream::from_str("<", Encoding::UTF8);
+        short.reset_to_mark(stream.mark());
+        assert_eq!(short.lookahead_bytes(2), b"");
+    }
 
     #[test]
     fn test_replace_cr_as_lf() {

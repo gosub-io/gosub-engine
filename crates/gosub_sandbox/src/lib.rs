@@ -420,6 +420,19 @@ pub fn arm_deadline(after: std::time::Duration) -> std::io::Result<()> {
     imp::arm_deadline(after)
 }
 
+/// A deadline in two steps, for work that can be asked to stop: `expired` is called
+/// once, `after` from now, in a signal handler on the thread that is doing the work.
+/// If nothing has armed a deadline again `grace` later, the process ends with
+/// `SIGALRM`, as under [`arm_deadline`] - also when `expired` never returned.
+///
+/// `expired` runs between two instructions of whatever the process was doing, so it may
+/// only do what is safe there. Follow the work with [`arm_deadline`] or
+/// [`disarm_deadline`]. Linux only.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn arm_soft_deadline(after: std::time::Duration, grace: std::time::Duration, expired: fn()) -> std::io::Result<()> {
+    imp::arm_soft_deadline(after, grace, expired)
+}
+
 /// A pidfd for a process a child announced as its own child - verified
 /// against `/proc`, never taken on the child's word - so the caller can end
 /// it later with [`pidfd_kill`] whatever the pid has become since. Linux only.
@@ -463,6 +476,15 @@ pub fn confine_child_pid(pid: u32, data_limit: u64, max_tasks: u32) -> std::io::
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
 pub fn exit_now(code: i32) -> ! {
     imp::exit_now(code)
+}
+
+/// Settle the time zone while files can still be read: `TZ` is set from where
+/// `/etc/localtime` points when it is unset, and libc loads the zone's rules. A script
+/// engine in a locked-down renderer then knows the local time without opening a file.
+/// Call before any Landlock or seccomp, while the process has one thread. A no-op off Linux.
+pub fn prime_time_zone() {
+    #[cfg(all(feature = "multi-process", target_os = "linux"))]
+    imp::prime_time_zone();
 }
 
 /// Load the shared libraries a renderer's dependencies would otherwise `dlopen`

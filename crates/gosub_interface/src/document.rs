@@ -26,6 +26,17 @@ pub struct PendingStylesheet {
     pub media: Option<String>,
 }
 
+/// Why [`Document::attach`] left the tree as it was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttachError {
+    /// The node or the parent is not in the document.
+    MissingNode,
+    /// The node is the parent, or one of its host-including ancestors.
+    Cycle,
+    /// The node is a shadow root, which hangs off its host and is never anyone's child.
+    ShadowRoot,
+}
+
 /// Storage-agnostic document interface.
 ///
 /// All node data is accessed through `NodeId` handles. The concrete storage
@@ -58,7 +69,7 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
         location: Location,
     ) -> NodeId;
 
-    /// Deep-clone a node (and its subtree). Returns the new root NodeId.
+    /// Deep-clone a node (and its subtree), unattached. Returns the new root NodeId.
     fn clone_node(&mut self, id: NodeId) -> NodeId;
 
     /// Shallow-copy a node: same type/data/attributes, no children, unattached.
@@ -70,12 +81,21 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     fn parent(&self, id: NodeId) -> Option<NodeId>;
     fn children(&self, id: NodeId) -> &[NodeId];
     fn next_sibling(&self, id: NodeId) -> Option<NodeId>;
+    /// Whether `id` is a node of this document, attached or not. False once it is removed.
+    fn contains(&self, id: NodeId) -> bool;
 
-    fn attach(&mut self, node: NodeId, parent: NodeId, position: Option<usize>);
+    /// Insert `node` under `parent`, at `position` or last, moving it from where it was. On an
+    /// error nothing changes.
+    fn attach(&mut self, node: NodeId, parent: NodeId, position: Option<usize>) -> Result<(), AttachError>;
     fn detach(&mut self, node: NodeId);
+    /// Delete `node` itself, and its shadow root if it is a host. Their children are not
+    /// deleted: each becomes the root of its own detached tree, and no id below `node` resolves
+    /// from the document any more. DOM `remove()` and `removeChild()` keep the node alive, so
+    /// they use `detach`.
     fn remove(&mut self, node: NodeId);
 
-    /// Detach a node from its current parent and attach it to a new parent.
+    /// Move `node` to the end of `parent`'s children, from wherever it was - also when that is
+    /// `parent` already. A move that `attach` would refuse changes nothing.
     fn relocate_node(&mut self, node: NodeId, parent: NodeId);
 
     fn node_type(&self, id: NodeId) -> NodeType;
@@ -172,8 +192,18 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     fn doctype(&self) -> DocumentType;
     fn set_doctype(&mut self, doctype: DocumentType);
 
-    /// Look up a node by its `id` attribute value
+    /// The first element in tree order with this `id`, among the elements in the document tree
+    /// (not detached, not inside a shadow tree or a template's contents).
     fn node_by_named_id(&self, name_id: &str) -> Option<NodeId>;
+
+    /// The root of the tree `id` is in: the document, a shadow root, or the top of a subtree that
+    /// is not attached anywhere.
+    fn tree_root(&self, id: NodeId) -> NodeId;
+
+    /// The first element in tree order with this `id` in the tree below `root`, usually a
+    /// [`Self::tree_root`]. Ids resolve in the tree of the element that names them (`label for`,
+    /// `form=`), and `ShadowRoot.getElementById` is this with the shadow root.
+    fn node_by_named_id_in(&self, root: NodeId, name_id: &str) -> Option<NodeId>;
 
     fn node_count(&self) -> usize;
     fn peek_next_id(&self) -> NodeId;
@@ -232,48 +262,6 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     /// [`Document::write_xml_from_node`] with the attributes `attrs` gives for each element set
     /// on it, replacing any attribute of the same name.
     fn write_svg_from_node(&self, id: NodeId, attrs: &dyn Fn(NodeId) -> Vec<(&'static str, String)>) -> String;
-
-    fn is_hovered(&self, _id: NodeId) -> bool {
-        false
-    }
-
-    // Interaction state read by the `:focus`/`:checked` selectors and the painter.
-
-    fn is_focused(&self, _id: NodeId) -> bool {
-        false
-    }
-    /// Focused and the ring should show (keyboard focus, or a text-entry control).
-    fn is_focus_visible(&self, _id: NodeId) -> bool {
-        false
-    }
-    /// The focused element or one of its ancestors.
-    fn is_focus_within(&self, _id: NodeId) -> bool {
-        false
-    }
-    fn focused_node(&self) -> Option<NodeId> {
-        None
-    }
-    /// Live checkedness; the `checked` attribute is only the default.
-    fn is_checked(&self, id: NodeId) -> bool {
-        self.attribute(id, "checked").is_some()
-    }
-    /// What has been typed into a text control; `None` = untouched (shows its markup value).
-    fn control_edit_state(&self, _id: NodeId) -> Option<ControlEditState> {
-        None
-    }
-    /// The chosen `<option>` of a `<select>` (the `selected` attribute or the first option until
-    /// the user picks another). `None` = not tracked, use the markup.
-    fn selected_option(&self, _select: NodeId) -> Option<NodeId> {
-        None
-    }
-    /// Border-box size the user dragged a resizable control (`<textarea>`) to.
-    fn control_size(&self, _id: NodeId) -> Option<(f64, f64)> {
-        None
-    }
-    /// The open `<select>` dropdown, if any.
-    fn open_select(&self) -> Option<OpenSelect> {
-        None
-    }
 }
 
 /// An open `<select>` dropdown. Row indices count every popup row (options and group labels).

@@ -192,6 +192,7 @@ fn main() {
         "renderer-hover" => with_font_backend!(renderer_hover),
         "renderer-input" => with_font_backend!(renderer_input),
         "engine-remote-input" => with_font_backend!(engine_remote_input),
+        "engine-remote-scripts" => with_font_backend!(engine_remote_scripts),
         "engine-remote-controls" => with_font_backend!(engine_remote_controls),
         "renderer-input-tall" => with_font_backend!(renderer_input_tall),
         "renderer-resize" => with_font_backend!(renderer_resize),
@@ -2624,6 +2625,465 @@ async fn next_engine_event(
             Ok(Ok(_)) | Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
             _ => return Err(format!("event channel closed while waiting for {what}")),
         }
+    }
+}
+
+/// Page scripts in a resident renderer, through the engine: the document's inline,
+/// external and deferred scripts run where it is parsed, under the renderer's
+/// confinement, and their console lines and errors come back as events. Then
+/// `ExecuteScript`: values, an exception, the order of the answers, and a script that
+/// never ends - which is ended without the renderer or the page's globals going with it.
+/// Then a tab that never draws, a script whose page is replaced under it, and a page
+/// loaded with JavaScript off.
+fn engine_remote_scripts<F: FontSystem + Default>() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_config::settings::Setting;
+        use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
+        use gosub_engine::fork_server::protocol::ConfinementTier;
+        use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_render_pipeline::render::backend::ExternalHandle;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+
+        if !cfg!(feature = "js") {
+            eprintln!("engine-remote-scripts needs a script engine (feature js)");
+            return 2;
+        }
+        if !cfg!(feature = "cairo-tiles") {
+            eprintln!("engine-remote-scripts needs a rasterizer (feature cairo-tiles)");
+            return 2;
+        }
+        if !matches!(F::confinement(), Confinement::Full) {
+            eprintln!("engine-remote-scripts needs a Full-tier font system");
+            return 2;
+        }
+        let page = br#"<html><head>
+            <script>var seen = 1; console.log('inline', 1 + 1)</script>
+            <script src="/ext.js"></script>
+            <script defer src="/late.js"></script>
+            <script>missing()</script>
+            <script src="/gone.js"></script>
+        </head><body><p>page</p>
+            <script>Promise.resolve().then(() => console.log('job')); console.log('body ' + seen)</script>
+            <script>console.log('last ' + new Date(0).getTime())</script>
+        </body></html>"#
+            .to_vec();
+        let script = |text: &'static str| ("text/javascript", text.as_bytes().to_vec(), std::time::Duration::ZERO);
+        let (ext, late) = (
+            script("seen += 1; console.log('external')"),
+            script("console.log('deferred ' + seen)"),
+        );
+        let html = |text: &'static str| ("text/html", text.as_bytes().to_vec(), std::time::Duration::ZERO);
+        let (quiet, other) = (
+            html("<html><body><script>var q = 5; console.log('quiet')</script></body></html>"),
+            html("<html><body><script>var q = 50; console.log('other')</script></body></html>"),
+        );
+        // Tall only where the noscript elements' contents are markup (the stylesheet in the
+        // head) and shown (the paragraph it sizes): parsed and styled without scripting.
+        let noscript = html(
+            "<html><head><noscript><link rel=\"stylesheet\" href=\"/tall.css\"></noscript></head>\
+             <body><noscript><p>fallback</p></noscript><script>console.log('ran')</script></body></html>",
+        );
+        let Ok(port) = serve_routes(vec![
+            ("/", "text/html", page, std::time::Duration::ZERO),
+            ("/ext.js", ext.0, ext.1, ext.2),
+            ("/late.js", late.0, late.1, late.2),
+            ("/quiet", quiet.0, quiet.1, quiet.2),
+            ("/other", other.0, other.1, other.2),
+            ("/noscript", noscript.0, noscript.1, noscript.2),
+            (
+                "/tall.css",
+                "text/css",
+                b"noscript p { height: 3000px }".to_vec(),
+                std::time::Duration::ZERO,
+            ),
+        ]) else {
+            eprintln!("could not start the test server");
+            return 1;
+        };
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        runtime.block_on(async move {
+            let compositor = Arc::new(DefaultCompositor::default());
+            let mut engine: GosubEngine<TileConfig<F>> =
+                GosubEngine::new(None, Arc::new(NullBackend::new()), Arc::clone(&compositor));
+            if let Err(e) = engine.settings().set("security.renderer_process", Setting::Bool(true)) {
+                eprintln!("could not enable the renderer process: {e}");
+                return 1;
+            }
+            let mut events = engine.subscribe_events();
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+            if !matches!(engine.renderer_process_tier(), Some(ConfinementTier::Full)) {
+                eprintln!("the engine did not start a Full-tier renderer fork server");
+                return 1;
+            }
+            let services = ZoneServices {
+                storage: Arc::new(StorageService::new(
+                    Arc::new(InMemoryLocalStore::new()),
+                    Arc::new(InMemorySessionStore::new()),
+                )),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: None,
+            };
+            let Ok(mut zone) = engine.zone_builder().services(services).create() else {
+                eprintln!("could not create a zone");
+                return 1;
+            };
+            let Ok(first) = zone.tab_builder().create().await else {
+                eprintln!("could not create a tab");
+                return 1;
+            };
+            let tab = &first;
+            let _ = tab
+                .send(TabCommand::SetViewport {
+                    x: 0,
+                    y: 0,
+                    width: 1280,
+                    height: 720,
+                })
+                .await;
+            if tab.navigate(format!("http://127.0.0.1:{port}/")).await.is_err() {
+                eprintln!("navigate failed");
+                return 1;
+            }
+            let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
+
+            // What scripts say, in the order it comes: console lines as their text,
+            // errors as `error: <message>`, values as `value: <json>`.
+            let said = |event: &EngineEvent| match event {
+                EngineEvent::ConsoleMessage { text, .. } => Some(text.clone()),
+                EngineEvent::JavaScriptError { message, .. } => Some(format!("error: {message}")),
+                EngineEvent::ScriptResult { result, .. } => Some(format!("value: {result}")),
+                _ => None,
+            };
+            macro_rules! next {
+                ($what:expr) => {
+                    next_engine_event(&mut events, deadline, $what, |e| said(e).is_some())
+                        .await
+                        .map(|event| said(&event).unwrap_or_default())
+                };
+            }
+
+            // The page's own scripts, run by the renderer while it parsed the page.
+            let page_said = [
+                "inline 2",
+                "external",
+                "error: ReferenceError: missing is not defined",
+                "body 2",
+                "job",
+                "last 0",
+                "deferred 2",
+            ];
+            for expected in page_said {
+                match next!("the page's scripts") {
+                    Ok(line) if line == expected => {}
+                    Ok(line) => {
+                        eprintln!("the page's scripts said {line:?} where {expected:?} was due");
+                        return 1;
+                    }
+                    Err(e) => {
+                        eprintln!("{e} ({expected:?})");
+                        return 1;
+                    }
+                }
+            }
+
+            // Scripts sent to the page: they see its globals, and answer in order.
+            macro_rules! run_script {
+                ($source:expr) => {
+                    run_script!(first, $source)
+                };
+                ($tab:expr, $source:expr) => {{
+                    let source: &str = $source;
+                    let sent = $tab
+                        .send(TabCommand::ExecuteScript {
+                            source: source.to_owned(),
+                        })
+                        .await;
+                    if let Err(e) = sent {
+                        eprintln!("could not send {source:?}: {e}");
+                        return 1;
+                    }
+                }};
+            }
+            let exchanges = [
+                ("seen * 21", vec!["value: 42.0"]),
+                (
+                    "console.log('from a command'); ({ a: [1, 'x'], b: null })",
+                    vec!["from a command", r#"value: {"a":[1,"x"],"b":null}"#],
+                ),
+                ("throw new Error('boom')", vec!["error: Error: boom"]),
+                ("var kept = 'kept'; undefined", vec!["value: null"]),
+            ];
+            for (source, expected) in &exchanges {
+                run_script!(source);
+                for expected in expected {
+                    match next!("a script's answer") {
+                        Ok(line) if line == *expected => {}
+                        Ok(line) => {
+                            eprintln!("{source:?} said {line:?} where {expected:?} was due");
+                            return 1;
+                        }
+                        Err(e) => {
+                            eprintln!("{e} ({source:?})");
+                            return 1;
+                        }
+                    }
+                }
+            }
+            for n in 0..20 {
+                run_script!(&n.to_string());
+            }
+            for n in 0..20 {
+                let expected = format!("value: {n}.0");
+                match next!("twenty answers") {
+                    Ok(line) if line == expected => {}
+                    other => {
+                        eprintln!("answer {n} of twenty was {other:?}");
+                        return 1;
+                    }
+                }
+            }
+
+            // A script that never ends is ended by the renderer, which lives on: the
+            // globals of the page are still there for the next script.
+            if let Err(e) = engine.settings().set("scripting.max_run_ms", Setting::UInt(300)) {
+                eprintln!("could not set the script time limit: {e}");
+                return 1;
+            }
+            let started = std::time::Instant::now();
+            run_script!("for (;;) {}");
+            run_script!("Promise.resolve().then(() => { for (;;) {} }); 1");
+            run_script!("kept + ' ' + seen");
+            for expected in [
+                "error: script execution was terminated",
+                "error: script execution was terminated",
+                r#"value: "kept 2""#,
+            ] {
+                match next!("the answer after a runaway script") {
+                    Ok(line) if line == expected => {}
+                    other => {
+                        eprintln!("after a runaway script: {other:?} where {expected:?} was due");
+                        return 1;
+                    }
+                }
+            }
+            // two scripts ended at 300 ms each, not at the limit the page was loaded under
+            let took = started.elapsed();
+            if took >= std::time::Duration::from_millis(2500) {
+                eprintln!("two runaway scripts took {took:?} to end under a 300 ms limit");
+                return 1;
+            }
+            println!("page scripts, 24 commands and 2 runaway scripts ran in the renderer ({took:?} for the runaways)");
+
+            // The time limit covers a script and its promise jobs together: one that
+            // spends two thirds of it leaves its jobs the last third, not a limit of
+            // their own.
+            if let Err(e) = engine.settings().set("scripting.max_run_ms", Setting::UInt(3000)) {
+                eprintln!("could not set the script time limit: {e}");
+                return 1;
+            }
+            let started = std::time::Instant::now();
+            run_script!(
+                "const t = Date.now(); while (Date.now() - t < 2000) {} \
+                 Promise.resolve().then(() => { for (;;) {} }); 1"
+            );
+            match next!("the answer of a script with runaway promise jobs") {
+                Ok(line) if line == "error: script execution was terminated" => {}
+                other => {
+                    eprintln!("runaway promise jobs: {other:?}");
+                    return 1;
+                }
+            }
+            let took = started.elapsed();
+            if took >= std::time::Duration::from_millis(4000) {
+                eprintln!("a script and its promise jobs ran for {took:?} with a limit of 3 s");
+                return 1;
+            }
+            println!("a script and its promise jobs shared one time limit ({took:?})");
+
+            macro_rules! expect_said {
+                ($what:expr, $expected:expr) => {
+                    for expected in $expected {
+                        match next!($what) {
+                            Ok(line) if line == expected => {}
+                            other => {
+                                eprintln!("{}: {other:?} where {expected:?} was due", $what);
+                                return 1;
+                            }
+                        }
+                    }
+                };
+            }
+            macro_rules! finished {
+                ($tab:expr) => {{
+                    let id = $tab.tab_id;
+                    let done = next_engine_event(&mut events, deadline, "the navigation to finish", |e| {
+                        matches!(e, EngineEvent::Navigation { tab_id, event: NavigationEvent::Finished { .. } } if *tab_id == id)
+                    })
+                    .await;
+                    if let Err(e) = done {
+                        eprintln!("{e}");
+                        return 1;
+                    }
+                }};
+            }
+
+            // A tab that never draws: the script itself has the renderer load the page,
+            // and the page's own output comes ahead of the answer.
+            let Ok(undrawn) = zone.tab_builder().create().await else {
+                eprintln!("could not create a second tab");
+                return 1;
+            };
+            if undrawn.navigate(format!("http://127.0.0.1:{port}/quiet")).await.is_err() {
+                eprintln!("navigate failed");
+                return 1;
+            }
+            finished!(undrawn);
+            run_script!(undrawn, "q + 1");
+            expect_said!("a script in a tab that does not draw", ["quiet", "value: 6.0"]);
+
+            // A script still running when its page is replaced answers with an error,
+            // not with what it made of the old page; the new page takes scripts.
+            if let Err(e) = engine.settings().set("scripting.max_run_ms", Setting::UInt(3000)) {
+                eprintln!("could not set the script time limit: {e}");
+                return 1;
+            }
+            run_script!(undrawn, "for (;;) {}");
+            if undrawn.navigate(format!("http://127.0.0.1:{port}/other")).await.is_err() {
+                eprintln!("navigate failed");
+                return 1;
+            }
+            expect_said!(
+                "the answer of a script whose page was replaced",
+                ["error: the page was replaced while the script ran"]
+            );
+            run_script!(undrawn, "q");
+            expect_said!("a script in the page that replaced it", ["other", "value: 50.0"]);
+
+            // JavaScript off: the renderer parses without scripting (a noscript element's
+            // contents are markup, here a stylesheet and the paragraph it makes tall), shows
+            // what is in it and runs nothing. With it on, the same page is short and its script
+            // runs. Off first: the frame that is up when the page is loaded again is the tall
+            // one, so a short one is the new page's.
+            for (on, expected) in [(false, "error: JavaScript is disabled"), (true, "ran")] {
+                if let Err(e) = engine.settings().set("scripting.javascript_enabled", Setting::Bool(on)) {
+                    eprintln!("could not switch JavaScript: {e}");
+                    return 1;
+                }
+                if first.navigate(format!("http://127.0.0.1:{port}/noscript")).await.is_err() {
+                    eprintln!("navigate failed");
+                    return 1;
+                }
+                finished!(first);
+                if !on {
+                    // only once the page is drawn: its scripts, had any run, have reported
+                    loop {
+                        if tokio::time::Instant::now() >= deadline {
+                            eprintln!("the page without scripting never became tall");
+                            return 1;
+                        }
+                        match compositor.frame_for(first.tab_id) {
+                            Some(ExternalHandle::TileCache { page_height, .. }) if page_height >= 3000.0 => break,
+                            _ => tokio::time::sleep(std::time::Duration::from_millis(50)).await,
+                        }
+                    }
+                    run_script!("1");
+                }
+                match next!("the page with a noscript element") {
+                    Ok(line) if line.starts_with(expected) => {}
+                    other => {
+                        eprintln!("JavaScript {on}: {other:?} where {expected:?} was due");
+                        return 1;
+                    }
+                }
+                if on {
+                    // the script's line comes with the render, the frame a little later
+                    loop {
+                        if tokio::time::Instant::now() >= deadline {
+                            eprintln!("with scripting the noscript contents are text, but the page stayed tall");
+                            return 1;
+                        }
+                        match compositor.frame_for(first.tab_id) {
+                            Some(ExternalHandle::TileCache { page_height, .. }) if page_height < 3000.0 => break,
+                            _ => tokio::time::sleep(std::time::Duration::from_millis(50)).await,
+                        }
+                    }
+                }
+            }
+
+            // A renderer keeps the pages of three tabs. A tab that does not draw and whose
+            // page it let go of is told so by its next script, and has the page back for
+            // the one after: nothing else would load it again.
+            let mut crowd = Vec::new();
+            for _ in 0..3 {
+                let Ok(tab) = zone.tab_builder().create().await else {
+                    eprintln!("could not create one more tab");
+                    return 1;
+                };
+                if tab.navigate(format!("http://127.0.0.1:{port}/quiet")).await.is_err() {
+                    eprintln!("navigate failed");
+                    return 1;
+                }
+                finished!(tab);
+                run_script!(tab, "q + 1");
+                expect_said!("a script in one more tab", ["quiet", "value: 6.0"]);
+                crowd.push(tab);
+            }
+            run_script!(undrawn, "q");
+            expect_said!(
+                "a script for a page the renderer let go of",
+                ["error: the page is no longer loaded in its renderer"]
+            );
+            run_script!(undrawn, "q");
+            expect_said!("the script after it", ["other", "value: 50.0"]);
+
+            // Which page goes is the one used longest ago, and a script is use: of the two
+            // crowd tabs still there, the older one runs a script and outlives the newer.
+            run_script!(crowd[1], "q = 7; q");
+            expect_said!("a script in the older tab", ["value: 7.0"]);
+            let Ok(extra) = zone.tab_builder().create().await else {
+                eprintln!("could not create one more tab");
+                return 1;
+            };
+            if extra.navigate(format!("http://127.0.0.1:{port}/quiet")).await.is_err() {
+                eprintln!("navigate failed");
+                return 1;
+            }
+            finished!(extra);
+            run_script!(extra, "q + 1");
+            expect_said!("a script in the tab that pushed a page out", ["quiet", "value: 6.0"]);
+            run_script!(crowd[1], "q");
+            expect_said!("a script in the tab that ran one last", ["value: 7.0"]);
+            drop(extra);
+            drop(crowd);
+
+            println!("a tab that does not draw, a replaced page, a page the renderer let go of and a page without JavaScript behaved");
+
+            engine.close_zone(zone).await;
+            let _ = engine.shutdown().await;
+            0
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the fork server exists only on Linux");
+        2
     }
 }
 

@@ -301,6 +301,10 @@ li {
     display: list-item;
     text-align: -webkit-match-parent;
 }
+/* HTML §15.3.7: each list scopes its own `list-item` counter. */
+ol, ul, menu {
+    counter-reset: list-item;
+}
 /* css-lists-3 §3.1, HTML §15.3.8. `white-space: pre` keeps the space that ends a marker. */
 ::marker {
     unicode-bidi: isolate;
@@ -1312,11 +1316,12 @@ html::spelling-error {
 html::grammar-error {
     text-decoration: -internal-grammar-error-color grammar-error;
 }
-/* With scripting enabled the parser reads a noscript element's contents as raw text, so this rule
-   is what keeps that text off the page; the engine always parses with scripting enabled. Were it
-   ever disabled, the contents would be real markup and this rule would have to go with it. */
-noscript {
-    display: none;
+/* With scripting enabled the parser reads a noscript element's contents as raw text, and this rule
+   keeps that text off the page. Without it the contents are markup, and shown. */
+@media (scripting) {
+    noscript {
+        display: none !important;
+    }
 }
 
 

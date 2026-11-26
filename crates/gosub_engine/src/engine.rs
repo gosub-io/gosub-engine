@@ -26,6 +26,7 @@ pub mod zone;
 
 pub mod config;
 mod policy;
+pub(crate) mod script;
 pub mod settings_store;
 pub mod types;
 pub mod viewport_meta;
