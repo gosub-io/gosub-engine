@@ -1,4 +1,4 @@
-# gosub_jsapi
+# gosub_js_api
 
 Implementations of browser Web APIs for Gosub, written as plain Rust with no knowledge of
 any JavaScript engine — the `gosub_webinterop` macros are the intended path for exposing

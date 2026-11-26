@@ -1,5 +1,5 @@
 [package]
-name = "gosub_jsapi"
+name = "gosub_js_api"
 version = "0.1.1"
 edition = "2021"
 authors = ["Gosub Community <info@gosub.io>"]

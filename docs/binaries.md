@@ -16,7 +16,7 @@ one-line banner (name, version, purpose) on stderr when it starts.
 | 9 | `gosub-screenshot` | `cargo run -p gosub-screenshot` | Headless full-page screenshot: load a URL through the complete engine + render pipeline and write a PNG. CPU rasterization only — no GPU, no window. `--viewport-height <px>` sets the viewport the page is laid out and rastered in (default 16384, i.e. the whole page at once); a realistic height such as 800 makes a replayed `scroll:` extend the raster window the way a real browser does, and the capture then covers only the rastered band. See [headless.md](headless.md). |
 | 10 | `table_console` | `cargo run -p gosub_lattice --bin table_console` | Console demos of the lattice table layout engine (colspan/rowspan/section clamping) rendered as ASCII tables; mirrors the integration tests in `gosub_lattice/src/tests.rs`. |
 | 11 | `generate_definitions` | `cargo run -p generate_definitions` | Regenerate the CSS property/value definition JSON embedded in `gosub_css3` (`resources/definitions/`) by merging webref spec grammars with MDN metadata. `--property-ids` regenerates the property-id module from the checked-in JSON instead, offline. |
-| 12 | `gosub-wpt` | `cargo run -p gosub-wpt -- <wpt-root> <test.html>…` | Run web-platform-tests `testharness.js` tests against the gosub DOM through the test-only JavaScript bindings in `gosub_domjs`. Reports per-subtest pass/fail. See [wpt.md](wpt.md). |
+| 12 | `gosub-wpt` | `cargo run -p gosub-wpt -- <wpt-root> <test.html>…` | Run web-platform-tests `testharness.js` tests against the gosub DOM through the test-only JavaScript bindings in `gosub_js_rquickjs_dom`. Reports per-subtest pass/fail. See [wpt.md](wpt.md). |
 | 13–22 | GUI example apps | `cargo run -p example-<name>` | Ten browser-shell binaries (`egui`/`gtk4`/`winit` × `cairo`/`skia`/`skia-gpu`/`vello`) that open a window and drive `GosubEngine` with the named backend. See [examples.md](examples.md). |
 | 23 | `css3_parser` (fuzz) | `cargo +nightly fuzz run css3_parser` (from `crates/gosub_css3/fuzz`) | libFuzzer target feeding arbitrary bytes to the CSS3 parser. No startup banner — libFuzzer owns `main`. |
 | 24 | `html5_parser` (fuzz) | `cargo +nightly fuzz run html5_parser` (from `crates/gosub_html5/fuzz`) | libFuzzer target for the HTML5 tree-construction parser. |
@@ -142,7 +142,7 @@ Got Value: 4
 ## gosub-wpt
 
 Runs the web-platform-tests `testharness.js` suites against the engine's DOM, using the
-test-only JavaScript bindings in `gosub_domjs` (QuickJS via `rquickjs`). Needs a
+test-only JavaScript bindings in `gosub_js_rquickjs_dom` (QuickJS via `rquickjs`). Needs a
 web-platform-tests checkout; `resources/` plus the test directories is enough.
 
 ```bash

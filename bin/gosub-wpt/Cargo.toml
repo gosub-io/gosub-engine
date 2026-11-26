@@ -11,7 +11,7 @@ name = "gosub-wpt"
 path = "main.rs"
 
 [dependencies]
-gosub_domjs = { path = "../../crates/gosub_domjs" }
+gosub_js_rquickjs_dom = { path = "../../crates/gosub_js_rquickjs_dom" }
 gosub_html5 = { path = "../../crates/gosub_html5" }
 gosub_interface = { path = "../../crates/gosub_interface" }
 gosub_shared = { path = "../../crates/gosub_shared" }

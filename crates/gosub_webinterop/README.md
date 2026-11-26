@@ -1,9 +1,9 @@
 # gosub_webinterop
 
 Proc-macro crate that generates the Rust ↔ JavaScript marshalling glue for Gosub Web APIs,
-so crates like `gosub_jsapi` never hand-write binding code. The generated code targets the
+so crates like `gosub_js_api` never hand-write binding code. The generated code targets the
 runtime-agnostic `WebRuntime` / `JSInterop` traits from `gosub_webexecutor`, not V8
-directly — any conforming runtime can consume it (today the only one is `gosub_v8`).
+directly — any conforming runtime can consume it (today the only one is `gosub_js_v8`).
 
 ## The macros
 
@@ -15,7 +15,7 @@ directly — any conforming runtime can consume it (today the only one is `gosub
 
 ## Testing
 
-The end-to-end tests live in `gosub_v8` (`src/tests/interop.rs`), which drives an
+The end-to-end tests live in `gosub_js_v8` (`src/tests/interop.rs`), which drives an
 annotated struct through V8: methods, `Vec`s, slices, tuples, and nested arrays.
 
 ## Further reading

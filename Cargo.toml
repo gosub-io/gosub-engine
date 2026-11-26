@@ -234,7 +234,7 @@ gosub_shared = { version = "0.1.1", path = "./crates/gosub_shared", registry = "
 parking_lot = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-gosub_v8 = { version = "0.1.1", path = "./crates/gosub_v8", features = [], registry = "gosub" }
+gosub_js_v8 = { version = "0.1.1", path = "./crates/gosub_js_v8", features = [], registry = "gosub" }
 gosub_webexecutor = { version = "0.1.1", path = "./crates/gosub_webexecutor", features = [], registry = "gosub" }
 gosub-sonar = "0.17.0"
 futures = { workspace = true }

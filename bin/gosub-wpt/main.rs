@@ -14,9 +14,9 @@ use std::process::ExitCode;
 use anyhow::{bail, Context as _};
 use clap::Parser;
 use cow_utils::CowUtils;
-use gosub_domjs::parse_document;
-use gosub_domjs::timers::{self, TimerState, Timers};
 use gosub_interface::document::Document as _;
+use gosub_js_rquickjs_dom::parse_document;
+use gosub_js_rquickjs_dom::timers::{self, TimerState, Timers};
 use gosub_shared::node::NodeId;
 use rquickjs::{CatchResultExt, Context, Ctx, Function, Runtime};
 use serde::Deserialize;
@@ -266,7 +266,7 @@ enum Script {
     Inline(String),
 }
 
-fn collect_scripts(doc: &gosub_domjs::Doc) -> Vec<Script> {
+fn collect_scripts(doc: &gosub_js_rquickjs_dom::Doc) -> Vec<Script> {
     let mut out = Vec::new();
     let mut stack: Vec<NodeId> = doc.children(doc.root()).iter().rev().copied().collect();
     while let Some(id) = stack.pop() {
@@ -411,7 +411,7 @@ fn run_test(wpt_root: &Path, test_path: &Path, expect: &Expectations, mode: Repo
             .map_err(|e| anyhow::anyhow!("results hook: {e}"))?;
 
         let timers: Timers = std::rc::Rc::new(std::cell::RefCell::new(TimerState::default()));
-        gosub_domjs::install(&ctx, doc.clone(), &timers)?;
+        gosub_js_rquickjs_dom::install(&ctx, doc.clone(), &timers)?;
         drain_jobs(&ctx);
 
         for script in &scripts {

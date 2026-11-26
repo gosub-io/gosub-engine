@@ -334,7 +334,7 @@ cargo run --release -p gosub-wpt -- "$WPT_ROOT" --tests-from /tmp/parsing-dirs \
 Regenerating rewrites the whole file, so anything a baseline needs to say about itself lives
 here rather than in a comment at the top of it. For the gated file, that is:
 
-- **Covered:** `dom/events` and `html/dom`, the two directories the `gosub_domjs` bindings
+- **Covered:** `dom/events` and `html/dom`, the two directories the `gosub_js_rquickjs_dom` bindings
   actually reach. The checkout also needs `dom/nodes`: three suites pull support scripts out of
   it (`Document-createEvent.js`, `DOMImplementation-createHTMLDocument.js`, `attributes.js`) and
   become `ERROR` records without it, as does `dom/events/Event-constants.html` without
@@ -412,9 +412,9 @@ stderr; only results go to stdout, so regenerating never picks up stray lines.
 ## The testharness bindings
 
 The engine has no scripting environment yet, so the WPT `testharness.js` suites cannot run
-against it as they stand. `gosub_domjs` is a stopgap: a **test-only** DOM binding over a
-small JavaScript engine (QuickJS, through `rquickjs`), enough to let those tests drive the
-engine's own DOM.
+against it as they stand. `gosub_js_rquickjs_dom` is a stopgap: a **test-only** DOM binding
+over a small JavaScript engine (QuickJS, through `rquickjs`), enough to let those tests drive
+the engine's own DOM.
 
 CI covers `dom/events` and `html/dom` — the two directories these bindings actually reach.
 The harness itself is directory-agnostic: point it at any tree of `testharness.js` files.

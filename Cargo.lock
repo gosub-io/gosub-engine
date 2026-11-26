@@ -3274,9 +3274,9 @@ dependencies = [
  "anyhow",
  "clap",
  "cow-utils",
- "gosub_domjs",
  "gosub_html5",
  "gosub_interface",
+ "gosub_js_rquickjs_dom",
  "gosub_shared",
  "rquickjs",
  "serde",
@@ -3306,10 +3306,10 @@ dependencies = [
  "gosub_engine",
  "gosub_html5",
  "gosub_interface",
+ "gosub_js_v8",
  "gosub_render_pipeline",
  "gosub_renderer_vello",
  "gosub_shared",
- "gosub_v8",
  "gosub_webexecutor",
  "http",
  "indicatif",
@@ -3371,20 +3371,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gosub_domjs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cow-utils",
- "gosub_css3",
- "gosub_html5",
- "gosub_interface",
- "gosub_shared",
- "rquickjs",
- "url",
-]
-
-[[package]]
 name = "gosub_engine"
 version = "0.1.0"
 dependencies = [
@@ -3410,13 +3396,13 @@ dependencies = [
  "gosub_html5",
  "gosub_interface",
  "gosub_ipc",
- "gosub_jsapi",
+ "gosub_js_api",
+ "gosub_js_v8",
  "gosub_render_pipeline",
  "gosub_renderer_cairo",
  "gosub_renderer_skia",
  "gosub_sandbox",
  "gosub_shared",
- "gosub_v8",
  "gosub_webexecutor",
  "http",
  "image",
@@ -3516,7 +3502,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "gosub_jsapi"
+name = "gosub_js_api"
 version = "0.1.1"
 dependencies = [
  "cow-utils",
@@ -3525,6 +3511,35 @@ dependencies = [
  "regex",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "gosub_js_rquickjs_dom"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cow-utils",
+ "gosub_css3",
+ "gosub_html5",
+ "gosub_interface",
+ "gosub_shared",
+ "rquickjs",
+ "url",
+]
+
+[[package]]
+name = "gosub_js_v8"
+version = "0.1.2"
+dependencies = [
+ "anyhow",
+ "getrandom 0.4.2",
+ "gosub_sandbox",
+ "gosub_shared",
+ "gosub_webexecutor",
+ "gosub_webinterop",
+ "log",
+ "serde_json",
+ "v8",
 ]
 
 [[package]]
@@ -3676,21 +3691,6 @@ dependencies = [
  "gosub_shared",
  "resvg",
  "stacker",
-]
-
-[[package]]
-name = "gosub_v8"
-version = "0.1.2"
-dependencies = [
- "anyhow",
- "getrandom 0.4.2",
- "gosub_sandbox",
- "gosub_shared",
- "gosub_webexecutor",
- "gosub_webinterop",
- "log",
- "serde_json",
- "v8",
 ]
 
 [[package]]

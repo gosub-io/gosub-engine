@@ -1,5 +1,5 @@
 [package]
-name = "gosub_domjs"
+name = "gosub_js_rquickjs_dom"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"

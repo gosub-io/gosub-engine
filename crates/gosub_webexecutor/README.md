@@ -2,7 +2,7 @@
 
 The script-engine abstraction layer of Gosub. This crate defines the trait family that any
 JavaScript (or future scripting-language) engine must implement, so the rest of the engine
-never names a concrete runtime. It contains no V8 code — `gosub_v8` implements these
+never names a concrete runtime. It contains no V8 code — `gosub_js_v8` implements these
 traits; this crate only defines them.
 
 > **Status:** the scripting stack is built but not wired into the engine — no page script

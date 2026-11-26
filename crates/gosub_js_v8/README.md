@@ -1,4 +1,4 @@
-# gosub_v8
+# gosub_js_v8
 
 Rust bindings to the V8 JavaScript engine for Gosub. This crate wraps the `v8` crate and
 implements the runtime-agnostic `WebRuntime` trait family from `gosub_webexecutor` — it is
