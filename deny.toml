@@ -57,6 +57,12 @@ wildcards = "warn"
 deny = [
     # AI Fork of serde_yaml
     "serde_yml",
+    # A JavaScript engine is used through its own crate only; everything else goes through
+    # the engine-neutral layer. QuickJS is the WPT harness only, until it is removed.
+    # Without `--workspace` the check sees gosub_bin's graph alone, which does not hold the
+    # rquickjs wrappers, so they are reported as unused there.
+    { crate = "v8", wrappers = ["gosub_js_v8"], reason = "only gosub_js_v8 may use V8" },
+    { crate = "rquickjs", wrappers = ["gosub_js_rquickjs_dom", "gosub-wpt"], reason = "QuickJS is the WPT harness only" },
 ]
 
 [sources]

@@ -123,9 +123,9 @@ them — while `stylesheet.rs` already knew how to resolve them. The validator a
 disagreed, and the validator was the one that was wrong. The fix was the missing spellings, and
 it took the file to 24/24.
 
-**Fix it in engine code, never in the test bindings.** `crates/gosub_domjs` exists only to let
-these tests reach the engine; a shim there that makes a test go green tells us nothing. See
-[The one rule](wpt.md#the-one-rule).
+**Fix it in engine code, never in the test bindings.** `crates/gosub_js_rquickjs_dom` exists
+only to let these tests reach the engine; a shim there that makes a test go green tells us
+nothing. See [The one rule](wpt.md#the-one-rule).
 
 ## Prove it
 

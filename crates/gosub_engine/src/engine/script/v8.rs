@@ -1,7 +1,7 @@
-//! The V8-backed script host. The only place in the engine that names `gosub_v8`.
+//! The V8-backed script host. The only place in the engine that names `gosub_js_v8`.
 
 use gosub_interface::script::{ScriptError, ScriptErrorKind, ScriptHost, ScriptOrigin, ScriptTerminator, ScriptValue};
-use gosub_v8::{V8Context, V8ContextOptions, V8Engine, V8Error, V8EvalError, V8Options, V8Plain};
+use gosub_js_v8::{V8Context, V8ContextOptions, V8Engine, V8Error, V8EvalError, V8Options, V8Plain};
 
 use super::{console, ConsoleSink, ScriptLimits};
 

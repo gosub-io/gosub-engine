@@ -1,4 +1,4 @@
-//! `console` for page scripts: `gosub_jsapi`'s console on the global object.
+//! `console` for page scripts: `gosub_js_api`'s console on the global object.
 //!
 //! The glue is written by hand against the `gosub_webexecutor` traits, so it names no
 //! script engine. The `gosub_webinterop` macros can bind these methods, but their variadic
@@ -9,7 +9,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use gosub_interface::script::ConsoleLevel;
-use gosub_jsapi::console::{Console, LogLevel, Printer};
+use gosub_js_api::console::{Console, LogLevel, Printer};
 use gosub_shared::types::Result;
 use gosub_webexecutor::js::{
     VariadicArgsInternal, WebContext, WebFunctionCallBackVariadic, WebFunctionVariadic, WebObject, WebRuntime, WebValue,

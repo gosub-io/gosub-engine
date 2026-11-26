@@ -234,15 +234,15 @@ each other's renders. Tiles cross the process boundary as CPU pixels.
 ## JavaScript
 
 **Not wired.** No page executes script. Five crates exist and build - `gosub_webexecutor` (the
-runtime abstraction), `gosub_v8` (V8 bindings), `gosub_webinterop` (proc-macro glue),
-`gosub_jsapi` (console, fetch headers, URL, storage, events, text encoding, base64,
+runtime abstraction), `gosub_js_v8` (V8 bindings), `gosub_webinterop` (proc-macro glue),
+`gosub_js_api` (console, fetch headers, URL, storage, events, text encoding, base64,
 DOMException), and `gosub_web_platform` (event loop, timers, listeners) - but `gosub_engine`
 depends on none of them, and `TabCommand::ExecuteScript` is declared and not handled.
 
-Script runs in one place: the WPT harness, which uses QuickJS rather than V8. `gosub_domjs`
-binds the DOM to QuickJS through `rquickjs` so that web-platform-tests can drive the engine's
-document (`document`, `node`, `text`, `event`, `style`, `select`, `timers`). It is test-only and
-holds no DOM logic of its own.
+Script runs in one place: the WPT harness, which uses QuickJS rather than V8.
+`gosub_js_rquickjs_dom` binds the DOM to QuickJS through `rquickjs` so that web-platform-tests
+can drive the engine's document (`document`, `node`, `text`, `event`, `style`, `select`,
+`timers`). It is test-only and holds no DOM logic of its own.
 
 
 ## Embedder API - `gosub_engine`

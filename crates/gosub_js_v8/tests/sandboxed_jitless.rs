@@ -36,12 +36,12 @@ mod probe {
 
     fn evaluate() -> bool {
         // No worker threads: a renderer may not create any, and none would survive a fork.
-        let options = gosub_v8::V8Options {
+        let options = gosub_js_v8::V8Options {
             jitless: true,
             single_threaded: true,
             ..Default::default()
         };
-        if !gosub_v8::V8Engine::initialize_with(&options) {
+        if !gosub_js_v8::V8Engine::initialize_with(&options) {
             return false;
         }
 

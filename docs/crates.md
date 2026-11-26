@@ -100,7 +100,7 @@ The transport between the broker and its children: byte channels, length-framed 
 
 See [`javascript.md`](javascript.md) for how these crates stack together. Note: the whole scripting stack is currently **built but not wired** — no page script is executed yet.
 
-### gosub_v8
+### gosub_js_v8
 
 Rust bindings to the V8 JavaScript engine.
 
@@ -112,11 +112,11 @@ JavaScript (and future scripting language) execution runtime. Wraps V8 and provi
 
 Proc-macro crate. Provides macros for easily exposing Rust functions as JavaScript / Wasm / Lua APIs without hand-writing the binding glue.
 
-### gosub_jsapi
+### gosub_js_api
 
 Implementations of browser Web APIs (console, fetch, DOM, etc.) that are callable from JavaScript inside the engine.
 
-### gosub_domjs
+### gosub_js_rquickjs_dom
 
 Test-only DOM bindings over a small JavaScript engine (QuickJS via `rquickjs`), so that
 web-platform-tests can drive the engine's DOM before real scripting lands. Holds no DOM
@@ -165,10 +165,10 @@ flowchart TD
     vello("gosub_renderer_vello")
     dynamic("gosub_renderer_dynamic")
     engine("gosub_engine ★")
-    v8("gosub_v8")
+    v8("gosub_js_v8")
     webexec("gosub_webexecutor")
     webinterop("gosub_webinterop")
-    jsapi("gosub_jsapi")
+    jsapi("gosub_js_api")
     webplatform("gosub_web_platform")
     ipc("gosub_ipc")
     sandbox("gosub_sandbox")

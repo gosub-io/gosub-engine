@@ -32,8 +32,8 @@ zone, sandboxed child processes for parsing and rendering, and an event bus. You
 | `gosub_renderer_dynamic` | Picks one of the render backends at runtime |
 | `gosub_svg` | SVG rendering |
 | `gosub_fontmanager` | Font system - text shaping and measurement |
-| `gosub_jsapi` | Browser Web API implementations (console, fetch, DOM, ...) |
-| `gosub_v8` | V8 JavaScript engine bindings |
+| `gosub_js_api` | Browser Web API implementations (console, fetch, DOM, ...) |
+| `gosub_js_v8` | V8 JavaScript engine bindings |
 | `gosub_config` | Configuration store |
 | `gosub_sandbox` | OS-level sandboxing: syscall filters, namespaces, child-process spawning |
 | `gosub_ipc` | Transport between the engine and its child processes |
@@ -64,7 +64,7 @@ what works and what does not, with the numbers.
 
 Not there yet: scripting is not wired into the engine. The V8 and web-API crates exist and
 build, but no page runs JavaScript - see [docs/javascript.md](docs/javascript.md). WPT drives
-the DOM through a separate test-only QuickJS binding (`gosub_domjs`).
+the DOM through a separate test-only QuickJS binding (`gosub_js_rquickjs_dom`).
 
 
 ## Gosub Beacon

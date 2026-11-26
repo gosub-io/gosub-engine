@@ -1,7 +1,7 @@
 //! V8 is initialized once per process, so options need a test binary of their own.
 #![allow(clippy::unwrap_used)]
 
-use gosub_v8::{V8Context, V8ContextOptions, V8Engine, V8Error, V8Options};
+use gosub_js_v8::{V8Context, V8ContextOptions, V8Engine, V8Error, V8Options};
 use gosub_webexecutor::js::{WebContext, WebValue};
 
 #[test]
