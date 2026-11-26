@@ -11,3 +11,6 @@ reviews:
         diff always get a thread.
     - path: "crates/gosub_lattice/**"
       instructions: *preexisting
+  auto_review:
+    # The default branch is always reviewed; these are the extra PR bases.
+    base_branches: ["^javascript-v8$"]
