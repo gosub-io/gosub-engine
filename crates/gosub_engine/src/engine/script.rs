@@ -441,20 +441,21 @@ mod tests {
         let (thread, _) = stub_thread();
         let thread = Arc::new(thread);
 
-        // 150 ms ahead in the queue, then 150 ms of its own: over a 200 ms limit only if
-        // the wait counted
+        // 500 ms ahead in the queue, then 100 ms of its own: over a 300 ms limit only if
+        // the wait counted. The own run is kept short: on the macOS CI runners a sleep
+        // overshoots by tens of milliseconds, and 150 ms under 200 was ended there.
         let first = Arc::clone(&thread);
         let ahead = tokio::spawn(async move {
             first
-                .execute("sleep 150".to_owned(), ScriptOrigin::default(), LONG)
+                .execute("sleep 500".to_owned(), ScriptOrigin::default(), LONG)
                 .await
         });
         tokio::time::sleep(Duration::from_millis(20)).await;
         let queued = thread
             .execute(
-                "sleep 150".to_owned(),
+                "sleep 100".to_owned(),
                 ScriptOrigin::default(),
-                Duration::from_millis(200),
+                Duration::from_millis(300),
             )
             .await;
 
