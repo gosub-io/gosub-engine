@@ -26,8 +26,8 @@ fn element_with_text(name: &str, namespace: Option<&str>, text: &str) -> (Docume
     let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
     let element = doc.create_element(name, namespace, Attributes::new(), Location::default());
     let child = doc.create_text(text, Location::default());
-    doc.attach(element, doc.root(), None);
-    doc.attach(child, element, None);
+    assert_eq!(doc.attach(element, doc.root(), None), Ok(()));
+    assert_eq!(doc.attach(child, element, None), Ok(()));
     (doc, element, child)
 }
 
@@ -186,9 +186,9 @@ fn svg_mode_sets_attributes_per_element() {
     let svg = doc.create_element("svg", Some(SVG_NAMESPACE), Attributes::new(), Location::default());
     let path = doc.create_element("path", Some(SVG_NAMESPACE), Attributes::new(), Location::default());
     let rect = doc.create_element("rect", Some(SVG_NAMESPACE), Attributes::new(), Location::default());
-    doc.attach(svg, doc.root(), None);
-    doc.attach(path, svg, None);
-    doc.attach(rect, svg, None);
+    doc.attach(svg, doc.root(), None).unwrap();
+    doc.attach(path, svg, None).unwrap();
+    doc.attach(rect, svg, None).unwrap();
     doc.set_attribute(svg, "fill", "black");
     doc.set_attribute(svg, "viewBox", "0 0 1 1");
     doc.set_attribute(path, "fill", "blue");

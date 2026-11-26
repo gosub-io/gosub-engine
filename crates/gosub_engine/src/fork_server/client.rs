@@ -322,6 +322,7 @@ pub(crate) enum RenderEvent {
         effects: Vec<Effect>,
     },
     Evict(Vec<u64>),
+    Script(crate::fork_server::protocol::ScriptReport),
     Refused(String),
 }
 
@@ -371,6 +372,7 @@ impl RenderStream for FromRenderer {
                 effects,
             },
             FromRenderer::Evict { hashes } => RenderEvent::Evict(hashes),
+            FromRenderer::Script(report) => RenderEvent::Script(report),
             FromRenderer::Audit(_) => anyhow::bail!("an audit report in the middle of a render"),
         })
     }
@@ -429,6 +431,7 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
 ) -> anyhow::Result<RenderedPage> {
     let mut received = Vec::new();
     let mut evicted = Vec::new();
+    let mut scripts = Vec::new();
     let started = std::time::Instant::now();
     let (mut messages, mut resources, mut tile_bytes) = (0usize, 0usize, 0usize);
     loop {
@@ -445,6 +448,15 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
                 if evicted.len() > MAX_EXCHANGE_MESSAGES {
                     anyhow::bail!("renderer evicted more than {MAX_EXCHANGE_MESSAGES} tiles in one render");
                 }
+            }
+            RenderEvent::Script(report) => {
+                if scripts.len() >= crate::fork_server::protocol::MAX_SCRIPT_REPORTS {
+                    anyhow::bail!(
+                        "renderer sent more than {} script reports in one exchange",
+                        crate::fork_server::protocol::MAX_SCRIPT_REPORTS
+                    );
+                }
+                scripts.push(bound_script_report(report));
             }
             RenderEvent::NeedResource { url, kind, deferred } => {
                 resources += 1;
@@ -527,6 +539,7 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
                     hit_regions,
                     evicted,
                     effects,
+                    scripts,
                 });
             }
             RenderEvent::Refused(reason) => anyhow::bail!("{reason}"),
@@ -626,6 +639,33 @@ fn bound_hit_regions(regions: &mut Vec<crate::fork_server::protocol::HitRegion>)
 /// a bounded handful of effects, their strings cut or dropped like a hit
 /// region's, their rectangles finite. Past [`MAX_EFFECTS`] the frame is a
 /// renderer gone wrong, which ends the exchange like any malformed frame.
+/// A script report as the broker passes it on: its text no longer than the link allows.
+/// A result is JSON, which cannot be cut; one that is too long becomes an error.
+fn bound_script_report(
+    report: crate::fork_server::protocol::ScriptReport,
+) -> crate::fork_server::protocol::ScriptReport {
+    use crate::fork_server::protocol::{clip_script_text, ScriptReport, MAX_SCRIPT_TEXT};
+
+    match report {
+        ScriptReport::Console { level, text, origin } => ScriptReport::Console {
+            level,
+            text: clip_script_text(text),
+            origin: clip_script_text(origin),
+        },
+        ScriptReport::Error { message, line, column } => ScriptReport::Error {
+            message: clip_script_text(message),
+            line,
+            column,
+        },
+        ScriptReport::Result { json } if json.len() > MAX_SCRIPT_TEXT => ScriptReport::Error {
+            message: "the script's value is too large to report".to_owned(),
+            line: 0,
+            column: 0,
+        },
+        result @ ScriptReport::Result { .. } => result,
+    }
+}
+
 fn bound_effects(effects: &mut Vec<Effect>) -> anyhow::Result<()> {
     if effects.len() > MAX_EFFECTS {
         anyhow::bail!(
@@ -679,6 +719,19 @@ fn bound_effects(effects: &mut Vec<Effect>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Why a script did not run: the renderer no longer holds the tab's page (replaced after
+/// a crash, or past its retained-page limit). Loading it again helps.
+#[derive(Debug)]
+pub struct PageNotRetained;
+
+impl std::fmt::Display for PageNotRetained {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the page is no longer loaded in its renderer")
+    }
+}
+
+impl std::error::Error for PageNotRetained {}
+
 /// One page as the broker receives it: what the renderer measured, its tiles
 /// (freshly mapped or reused from the previous render), the geometry hit
 /// testing needs, and what an input pass asked for.
@@ -692,6 +745,8 @@ pub struct RenderedPage {
     pub evicted: Vec<u64>,
     /// What the input asked of the broker; empty for any other pass.
     pub effects: Vec<Effect>,
+    /// What the page's scripts reported during the exchange, in order.
+    pub scripts: Vec<crate::fork_server::protocol::ScriptReport>,
 }
 
 /// A tile of a rendered page: either pixels that just crossed, or pixels the
@@ -1366,6 +1421,34 @@ impl ResidentRenderer {
         known_tiles: &TileMemory,
         hovered_node: Option<u64>,
     ) -> anyhow::Result<RenderedPage> {
+        self.navigate_with(
+            html,
+            url,
+            tab,
+            viewport,
+            (scroll_x, scroll_y),
+            loader,
+            known_tiles,
+            hovered_node,
+            None,
+        )
+    }
+
+    /// [`Self::navigate`] for a tab with JavaScript on: the renderer runs the document's
+    /// scripts within `scripts`, and what they report comes back with the page.
+    #[allow(clippy::too_many_arguments)] // one wire message, spelled out
+    pub fn navigate_with(
+        &mut self,
+        html: &str,
+        url: &str,
+        tab: &str,
+        viewport: (f64, f64),
+        (scroll_x, scroll_y): (f64, f64),
+        loader: &dyn RenderResources,
+        known_tiles: &TileMemory,
+        hovered_node: Option<u64>,
+        scripts: Option<crate::fork_server::protocol::ScriptSettings>,
+    ) -> anyhow::Result<RenderedPage> {
         // Refused before anything is sent: the renderer is still fine.
         let message = ToRenderer::Navigate {
             tab: tab.to_string(),
@@ -1379,10 +1462,36 @@ impl ResidentRenderer {
             scroll_y,
             known_tiles: known_tiles.hashes(),
             hovered_node,
+            scripts,
         };
         refuse_oversized_document(&message)?;
         self.send(&message)?;
         self.exchange(loader, known_tiles)
+    }
+
+    /// Run `source` in the document `tab` shows in this renderer, for at most
+    /// `max_run_ms`. Returns what it wrote to the console and, last, its value or its
+    /// error. A script the link cannot carry is refused; the renderer is still fine then.
+    pub fn execute_script(
+        &mut self,
+        tab: &str,
+        source: &str,
+        max_run_ms: u64,
+        loader: &dyn RenderResources,
+    ) -> anyhow::Result<Vec<crate::fork_server::protocol::ScriptReport>> {
+        let message = ToRenderer::ExecuteScript {
+            tab: tab.to_string(),
+            source: source.to_string(),
+            max_run_ms,
+        };
+        refuse_oversized_document(&message)?;
+        self.send(&message)?;
+        // no tiles come back, so there is nothing a `TileUnchanged` could refer to
+        let page = self.exchange(loader, &TileMemory::default())?;
+        if page.summary.no_page {
+            return Err(PageNotRetained.into());
+        }
+        Ok(page.scripts)
     }
 
     /// The viewport of `tab`'s retained page moved: collect what came into
@@ -1555,6 +1664,155 @@ impl Drop for ForkServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The far end of a link, played by the test: answers one request with `answer`.
+    fn renderer_answering(answer: Vec<FromRenderer>) -> (ResidentRenderer, std::thread::JoinHandle<()>) {
+        let (ours, theirs) = gosub_ipc::channel::Channel::pair().expect("link pair");
+        let renderer = ResidentRenderer::around_link_for_test(Endpoint::from_channel(ours).expect("endpoint"));
+        let far = std::thread::spawn(move || {
+            let mut link = Endpoint::from_channel(theirs).expect("endpoint");
+            let _ = link.recv::<ToRenderer>();
+            for message in &answer {
+                if link.send(message).is_err() {
+                    return;
+                }
+            }
+        });
+
+        (renderer, far)
+    }
+
+    struct NoResources;
+    impl RenderResources for NoResources {
+        fn load(&self, _: &url::Url, _: ResourceKind) -> Result<LoadedResource, LoadError> {
+            Err(LoadError::Pending)
+        }
+    }
+
+    fn rendered() -> FromRenderer {
+        FromRenderer::Rendered {
+            summary: Default::default(),
+            hit_regions: Vec::new(),
+            effects: Vec::new(),
+        }
+    }
+
+    /// What a script reports is passed on in order, with its text cut to what the link
+    /// allows; a result that is too long to be cut becomes an error.
+    #[test]
+    fn script_reports_come_back_in_order_and_bounded() {
+        use crate::fork_server::protocol::{ScriptReport, WireConsoleLevel, MAX_SCRIPT_TEXT};
+
+        let long = "x".repeat(MAX_SCRIPT_TEXT + 100);
+        let (mut renderer, far) = renderer_answering(vec![
+            FromRenderer::Script(ScriptReport::Console {
+                level: WireConsoleLevel::Warn,
+                text: long.clone(),
+                origin: "https://site.test/a.js".to_owned(),
+            }),
+            FromRenderer::Script(ScriptReport::Error {
+                message: long.clone(),
+                line: 3,
+                column: 7,
+            }),
+            FromRenderer::Script(ScriptReport::Result { json: "42".to_owned() }),
+            FromRenderer::Script(ScriptReport::Result {
+                json: format!("\"{long}\""),
+            }),
+            rendered(),
+        ]);
+
+        let reports = renderer
+            .execute_script("tab", "1", 1000, &NoResources)
+            .expect("an answer");
+        far.join().expect("the far end");
+
+        let cut = "x".repeat(MAX_SCRIPT_TEXT);
+        assert_eq!(
+            reports,
+            [
+                ScriptReport::Console {
+                    level: WireConsoleLevel::Warn,
+                    text: cut.clone(),
+                    origin: "https://site.test/a.js".to_owned(),
+                },
+                ScriptReport::Error {
+                    message: cut,
+                    line: 3,
+                    column: 7,
+                },
+                ScriptReport::Result { json: "42".to_owned() },
+                ScriptReport::Error {
+                    message: "the script's value is too large to report".to_owned(),
+                    line: 0,
+                    column: 0,
+                },
+            ]
+        );
+        assert!(!renderer.is_dead());
+    }
+
+    /// A renderer that let go of the tab's page says so, and that is what comes back
+    /// instead of what it reported.
+    #[test]
+    fn a_script_for_a_page_the_renderer_let_go_of_is_told_apart() {
+        use crate::fork_server::protocol::ScriptReport;
+
+        let (mut renderer, far) = renderer_answering(vec![
+            FromRenderer::Script(ScriptReport::Error {
+                message: "this tab's document runs no scripts in its renderer".to_owned(),
+                line: 0,
+                column: 0,
+            }),
+            FromRenderer::Rendered {
+                summary: PageSummary {
+                    no_page: true,
+                    ..Default::default()
+                },
+                hit_regions: Vec::new(),
+                effects: Vec::new(),
+            },
+        ]);
+
+        let error = renderer
+            .execute_script("tab", "1", 1000, &NoResources)
+            .expect_err("no page, no answer");
+        far.join().expect("the far end");
+
+        assert!(error.is::<PageNotRetained>(), "{error}");
+        assert!(!renderer.is_dead());
+    }
+
+    /// A renderer that reports without end is one the broker gives up on.
+    #[test]
+    fn too_many_script_reports_end_the_exchange() {
+        use crate::fork_server::protocol::{ScriptReport, MAX_SCRIPT_REPORTS};
+
+        let mut answer: Vec<FromRenderer> = (0..=MAX_SCRIPT_REPORTS)
+            .map(|n| FromRenderer::Script(ScriptReport::Result { json: n.to_string() }))
+            .collect();
+        answer.push(rendered());
+        let (mut renderer, far) = renderer_answering(answer);
+
+        let error = renderer
+            .execute_script("tab", "1", 1000, &NoResources)
+            .expect_err("more reports than an exchange carries");
+        assert!(error.to_string().contains("script reports"), "{error}");
+        assert!(renderer.is_dead());
+        drop(renderer);
+        far.join().expect("the far end");
+    }
+
+    /// A script the link cannot carry is refused before it is sent.
+    #[test]
+    fn an_oversized_script_leaves_the_renderer_alive() {
+        let (ours, _theirs) = gosub_ipc::channel::Channel::pair().expect("link pair");
+        let mut renderer = ResidentRenderer::around_link_for_test(Endpoint::from_channel(ours).expect("endpoint"));
+        let source = "x".repeat(gosub_ipc::MAX_FRAME_LEN as usize + 1);
+
+        assert!(renderer.execute_script("tab", &source, 1000, &NoResources).is_err());
+        assert!(!renderer.is_dead(), "refused, not crashed");
+    }
 
     /// A document bigger than a frame is refused before it is sent, and the
     /// renderer is not marked dead for it.

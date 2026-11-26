@@ -3,7 +3,9 @@ mod parser;
 pub use parser::read_document_source;
 
 pub use parser::parse_main_document_stream;
-pub use parser::{document_referrer_policy, header_referrer_policy, DocumentError, HtmlParseConfig, ResourceHint};
+pub use parser::{
+    document_referrer_policy, header_referrer_policy, DocumentError, HtmlParseConfig, ResourceHint, ScriptHostSource,
+};
 
 use gosub_css3::system::Css3System;
 use gosub_fontmanager::ParleyFontSystem;

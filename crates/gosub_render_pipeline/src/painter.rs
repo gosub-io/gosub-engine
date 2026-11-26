@@ -7,8 +7,8 @@ use crate::common::browser_state::{BrowserState, WireframeState};
 use crate::common::document::node::NodeId;
 use gosub_interface::style::{
     Anchor, BackgroundImage, BackgroundRepeat, BackgroundSize, BackgroundTile, BorderCollapse,
-    BorderStyle as CssBorderStyle, Color as CssColor, ComputedStyle, Display, LinearGradient as CssLinearGradient,
-    ObjectFit, OverflowWrap, WordBreak,
+    BorderStyle as CssBorderStyle, Color as CssColor, ComputedStyle, Display, EmptyCells,
+    LinearGradient as CssLinearGradient, ObjectFit, OverflowWrap, Position, Prop, WordBreak,
 };
 
 /// Which colour of a [`ComputedStyle`] a brush is made from. A function pointer rather than a
@@ -541,8 +541,36 @@ impl Painter {
         )
     }
 
+    /// An empty cell under `empty-cells: hide` is not rendered, as if it were `visibility:
+    /// hidden`, in the separated-borders model only (css-tables-3 §5.2, §5.3.2). It is empty when
+    /// nothing in it is in flow or floated; whitespace counts only where `white-space` keeps it.
+    /// The borders model is the table's: past the rows and row groups, the table element, or the
+    /// parent an anonymous table inherits from.
+    fn is_hidden_empty_cell(&self, dom_node_id: NodeId) -> bool {
+        let doc = &self.layer_list.layout_tree.render_tree.doc;
+        let style = doc.computed_style(dom_node_id);
+        if style.declared_display() != Some(Display::TableCell) || style.inherited.empty_cells != EmptyCells::Hide {
+            return false;
+        }
+        let mut table = doc.parent(dom_node_id);
+        while let Some(id) = table.filter(|&id| self.is_table_track_group(id)) {
+            table = doc.parent(id);
+        }
+        if table.is_some_and(|id| doc.computed_style(id).inherited.border_collapse == BorderCollapse::Collapse) {
+            return false;
+        }
+        doc.children(dom_node_id).into_iter().all(|child| {
+            let child_style = doc.computed_style(child);
+            let out_of_flow = child_style.has(Prop::Position)
+                && matches!(child_style.box_group.position, Position::Absolute | Position::Fixed);
+            out_of_flow || doc.generates_no_table_box(child)
+        })
+    }
+
     fn generate_element_commands(&self, layout_element: &LayoutElementNode, dom_node_id: NodeId) -> Vec<PaintCommand> {
         let mut commands = Vec::new();
+        let hidden_cell =
+            matches!(layout_element.context, ElementContext::None) && self.is_hidden_empty_cell(dom_node_id);
 
         // A run of text has no box of its own to cast a shadow, the popup is not the select, and
         // the table's border overlay paints its cells' borders, not the table.
@@ -550,6 +578,7 @@ impl Painter {
             ElementContext::Text(_) | ElementContext::SelectPopup(_) | ElementContext::TableBorderOverlay(_) => {
                 (None, None)
             }
+            _ if hidden_cell => (None, None),
             _ => self.shadow_commands(layout_element, dom_node_id),
         };
         commands.extend(outer_shadows);
@@ -714,6 +743,7 @@ impl Painter {
             // Rows and row groups paint nothing themselves: their backgrounds go under the cells and,
             // under collapse, their borders join the cells' conflict resolution.
             ElementContext::None if self.is_table_track_group(dom_node_id) => {}
+            ElementContext::None if hidden_cell => {}
             ElementContext::None => {
                 commands.extend(self.table_layer_commands(layout_element));
                 let border_box = snap_to_pixels(layout_element.box_model.border_box);
@@ -771,10 +801,12 @@ impl Painter {
 
         // Text runs don't carry an outline; the owning element does. The popup shares the select's
         // node but isn't the select.
-        if !matches!(
-            layout_element.context,
-            ElementContext::Text(_) | ElementContext::SelectPopup(_)
-        ) {
+        if !hidden_cell
+            && !matches!(
+                layout_element.context,
+                ElementContext::Text(_) | ElementContext::SelectPopup(_)
+            )
+        {
             if let Some(cmd) = self.outline_command(layout_element, dom_node_id) {
                 commands.push(cmd);
             }
@@ -928,7 +960,7 @@ impl Painter {
                 .with_radius(Radius::new(6.0)),
         ));
 
-        let open = doc.open_select();
+        let open = doc.interaction().open_select();
         let (hovered, active, first) = open.map_or((None, None, 0), |o| (o.hover, o.active, o.first_row));
         let chosen = doc.selected_option(popup.select);
         let bar_w = popup.scrollbar_width();
@@ -1089,9 +1121,11 @@ impl Painter {
                 // The typed value/caret/selection are read here, not at layout, so typing is
                 // paint-only.
                 let doc = &self.layer_list.layout_tree.render_tree.doc;
-                let focused = doc.is_focused(dom_node_id);
-                let state = doc
+                let ix = doc.interaction();
+                let focused = ix.is_focused(dom_node_id);
+                let state = ix
                     .control_edit_state(dom_node_id)
+                    .cloned()
                     .unwrap_or_else(|| ControlEditState::new(initial_value.clone(), initial_value.chars().count()));
                 let value = state.value.clone();
                 // A date/time kind holds an ISO string and shows it the way its placeholder
@@ -1319,6 +1353,7 @@ impl Painter {
                     .layout_tree
                     .render_tree
                     .doc
+                    .interaction()
                     .control_edit_state(dom_node_id)
                     .and_then(|s| parse_floating_point_number(&s.value))
                     .map(|v| fraction_between(v, *min, *max).clamp(0.0, 1.0));
@@ -1403,8 +1438,8 @@ impl Painter {
             FormControl::ColorSwatch { value } => {
                 // What the picker chose lives on the document, like typed text; the markup
                 // value is only the default. Unparsable is black, per value sanitisation.
-                let doc = &self.layer_list.layout_tree.render_tree.doc;
-                let live = doc.control_edit_state(dom_node_id).map(|s| s.value);
+                let ix = self.layer_list.layout_tree.render_tree.doc.interaction();
+                let live = ix.control_edit_state(dom_node_id).map(|s| s.value.clone());
                 let color = Color::try_from_css(live.as_deref().unwrap_or(value)).unwrap_or(Color::BLACK);
                 commands.push(PaintCommand::rectangle(
                     Rectangle::new(content_box)

@@ -1,17 +1,18 @@
 use std::cell::RefCell;
 use std::fmt::Display;
-use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Once;
 
-use v8::{CreateParams, Exception, HandleScope, Isolate, Local, Value};
+use v8::{CreateParams, Exception, Global, Isolate, Local, PinScope, Value};
 
 pub use array::*;
 pub use compile::*;
 pub use context::*;
+pub use control::*;
+pub use evaluate::*;
 pub use function::*;
 use gosub_shared::types::Result;
 use gosub_webexecutor::js::WebRuntime;
@@ -21,6 +22,8 @@ pub use value::*;
 mod array;
 mod compile;
 mod context;
+mod control;
+mod evaluate;
 mod function;
 mod object;
 mod value;
@@ -41,8 +44,13 @@ impl Default for V8Engine {
 const MAX_V8_INIT_SECONDS: u64 = 10;
 
 impl V8Engine {
-    #[allow(clippy::panic)] // deliberate fail-fast: a hung V8 initialization cannot be recovered from
     pub fn initialize() {
+        Self::initialize_with(&V8Options::default());
+    }
+
+    /// Returns false when V8 was already initialized, in which case `options` had no effect.
+    #[allow(clippy::panic)] // deliberate fail-fast: a hung V8 initialization cannot be recovered from
+    pub fn initialize_with(options: &V8Options) -> bool {
         let mut wait_time = MAX_V8_INIT_SECONDS * 1000;
 
         if V8_INITIALIZING.load(Ordering::SeqCst) {
@@ -53,17 +61,42 @@ impl V8Engine {
                     panic!("V8 initialization timed out after {MAX_V8_INIT_SECONDS} seconds");
                 }
             }
-            return;
+            return false;
         }
+
+        let mut applied = false;
 
         V8_INITIALIZED.call_once(|| {
             V8_INITIALIZING.store(true, Ordering::SeqCst);
-            //https://github.com/denoland/rusty_v8/issues/1381
-            let platform = v8::new_unprotected_default_platform(0, false).make_shared();
+
+            let mut flags = options.flags.clone();
+            if options.jitless {
+                flags.push("--jitless".to_owned());
+            }
+            if options.single_threaded {
+                flags.push("--single-threaded".to_owned());
+            }
+            if !flags.is_empty() {
+                v8::V8::set_flags_from_string(&flags.join(" "));
+            }
+
+            // V8 otherwise opens /dev/urandom for every isolate and context
+            v8::V8::set_entropy_source(|buf| getrandom::fill(buf).is_ok());
+
+            let platform = if options.single_threaded {
+                v8::new_single_threaded_default_platform(false)
+            } else {
+                //https://github.com/denoland/rusty_v8/issues/1381
+                v8::new_unprotected_default_platform(0, false)
+            }
+            .make_shared();
             v8::V8::initialize_platform(platform);
             v8::V8::initialize();
             V8_INITIALIZING.store(false, Ordering::SeqCst);
+            applied = true;
         });
+
+        applied
     }
 
     pub fn new() -> Self {
@@ -78,7 +111,12 @@ pub struct V8Context {
 }
 
 /// Just a thin wrapper around the V8 Isolate. It has a strong reference to the V8Context to keep the Isolate alive
-pub struct IsolateWrapper {
+///
+/// The isolate is the thread's current one for as long as this lives: a thread can hold
+/// the contexts of several pages, and V8 works on the isolate that was entered last.
+/// Keep it in a local, like a scope: wrappers have to go in the reverse order they came.
+/// Nothing checks that order, which is why code outside this crate gets no wrapper.
+pub(crate) struct IsolateWrapper {
     iso: NonNull<Isolate>,    // we are not responsible for dropping the Isolate
     _ctx: Rc<RefCell<V8Ctx>>, //ctx to keep the isolate alive
 }
@@ -97,18 +135,29 @@ impl DerefMut for IsolateWrapper {
     }
 }
 
+impl Drop for IsolateWrapper {
+    fn drop(&mut self) {
+        // Safety: entered in `V8Context::isolate`, and wrappers go in the reverse order
+        // they came in, so this isolate is the current one
+        unsafe { self.iso.as_ref().exit() }
+    }
+}
+
 impl V8Context {
-    pub fn isolate(&self) -> IsolateWrapper {
+    pub(crate) fn isolate(&self) -> IsolateWrapper {
         let mut this = self.ctx.borrow_mut();
+        let iso = NonNull::from(this.isolate().as_mut());
+        // Safety: left again when the wrapper is dropped
+        unsafe { iso.as_ref().enter() }
 
         IsolateWrapper {
-            iso: NonNull::from(this.isolate().as_mut()),
+            iso,
             _ctx: Rc::clone(&self.ctx),
         }
     }
 
     pub fn error(&self, error: impl Display) {
-        let scope = &mut self.scope();
+        ctx_scope!(scope, self);
         let err = error.to_string();
         let Some(e) = v8::String::new(scope, &err) else {
             log::error!("failed to create exception string\nexception was: {err}");
@@ -119,7 +168,7 @@ impl V8Context {
         scope.throw_exception(e);
     }
 
-    pub fn create_exception<'b>(scope: &mut HandleScope<'b>, error: impl Display) -> Option<Local<'b, Value>> {
+    pub fn create_exception<'b>(scope: &mut PinScope<'b, '_>, error: impl Display) -> Option<Local<'b, Value>> {
         let err = error.to_string();
         let Some(e) = v8::String::new(scope, &err) else {
             log::error!("failed to create exception string\nexception was: {err}");
@@ -129,18 +178,11 @@ impl V8Context {
         Some(Exception::error(scope, e))
     }
 
-    pub fn scope(&self) -> HandleScope<'_> {
-        // let iso = unsafe { self.isolate_static() };
-        //
-        // let this = self.borrow();
-        //
-        // let c = this.ctx.clone();
-        //
-        // let x = HandleScope::with_context(iso, c);
+    /// The isolate and context a scope is opened on, see `ctx_scope!`.
+    pub(crate) fn scope_parts(&self) -> (IsolateWrapper, Global<v8::Context>) {
+        let context = self.ctx.borrow().ctx.clone();
 
-        let mut this = self.ctx.borrow_mut();
-
-        unsafe { mem::transmute(this.new_scope()) }
+        (self.isolate(), context)
     }
 }
 
@@ -158,7 +200,15 @@ impl V8Context {
     }
 
     pub fn new(params: CreateParams) -> Result<Self> {
-        let ctx = V8Ctx::new(params);
+        Self::new_with(params, &V8ContextOptions::default())
+    }
+
+    pub fn with_options(options: &V8ContextOptions) -> Result<Self> {
+        Self::new_with(Default::default(), options)
+    }
+
+    fn new_with(params: CreateParams, options: &V8ContextOptions) -> Result<Self> {
+        let ctx = V8Ctx::new(params, options);
         Ok(Self {
             ctx: Rc::new(RefCell::new(ctx)),
         })

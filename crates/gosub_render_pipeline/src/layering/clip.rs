@@ -93,25 +93,45 @@ pub fn paint_clips(tree: &LayoutTree) -> HashMap<LayoutElementId, Rect> {
             let (y, height) = if clip_y { (p.y, p.height) } else { (-FAR, 2.0 * FAR) };
             Rect::new(x, y, width, height)
         });
-        let inner = and(own, overflow);
-        let under = Clips {
-            flow: inner,
-            // A positioned box is the containing block of the absolutely positioned boxes under it.
-            abs: if position == Position::Static {
-                and(clips_here.abs, shape)
-            } else {
-                inner
-            },
-            fixed: and(clips_here.fixed, shape),
+        let under_with = |overflow: Option<Rect>| {
+            let inner = and(own, overflow);
+            Clips {
+                flow: inner,
+                // A positioned box is the containing block of the absolutely positioned boxes
+                // under it.
+                abs: if position == Position::Static {
+                    and(clips_here.abs, shape)
+                } else {
+                    inner
+                },
+                fixed: and(clips_here.fixed, shape),
+            }
         };
+        let under = under_with(overflow);
+        // A table's `overflow` clips its grid, not its captions (css-tables-3 §3.6.1). A caption
+        // anywhere else, a generated one under a block say, is clipped as usual.
+        let table =
+            style.has(Prop::Display) && matches!(style.box_group.display, Display::Table | Display::InlineTable);
+        let under_caption = under_with(None);
 
         for &child_id in &el.children {
+            let child = tree.get_node_by_id(child_id);
             // A box split into several layout elements (a table and its border overlay) is not
             // clipped by itself.
-            let same_box = tree
-                .get_node_by_id(child_id)
-                .is_some_and(|child| child.dom_node_id == el.dom_node_id);
-            stack.push((child_id, if same_box { clips_here } else { under }));
+            let same_box = child.is_some_and(|child| child.dom_node_id == el.dom_node_id);
+            let caption = table
+                && child.is_some_and(|child| {
+                    let style = doc.computed_style(child.dom_node_id);
+                    style.has(Prop::Display) && style.box_group.display == Display::TableCaption
+                });
+            let clips = if same_box {
+                clips_here
+            } else if caption {
+                under_caption
+            } else {
+                under
+            };
+            stack.push((child_id, clips));
         }
     }
     out

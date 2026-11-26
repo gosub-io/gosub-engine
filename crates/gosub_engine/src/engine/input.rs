@@ -18,6 +18,7 @@ pub use crate::engine::form::Submission;
 use crate::html::{is_text_input, EngineDocument, RenderConfiguration};
 use gosub_interface::document::Document as _;
 use gosub_interface::font_system::FontSystem;
+use gosub_interface::interaction::{InteractionSnapshot, InteractionState};
 use gosub_render_pipeline::common::document::pipeline_doc::pseudo_owner;
 use gosub_render_pipeline::common::geo::Rect;
 use gosub_render_pipeline::layering::layer::LayerList;
@@ -34,6 +35,16 @@ pub(crate) trait InputHost {
 
     /// The page's document, when this process holds one.
     fn document(&self) -> Option<Arc<EngineDocument<Self::Config>>>;
+    /// What the user did to the page: focus, typed values, toggles, picks, the open dropdown.
+    fn interaction(&self) -> &InteractionState;
+    fn interaction_mut(&mut self) -> &mut InteractionState;
+    /// [`Self::interaction`] read against the document as it is now.
+    fn interaction_snapshot(&self) -> InteractionSnapshot {
+        match self.document() {
+            Some(doc) => InteractionSnapshot::new::<Self::Config>(self.interaction(), &doc),
+            None => InteractionSnapshot::default(),
+        }
+    }
     /// The layer list the page was last laid out into, for hit testing and geometry.
     fn layer_list(&self) -> Option<Arc<LayerList>>;
     /// The scroll offset in CSS px: what viewport coordinates are measured against.
@@ -97,7 +108,8 @@ struct ResizeDrag {
 
 /// The input state of one page that is not the document's own: gestures in progress and
 /// what the last gesture asked of the embedder. Focus, selection, edit state, checkedness and
-/// the open dropdown live on the document, where the painter reads them.
+/// the open dropdown live in the host's [`InteractionState`], which the painter reads through
+/// a snapshot.
 #[derive(Default)]
 pub(crate) struct PageInput {
     /// A form submit triggered by the last click/key, for the tab worker to navigate.
@@ -204,7 +216,10 @@ impl PageInput {
     /// Whether the focused element is text-editable (input/textarea/contenteditable).
     pub fn focused_editable<H: InputHost>(host: &H) -> bool {
         match host.document() {
-            Some(doc) => doc.focused_node().is_some_and(|id| is_text_input(&doc, id)),
+            Some(doc) => host
+                .interaction_snapshot()
+                .focused_node()
+                .is_some_and(|id| is_text_input(&doc, id)),
             None => false,
         }
     }
@@ -213,7 +228,7 @@ impl PageInput {
     /// (see [`crate::html::link_referrer_policy`]), for Enter-to-activate.
     pub fn focused_link<H: InputHost>(host: &H) -> Option<(String, Option<gosub_sonar::ReferrerPolicy>)> {
         let doc = host.document()?;
-        let id = doc.focused_node()?;
+        let id = host.interaction_snapshot().focused_node()?;
         if doc.tag_name(id) == Some("a") {
             let href = doc.attribute(id, "href")?.to_string();
             Some((href, crate::html::link_referrer_policy(&doc, id)))
@@ -229,15 +244,18 @@ impl PageInput {
     /// ancestor's styles can change. That makes this the same shape as a hover move: two
     /// elements' worth of paint damage rather than a whole-document rebuild.
     pub fn set_focus<H: InputHost>(&mut self, host: &mut H, node: Option<NodeId>, visible: bool) -> bool {
-        let Some(doc) = host.document() else {
+        if host.document().is_none() {
             return false;
-        };
-        let previous = doc.focused_node();
-        let unchanged = previous == node && node.is_none_or(|n| doc.is_focus_visible(n) == visible);
+        }
+        let ix = host.interaction_snapshot();
+        let previous = ix.focused_node();
+        let unchanged = previous == node && node.is_none_or(|n| ix.is_focus_visible(n) == visible);
         if unchanged {
             return false;
         }
-        doc.set_focused_node(node, visible);
+        let state = host.interaction_mut();
+        state.focus = node;
+        state.focus_visible = visible;
         let nodes: Vec<NodeId> = [previous, node].into_iter().flatten().collect();
         host.damage_nodes(&nodes);
         let ll = host.layer_list();
@@ -278,7 +296,7 @@ impl PageInput {
         let ll = host.layer_list();
         let (leaf, lei) = hit_at(ll.as_deref(), host.scroll(), vp_x, vp_y);
 
-        if doc.open_select().is_some() {
+        if host.interaction_snapshot().open_select().is_some() {
             return self.popup_press(host, lei, vp_x, vp_y);
         }
 
@@ -337,7 +355,7 @@ impl PageInput {
             node,
             kind,
             anchor,
-            value: edit::picker_value(&doc, node, kind),
+            value: edit::picker_value(&doc, &host.interaction_snapshot(), node, kind),
             min,
             max,
             step,
@@ -361,10 +379,12 @@ impl PageInput {
             return false;
         };
         let next = edit::sanitize_picker_value(kind, value);
-        if edit::picker_value(&doc, node, kind) == next && doc.control_edit_state(node).is_some() {
+        let ix = host.interaction_snapshot();
+        if edit::picker_value(&doc, &ix, node, kind) == next && ix.control_edit_state(node).is_some() {
             return false;
         }
-        doc.set_control_edit_state(node, Some(gosub_interface::document::ControlEditState::new(next, 0)));
+        host.interaction_mut()
+            .set_edit(node, Some(gosub_interface::document::ControlEditState::new(next, 0)));
         Self::request_repaint(host, node);
         true
     }
@@ -396,9 +416,12 @@ impl PageInput {
         if self.drag_area_thumb.is_some() {
             return self.area_thumb_drag_to(host, vp_y);
         }
-        let (Some(drag), Some(doc)) = (self.drag_resize, host.document()) else {
+        let Some(drag) = self.drag_resize else {
             return false;
         };
+        if host.document().is_none() {
+            return false;
+        }
         let (mut w, mut h) = drag.size;
         if drag.horizontal {
             w = (drag.size.0 + vp_x - drag.start.0).max(40.0);
@@ -406,10 +429,10 @@ impl PageInput {
         if drag.vertical {
             h = (drag.size.1 + vp_y - drag.start.1).max(30.0);
         }
-        if doc.control_size(drag.node) == Some((w, h)) {
+        if host.interaction_snapshot().control_size(drag.node) == Some((w, h)) {
             return false;
         }
-        doc.set_control_size(drag.node, Some((w, h)));
+        host.interaction_mut().set_size(drag.node, Some((w, h)));
         host.relayout();
         true
     }
@@ -454,10 +477,11 @@ impl PageInput {
             return false;
         };
         let (min, max, _) = edit::range_params(&doc, node).unwrap_or((0.0, 100.0, 1.0));
-        if edit::range_value(&doc, node, min, max) == value && doc.control_edit_state(node).is_some() {
+        let ix = host.interaction_snapshot();
+        if edit::range_value(&doc, &ix, node, min, max) == value && ix.control_edit_state(node).is_some() {
             return false;
         }
-        doc.set_control_edit_state(
+        host.interaction_mut().set_edit(
             node,
             Some(gosub_interface::document::ControlEditState::new(
                 edit::format_number(value),
@@ -477,7 +501,7 @@ impl PageInput {
         let Some((min, max, step)) = edit::range_params(&doc, node) else {
             return false;
         };
-        let cur = edit::range_value(&doc, node, min, max);
+        let cur = edit::range_value(&doc, &host.interaction_snapshot(), node, min, max);
         let target = match key {
             "ArrowRight" | "ArrowUp" => cur + step,
             "ArrowLeft" | "ArrowDown" => cur - step,
@@ -508,7 +532,7 @@ impl PageInput {
         let Some(base) = doc.url() else {
             return false;
         };
-        self.pending_submission = form::submission(&doc, form, submitter, &base);
+        self.pending_submission = form::submission(&doc, &host.interaction_snapshot(), form, submitter, &base);
         self.pending_submission.is_some()
     }
 
@@ -520,10 +544,11 @@ impl PageInput {
         let Some(form) = form::form_owner(&doc, button) else {
             return false;
         };
+        let state = host.interaction_mut();
         for id in form::controls(&doc, form) {
-            doc.set_control_edit_state(id, None);
-            doc.set_checked(id, None);
-            doc.set_selected_option(id, None);
+            state.set_edit(id, None);
+            state.set_checked(id, None);
+            state.set_selected(id, None);
         }
         host.relayout();
         true
@@ -548,12 +573,13 @@ impl PageInput {
         let Some(doc) = host.document() else {
             return false;
         };
-        let changes = edit::toggle(&doc, node);
+        let changes = edit::toggle(&doc, &host.interaction_snapshot(), node);
         if changes.is_empty() {
             return false;
         }
+        let state = host.interaction_mut();
         for (n, checked) in changes {
-            doc.set_checked(n, Some(checked));
+            state.set_checked(n, Some(checked));
         }
         // `:checked` rules may restyle siblings and change layout.
         host.relayout();
@@ -573,7 +599,7 @@ impl PageInput {
         let Some(doc) = host.document() else {
             return false;
         };
-        let Some(node) = doc.focused_node() else {
+        let Some(node) = host.interaction_snapshot().focused_node() else {
             return false;
         };
         if key == " " && !ctrl_or_meta && edit::toggle_kind(&doc, node).is_some() {
@@ -624,7 +650,7 @@ impl PageInput {
         let Some(doc) = host.document() else {
             return false;
         };
-        let Some(node) = doc.focused_node() else {
+        let Some(node) = host.interaction_snapshot().focused_node() else {
             return false;
         };
         if edit::text_entry_kind(&doc, node).is_none() || text.is_empty() {
@@ -671,7 +697,7 @@ impl PageInput {
         let Some(doc) = host.document() else {
             return false;
         };
-        if doc.open_select().is_some() {
+        if host.interaction_snapshot().open_select().is_some() {
             Self::close_select_popup(host);
         }
         // Only elements with a box are reachable by keyboard; no render yet = every focusable.
@@ -682,7 +708,10 @@ impl PageInput {
         if order.is_empty() {
             return self.set_focus(host, None, false);
         }
-        let current = doc.focused_node().and_then(|f| order.iter().position(|&n| n == f));
+        let current = host
+            .interaction_snapshot()
+            .focused_node()
+            .and_then(|f| order.iter().position(|&n| n == f));
         let next = match (current, backwards) {
             (Some(i), false) => (i + 1) % order.len(),
             (Some(i), true) => (i + order.len() - 1) % order.len(),
@@ -732,7 +761,7 @@ impl PageInput {
     /// Returns whether the page changed.
     pub fn blur<H: InputHost>(&mut self, host: &mut H) -> bool {
         let mut changed = false;
-        if host.document().is_some_and(|doc| doc.open_select().is_some()) {
+        if host.interaction_snapshot().open_select().is_some() {
             Self::close_select_popup(host);
             changed = true;
         }

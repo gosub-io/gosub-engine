@@ -47,6 +47,7 @@ use gosub_html5::parser::Html5Parser;
 use gosub_interface::config::ModuleConfiguration;
 use gosub_interface::css3::{CssOrigin, CssPropertyMap, CssSystem as _};
 use gosub_interface::document::Document as _;
+use gosub_interface::interaction::InteractionSnapshot;
 use gosub_interface::node::NodeType;
 use gosub_shared::config::ParserConfig;
 use gosub_shared::node::NodeId;
@@ -263,7 +264,8 @@ fn dump_subtree(
     stats: &mut Stats,
 ) {
     let own = if doc.node_type(id) == NodeType::ElementNode {
-        let mut map = Css3System::properties_from_node::<Config>(doc, id, sheets, parent);
+        let mut map =
+            Css3System::properties_from_node::<Config>(doc, &InteractionSnapshot::default(), id, sheets, parent);
         if let Some(map) = map.as_mut() {
             dump_element(doc, id, map, computed, declared, stats);
         }

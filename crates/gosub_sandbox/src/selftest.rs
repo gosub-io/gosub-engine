@@ -128,6 +128,14 @@ pub const PROBES: &[&str] = &[
     #[cfg(target_os = "linux")]
     "path-stat-control",
     #[cfg(target_os = "linux")]
+    "script-probes",
+    #[cfg(target_os = "linux")]
+    "script-probe-other-path",
+    #[cfg(target_os = "linux")]
+    "soft-deadline",
+    #[cfg(target_os = "linux")]
+    "soft-deadline-ignored",
+    #[cfg(target_os = "linux")]
     "ring",
     #[cfg(target_os = "linux")]
     "netns",
@@ -1782,6 +1790,69 @@ fn run_platform_probe(probe: &str) {
                 "Path::exists reached the host"
             );
             std::process::exit(0);
+        }
+
+        // What a script engine reaches for in a renderer: `uname` answers,
+        // `pkey_alloc` is ENOSYS as on a kernel without protection keys, and
+        // the two files it probes are refused with EACCES rather than a kill.
+        // Clean exit = pass.
+        "script-probes" => {
+            let errno = || std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+            // SAFETY: plain syscalls on constants and a local buffer.
+            unsafe {
+                let mut name: libc::utsname = std::mem::zeroed();
+                assert_eq!(libc::uname(&mut name), 0, "uname was refused");
+                assert_eq!(libc::syscall(libc::SYS_pkey_alloc, 0, 0), -1, "pkey_alloc gave a key");
+                assert_eq!(errno(), libc::ENOSYS, "pkey_alloc was not ENOSYS");
+                for path in [c"/proc/self/maps", c"/etc/localtime"] {
+                    assert_eq!(libc::open(path.as_ptr(), libc::O_RDONLY), -1, "{path:?} was opened");
+                    assert_eq!(errno(), libc::EACCES, "{path:?} was not refused with EACCES");
+                }
+            }
+            std::process::exit(0);
+        }
+
+        // ...and only those two: any other path is still fatal. We reach the
+        // exit only if the open was let through or answered.
+        "script-probe-other-path" => unsafe {
+            libc::open(c"/proc/self/mapsx".as_ptr(), libc::O_RDONLY);
+            std::process::exit(0);
+        },
+
+        // The two-step deadline, first step: the handler is called while the
+        // work runs, and the work goes on. Clean exit = pass.
+        "soft-deadline" => {
+            static EXPIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            fn expired() {
+                EXPIRED.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            let grace = std::time::Duration::from_secs(30);
+            crate::arm_soft_deadline(std::time::Duration::from_millis(50), grace, expired).expect("arm");
+            let started = std::time::Instant::now();
+            while !EXPIRED.load(std::sync::atomic::Ordering::SeqCst) {
+                assert!(
+                    started.elapsed() < std::time::Duration::from_secs(10),
+                    "the handler never ran"
+                );
+                std::hint::spin_loop();
+            }
+            crate::disarm_deadline();
+            std::process::exit(0);
+        }
+
+        // Second step: a handler that never returns does not save the
+        // process. Killed by SIGALRM = pass; the exit is never reached.
+        "soft-deadline-ignored" => {
+            fn expired() {
+                loop {
+                    std::hint::spin_loop();
+                }
+            }
+            let grace = std::time::Duration::from_millis(200);
+            crate::arm_soft_deadline(std::time::Duration::from_millis(50), grace, expired).expect("arm");
+            loop {
+                std::hint::spin_loop();
+            }
         }
 
         // W^X: turning writable memory executable must be fatal. We reach the

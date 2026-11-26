@@ -6,6 +6,7 @@
 
 use gosub_interface::config::HasDocument;
 use gosub_shared::memory::{record, HeapSize, Row, Walk};
+use std::borrow::Cow;
 
 use crate::document::document_impl::DocumentImpl;
 use crate::node::data::comment::CommentData;
@@ -47,9 +48,11 @@ impl HeapSize for ShadowRootData {
 impl HeapSize for ElementData {
     fn heap_size(&self, walk: &mut Walk) {
         self.name.heap_size(walk);
-        self.namespace.heap_size(walk);
-        self.attributes.heap_size(walk);
-        self.class_list.heap_size(walk);
+        if let Some(Cow::Owned(namespace)) = &self.namespace {
+            namespace.heap_size(walk);
+        }
+        self.attributes().heap_size(walk);
+        self.classlist().heap_size(walk);
     }
 }
 
@@ -123,7 +126,7 @@ pub fn record_document<C: HasDocument>(doc: &DocumentImpl<C>, walk: &mut Walk) {
     let (owned, shared) = walk.take_counts();
     record(Row::new("dom.element.data", elements, 0, owned, shared).with_note("names, attributes, classes"));
 
-    // Row 3: the text. Half the nodes on a page, and none of them styled.
+    // Row 3: text and comments.
     for (_, node) in doc.arena.nodes() {
         match &node.data {
             NodeDataTypeInternal::Text(data) => data.heap_size(walk),

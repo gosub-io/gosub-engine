@@ -3,10 +3,6 @@ version = 2
 unmaintained = "all"
 yanked = "warn"
 ignore = [
-    # `adler` is unmaintained but is pinned transitively by v8's build-dependency
-    # (miniz_oxide 0.7.x, which requires `adler` ^0.7.2). It cannot be removed
-    # without v8 itself moving to miniz_oxide 0.8 (which uses adler2).
-    "RUSTSEC-2025-0056", # adler unmaintained
     # `paste` is unmaintained but only pulled in transitively; no maintained
     # drop-in replacement is wired through our dependencies yet.
     "RUSTSEC-2024-0436", # paste unmaintained
@@ -14,11 +10,6 @@ ignore = [
     # (resvg -> usvg -> fontdb) and font shaping (ab_glyph -> owned_ttf_parser).
     # Nothing we control depends on it directly.
     "RUSTSEC-2026-0192", # ttf-parser unmaintained
-    # `rustybuzz` is unmaintained (maintainer declared it EOL) but pulled in transitively
-    # by SVG rendering (resvg -> usvg -> rustybuzz). No safe upgrade is available; the
-    # maintained alternative (harfrust) requires resvg/usvg to migrate first. Nothing we
-    # control depends on it directly.
-    "RUSTSEC-2026-0206", # rustybuzz unmaintained
     # `quick-xml` 0.39 DoS advisories. Not exploitable here; nothing hands it untrusted
     # input. Two paths lead to it:
     # - `wayland-scanner`, a build-time proc-macro under winit's Wayland backend, which
@@ -30,6 +21,10 @@ ignore = [
     # updates its wayland-scanner dependency.
     "RUSTSEC-2026-0194", # quick-xml quadratic duplicate-attribute check (no untrusted input)
     "RUSTSEC-2026-0195", # quick-xml unbounded namespace allocation (no untrusted input)
+    # `chrono` is unmaintained and no release fixes that. gosub-sonar depends on it, and the
+    # engine uses it only for cookie dates (engine/cookies/cookie_jar.rs). Moving to `time` or
+    # `jiff` needs both repos; until then there is no build without it.
+    "RUSTSEC-2026-0543", # chrono unmaintained
 ]
 
 [licenses]

@@ -446,6 +446,42 @@ mod layout_tests {
         assert_approx!(tree.layout(fg[0]).expect("footer").position.y, 30.0, "footer last");
     }
 
+    // Only the first thead and tfoot move; a second one stays where it is in the source
+    // (css-tables-3 §3.2, WPT css-tables row-group-order).
+    #[test]
+    fn only_the_first_header_and_footer_groups_move() {
+        use crate::mock::MockTree;
+
+        let mut tree = MockTree::new(0.0, 0.0);
+        let root = tree.alloc(TableRole::Table, None, 1, 1, None, None, 0.0, 0.0);
+        let mut groups = Vec::new();
+        for (role, label) in [
+            (TableRole::RowGroup, "B1"),
+            (TableRole::HeaderGroup, "H1"),
+            (TableRole::FooterGroup, "F1"),
+            (TableRole::HeaderGroup, "H2"),
+            (TableRole::FooterGroup, "F2"),
+            (TableRole::RowGroup, "B2"),
+        ] {
+            let group = tree.alloc(role, None, 1, 1, None, None, 0.0, 0.0);
+            tree.add_child(root, group);
+            let row = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
+            tree.add_child(group, row);
+            let c = tree.alloc_cell(cell(label).height(10.0).padding(0.0));
+            tree.add_child(row, c);
+            groups.push((label, group));
+        }
+
+        compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        groups.sort_by(|a, b| {
+            let y = |group| tree.layout(group).expect("laid out").position.y;
+            y(a.1).total_cmp(&y(b.1))
+        });
+        let order: Vec<_> = groups.iter().map(|(label, _)| *label).collect();
+        assert_eq!(order, ["H1", "B1", "H2", "F2", "B2", "F1"]);
+    }
+
     // 14. Anonymous fixup: a bare row directly under the table gets an
     //     anonymous body group (CSS 2.1 §17.2.1).
     #[test]
@@ -1127,6 +1163,31 @@ mod layout_tests {
         assert_approx!(tree.layout(cells[4]).unwrap().size.width, 225.0, "row-2 width ignored");
     }
 
+    // Fixed layout: a width narrower than the columns and their spacing grows to fit them
+    // (CSS 2 §17.5.2.1, WPT separated-border-model-004c).
+    #[test]
+    fn fixed_layout_width_floors_at_columns_and_spacing() {
+        let (mut tree, root) = MockTable::new(600.0)
+            .width(70.0)
+            .spacing(20.0, 0.0)
+            .fixed()
+            .body_row(vec![
+                cell("a").width(20.0).padding(0.0),
+                cell("b").width(20.0).padding(0.0),
+            ])
+            .into_tree();
+
+        let (w, _) = compute_table_layout(&mut tree, root, 600.0, None).expect("layout");
+
+        assert_approx!(w, 100.0, "20 + 20 + 20 + 20 + 20");
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        assert_approx!(
+            tree.layout(cells[1]).unwrap().position.x,
+            40.0,
+            "after the gap, row-relative"
+        );
+    }
+
     // Fixed layout: a first-row cell's width property is its CONTENT width;
     // the column gets the border-box (width + padding + border), per the
     // www-style clarification of CSS 2 §17.5.2.1 (WPT fixed-table-layout-003*).
@@ -1543,6 +1604,44 @@ mod layout_tests {
             "caption below grid"
         );
         assert_approx!(total_h, 30.0, "row + caption");
+    }
+
+    // A caption keeps its margins inside the table wrapper: they push the grid away and inset
+    // the caption's box (CSS 2 §17.4, WPT caption-position-001).
+    #[test]
+    fn caption_margins_take_room_in_the_wrapper() {
+        let build = |bottom| {
+            MockTable::new(100.0)
+                .width(100.0)
+                .spacing(0.0, 0.0)
+                .caption(20.0, bottom)
+                .caption_margin(5.0)
+                .body_row(vec![cell("a").height(10.0).padding(0.0)])
+                .into_tree()
+        };
+
+        let (mut tree, root) = build(false);
+        let (_, total_h) = compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+        let cap = tree
+            .layout(tree.nodes_with_role(TableRole::Caption)[0])
+            .expect("caption");
+        assert_approx!(cap.position.x, 5.0, "inset by the left margin");
+        assert_approx!(cap.position.y, 5.0, "below the top margin");
+        assert_approx!(cap.size.width, 90.0, "table width less both margins");
+        assert_approx!(cap.size.height, 20.0, "border box only");
+        let group = tree
+            .layout(tree.nodes_with_role(TableRole::RowGroup)[0])
+            .expect("group");
+        assert_approx!(group.position.y, 30.0, "grid below the bottom margin");
+        assert_approx!(total_h, 40.0, "5 + 20 + 5 + 10");
+
+        let (mut tree, root) = build(true);
+        let (_, total_h) = compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+        let cap = tree
+            .layout(tree.nodes_with_role(TableRole::Caption)[0])
+            .expect("caption");
+        assert_approx!(cap.position.y, 15.0, "row, then the top margin");
+        assert_approx!(total_h, 40.0, "10 + 5 + 20 + 5");
     }
 
     // border-collapse: gutters vanish - cells sit flush and conflict
@@ -2042,6 +2141,45 @@ mod layout_tests {
         let cap_layout = tree.layout(cap).expect("caption gets a layout");
         assert_approx!(cap_layout.size.width, 100.0, "caption spans the table");
         assert_approx!(cap_layout.size.height, 20.0, "caption height from its specified height");
+    }
+
+    // Vertical border-spacing goes around rows: a table without any, here a caption and an empty
+    // row group, gets none (WPT css-tables caption-relative-positioning).
+    #[test]
+    fn no_vertical_spacing_without_rows() {
+        use crate::mock::MockTree;
+
+        let mut tree = MockTree::new(2.0, 2.0);
+        let root = tree.alloc(TableRole::Table, None, 1, 1, None, None, 0.0, 0.0);
+        let cap = tree.alloc(TableRole::Caption, None, 1, 1, Some(100.0), Some(50.0), 0.0, 0.0);
+        tree.add_child(root, cap);
+        let group = tree.alloc(TableRole::RowGroup, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(root, group);
+
+        let (_, h) = compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+        assert_approx!(h, 50.0, "the caption alone");
+    }
+
+    // A specified height grows the rows by what the gutters around them leave; an empty group
+    // takes no gutter there either.
+    #[test]
+    fn specified_height_ignores_empty_group_gutters() {
+        use crate::mock::MockTree;
+
+        let mut tree = MockTree::new(0.0, 20.0);
+        let root = tree.alloc(TableRole::Table, None, 1, 1, None, Some(60.0), 0.0, 0.0);
+        let body = tree.alloc(TableRole::RowGroup, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(root, body);
+        let row = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(body, row);
+        let c = tree.alloc_cell(cell("a").height(10.0).padding(0.0));
+        tree.add_child(row, c);
+        let empty = tree.alloc(TableRole::RowGroup, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(root, empty);
+
+        let (_, h) = compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+        assert_approx!(h, 60.0, "the specified height");
+        assert_approx!(tree.layout(row).expect("row").size.height, 20.0, "60 - 2 gutters");
     }
 
     // CSS 2 §17.5.3: baseline-aligned cells share the deepest first-line baseline;

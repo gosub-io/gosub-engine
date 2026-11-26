@@ -22,7 +22,7 @@ use gosub_html5::{html_compile, testing::tree_construction};
 use gosub_interface::config::ModuleConfiguration;
 use std::time::Duration;
 
-// ── Config ────────────────────────────────────────────────────────────────────
+// Config
 
 #[derive(Clone, Debug, PartialEq)]
 struct Config;
@@ -33,7 +33,7 @@ impl ModuleConfiguration for Config {
     type HtmlParser = Html5Parser<'static, Self>;
 }
 
-// ── Counting allocator ────────────────────────────────────────────────────────
+// Counting allocator
 
 /// Total allocation calls (monotonically increasing; never decremented).
 static ALLOC_OPS: AtomicU64 = AtomicU64::new(0);
@@ -68,7 +68,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
 #[global_allocator]
 static GLOBAL: CountingAllocator = CountingAllocator;
 
-// ── Custom criterion measurements ─────────────────────────────────────────────
+// Custom criterion measurements
 
 struct CountFormatter(&'static str);
 impl ValueFormatter for CountFormatter {
@@ -131,7 +131,7 @@ impl Measurement for AllocBytes {
     }
 }
 
-// ── HTML inputs ───────────────────────────────────────────────────────────────
+// HTML inputs
 
 /// Generates a ~150 KB synthetic HTML document that exercises the parser hot paths:
 /// many elements with attributes, tables, deeply nested spans, SVG, and forms.
@@ -219,7 +219,7 @@ fn generate_large_html() -> String {
     html
 }
 
-// ── Real-world HTML inputs ────────────────────────────────────────────────────
+// Real-world HTML inputs
 
 /// How many bytes of the WHATWG spec to feed the parser in the `whatwg_spec`
 /// (slice) benchmark. The slice gives fast, stable samples; the `whatwg_full`
@@ -256,7 +256,7 @@ fn whatwg_slice(full: &str) -> String {
     full[..cut].to_string()
 }
 
-// ── Benchmark helpers ─────────────────────────────────────────────────────────
+// Benchmark helpers
 
 fn parse_html(html: &str) {
     let _doc = html_compile::<Config>(black_box(html));
@@ -278,7 +278,7 @@ fn parse_all_fixtures(fixtures: &[tree_construction::fixture::FixtureFile]) {
     }
 }
 
-// ── CPU timing benchmarks ─────────────────────────────────────────────────────
+// CPU timing benchmarks
 
 fn bench_cpu(c: &mut Criterion) {
     let large_html = generate_large_html();
@@ -347,7 +347,7 @@ fn bench_many_attributes(c: &mut Criterion) {
     group.finish();
 }
 
-// ── Allocation-ops benchmarks ─────────────────────────────────────────────────
+// Allocation-ops benchmarks
 
 fn bench_alloc_ops(c: &mut Criterion<AllocOps>) {
     let large_html = generate_large_html();
@@ -379,7 +379,7 @@ fn bench_alloc_ops(c: &mut Criterion<AllocOps>) {
     group.finish();
 }
 
-// ── Allocation-bytes benchmarks ───────────────────────────────────────────────
+// Allocation-bytes benchmarks
 
 fn bench_alloc_bytes(c: &mut Criterion<AllocBytes>) {
     let large_html = generate_large_html();
@@ -411,7 +411,7 @@ fn bench_alloc_bytes(c: &mut Criterion<AllocBytes>) {
     group.finish();
 }
 
-// ── Criterion groups ──────────────────────────────────────────────────────────
+// Criterion groups
 
 criterion_group!(cpu_benches, bench_cpu, bench_many_attributes);
 

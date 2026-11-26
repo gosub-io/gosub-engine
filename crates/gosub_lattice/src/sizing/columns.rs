@@ -74,6 +74,8 @@ pub fn compute_column_widths<T: TableTree>(
         let table_width = explicit_table_width.unwrap_or(fit_width).max(capmin);
         let available = (table_width - spacing_total).max(0.0);
         let widths = fixed_column_widths(tree, n_cols, available, grids, col_specs, collapsed_borders);
+        // CSS 2 §17.5.2.1: never narrower than its columns and their spacing.
+        let table_width = table_width.max(widths.iter().sum::<f64>() + spacing_total);
         return (widths, table_width);
     }
 

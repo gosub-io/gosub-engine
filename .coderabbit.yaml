@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://www.coderabbit.ai/integrations/schema.v2.json
+reviews:
+  profile: chill
+  path_instructions:
+    - path: "crates/gosub_render_pipeline/src/layouter/**"
+      instructions: &preexisting >-
+        Comment inline only on problems this diff introduces or makes worse.
+        Before flagging a problem, check whether it also happens on the base
+        commit; if it does, list it under a "Pre-existing" heading in the
+        review summary instead of opening a thread. Regressions caused by the
+        diff always get a thread.
+    - path: "crates/gosub_lattice/**"
+      instructions: *preexisting
+  auto_review:
+    # The default branch is always reviewed; these are the extra PR bases.
+    base_branches: ["^javascript-v8$"]

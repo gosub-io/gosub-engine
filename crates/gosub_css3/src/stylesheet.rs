@@ -43,6 +43,14 @@ pub fn set_layout_viewport(width: f32, height: f32) {
     }
 }
 
+/// Whether scripting is enabled for the document about to be styled: what `@media (scripting)`
+/// answers. The rest of the environment is kept.
+pub fn set_scripting(enabled: bool) {
+    let mut env = media_environment();
+    env.scripting = enabled;
+    set_media_environment(env);
+}
+
 static PREFERS_DARK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Set the user's colour-scheme preference, consumed by `light-dark()` and by rules under
@@ -2262,6 +2270,15 @@ impl gosub_interface::css3::CssValue for CssValue {
             CssValue::Number(num, _) => Some(*num as f32),
             // Bare `0` (no unit) is a valid zero value for any numeric property.
             CssValue::Zero => Some(0.0),
+            _ => None,
+        }
+    }
+
+    #[expect(clippy::cast_possible_truncation, reason = "a whole f64 is saturated into an i64")]
+    fn as_integer(&self) -> Option<i64> {
+        match self {
+            CssValue::Number(num, _) if num.fract() == 0.0 => Some(*num as i64),
+            CssValue::Zero => Some(0),
             _ => None,
         }
     }

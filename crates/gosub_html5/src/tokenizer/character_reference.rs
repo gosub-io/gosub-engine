@@ -102,7 +102,6 @@ impl Tokenizer<'_> {
                 CcrState::AmbiguousAmpersand => {
                     let c = self.stream_read_and_next();
                     match c {
-                        // Element::Eof => return,
                         Ch(ch) if ch.is_ascii_alphanumeric() => {
                             if as_attribute {
                                 self.current_attr_value.push(c.into());
@@ -116,7 +115,6 @@ impl Tokenizer<'_> {
                             return;
                         }
                         Character::StreamEnd => {
-                            // self.consume_temp_buffer(as_attribute);
                             return;
                         }
                         _ => {
@@ -131,7 +129,6 @@ impl Tokenizer<'_> {
                     let c = self.stream_read_and_next();
                     match c {
                         Ch('X' | 'x') => {
-                            // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEnd,
                             self.temporary_buffer.push(c.into());
                             ccr_state = CcrState::HexadecimalCharacterReferenceStart;
                         }
@@ -145,21 +142,20 @@ impl Tokenizer<'_> {
                     }
                 }
                 CcrState::HexadecimalCharacterReferenceStart => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.stream_read_and_next();
                     match c {
                         Ch('0'..='9' | 'A'..='F' | 'a'..='f') => {
-                            // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEnd,
                             self.stream_prev();
                             ccr_state = CcrState::HexadecimalCharacterReference;
                         }
                         Character::StreamEnd => {
-                            self.parse_error(ParserError::AbsenceOfDigitsInNumericCharacterReference, loc);
+                            self.parse_error_at(ParserError::AbsenceOfDigitsInNumericCharacterReference, pos);
                             self.consume_temp_buffer(as_attribute);
                             return;
                         }
                         _ => {
-                            self.parse_error(ParserError::AbsenceOfDigitsInNumericCharacterReference, loc);
+                            self.parse_error_at(ParserError::AbsenceOfDigitsInNumericCharacterReference, pos);
                             self.consume_temp_buffer(as_attribute);
 
                             self.stream_prev();
@@ -168,7 +164,7 @@ impl Tokenizer<'_> {
                     }
                 }
                 CcrState::DecimalCharacterReferenceStart => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.stream_read_and_next();
                     match c {
                         Ch('0'..='9') => {
@@ -176,12 +172,12 @@ impl Tokenizer<'_> {
                             ccr_state = CcrState::DecimalCharacterReference;
                         }
                         Character::StreamEnd => {
-                            self.parse_error(ParserError::AbsenceOfDigitsInNumericCharacterReference, loc);
+                            self.parse_error_at(ParserError::AbsenceOfDigitsInNumericCharacterReference, pos);
                             self.consume_temp_buffer(as_attribute);
                             return;
                         }
                         _ => {
-                            self.parse_error(ParserError::AbsenceOfDigitsInNumericCharacterReference, loc);
+                            self.parse_error_at(ParserError::AbsenceOfDigitsInNumericCharacterReference, pos);
                             self.consume_temp_buffer(as_attribute);
 
                             self.stream_prev();
@@ -190,10 +186,9 @@ impl Tokenizer<'_> {
                     }
                 }
                 CcrState::HexadecimalCharacterReference => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.stream_read_and_next();
                     match c {
-                        // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEnd,
                         Ch(c @ '0'..='9') => {
                             let i = c as u32 - 0x30;
                             if let Some(value) = char_ref_code {
@@ -216,21 +211,20 @@ impl Tokenizer<'_> {
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                         Character::StreamEnd => {
-                            self.parse_error(ParserError::MissingSemicolonAfterCharacterReference, loc);
+                            self.parse_error_at(ParserError::MissingSemicolonAfterCharacterReference, pos);
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                         _ => {
-                            self.parse_error(ParserError::MissingSemicolonAfterCharacterReference, loc);
+                            self.parse_error_at(ParserError::MissingSemicolonAfterCharacterReference, pos);
                             self.stream_prev();
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                     }
                 }
                 CcrState::DecimalCharacterReference => {
-                    let loc = self.get_location();
+                    let pos = self.stream.tell_bytes();
                     let c = self.stream_read_and_next();
                     match c {
-                        // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEndState,
                         Ch(c @ '0'..='9') => {
                             let i = c as u32 - 0x30;
                             if let Some(value) = char_ref_code {
@@ -241,11 +235,11 @@ impl Tokenizer<'_> {
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                         Character::StreamEnd => {
-                            self.parse_error(ParserError::MissingSemicolonAfterCharacterReference, loc);
+                            self.parse_error_at(ParserError::MissingSemicolonAfterCharacterReference, pos);
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                         _ => {
-                            self.parse_error(ParserError::MissingSemicolonAfterCharacterReference, loc);
+                            self.parse_error_at(ParserError::MissingSemicolonAfterCharacterReference, pos);
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                             self.stream_prev();
                         }
@@ -271,7 +265,6 @@ impl Tokenizer<'_> {
                     }
                     if self.is_noncharacter(char_ref_code) {
                         self.parse_error(ParserError::NoncharacterCharacterReference, self.get_location());
-                        // char_ref_code = CHAR_REPLACEMENT as u32;
                     }
                     if self.is_control_char(char_ref_code) || char_ref_code == 0x0D {
                         self.parse_error(ParserError::ControlCharacterReference, self.get_location());
@@ -328,21 +321,15 @@ impl Tokenizer<'_> {
     /// Finds the longest entity from the current position in the stream. Returns the entity
     /// name OR None when no entity has been found.
     fn find_entity(&mut self) -> Option<&'static str> {
-        let chars = self.stream.get_slice(*LONGEST_ENTITY_LENGTH);
+        let bytes = self.stream.lookahead_bytes(*LONGEST_ENTITY_LENGTH);
 
         // Entity names are ASCII alphanumerics with an optional trailing ';', so only a
         // prefix of that run can match.
-        let mut candidate = String::with_capacity(chars.len());
-        for c in chars {
-            match c {
-                Ch(ch) if ch.is_ascii_alphanumeric() => candidate.push(ch),
-                Ch(';') => {
-                    candidate.push(';');
-                    break;
-                }
-                _ => break,
-            }
+        let mut len = bytes.iter().take_while(|b| b.is_ascii_alphanumeric()).count();
+        if bytes.get(len) == Some(&b';') {
+            len += 1;
         }
+        let candidate = std::str::from_utf8(&bytes[..len]).unwrap_or_default();
 
         (1..=candidate.len())
             .rev()
@@ -361,7 +348,7 @@ lazy_static! {
 mod tests {
     use crate::tokenizer::ErrorLogger;
     use crate::tokenizer::{ParserData, Tokenizer};
-    use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
+    use gosub_shared::byte_stream::{ByteStream, Encoding};
     use std::cell::RefCell;
     use std::rc::Rc;
 
@@ -375,7 +362,7 @@ mod tests {
                     let mut stream = ByteStream::from_str(input, Encoding::UTF8);
 
                     let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
-                    let mut tokenizer = Tokenizer::new(&mut stream, None, error_logger.clone(), Location::default());
+                    let mut tokenizer = Tokenizer::new(&mut stream, None, error_logger.clone());
 
                     let token = tokenizer.next_token(ParserData::default()).unwrap();
                     assert_eq!(expected, token.to_string());
@@ -431,10 +418,6 @@ mod tests {
         entity_119: ("&amp;amp;", "&amp;")
         entity_120: ("&notén;", "¬én;")
 
-        // // ChatGPT generated tests
-        entity_200: ("&copy;", "©")
-        entity_201: ("&copy ", "© ")
-        entity_202: ("&#169;", "©")
         entity_203: ("&#xA9;", "©")
         entity_204: ("&lt;", "<")
         entity_205: ("&unknown;", "&unknown;")

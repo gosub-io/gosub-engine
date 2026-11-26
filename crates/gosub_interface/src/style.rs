@@ -384,6 +384,12 @@ pub enum CaptionSide {
     Bottom,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EmptyCells {
+    Show,
+    Hide,
+}
+
 /// `list-style-type`: what a list item's marker shows.
 ///
 /// The counter styles here are the predefined ones pages use; any other name computes to
@@ -405,6 +411,34 @@ pub enum ListStyleType {
     DisclosureClosed,
     /// A `<string>`: the marker is that text, with no counter in it.
     String(Arc<str>),
+}
+
+impl ListStyleType {
+    /// The counter style a `<counter-style-name>` refers to. Names are ASCII case-insensitive,
+    /// and one this engine does not define is `decimal`.
+    #[must_use]
+    pub fn from_name(name: &str) -> Self {
+        const NAMES: [(&str, ListStyleType); 14] = [
+            ("none", ListStyleType::None),
+            ("disc", ListStyleType::Disc),
+            ("circle", ListStyleType::Circle),
+            ("square", ListStyleType::Square),
+            ("decimal-leading-zero", ListStyleType::DecimalLeadingZero),
+            ("lower-roman", ListStyleType::LowerRoman),
+            ("upper-roman", ListStyleType::UpperRoman),
+            ("lower-alpha", ListStyleType::LowerAlpha),
+            ("lower-latin", ListStyleType::LowerAlpha),
+            ("upper-alpha", ListStyleType::UpperAlpha),
+            ("upper-latin", ListStyleType::UpperAlpha),
+            ("lower-greek", ListStyleType::LowerGreek),
+            ("disclosure-open", ListStyleType::DisclosureOpen),
+            ("disclosure-closed", ListStyleType::DisclosureClosed),
+        ];
+        NAMES
+            .into_iter()
+            .find(|(known, _)| known.eq_ignore_ascii_case(name))
+            .map_or(ListStyleType::Decimal, |(_, style)| style)
+    }
 }
 
 /// `list-style-position`: whether the marker sits outside the item's box or starts its first
@@ -652,6 +686,7 @@ declare_props! {
     LetterSpacing,
     TabSize,
     CaptionSide,
+    EmptyCells,
     ListStyleType,
     ListStylePosition,
     BorderSpacingX,
@@ -829,6 +864,7 @@ pub struct InheritedGroup {
     pub letter_spacing: LetterSpacing,
     pub tab_size: TabSize,
     pub caption_side: CaptionSide,
+    pub empty_cells: EmptyCells,
     pub list_style_type: ListStyleType,
     pub list_style_position: ListStylePosition,
     /// Horizontal component of `border-spacing`, in px.
@@ -1396,6 +1432,7 @@ impl ComputedStyle {
                 letter_spacing: LetterSpacing::Normal,
                 tab_size: TabSize::Spaces(8.0),
                 caption_side: CaptionSide::Top,
+                empty_cells: EmptyCells::Show,
                 list_style_type: ListStyleType::Disc,
                 list_style_position: ListStylePosition::Outside,
                 border_spacing_x: 0.0,

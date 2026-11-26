@@ -27,6 +27,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::{Builder, Runtime};
+use tokio::sync::broadcast;
 use url::Url;
 use uuid::uuid;
 
@@ -143,6 +144,45 @@ impl NavTracker {
     }
 }
 
+/// Phase 1: the initial navigation has finished and a frame has been drawn after it.
+#[derive(Default)]
+struct FirstRender {
+    nav_done: bool,
+    rendered: bool,
+}
+
+impl FirstRender {
+    /// Drain the engine events that arrived since the last poll. `Err` carries the message for
+    /// a failed load.
+    ///
+    /// The frame is taken from `EngineEvent::Redraw`, not from the compositor's wakeup channel:
+    /// the worker sends `Finished` and `Redraw` down the same stream, so their order is the
+    /// order they happened in. Read from two channels, a redraw could be drained before the
+    /// `Finished` that preceded it, and since the compositor only signals when a frame changes
+    /// the wait then ran into the render timeout. A `Redraw` ahead of `Finished` is a frame of
+    /// the previous document (the tab paints as soon as drawing resumes).
+    fn poll(&mut self, events: &mut broadcast::Receiver<EngineEvent>, tab_id: TabId) -> Result<(), String> {
+        loop {
+            match events.try_recv() {
+                Ok(EngineEvent::Navigation { tab_id: tid, event }) if tid == tab_id => match event {
+                    NavigationEvent::Finished { .. } => self.nav_done = true,
+                    NavigationEvent::Failed { error, .. } => return Err(format!("Navigation failed: {error}")),
+                    NavigationEvent::FailedUrl { error, .. } => return Err(format!("Invalid URL: {error}")),
+                    _ => {}
+                },
+                Ok(EngineEvent::Redraw { tab_id: tid }) if tid == tab_id && self.nav_done => self.rendered = true,
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        Ok(())
+    }
+
+    fn done(&self) -> bool {
+        self.nav_done && self.rendered
+    }
+}
+
 fn parse_interaction(spec: &str) -> Vec<Step> {
     let key = |k: &str, modifiers: Modifiers| {
         Step::Send(TabCommand::KeyDown {
@@ -248,6 +288,15 @@ fn parse_interaction(spec: &str) -> Vec<Step> {
     }
 }
 
+/// The URL argument as it is loaded: with `https://` in front when it names no scheme.
+fn with_scheme(arg: &str) -> String {
+    if arg.contains("://") {
+        arg.to_string()
+    } else {
+        format!("https://{arg}")
+    }
+}
+
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000003");
 
 /// Default viewport height used for layout, in CSS pixels; `--viewport-height` overrides it.
@@ -276,18 +325,20 @@ fn main() {
         .unwrap_or_default();
 
     let args = Args::parse();
-    let url_str = if args.url.contains("://") {
-        args.url.clone()
-    } else {
-        format!("https://{}", args.url)
-    };
+    let url_str = with_scheme(&args.url);
     let output = args.output;
     let viewport_w = args.width;
     let viewport_h = args.viewport_height.max(1);
 
     eprintln!("gosub-screenshot {BUILD_VERSION} — headless full-page screenshot via the gosub render pipeline (CPU rasterization)");
 
-    let url = Url::parse(&url_str).expect("invalid URL");
+    let url = match Url::parse(&url_str) {
+        Ok(url) => url,
+        Err(err) => {
+            eprintln!("Invalid URL '{url_str}': {err}");
+            std::process::exit(2);
+        }
+    };
 
     // ── Engine setup (CPU backend - no GPU) ───────────────────────────────────
     #[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
@@ -358,15 +409,14 @@ fn main() {
     let nav_deadline = Instant::now() + Duration::from_secs(args.nav_timeout);
     let render_budget = Duration::from_secs(args.render_timeout);
     let mut render_deadline: Option<Instant> = None;
-    let mut nav_done = false;
-    let mut first_render_done = false;
+    let mut first_render = FirstRender::default();
 
     eprintln!("Loading {url_str} (viewport {viewport_w}x{viewport_h})…");
 
     // ── Phase 1: wait for navigation + first full render ─────────────────────
     loop {
         let now = Instant::now();
-        if !nav_done && now >= nav_deadline {
+        if !first_render.nav_done && now >= nav_deadline {
             eprintln!("Timeout waiting for navigation ({}s)", args.nav_timeout);
             std::process::exit(1);
         }
@@ -377,36 +427,18 @@ fn main() {
             }
         }
 
-        while rx_redraw.try_recv().is_ok() {
-            if nav_done {
-                first_render_done = true;
-            }
+        // The wakeups are for the phases after this one; `poll` reads the frame off the events.
+        while rx_redraw.try_recv().is_ok() {}
+        if let Err(msg) = first_render.poll(&mut event_rx, tab_id) {
+            eprintln!("{msg}");
+            std::process::exit(1);
+        }
+        if first_render.nav_done && render_deadline.is_none() {
+            eprintln!("Navigation finished.");
+            render_deadline = Some(Instant::now() + render_budget);
         }
 
-        loop {
-            match event_rx.try_recv() {
-                Ok(EngineEvent::Navigation { tab_id: tid, event }) if tid == tab_id => match event {
-                    NavigationEvent::Finished { .. } => {
-                        eprintln!("Navigation finished.");
-                        nav_done = true;
-                        render_deadline = Some(Instant::now() + render_budget);
-                    }
-                    NavigationEvent::Failed { error, .. } => {
-                        eprintln!("Navigation failed: {error}");
-                        std::process::exit(1);
-                    }
-                    NavigationEvent::FailedUrl { error, .. } => {
-                        eprintln!("Invalid URL: {error}");
-                        std::process::exit(1);
-                    }
-                    _ => {}
-                },
-                Ok(_) => {}
-                Err(_) => break,
-            }
-        }
-
-        if nav_done && first_render_done {
+        if first_render.done() {
             break;
         }
 
@@ -722,5 +754,100 @@ fn main() {
     eprintln!("Saved {output} ({}×{})", page_w, page_h);
     if args.timings {
         gosub_shared::timing::dump(false);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gosub_engine::LoadError;
+
+    fn finished(tab_id: TabId) -> EngineEvent {
+        EngineEvent::Navigation {
+            tab_id,
+            event: NavigationEvent::Finished {
+                nav_id: NavigationId::new(),
+                url: Url::parse("http://127.0.0.1/test.html").unwrap(),
+            },
+        }
+    }
+
+    fn poll(events: &[EngineEvent], tab_id: TabId) -> FirstRender {
+        let (tx, mut rx) = broadcast::channel(16);
+        for ev in events {
+            tx.send(ev.clone()).unwrap();
+        }
+        let mut first_render = FirstRender::default();
+        first_render.poll(&mut rx, tab_id).unwrap();
+        first_render
+    }
+
+    #[test]
+    fn a_url_without_a_scheme_gets_https() {
+        assert_eq!(with_scheme("example.com/a"), "https://example.com/a");
+        assert_eq!(with_scheme("http://example.com"), "http://example.com");
+        assert_eq!(with_scheme("file:///tmp/a.html"), "file:///tmp/a.html");
+    }
+
+    #[test]
+    fn redraw_after_finished_in_the_same_poll_counts() {
+        let tab_id = TabId::new();
+        assert!(poll(&[finished(tab_id), EngineEvent::Redraw { tab_id }], tab_id).done());
+    }
+
+    #[test]
+    fn redraw_before_finished_does_not_count() {
+        // The tab paints as soon as drawing resumes: that frame is the previous document.
+        let tab_id = TabId::new();
+        let first_render = poll(&[EngineEvent::Redraw { tab_id }, finished(tab_id)], tab_id);
+        assert!(first_render.nav_done);
+        assert!(!first_render.done());
+    }
+
+    #[test]
+    fn redraw_in_a_later_poll_counts() {
+        let tab_id = TabId::new();
+        let (tx, mut rx) = broadcast::channel(16);
+        let mut first_render = FirstRender::default();
+
+        tx.send(finished(tab_id)).unwrap();
+        first_render.poll(&mut rx, tab_id).unwrap();
+        assert!(first_render.nav_done);
+        assert!(!first_render.done());
+
+        tx.send(EngineEvent::Redraw { tab_id }).unwrap();
+        first_render.poll(&mut rx, tab_id).unwrap();
+        assert!(first_render.done());
+    }
+
+    #[test]
+    fn events_for_another_tab_are_ignored() {
+        let other = TabId::new();
+        let tab_id = TabId::new();
+        let first_render = poll(&[finished(other), EngineEvent::Redraw { tab_id: other }], tab_id);
+        assert!(!first_render.nav_done);
+
+        let first_render = poll(&[finished(tab_id), EngineEvent::Redraw { tab_id: other }], tab_id);
+        assert!(!first_render.done());
+    }
+
+    #[test]
+    fn failed_navigation_is_an_error() {
+        let tab_id = TabId::new();
+        let (tx, mut rx) = broadcast::channel(16);
+        tx.send(EngineEvent::Navigation {
+            tab_id,
+            event: NavigationEvent::FailedUrl {
+                nav_id: None,
+                url: "not a url".into(),
+                error: LoadError::InvalidUrl {
+                    message: "relative URL without a base".into(),
+                },
+            },
+        })
+        .unwrap();
+
+        let err = FirstRender::default().poll(&mut rx, tab_id).unwrap_err();
+        assert!(err.starts_with("Invalid URL: "), "{err}");
     }
 }
