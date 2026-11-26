@@ -877,6 +877,14 @@ impl SelectorEntry {
 impl CssSelector {
     #[must_use]
     pub fn new(parts: Vec<Vec<CssSelectorPart>>) -> Self {
+        // No complex selectors, not one empty one: an empty compound would match every element.
+        if parts.is_empty() {
+            return Self {
+                parts: Vec::new(),
+                entries: SelectorEntries::Many(Box::default()),
+                asks_about_ancestors: false,
+            };
+        }
         // A list of one is the overwhelming case - `a, b` is rare - and its parts are already a
         // `Vec`, so take it whole rather than moving every part into a new one and freeing the
         // old.
@@ -2727,6 +2735,12 @@ mod test {
         ]]);
 
         assert_eq!(selector.specificity_at(0), Specificity::new(0, 2, 0));
+    }
+
+    #[test]
+    fn an_empty_selector_list_has_no_selectors() {
+        assert_eq!(CssSelector::new(vec![]).complex().count(), 0);
+        assert_eq!(CssSelector::new(vec![vec![]]).complex().count(), 1);
     }
 
     #[test]
