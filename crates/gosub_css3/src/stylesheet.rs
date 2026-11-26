@@ -9,6 +9,7 @@ use gosub_shared::errors::CssError;
 use gosub_shared::errors::CssResult;
 use gosub_shared::node::NodeId;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -174,36 +175,41 @@ pub struct FontFace {
 /// shared by everything in the block that set it, so a rule's copy is a refcount bump.
 pub type MediaConditions = Arc<[Arc<MediaQueryList>]>;
 
-/// Puts one condition in front of the lists it is applied to, outermost. Neighbours that shared
-/// a list share the new one too, rather than each getting a copy.
+/// Puts one condition in front of the lists it is applied to, outermost. Rules that shared a
+/// list share the new one too, rather than each getting a copy.
 struct PrependMedia<'a> {
     media: &'a Arc<MediaQueryList>,
-    /// The last list replaced and what replaced it.
-    last: Option<(Option<MediaConditions>, MediaConditions)>,
+    /// What each list was replaced with, by the old list's address. The old list is held so its
+    /// address is not reused while this runs.
+    replaced: HashMap<*const Arc<MediaQueryList>, (MediaConditions, MediaConditions)>,
+    /// What a rule without conditions gets.
+    unconditional: Option<MediaConditions>,
 }
 
 impl<'a> PrependMedia<'a> {
     fn new(media: &'a Arc<MediaQueryList>) -> Self {
-        Self { media, last: None }
+        Self {
+            media,
+            replaced: HashMap::new(),
+            unconditional: None,
+        }
     }
 
     fn apply(&mut self, conditions: &mut Option<MediaConditions>) {
-        if let Some((old, new)) = &self.last {
-            let same = match (old, &*conditions) {
-                (Some(old), Some(current)) => Arc::ptr_eq(old, current),
-                (None, None) => true,
-                _ => false,
-            };
-            if same {
-                *conditions = Some(Arc::clone(new));
-                return;
+        let media = self.media;
+        let new = match conditions.take() {
+            None => self
+                .unconditional
+                .get_or_insert_with(|| std::iter::once(Arc::clone(media)).collect()),
+            Some(old) => {
+                let (_, new) = self.replaced.entry(old.as_ptr().cast()).or_insert_with(|| {
+                    let new = std::iter::once(Arc::clone(media)).chain(old.iter().cloned()).collect();
+                    (old, new)
+                });
+                new
             }
-        }
-        let new: MediaConditions = std::iter::once(Arc::clone(self.media))
-            .chain(conditions.iter().flat_map(|list| list.iter().cloned()))
-            .collect();
-        let old = conditions.replace(Arc::clone(&new));
-        self.last = Some((old, new));
+        };
+        *conditions = Some(Arc::clone(new));
     }
 }
 
@@ -2860,6 +2866,25 @@ mod test {
         assert!(shared(&sheet, 2, 3), "the block's rules still share theirs");
         assert!(!shared(&sheet, 1, 2));
         assert_eq!(sheet.rules[3].media.as_ref().map(|media| media.len()), Some(2));
+    }
+
+    #[test]
+    fn a_block_split_by_a_nested_block_keeps_sharing_its_conditions() {
+        use gosub_shared::config::ParserConfig;
+        let css = "@media (min-width: 1px) { a { color: red; } \
+                   @media (min-width: 2px) { b { color: red; } } c { color: red; } }";
+        let mut sheet = crate::Css3::parse_str(css, ParserConfig::default(), CssOrigin::Author, "test.css")
+            .expect("the sheet parses");
+        let shared = |sheet: &CssStylesheet| {
+            Arc::ptr_eq(
+                sheet.rules[0].media.as_ref().expect("conditional"),
+                sheet.rules[2].media.as_ref().expect("conditional"),
+            )
+        };
+        assert!(shared(&sheet));
+        sheet.set_owner_media("print");
+        assert!(shared(&sheet), "the rule after the nested block shares its list");
+        assert_eq!(sheet.rules[1].media.as_ref().map(|media| media.len()), Some(3));
     }
 
     #[test]
