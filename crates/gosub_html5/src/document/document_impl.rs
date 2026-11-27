@@ -1490,6 +1490,120 @@ mod tests {
         assert_eq!(snapshot(&doc, &state).selected_option::<Config>(&doc, select), Some(b));
     }
 
+    /// The id of `select`'s default option in `body`, with nothing picked.
+    fn default_option(body: &str) -> Option<String> {
+        let doc = crate::html_compile::<Config>(&format!("<!DOCTYPE html><body><select id=\"s\">{body}</select>"));
+        let select = doc.node_by_named_id("s").unwrap();
+        let ix = snapshot(&doc, &InteractionState::default());
+        ix.selected_option::<Config>(&doc, select)
+            .map(|o| doc.attribute(o, "id").unwrap_or_default().to_string())
+    }
+
+    #[test]
+    fn the_last_selected_option_is_the_default() {
+        let cases = [
+            ("<option id=a selected><option id=b selected>", "b"),
+            (
+                "<option id=a selected><option id=b selected><option id=c selected>",
+                "c",
+            ),
+            (
+                "<option id=a selected><option id=b><option id=c selected><option id=d>",
+                "c",
+            ),
+            (
+                "<option id=a selected><optgroup><option id=b selected></optgroup><option id=c>",
+                "b",
+            ),
+            ("<optgroup><option id=a selected></optgroup><option id=b selected>", "b"),
+            // Selectedness does not care about disabled.
+            ("<option id=a><option id=b disabled selected>", "b"),
+            ("<option id=a><optgroup disabled><option id=b selected></optgroup>", "b"),
+        ];
+        for (body, want) in cases {
+            assert_eq!(default_option(body).as_deref(), Some(want), "{body}");
+        }
+    }
+
+    #[test]
+    fn without_a_selected_option_the_first_enabled_one_is_the_default() {
+        let cases = [
+            ("<option id=a><option id=b>", Some("a")),
+            ("<option id=a disabled><option id=b>", Some("b")),
+            ("<optgroup disabled><option id=a></optgroup><option id=b>", Some("b")),
+            (
+                "<optgroup disabled><option id=a></optgroup><optgroup><option id=b></optgroup>",
+                Some("b"),
+            ),
+            ("<optgroup><option id=a disabled><option id=b></optgroup>", Some("b")),
+            (
+                "<option id=a disabled><optgroup disabled><option id=b></optgroup>",
+                None,
+            ),
+            ("", None),
+        ];
+        for (body, want) in cases {
+            assert_eq!(default_option(body).as_deref(), want, "{body}");
+        }
+    }
+
+    #[test]
+    fn an_svg_or_mathml_option_is_not_an_option() {
+        for namespace in [crate::node::SVG_NAMESPACE, crate::node::MATHML_NAMESPACE] {
+            let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+            let root = doc.root();
+            let select = element(&mut doc, "select", root);
+            let mut selected = Attributes::new();
+            selected.insert("selected".to_string(), String::new());
+            let foreign = doc.create_element("option", Some(namespace), selected, Location::default());
+            doc.attach_node(foreign, select, None).unwrap();
+            let option = element(&mut doc, "option", select);
+
+            let ix = snapshot(&doc, &InteractionState::default());
+            assert_eq!(ix.selected_option::<Config>(&doc, select), Some(option), "{namespace}");
+            assert!(!ix.is_checked::<Config>(&doc, foreign), "{namespace}");
+        }
+    }
+
+    #[test]
+    fn an_option_in_a_nested_optgroup_is_not_an_option() {
+        // The parser never nests optgroups; the DOM can.
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let select = element(&mut doc, "select", root);
+        let a = element(&mut doc, "option", select);
+        let outer = element(&mut doc, "optgroup", select);
+        let inner = element(&mut doc, "optgroup", outer);
+        let b = element(&mut doc, "option", inner);
+        doc.set_attribute(a, "selected", "");
+        doc.set_attribute(b, "selected", "");
+
+        let ix = snapshot(&doc, &InteractionState::default());
+        assert_eq!(ix.selected_option::<Config>(&doc, select), Some(a));
+        assert!(!ix.is_checked::<Config>(&doc, b));
+
+        doc.remove_attribute(a, "selected");
+        doc.set_attribute(a, "disabled", "");
+        let ix = snapshot(&doc, &InteractionState::default());
+        assert_eq!(ix.selected_option::<Config>(&doc, select), None);
+    }
+
+    #[test]
+    fn a_picked_option_wins_over_the_selected_attribute() {
+        let mut doc = crate::html_compile::<Config>(
+            "<!DOCTYPE html><body><select id=s><option id=a disabled><option id=b selected><option id=c selected></select>",
+        );
+        let (select, a) = (doc.node_by_named_id("s").unwrap(), doc.node_by_named_id("a").unwrap());
+        let mut state = InteractionState::default();
+        state.set_selected(select, Some(a));
+        assert_eq!(snapshot(&doc, &state).selected_option::<Config>(&doc, select), Some(a));
+
+        // Dropping the pick goes back to the last selected option.
+        doc.delete_node_by_id(a);
+        let c = doc.node_by_named_id("c").unwrap();
+        assert_eq!(snapshot(&doc, &state).selected_option::<Config>(&doc, select), Some(c));
+    }
+
     /// Change `node`'s `id` attribute the way a DOM `setAttribute` / `removeAttribute` does.
     fn set_id(doc: &mut DocumentImpl<Config>, node: NodeId, id: Option<&str>) {
         match id {

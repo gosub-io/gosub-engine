@@ -181,28 +181,45 @@ impl InteractionSnapshot {
         }
     }
 
-    /// The chosen `<option>` of a `<select>`: the one the user picked, else the one with the
-    /// `selected` attribute, else the first.
+    /// The chosen `<option>` of a `<select>`: the one the user picked, else the last one with
+    /// the `selected` attribute, else the first one that is not disabled. Every select is taken
+    /// to be a dropdown (display size 1), see
+    /// <https://html.spec.whatwg.org/#selectedness-setting-algorithm>.
     pub fn selected_option<C: HasDocument>(&self, doc: &C::Document, select: NodeId) -> Option<NodeId> {
         if let Some(&option) = self.selected.get(&select) {
             return Some(option);
         }
-        let mut first = None;
-        let mut stack: Vec<NodeId> = doc.children(select).iter().rev().copied().collect();
-        while let Some(id) = stack.pop() {
-            match doc.tag_name(id) {
+        let mut last_selected = None;
+        let mut first_enabled = None;
+        // Each node with its optgroup's `disabled`; `None` outside an optgroup.
+        let mut stack: Vec<(NodeId, Option<bool>)> = doc.children(select).iter().rev().map(|&id| (id, None)).collect();
+        while let Some((id, group)) = stack.pop() {
+            match html_tag_name::<C>(doc, id) {
                 Some("option") => {
                     if doc.attribute(id, "selected").is_some() {
-                        return Some(id);
+                        last_selected = Some(id);
                     }
-                    first.get_or_insert(id);
+                    if group != Some(true) && doc.attribute(id, "disabled").is_none() {
+                        first_enabled.get_or_insert(id);
+                    }
                 }
-                Some("optgroup") => stack.extend(doc.children(id).iter().rev()),
+                // A nested optgroup's options are not the select's.
+                Some("optgroup") if group.is_none() => {
+                    let disabled = doc.attribute(id, "disabled").is_some();
+                    stack.extend(doc.children(id).iter().rev().map(|&child| (child, Some(disabled))));
+                }
                 _ => {}
             }
         }
-        first
+        last_selected.or(first_enabled)
     }
+}
+
+const HTML_NAMESPACE: &str = "http://www.w3.org/1999/xhtml";
+
+/// The tag name of `id` if it is an HTML element; an SVG or MathML `option` is not an option.
+fn html_tag_name<C: HasDocument>(doc: &C::Document, id: NodeId) -> Option<&str> {
+    doc.tag_name(id).filter(|_| doc.namespace(id) == Some(HTML_NAMESPACE))
 }
 
 fn live_entries<V: Clone>(map: &HashMap<NodeId, V>, live: impl Fn(&NodeId) -> bool) -> HashMap<NodeId, V> {
