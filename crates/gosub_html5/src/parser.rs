@@ -539,14 +539,11 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         }
     }
 
-    /// Pops the last element from the open elements until we reach any of the elements in $arr
+    /// Pops elements off the open elements until it has popped an HTML element named in `arr`
     fn pop_until_any(&mut self, arr: &[&str]) {
-        while !self.open_elements.is_empty() {
-            let Some(node_id) = self.open_elements.pop() else {
-                break;
-            };
+        while let Some(node_id) = self.open_elements.pop() {
             let tag = self.document.tag_name(node_id).unwrap_or_default();
-            if arr.contains(&tag) {
+            if arr.contains(&tag) && node_ns!(self, node_id) == Some(HTML_NAMESPACE) {
                 break;
             }
         }

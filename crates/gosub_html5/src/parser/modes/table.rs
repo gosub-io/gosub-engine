@@ -596,9 +596,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
     pub(crate) fn close_cell(&mut self) {
         self.generate_implied_end_tags(None, false);
 
-        let cn_id = current_node_id!(self);
-        let tag = node_tag!(self, cn_id);
-
+        let tag = self.html_tag_name(current_node_id!(self));
         if tag != "td" && tag != "th" {
             self.parse_error("current node should be td or th");
         }
