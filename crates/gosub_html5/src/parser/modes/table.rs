@@ -611,29 +611,24 @@ impl<C: HasDocument> Html5Parser<'_, C> {
 
     /// Pop all elements back to a table context
     pub(crate) fn clear_stack_back_to_table_context(&mut self) {
-        while !self.open_elements.is_empty() {
-            if ["table", "template", "html"].contains(&node_tag!(self, current_node_id!(self))) {
-                return;
-            }
-            self.open_elements.pop();
-        }
+        self.clear_stack_back_to(&["table", "template", "html"]);
     }
 
-    /// Pop all elements back to a table context
+    /// Pop all elements back to a table body context
     pub(crate) fn clear_stack_back_to_table_body_context(&mut self) {
-        while !self.open_elements.is_empty() {
-            if ["tbody", "tfoot", "thead", "template", "html"].contains(&node_tag!(self, current_node_id!(self))) {
-                return;
-            }
-            self.open_elements.pop();
-        }
+        self.clear_stack_back_to(&["tbody", "tfoot", "thead", "template", "html"]);
     }
 
     /// Pop all elements back to a table row context
     pub(crate) fn clear_stack_back_to_table_row_context(&mut self) {
-        while !self.open_elements.is_empty() {
-            let cn_id = current_node_id!(self);
-            if ["tr", "template", "html"].contains(&node_tag!(self, cn_id)) {
+        self.clear_stack_back_to(&["tr", "template", "html"]);
+    }
+
+    /// Pops elements until the current node is an HTML element named in `names`. A foreign
+    /// element with one of those names does not stop it.
+    fn clear_stack_back_to(&mut self, names: &[&str]) {
+        while let Some(&cn_id) = self.open_elements.last() {
+            if names.contains(&self.html_tag_name(cn_id)) {
                 return;
             }
             self.open_elements.pop();
