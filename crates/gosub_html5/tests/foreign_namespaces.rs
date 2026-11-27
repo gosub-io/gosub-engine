@@ -211,3 +211,80 @@ fn an_svg_template_context_is_not_a_template() {
         "{errors:?}"
     );
 }
+
+/// Closing a cell pops to the HTML `td` or `th`. An SVG `td` or `th` left as the current node
+/// is not the cell, so that is a parse error, like any other element there. The tree does not
+/// change: the token that closed the cell clears the stack back to the row either way.
+#[test]
+fn closing_a_cell_does_not_stop_at_an_svg_td_or_th() {
+    const NOT_A_CELL: &str = "current node should be td or th";
+    for html in [
+        // The end tag closes the cell.
+        "<!DOCTYPE html><table><tr><td><svg><td></table>x",
+        "<!DOCTYPE html><table><tr><td><svg><th></tr>x",
+        "<!DOCTYPE html><table><tr><td><math><mi><svg><td></table>x",
+        // A start tag at an integration point closes the cell.
+        "<!DOCTYPE html><table><tr><td><svg><td><foreignObject><tr>y",
+        // Any other foreign element was already reported.
+        "<!DOCTYPE html><table><tr><td><svg><g></table>x",
+    ] {
+        let errors = errors(html);
+        assert!(errors.iter().any(|error| error == NOT_A_CELL), "{html}: {errors:?}");
+    }
+    let errors = errors("<!DOCTYPE html><table><tr><td>x</table>");
+    assert!(!errors.iter().any(|error| error == NOT_A_CELL), "{errors:?}");
+
+    assert_eq!(
+        tree("<!DOCTYPE html><table><tr><td><svg><td></table>x"),
+        lines(&[
+            "| <!DOCTYPE html>",
+            "| <html>",
+            "|   <head>",
+            "|   <body>",
+            "|     <table>",
+            "|       <tbody>",
+            "|         <tr>",
+            "|           <td>",
+            "|             <svg svg>",
+            "|               <svg td>",
+            "|     \"x\"",
+        ])
+    );
+    assert_eq!(
+        tree("<!DOCTYPE html><table><tr><td><svg><td><foreignObject><tr>y"),
+        lines(&[
+            "| <!DOCTYPE html>",
+            "| <html>",
+            "|   <head>",
+            "|   <body>",
+            "|     \"y\"",
+            "|     <table>",
+            "|       <tbody>",
+            "|         <tr>",
+            "|           <td>",
+            "|             <svg svg>",
+            "|               <svg td>",
+            "|                 <svg foreignObject>",
+            "|         <tr>",
+        ])
+    );
+}
+
+/// `</h1>`..`</h6>` pop to the HTML heading. Heading start tags break out of foreign content, so
+/// no foreign heading is ever open; this pins the tree for the other caller of the same pop.
+#[test]
+fn a_heading_end_tag_pops_to_the_html_heading() {
+    assert_eq!(
+        tree("<!DOCTYPE html><h1><svg><h2></h1>x"),
+        lines(&[
+            "| <!DOCTYPE html>",
+            "| <html>",
+            "|   <head>",
+            "|   <body>",
+            "|     <h1>",
+            "|       <svg svg>",
+            "|     <h2>",
+            "|     \"x\"",
+        ])
+    );
+}
