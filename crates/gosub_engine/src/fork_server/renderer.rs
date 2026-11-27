@@ -1511,6 +1511,68 @@ mod tests {
         assert_eq!(page.interaction_snapshot().focused_node(), None);
     }
 
+    /// A retained page runs the HTML removing steps the browsing context does: when an ancestor
+    /// of the focused control leaves the document, focus goes to the viewport, keys reach no
+    /// control, and a pass forgets the focus.
+    #[test]
+    fn a_retained_page_drops_focus_that_left_the_document() {
+        use crate::html::{DefaultRenderConfig, RenderConfiguration};
+        type Fonts = <DefaultRenderConfig as RenderConfiguration>::FontSystem;
+        let fonts: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(Fonts::default()));
+        let known = HashSet::new();
+        let mut page = RetainedPage::<DefaultRenderConfig>::build(
+            PageRequest {
+                html: "<!DOCTYPE html><div id=\"w\"><p><input id=\"i\" value=\"ab\" autofocus></p></div>",
+                page_url: "https://example.test/",
+                viewport_width: 800.0,
+                viewport_height: 600.0,
+                known_tiles: &known,
+                hovered_node: None,
+                dpr: 1,
+                media: MediaPrefs::default(),
+            },
+            fonts,
+            Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
+            Arc::new(crate::net::resource_loader::NoResourceLoader),
+        );
+        assert!(page.flush_autofocus().is_some());
+        let w = page.doc.node_by_named_id("w").expect("the wrapper");
+        let input = page.doc.node_by_named_id("i").expect("the field");
+        assert_eq!(page.interaction_snapshot().focused_node(), Some(input));
+
+        // Edit the document in place, as script will. The adapter and the layout built from it
+        // hold the document, so both let go of it meanwhile.
+        let placeholder = Arc::new(GosubDocumentAdapter::new(Arc::new(gosub_html5::html_compile::<
+            DefaultRenderConfig,
+        >("<!DOCTYPE html>"))));
+        (page.layer_list, ..) =
+            lay_out::<DefaultRenderConfig>(&placeholder, &page.fonts, &page.media_store, 800.0, 600.0);
+        page.adapter = placeholder;
+        Arc::get_mut(&mut page.doc).expect("sole owner").detach(w);
+        page.adapter = Arc::new(GosubDocumentAdapter::new(Arc::clone(&page.doc)));
+
+        assert_eq!(
+            page.interaction_snapshot().focused_node(),
+            None,
+            "already before the next pass"
+        );
+        page.input(
+            (0.0, 0.0),
+            &known,
+            InputEvent::KeyDown {
+                key: "c".into(),
+                modifiers: 0,
+            },
+        );
+        assert_eq!(
+            page.interaction_snapshot().control_edit_state(input),
+            None,
+            "the key went nowhere"
+        );
+        page.lay_out_again(Relayout::Full);
+        assert_eq!(page.interaction.focus, None);
+    }
+
     /// Moving focus restyles both controls with the new focus: `:focus` leaves the one that lost
     /// it and lands on the one that got it, and a pass afterwards keeps it that way.
     #[test]

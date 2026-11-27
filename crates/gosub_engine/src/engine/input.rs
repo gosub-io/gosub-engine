@@ -250,10 +250,15 @@ impl PageInput {
         let ix = host.interaction_snapshot();
         let previous = ix.focused_node();
         let unchanged = previous == node && node.is_none_or(|n| ix.is_focus_visible(n) == visible);
+        let state = host.interaction_mut();
         if unchanged {
+            // Focus whose node left the document reads as none, but stays in the state until a
+            // pass prunes it. A blur clears it, or it would come back with its node.
+            if node.is_none() {
+                state.focus = None;
+            }
             return false;
         }
-        let state = host.interaction_mut();
         state.focus = node;
         state.focus_visible = visible;
         let nodes: Vec<NodeId> = [previous, node].into_iter().flatten().collect();
@@ -764,6 +769,10 @@ impl PageInput {
         if host.interaction_snapshot().open_select().is_some() {
             Self::close_select_popup(host);
             changed = true;
+        } else {
+            // As for focus in `set_focus`: a dropdown whose select left the document reads as
+            // closed but is still in the state.
+            host.interaction_mut().open_select = None;
         }
         changed |= self.set_focus(host, None, false);
         self.end_drag();

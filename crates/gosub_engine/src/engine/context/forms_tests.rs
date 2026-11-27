@@ -1161,3 +1161,95 @@ fn a_pass_forgets_the_state_of_a_deleted_control() {
     assert!(ctx.interaction.edits.is_empty());
     assert!(ctx.interaction.checked.is_empty());
 }
+
+/// Edit the document in place, as script will; nothing else may hold it meanwhile.
+fn edit_document(ctx: &mut Ctx, edit: impl FnOnce(&mut EngineDocument<DefaultRenderConfig>)) {
+    ctx.document_adapter = None;
+    ctx.pipeline_cache = None;
+    ctx.scene_cache = None;
+    ctx.retained_layout = None;
+    edit(ctx.document.as_mut().and_then(Arc::get_mut).expect("sole owner"));
+    ctx.invalidate_render();
+}
+
+/// The HTML removing steps move focus to the viewport when the focused element, or an ancestor
+/// of it, leaves the document: keys reach no control, and putting it back does not focus it.
+#[test]
+fn detaching_an_ancestor_of_the_focused_control_leaves_nothing_focused() {
+    let mut ctx = page(r#"<div id="w"><p><input id="t" value="ab"></p></div>"#);
+    click(&mut ctx, "t");
+    type_text(&mut ctx, "c");
+    let (w, t) = (by_id(&ctx, "w"), by_id(&ctx, "t"));
+    let body = doc(&ctx).parent(w).expect("in the body");
+    assert_eq!(focused_id(&ctx).as_deref(), Some("t"));
+
+    edit_document(&mut ctx, |doc| doc.detach(w));
+
+    assert_eq!(ctx.focused_node(), None, "already before the next pass");
+    key(&mut ctx, "d");
+    assert_eq!(ctx.interaction.focus, None);
+    assert_eq!(ix(&ctx).control_edit_state(t).map(|s| s.value.as_str()), Some("abc"));
+
+    edit_document(&mut ctx, |doc| doc.attach(w, body, None).expect("back in the body"));
+    render(&mut ctx);
+    assert_eq!(focused_id(&ctx), None);
+    assert!(!ix(&ctx).is_focus_within(body));
+}
+
+#[test]
+fn deleting_an_ancestor_of_the_focused_control_leaves_nothing_focused() {
+    let mut ctx = page(r#"<div id="w"><p><input id="t" value="ab"></p></div>"#);
+    click(&mut ctx, "t");
+    let (w, t) = (by_id(&ctx, "w"), by_id(&ctx, "t"));
+
+    edit_document(&mut ctx, |doc| doc.remove(w));
+    render(&mut ctx);
+
+    assert!(doc(&ctx).contains(t), "the input outlives its ancestor");
+    assert_eq!(ctx.interaction.focus, None);
+    assert_eq!(ctx.focused_node(), None);
+}
+
+#[test]
+fn a_blur_while_the_focused_control_is_out_of_the_document_sticks() {
+    let mut ctx = page(r#"<div id="w"><input id="t"></div>"#);
+    click(&mut ctx, "t");
+    let w = by_id(&ctx, "w");
+    let body = doc(&ctx).parent(w).expect("in the body");
+
+    edit_document(&mut ctx, |doc| doc.detach(w));
+    ctx.set_focus(None, false);
+    edit_document(&mut ctx, |doc| doc.attach(w, body, None).expect("back in the body"));
+
+    assert_eq!(focused_id(&ctx), None);
+}
+
+#[test]
+fn a_window_blur_while_the_open_select_is_out_of_the_document_sticks() {
+    let mut ctx = page(r#"<div id="w"><select id="s"><option>a</option><option>b</option></select></div>"#);
+    click(&mut ctx, "s");
+    assert!(ix(&ctx).open_select().is_some(), "the click opened it");
+    let w = by_id(&ctx, "w");
+    let body = doc(&ctx).parent(w).expect("in the body");
+
+    edit_document(&mut ctx, |doc| doc.detach(w));
+    ctx.with_input(|input, host| input.blur(host));
+    edit_document(&mut ctx, |doc| doc.attach(w, body, None).expect("back in the body"));
+
+    assert!(ix(&ctx).open_select().is_none());
+    assert_eq!(focused_id(&ctx), None);
+}
+
+#[test]
+fn detaching_the_open_select_closes_its_dropdown() {
+    let mut ctx = page(r#"<div id="w"><select id="s"><option>a</option><option>b</option></select></div>"#);
+    click(&mut ctx, "s");
+    assert!(ix(&ctx).open_select().is_some(), "the click opened it");
+    let w = by_id(&ctx, "w");
+
+    edit_document(&mut ctx, |doc| doc.detach(w));
+
+    assert!(ix(&ctx).open_select().is_none());
+    render(&mut ctx);
+    assert!(ctx.interaction.open_select.is_none());
+}

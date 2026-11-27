@@ -1326,17 +1326,132 @@ mod tests {
         assert!(ix.is_focus_within(new));
     }
 
+    /// Nothing is focused, and no element is `:focus-within`.
+    fn assert_nothing_focused(ix: &InteractionSnapshot, nodes: &[NodeId]) {
+        assert_eq!(ix.focused_node(), None);
+        for &node in nodes {
+            assert!(!ix.is_focused(node) && !ix.is_focus_visible(node), "{node:?} focused");
+            assert!(!ix.is_focus_within(node), "{node:?} :focus-within");
+        }
+    }
+
     #[test]
-    fn detaching_the_focused_element_takes_focus_within_out_of_the_document() {
+    fn detaching_the_focused_element_leaves_nothing_focused() {
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
         let (old, _, input, state) = focused_input(&mut doc);
 
         doc.detach_node(input);
 
-        let ix = snapshot(&doc, &state);
-        assert!(!ix.is_focus_within(old));
-        assert!(!ix.is_focus_within(doc.root()));
-        assert!(ix.is_focus_within(input));
+        assert_nothing_focused(&snapshot(&doc, &state), &[doc.root(), old, input]);
+    }
+
+    /// html > old > wrapper > input: focus deep in the subtree that goes.
+    fn deeply_focused_input(doc: &mut DocumentImpl<Config>) -> (NodeId, NodeId, NodeId, InteractionState) {
+        let (old, _, input, state) = focused_input(doc);
+        let wrapper = element(doc, "div", old);
+        doc.attach_node(input, wrapper, None).unwrap();
+        (old, wrapper, input, state)
+    }
+
+    #[test]
+    fn detaching_an_ancestor_of_the_focused_element_leaves_nothing_focused() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (old, wrapper, input, state) = deeply_focused_input(&mut doc);
+
+        doc.detach_node(old);
+
+        assert_nothing_focused(&snapshot(&doc, &state), &[doc.root(), old, wrapper, input]);
+    }
+
+    #[test]
+    fn deleting_an_ancestor_of_the_focused_element_leaves_nothing_focused() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (old, wrapper, input, state) = deeply_focused_input(&mut doc);
+
+        // The input outlives its ancestor: it is the root of a detached tree now.
+        doc.delete_node_by_id(old);
+        assert!(doc.contains(input));
+
+        assert_nothing_focused(&snapshot(&doc, &state), &[doc.root(), wrapper, input]);
+    }
+
+    #[test]
+    fn focus_that_left_the_document_does_not_come_back_with_it() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (old, _, input, mut state) = focused_input(&mut doc);
+        state.set_size(input, Some((10.0, 20.0)));
+
+        doc.detach_node(input);
+        state.prune::<Config>(&doc);
+        doc.attach_node(input, old, None).unwrap();
+
+        assert_eq!(state.focus, None);
+        assert!(!state.focus_visible);
+        assert_nothing_focused(&snapshot(&doc, &state), &[doc.root(), old, input]);
+        assert_eq!(
+            snapshot(&doc, &state).control_size(input),
+            Some((10.0, 20.0)),
+            "what the user did to the control itself stays with it"
+        );
+    }
+
+    #[test]
+    fn focus_in_a_shadow_tree_is_in_the_document() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let host = element(&mut doc, "div", root);
+        let shadow = shadow_root_of(&mut doc, host);
+        let input = element(&mut doc, "input", shadow);
+        let mut state = InteractionState {
+            focus: Some(input),
+            ..Default::default()
+        };
+
+        state.prune::<Config>(&doc);
+
+        assert_eq!(state.focus, Some(input));
+        assert_eq!(snapshot(&doc, &state).focused_node(), Some(input));
+
+        doc.detach_node(host);
+        assert_eq!(snapshot(&doc, &state).focused_node(), None, "the host took it out");
+    }
+
+    #[test]
+    fn focus_in_a_templates_contents_is_not_in_the_document() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let (old, _, input, state) = focused_input(&mut doc);
+        let template = element(&mut doc, "template", old);
+        // As the parser leaves an ordinary template: it holds its own contents.
+        Document::set_template_contents(&mut doc, template, template);
+
+        doc.attach_node(input, template, None).unwrap();
+
+        assert_nothing_focused(&snapshot(&doc, &state), &[doc.root(), old, template, input]);
+    }
+
+    #[test]
+    fn detaching_an_ancestor_of_the_open_select_closes_it() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let form = element(&mut doc, "form", root);
+        let select = element(&mut doc, "select", form);
+        let mut state = InteractionState {
+            open_select: Some(OpenSelect {
+                select,
+                hover: None,
+                active: None,
+                first_row: 0,
+                viewport: (0.0, 100.0),
+            }),
+            ..Default::default()
+        };
+
+        doc.detach_node(form);
+
+        assert!(snapshot(&doc, &state).open_select().is_none());
+        state.prune::<Config>(&doc);
+        doc.attach_node(form, root, None).unwrap();
+        assert!(snapshot(&doc, &state).open_select().is_none(), "and it stays closed");
     }
 
     #[test]

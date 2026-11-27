@@ -5,6 +5,11 @@
 //! stale when the tree changes. [`InteractionSnapshot`] is what a style or paint pass reads: it
 //! is built from the state and the tree as it is then, which puts the hover and focus chains
 //! where the nodes are now and leaves out entries whose node is gone.
+//!
+//! Focus and the open dropdown also go when their node leaves the document: the HTML removing
+//! steps move focus to the viewport (<https://html.spec.whatwg.org/#html-removing-steps>), and
+//! no blur fires. The tree is not watched: [`InteractionState::prune`] forgets them at the next
+//! pass, so a node that leaves and comes back before that keeps both.
 
 use crate::config::HasDocument;
 use crate::document::{ControlEditState, Document, OpenSelect};
@@ -53,13 +58,15 @@ impl InteractionState {
 
     /// Forget every entry naming a node `doc` no longer has. Node ids are not reused, so such
     /// an entry can never match again; without this the maps grow for the page's lifetime.
-    /// Detached nodes stay: they may come back.
+    /// Detached nodes stay: they may come back. Focus and the open dropdown do not: they go
+    /// once their node is out of the document, and do not come back with it.
     pub fn prune<C: HasDocument>(&mut self, doc: &C::Document) {
         let live = |id: &NodeId| doc.contains(*id);
+        let connected = |id: &NodeId| is_connected::<C>(doc, *id);
         if !self.hover_leaf.as_ref().is_none_or(live) {
             self.hover_leaf = None;
         }
-        if !self.focus.as_ref().is_none_or(live) {
+        if !self.focus.as_ref().is_none_or(connected) {
             self.focus = None;
             self.focus_visible = false;
         }
@@ -67,7 +74,7 @@ impl InteractionState {
         self.checked.retain(|id, _| live(id));
         self.selected.retain(|select, option| live(select) && live(option));
         self.sizes.retain(|id, _| live(id));
-        if !self.open_select.as_ref().is_none_or(|o| live(&o.select)) {
+        if !self.open_select.as_ref().is_none_or(|o| connected(&o.select)) {
             self.open_select = None;
         }
     }
@@ -103,10 +110,12 @@ pub struct InteractionSnapshot {
 
 impl InteractionSnapshot {
     /// Read `state` against `doc` as it is now. Entries naming a node `doc` no longer has are
-    /// left out; `state` keeps them, which is harmless as node ids are not reused.
+    /// left out; `state` keeps them, which is harmless as node ids are not reused. So are focus
+    /// and the open dropdown when their node is not in the document.
     pub fn new<C: HasDocument>(state: &InteractionState, doc: &C::Document) -> Self {
         let live = |id: &NodeId| doc.contains(*id);
-        let focus = state.focus.filter(live);
+        let connected = |id: &NodeId| is_connected::<C>(doc, *id);
+        let focus = state.focus.filter(connected);
         Self {
             hovered: ancestors_and_self::<C>(doc, state.hover_leaf.filter(live)),
             focus,
@@ -121,7 +130,7 @@ impl InteractionSnapshot {
                 .map(|(&select, &option)| (select, option))
                 .collect(),
             sizes: live_entries(&state.sizes, live),
-            open_select: state.open_select.filter(|o| live(&o.select)),
+            open_select: state.open_select.filter(|o| connected(&o.select)),
         }
     }
 
@@ -210,6 +219,26 @@ fn live_entries<V: Clone>(map: &HashMap<NodeId, V>, live: impl Fn(&NodeId) -> bo
         .filter(|(id, _)| live(id))
         .map(|(&id, v)| (id, v.clone()))
         .collect()
+}
+
+/// Whether `id` is in the document: its shadow-including root is the document, so it is neither
+/// deleted nor in a detached subtree or a template's contents.
+fn is_connected<C: HasDocument>(doc: &C::Document, id: NodeId) -> bool {
+    if !doc.contains(id) {
+        return false;
+    }
+    let mut current = id;
+    loop {
+        match doc.parent(current) {
+            // An ordinary template holds its own contents as its children.
+            Some(parent) if doc.template_contents(parent) == Some(parent) => return false,
+            Some(parent) => current = parent,
+            None => match doc.shadow_host(current) {
+                Some(host) => current = host,
+                None => return current == doc.root(),
+            },
+        }
+    }
 }
 
 /// `node` and every ancestor of it, up to the root of its tree.
