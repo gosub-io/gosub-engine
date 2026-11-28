@@ -36,6 +36,9 @@ pub struct ResourcePipelines<C: RenderConfiguration> {
     /// (`net.download.max_spool_bytes`), and every tab's together
     /// (`net.download.max_total_spool_bytes`).
     pub(crate) download_spool: crate::net::SpoolLimits,
+    /// The most of a navigation's body that is read (`net.document.max_bytes`): the HTML
+    /// parser truncates there, and so does the text view.
+    pub(crate) max_document_bytes: usize,
     // pub viewer: &'a mut dyn ViewerPipeline,
     // pub download: &'a mut dyn DownloadManager,
     // pub external: &'a mut dyn ExternalOpener,
@@ -63,6 +66,7 @@ impl<C: RenderConfiguration> ResourcePipelines<C> {
         // in-process when the renderer cannot, and need a document for that.
         Self {
             download_spool,
+            max_document_bytes,
             html: Box::new(
                 HtmlPipelineImpl::new(
                     zone_id,

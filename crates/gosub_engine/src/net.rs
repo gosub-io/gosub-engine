@@ -121,8 +121,8 @@ pub use fetcher::fetcher_config_from;
 /// Compat-shaped `User-Agent` for this engine build, with an optional embedder product token.
 pub use fetcher::default_user_agent;
 
-/// Utility to **fully buffer a stream** into bytes (tests, small assets, diagnostics).
-pub(crate) use utils::stream_to_bytes;
+/// Buffer a stream into bytes: all of it, or (`_capped`) up to a limit.
+pub(crate) use utils::{stream_to_bytes, stream_to_bytes_capped};
 
 /// Route a raw fetch result into a higher-level outcome the engine understands.
 pub(crate) use router::route_response_for;

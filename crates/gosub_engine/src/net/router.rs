@@ -8,7 +8,10 @@ use crate::html::{EngineDocument, RenderConfiguration};
 use crate::net::decision::types::BlockReason;
 use crate::net::decision::ResponseClass;
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
-use crate::net::{decide_handling, stream_to_bytes, HandlingDecision, RenderTarget, RequestDestination, SharedBody};
+use crate::net::{
+    decide_handling, stream_to_bytes, stream_to_bytes_capped, HandlingDecision, RenderTarget, RequestDestination,
+    SharedBody,
+};
 use anyhow::{anyhow, Context};
 use bytes::Bytes;
 use std::sync::Arc;
@@ -335,27 +338,80 @@ fn over_total(total: u64) -> anyhow::Error {
 }
 
 fn html_escape(text: &str) -> String {
-    let mut escaped = String::with_capacity(text.len() + 16);
+    html_escape_within(text, usize::MAX)
+}
+
+/// `html_escape`, stopped at the last whole character whose escaped form still fits in
+/// `max_bytes`.
+fn html_escape_within(text: &str, max_bytes: usize) -> String {
+    let mut escaped = String::with_capacity(text.len().min(max_bytes).saturating_add(16));
+    let mut buf = [0u8; 4];
     for ch in text.chars() {
-        match ch {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            _ => escaped.push(ch),
+        let piece: &str = match ch {
+            '&' => "&amp;",
+            '<' => "&lt;",
+            '>' => "&gt;",
+            _ => ch.encode_utf8(&mut buf),
+        };
+        if escaped.len() + piece.len() > max_bytes {
+            break;
         }
+        escaped.push_str(piece);
     }
     escaped
 }
 
-/// Minimal HTML document presenting `body` as escaped plain text, used to render
-/// textual non-HTML navigations (text/plain, unparseable JSON) the way mainstream
-/// browsers do.
-fn text_document_html(body: &[u8]) -> String {
-    let escaped = html_escape(&String::from_utf8_lossy(body));
-    format!(
-        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head>\
-         <body><pre style=\"white-space: pre-wrap; word-wrap: break-word;\">{escaped}</pre></body></html>"
-    )
+/// A textual body of class `class` decoded for the text view: by its byte order mark, else the
+/// `charset` of `mime`, else, for XML, the encoding its XML declaration names, else UTF-8
+/// (RFC 7303 section 3.2, XML 1.0 section 4.3.3). JSON is UTF-8 and has no charset
+/// (RFC 8259 sections 8.1 and 11).
+fn decode_text<'a>(body: &'a [u8], class: ResponseClass, mime: Option<&mime::Mime>) -> std::borrow::Cow<'a, str> {
+    // A label that names no encoding is passed over, not taken as UTF-8.
+    let charset = mime
+        .and_then(|m| m.get_param(mime::CHARSET))
+        .and_then(|charset| encoding_rs::Encoding::for_label(charset.as_str().as_bytes()));
+    let encoding = match class {
+        ResponseClass::Json => None,
+        ResponseClass::Xml => charset.or_else(|| xml_declared_encoding(body)),
+        _ => charset,
+    };
+    // `decode` lets a byte order mark override `encoding`.
+    encoding.unwrap_or(encoding_rs::UTF_8).decode(body).0
+}
+
+/// The encoding named in `encoding="..."` of the XML declaration that starts `body`, if any
+/// (XML 1.0 production [23]). UTF-16 is left out: a body without a byte order mark that reads
+/// this far as ASCII is not UTF-16, so it is read as UTF-8.
+fn xml_declared_encoding(body: &[u8]) -> Option<&'static encoding_rs::Encoding> {
+    let decl = body.strip_prefix(b"<?xml")?;
+    // `<?xml-stylesheet` and the like are other processing instructions.
+    if !decl.first().is_some_and(|b| matches!(b, b' ' | b'\t' | b'\r' | b'\n')) {
+        return None;
+    }
+    let decl = &decl[..decl.windows(2).position(|w| w == b"?>")?];
+    let at = decl.windows(8).position(|w| w == b"encoding")?;
+    let rest = decl[at + 8..].trim_ascii_start().strip_prefix(b"=")?.trim_ascii_start();
+    let (&quote, rest) = rest.split_first()?;
+    if quote != b'"' && quote != b'\'' {
+        return None;
+    }
+    let label = &rest[..rest.iter().position(|&b| b == quote)?];
+    encoding_rs::Encoding::for_label(label).filter(|&e| e != encoding_rs::UTF_16LE && e != encoding_rs::UTF_16BE)
+}
+
+/// Minimal HTML document presenting `text` escaped, used to render textual non-HTML
+/// navigations (text/plain, XML, unparseable JSON) the way mainstream browsers do.
+///
+/// The text is cut where its escaped form would take the page past `max_bytes`. The page is
+/// parsed under `net.document.max_bytes` like any document, and a renderer process refuses a
+/// document larger than its link carries, so a page that grew past the limit would be cut
+/// mid-entity or not shown at all.
+fn text_document_html(text: &str, max_bytes: usize) -> String {
+    const HEAD: &str = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head>\
+         <body><pre style=\"white-space: pre-wrap; word-wrap: break-word;\">";
+    const TAIL: &str = "</pre></body></html>";
+    let escaped = html_escape_within(text, max_bytes.saturating_sub(HEAD.len() + TAIL.len()));
+    format!("{HEAD}{escaped}{TAIL}")
 }
 
 /// Beyond these the viewer shows escaped text instead: it is a convenience,
@@ -420,6 +476,21 @@ fn json_lines(v: &serde_json::Value, depth: usize, key: Option<&str>, trail: &st
     }
 }
 
+/// The page a navigation to a textual body shows, kept within `max_bytes`. JSON gets the
+/// highlighted viewer; anything unparseable (and text/plain) falls back to escaped plain text,
+/// as does JSON whose highlighted page would not fit.
+fn viewer_page_html(body: &[u8], class: ResponseClass, mime: Option<&mime::Mime>, max_bytes: usize) -> String {
+    if class == ResponseClass::Json && body.len() <= JSON_VIEWER_MAX_BYTES {
+        if let Ok(value) = serde_json::from_slice::<serde_json::Value>(body) {
+            let html = json_document_html(&value);
+            if html.len() <= max_bytes {
+                return html;
+            }
+        }
+    }
+    text_document_html(&decode_text(body, class, mime), max_bytes)
+}
+
 /// JSON viewer document: pretty-printed and syntax-highlighted, like the built-in
 /// viewers in mainstream browsers.
 ///
@@ -459,6 +530,18 @@ impl BodyContent {
             }
             BodyContent::Buffered { body } => Ok(body),
         }
+    }
+
+    /// Like `to_bytes`, but no more than `max_bytes` (`net.document.max_bytes`).
+    async fn into_capped_bytes(self, peek_buf: PeekBuf, max_bytes: usize) -> anyhow::Result<Bytes> {
+        let (body, cut) = match self {
+            BodyContent::Stream { shared } => stream_to_bytes_capped(peek_buf, shared, max_bytes).await?,
+            BodyContent::Buffered { body } => (body.slice(..body.len().min(max_bytes)), body.len() > max_bytes),
+        };
+        if cut {
+            log::warn!("Body exceeds the {max_bytes} byte limit (net.document.max_bytes); truncated");
+        }
+        Ok(body)
     }
 }
 
@@ -518,19 +601,23 @@ pub async fn route_response_for<C: RenderConfiguration>(
             // A top-level navigation to a textual non-HTML resource (a JSON API
             // endpoint, text/plain, …) renders as plain text, like mainstream
             // browsers. Explicit attachments and binary content stay unloadable
-            // until downloads are implemented.
-            if !outcome.disposition_attachment && matches!(outcome.class, ResponseClass::Json | ResponseClass::Text) {
-                let body = body_content.to_bytes(peek_buf).await?;
-                // JSON gets the highlighted viewer; anything unparseable (and
-                // text/plain) falls back to escaped plain text.
-                let html = if outcome.class == ResponseClass::Json && body.len() <= JSON_VIEWER_MAX_BYTES {
-                    match serde_json::from_slice::<serde_json::Value>(&body) {
-                        Ok(value) => json_document_html(&value),
-                        Err(_) => text_document_html(&body),
-                    }
-                } else {
-                    text_document_html(&body)
-                };
+            // until downloads are implemented. XML is shown as text until there is
+            // an XML parser.
+            if !outcome.disposition_attachment
+                && matches!(
+                    outcome.class,
+                    ResponseClass::Json | ResponseClass::Text | ResponseClass::Xml
+                )
+            {
+                let body = body_content
+                    .into_capped_bytes(peek_buf, hooks.max_document_bytes)
+                    .await?;
+                let html = viewer_page_html(
+                    &body,
+                    outcome.class,
+                    outcome.declared_mime.as_ref(),
+                    hooks.max_document_bytes,
+                );
                 let mut meta = meta;
                 meta.content_type = Some("text/html; charset=utf-8".into());
                 // The synthesized viewer page is a document like any other: its
@@ -705,5 +792,161 @@ mod tests {
         })
         .await
         .expect("the spool kept writing after it was dropped");
+    }
+
+    /// The text view reads no more of a body than `net.document.max_bytes`, streamed or not.
+    #[tokio::test]
+    async fn a_body_for_the_text_view_stops_at_the_cap() {
+        let buffered = BodyContent::Buffered {
+            body: Bytes::from_static(b"0123456789"),
+        };
+        assert_eq!(
+            &buffered.into_capped_bytes(PeekBuf::empty(), 4).await.unwrap()[..],
+            b"0123"
+        );
+
+        let shared = Arc::new(SharedBody::new(8));
+        shared.push(Bytes::from_static(b"456789"));
+        shared.finish();
+        let streamed = BodyContent::Stream { shared };
+        let body = streamed
+            .into_capped_bytes(PeekBuf::from_slice(b"0123"), 6)
+            .await
+            .unwrap();
+        assert_eq!(&body[..], b"012345");
+    }
+
+    /// A page of escaped text stays within the limit, cut before a character or entity
+    /// that would not fit, never inside one.
+    #[test]
+    fn a_text_page_is_built_within_the_limit() {
+        let whole = text_document_html("", usize::MAX);
+        for (text, kept) in [("<<<<", "<<"), ("abc<d", "abc"), ("ab\u{e9}\u{e9}", "ab\u{e9}")] {
+            // One byte short of the next character or entity.
+            let limit = whole.len() + html_escape(kept).len() + 1;
+            let page = text_document_html(text, limit);
+            assert!(page.len() <= limit, "{text:?}: {} > {limit}", page.len());
+            assert_eq!(page, text_document_html(kept, usize::MAX), "{text:?}");
+        }
+        let page = text_document_html("a<b", usize::MAX);
+        assert!(page.contains("a&lt;b</pre>"), "{page}");
+    }
+
+    /// JSON whose highlighted page would not fit is shown as text, within the limit.
+    #[test]
+    fn json_too_big_for_its_viewer_page_is_shown_as_text() {
+        let body = br#"[{"id":1,"name":"a"},{"id":2,"name":"b"}]"#;
+        let viewer = viewer_page_html(body, ResponseClass::Json, None, usize::MAX);
+        assert!(!viewer.contains("<pre"), "highlighted viewer expected: {viewer}");
+
+        let limit = viewer.len() - 1;
+        let page = viewer_page_html(body, ResponseClass::Json, None, limit);
+        assert!(page.len() <= limit);
+        assert!(page.contains("<pre"), "text page expected: {page}");
+        assert!(page.contains("[{\"id\""), "{page}");
+    }
+
+    fn shown(body: &[u8], class: ResponseClass, content_type: &str) -> String {
+        let mime: mime::Mime = content_type.parse().unwrap();
+        text_document_html(&decode_text(body, class, Some(&mime)), usize::MAX)
+    }
+
+    #[test]
+    fn xml_text_is_decoded_from_its_charset() {
+        let page = shown(
+            b"<r>\xe9</r>",
+            ResponseClass::Xml,
+            "application/xml; charset=iso-8859-1",
+        );
+        assert!(page.contains("&lt;r&gt;\u{e9}&lt;/r&gt;"), "{page}");
+    }
+
+    #[test]
+    fn xml_text_is_decoded_from_its_declaration() {
+        let page = shown(
+            b"<?xml version=\"1.0\" encoding='ISO-8859-1'?><r>\xe9</r>",
+            ResponseClass::Xml,
+            "application/rss+xml",
+        );
+        assert!(page.contains("&lt;r&gt;\u{e9}"), "{page}");
+    }
+
+    /// RFC 7303 section 3.2: a BOM over the charset, the charset over the declaration.
+    #[test]
+    fn a_bom_and_then_the_charset_win_over_the_declaration() {
+        let declared = b"<?xml version=\"1.0\" encoding=\"iso-8859-1\"?><r>\xc3\xa9</r>";
+        let page = shown(declared, ResponseClass::Xml, "text/xml; charset=utf-8");
+        assert!(page.contains("&lt;r&gt;\u{e9}"), "{page}");
+
+        let mut bom = b"\xef\xbb\xbf".to_vec();
+        bom.extend_from_slice(b"<r>\xc3\xa9</r>");
+        let page = shown(&bom, ResponseClass::Xml, "application/xml; charset=iso-8859-1");
+        assert!(page.contains("&lt;r&gt;\u{e9}"), "{page}");
+
+        let utf16: Vec<u8> = b"\xff\xfe"
+            .iter()
+            .copied()
+            .chain("<r>\u{e9}</r>".encode_utf16().flat_map(u16::to_le_bytes))
+            .collect();
+        let page = shown(&utf16, ResponseClass::Xml, "application/xml");
+        assert!(page.contains("&lt;r&gt;\u{e9}"), "{page}");
+    }
+
+    #[test]
+    fn a_utf16_declaration_without_a_bom_is_read_as_utf8() {
+        let page = shown(
+            b"<?xml version=\"1.0\" encoding=\"UTF-16\"?><r>\xc3\xa9</r>",
+            ResponseClass::Xml,
+            "application/xml",
+        );
+        assert!(page.contains("&lt;r&gt;\u{e9}"), "{page}");
+    }
+
+    #[test]
+    fn an_unknown_charset_leaves_the_declaration_to_decide() {
+        let page = shown(
+            b"<?xml version='1.0' encoding='iso-8859-1'?><r>\xe9</r>",
+            ResponseClass::Xml,
+            "application/xml; charset=bogus",
+        );
+        assert!(page.contains("&lt;r&gt;\u{e9}"), "{page}");
+    }
+
+    #[test]
+    fn another_processing_instruction_is_not_a_declaration() {
+        let page = shown(
+            b"<?xml-stylesheet href='x' encoding='koi8-r'?><r>\xc3\xa9</r>",
+            ResponseClass::Xml,
+            "application/xml",
+        );
+        assert!(page.contains("&lt;r&gt;\u{e9}"), "{page}");
+    }
+
+    #[test]
+    fn plain_text_is_decoded_from_its_charset() {
+        let page = shown(b"\xf0\xd2\xc9", ResponseClass::Text, "text/plain; charset=koi8-r");
+        assert!(page.contains("\u{41f}\u{440}\u{438}"), "{page}");
+    }
+
+    /// Only XML has a declaration; text/plain without a charset is UTF-8.
+    #[test]
+    fn plain_text_ignores_an_xml_declaration() {
+        let page = shown(
+            b"<?xml version=\"1.0\" encoding=\"iso-8859-1\"?>\xc3\xa9",
+            ResponseClass::Text,
+            "text/plain",
+        );
+        assert!(page.contains("?&gt;\u{e9}"), "{page}");
+    }
+
+    /// JSON is UTF-8 whatever its type says (RFC 8259 section 8.1).
+    #[test]
+    fn json_text_ignores_a_charset() {
+        let page = shown(
+            b"{\"a\": \"\xc3\xa9\"",
+            ResponseClass::Json,
+            "application/json; charset=iso-8859-1",
+        );
+        assert!(page.contains("\u{e9}"), "{page}");
     }
 }

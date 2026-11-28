@@ -3346,6 +3346,132 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// Serves `head` and the first 300 KiB of a 1 MiB body, holds the rest back, and sends
+    /// the request path when the client lets go of that connection. A tab that shows a page
+    /// also asks for `/favicon.ico`, so a close is only known by its path.
+    async fn serve_held_back(head: &'static str) -> (u16, tokio::sync::mpsc::UnboundedReceiver<String>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (closed_tx, closed_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let closed_tx = closed_tx.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    let request = String::from_utf8_lossy(&buf[..n]);
+                    let path = request.split_whitespace().nth(1).unwrap_or("").to_string();
+                    let head = format!("HTTP/1.1 200 OK\r\n{head}Content-Length: 1048576\r\nConnection: close\r\n\r\n");
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(&b"<r/>".repeat(75 * 1024)).await;
+                    let _ = stream.read(&mut buf).await;
+                    let _ = closed_tx.send(path);
+                });
+            }
+        });
+        (port, closed_rx)
+    }
+
+    #[derive(Debug, PartialEq)]
+    enum Ending {
+        Page,
+        Download,
+        Failed,
+    }
+
+    /// How a navigation to `url` ends. With `closed`, also waits (with the zone still open,
+    /// so closing it does not end the transfer) until the server sees the connection for
+    /// `url`'s path let go.
+    async fn navigation_ending(
+        engine: &mut GosubEngine,
+        max_document_bytes: usize,
+        url: String,
+        closed: Option<&mut tokio::sync::mpsc::UnboundedReceiver<String>>,
+    ) -> Ending {
+        use crate::events::NavigationEvent;
+        use crate::Setting;
+        let mut events = engine.subscribe_events();
+        engine
+            .settings()
+            .set("net.document.max_bytes", Setting::UInt(max_document_bytes))
+            .expect("set limit");
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        let path = url::Url::parse(&url).expect("url").path().to_string();
+        tab.navigate(url).await.expect("navigate");
+        let ending = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::Navigation {
+                        tab_id,
+                        event: NavigationEvent::Finished { .. },
+                    }) if tab_id == tab.tab_id => return Ending::Page,
+                    Ok(EngineEvent::DownloadRequested { tab_id, .. }) if tab_id == tab.tab_id => {
+                        return Ending::Download
+                    }
+                    Ok(EngineEvent::Navigation {
+                        tab_id,
+                        event: NavigationEvent::Failed { .. },
+                    }) if tab_id == tab.tab_id => return Ending::Failed,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("the navigation did not end");
+        if let Some(closed) = closed {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while closed.recv().await.is_some_and(|seen| seen != path) {}
+            })
+            .await
+            .expect("the transfer went on past the limit");
+        }
+        engine.close_zone(zone).await;
+        ending
+    }
+
+    /// An XML, JSON or text response larger than `net.document.max_bytes` shows as text, and
+    /// the part past the limit is not fetched: the connection is let go.
+    #[tokio::test]
+    async fn a_text_view_over_the_document_limit_finishes_and_stops_its_transfer() {
+        let mut engine = engine_with_max_zones(1);
+        let _join = tokio::spawn(engine.start().expect("start"));
+        for head in [
+            "Content-Type: application/xml\r\n",
+            "Content-Type: application/rss+xml\r\n",
+            "Content-Type: text/plain\r\n",
+            "Content-Type: application/json\r\n",
+        ] {
+            let (port, mut closed_rx) = serve_held_back(head).await;
+            let url = format!("http://127.0.0.1:{port}/feed");
+            let ending = navigation_ending(&mut engine, 4096, url, Some(&mut closed_rx)).await;
+            assert_eq!(ending, Ending::Page, "{head}");
+        }
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// An XHTML or XML attachment is offered as a download, not shown.
+    #[tokio::test]
+    async fn an_xhtml_or_xml_attachment_is_offered_as_a_download() {
+        let mut engine = engine_with_max_zones(1);
+        let _join = tokio::spawn(engine.start().expect("start"));
+        for head in [
+            "Content-Type: application/xhtml+xml\r\nContent-Disposition: attachment\r\n",
+            "Content-Type: application/xml\r\nContent-Disposition: attachment; filename=\"a.xml\"\r\n",
+        ] {
+            let (port, _closed_rx) = serve_held_back(head).await;
+            let url = format!("http://127.0.0.1:{port}/a");
+            assert_eq!(
+                navigation_ending(&mut engine, 4096, url, None).await,
+                Ending::Download,
+                "{head}"
+            );
+        }
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// A navigation has no deadline for its whole body: a download that takes longer than
     /// `net.timeout.body_secs` is still offered, as long as it keeps arriving.
     #[tokio::test]
