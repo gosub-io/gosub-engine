@@ -98,7 +98,7 @@ fontique = { version = "0.11.1", default-features = false, features = ["fontconf
 pollster = "1.0.1"
 rand = "0.10.1"
 regex = "1.12.3"
-rquickjs = { version = "0.12.2", features = ["classes", "properties", "macro"] }
+rquickjs = { version = "0.14.0", features = ["classes", "properties", "macro"] }
 resvg = "0.48.1"
 seccompiler = "0.5"
 serde = "1.0.228"
