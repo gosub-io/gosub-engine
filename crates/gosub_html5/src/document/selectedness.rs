@@ -10,7 +10,6 @@
 //! `option.selected` setter and a pick by the user is kept by the engine
 //! (`InteractionState::selected`), not here.
 
-use crate::document::presentation_hints::non_negative_integer;
 use crate::node::HTML_NAMESPACE;
 use gosub_interface::config::HasDocument;
 use gosub_interface::document::Document;
@@ -215,11 +214,25 @@ pub(crate) fn is_disabled<C: HasDocument>(doc: &C::Document, option: NodeId) -> 
 /// The number of rows `select` shows: its `size`, else 4 with `multiple` and 1 without
 /// (<https://html.spec.whatwg.org/#concept-select-size>).
 pub(crate) fn display_size<C: HasDocument>(doc: &C::Document, select: NodeId) -> u32 {
-    match doc.attribute(select, "size").and_then(non_negative_integer) {
+    match doc.attribute(select, "size").and_then(size_value) {
         Some(size) => size,
         None if doc.attribute(select, "multiple").is_some() => 4,
         None => 1,
     }
+}
+
+/// `size` read by the rules for parsing non-negative integers: leading whitespace, an optional
+/// `+`, then the digits. Those rules have no upper bound, so a number too big for a `u32`
+/// saturates instead of counting as no number at all.
+fn size_value(raw: &str) -> Option<u32> {
+    let raw = raw.trim_start_matches([' ', '\t', '\n', '\u{0c}', '\r']);
+    let raw = raw.strip_prefix('+').unwrap_or(raw);
+    raw.bytes()
+        .take_while(u8::is_ascii_digit)
+        .map(|digit| u32::from(digit - b'0'))
+        .fold(None, |value, digit| {
+            Some(value.unwrap_or(0u32).saturating_mul(10).saturating_add(digit))
+        })
 }
 
 #[cfg(test)]
@@ -445,6 +458,9 @@ mod tests {
             ("<select id=s size=x><option id=a></select>", vec!["a"]),
             ("<select id=s size=2><option id=a></select>", vec![]),
             ("<select id=s size=0><option id=a></select>", vec![]),
+            ("<select id=s size=4294967296><option id=a></select>", vec![]),
+            ("<select id=s size=99999999999999999999><option id=a></select>", vec![]),
+            ("<select id=s size=' +1x'><option id=a></select>", vec!["a"]),
         ];
         for (body, want) in cases {
             assert_eq!(selected(&page(body), "s"), want, "{body}");
