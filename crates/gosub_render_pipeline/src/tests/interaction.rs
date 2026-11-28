@@ -146,6 +146,28 @@ fn checked_follows_the_toggle_then_the_attribute() {
 }
 
 #[test]
+fn the_default_option_is_the_last_selected_else_the_first_enabled_one() {
+    let html = r#"<style>:checked { color: rgb(255, 0, 0) }</style>
+        <select id="s"><option id="a" selected>a</option><option id="b" selected>b</option></select>
+        <select id="t"><option id="c" disabled>c</option><optgroup disabled><option id="d">d</option></optgroup><option id="e">e</option></select>"#;
+
+    let adapter = styled(parse(html), &InteractionState::default());
+    assert!(!is_red(&adapter, "a"));
+    assert!(is_red(&adapter, "b"), "the last selected option");
+    assert!(!is_red(&adapter, "c"));
+    assert!(!is_red(&adapter, "d"));
+    assert!(is_red(&adapter, "e"), "the first option that is not disabled");
+    assert_eq!(
+        adapter.selected_option(by_id(&adapter.doc, "s")),
+        Some(by_id(&adapter.doc, "b"))
+    );
+    assert_eq!(
+        adapter.selected_option(by_id(&adapter.doc, "t")),
+        Some(by_id(&adapter.doc, "e"))
+    );
+}
+
+#[test]
 fn entries_for_deleted_nodes_are_dropped() {
     let mut doc = parse(
         r#"<style>#box:focus-within, :checked { color: rgb(255, 0, 0) }</style>

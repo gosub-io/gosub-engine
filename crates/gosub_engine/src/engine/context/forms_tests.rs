@@ -501,6 +501,69 @@ fn select_row_click_picks_and_outside_click_closes() {
     assert_eq!(selected(&ctx, "s").as_deref(), Some("o4"), "…without changing");
 }
 
+/// The label a closed `select` shows.
+fn select_label(ctx: &Ctx, select: &str) -> String {
+    use gosub_render_pipeline::layouter::FormControl;
+    let node = by_id(ctx, select);
+    let ll = ctx.active_layer_list().unwrap_or_else(|| unreachable!("rendered"));
+    ll.layout_tree
+        .arena
+        .values()
+        .find_map(|el| match &el.context {
+            ElementContext::FormControl(fc) if el.dom_node_id == node => match &fc.control {
+                FormControl::Select { label, .. } => Some(label.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{select} is not a select"))
+}
+
+/// Last `selected` wins; with none, the first option that is not disabled (also through a
+/// disabled optgroup).
+const DEFAULTS: &str = r#"<form action="/echo" method="post">
+    <select id="last" name="last"><option id="l1" selected>One</option><option id="l2" selected>Two</option><option id="l3">Three</option></select>
+    <select id="enabled" name="enabled"><option id="e1" disabled>One</option><optgroup disabled><option id="e2">Two</option></optgroup><option id="e3">Three</option><option id="e4">Four</option></select>
+    <select id="none" name="none"><option id="n1" disabled>One</option></select>
+    <button id="go">Go</button>
+</form>"#;
+
+#[test]
+fn select_default_is_the_last_selected_else_the_first_enabled_option() {
+    let mut ctx = page(DEFAULTS);
+    assert_eq!(selected(&ctx, "last").as_deref(), Some("l2"));
+    assert_eq!(selected(&ctx, "enabled").as_deref(), Some("e3"));
+    assert_eq!(selected(&ctx, "none"), None, "every option is disabled");
+    assert!(is_checked(&ctx, by_id(&ctx, "l2")));
+    assert!(!is_checked(&ctx, by_id(&ctx, "l1")));
+    assert!(is_checked(&ctx, by_id(&ctx, "e3")));
+
+    assert_eq!(select_label(&ctx, "last"), "Two");
+    assert_eq!(select_label(&ctx, "enabled"), "Three");
+
+    click(&mut ctx, "go");
+    let sub = ctx.take_submission().unwrap_or_else(|| panic!("submit button submits"));
+    assert_eq!(sub.body.as_deref(), Some("last=Two&enabled=Three"));
+}
+
+#[test]
+fn select_keys_and_popup_start_from_the_default_option() {
+    let mut ctx = page(DEFAULTS);
+    click(&mut ctx, "last");
+    // Rows: One(0) Two(1) Three(2).
+    assert_eq!(ix(&ctx).open_select().and_then(|o| o.active), Some(1));
+    key(&mut ctx, "Escape");
+    key(&mut ctx, "ArrowDown");
+    assert_eq!(selected(&ctx, "last").as_deref(), Some("l3"));
+
+    click(&mut ctx, "enabled");
+    // Rows: One(0) group(1) Two(2) Three(3) Four(4).
+    assert_eq!(ix(&ctx).open_select().and_then(|o| o.active), Some(3));
+    key(&mut ctx, "Escape");
+    key(&mut ctx, "ArrowDown");
+    assert_eq!(selected(&ctx, "enabled").as_deref(), Some("e4"));
+}
+
 // ── range ─────────────────────────────────────────────────────────────────────
 
 #[test]
