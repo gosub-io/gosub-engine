@@ -282,7 +282,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         }
         selectedness::list_of_options::<C>(self, select)
             .into_iter()
-            .find(|option| selected.contains(option))
+            .find(|&option| self.selectedness.is_selected(option))
     }
 
     fn add_class(&mut self, id: NodeId, class: &str) {
@@ -737,7 +737,11 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             }
             _ => {
                 let options = selectedness::list_of_options::<C>(self, select);
-                let last = options.iter().rev().find(|option| selected.contains(option)).copied();
+                let last = options
+                    .iter()
+                    .rev()
+                    .find(|&&option| self.selectedness.is_selected(option))
+                    .copied();
                 for option in selected {
                     if Some(option) != last {
                         self.selectedness.set_selected(option, false);
@@ -775,7 +779,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                 let selected = self.selectedness.selected_in(id);
                 let first = selectedness::list_of_options::<C>(self, id)
                     .into_iter()
-                    .find(|option| selected.contains(option));
+                    .find(|&option| self.selectedness.is_selected(option));
                 for option in selected {
                     if Some(option) != first {
                         self.selectedness.set_selected(option, false);
@@ -1818,6 +1822,28 @@ mod tests {
         let ix = snapshot(&doc, &InteractionState::default());
         assert!(ix.is_checked::<Config>(&doc, doc.node_by_named_id("a").unwrap()));
         assert!(!ix.is_checked::<Config>(&doc, doc.node_by_named_id("b").unwrap()));
+    }
+
+    /// Finding the first selected option, or the one kept when `multiple` goes, takes one pass
+    /// over the options, however many are selected.
+    #[test]
+    fn many_selected_options_take_one_pass() {
+        let html = format!(
+            "<!DOCTYPE html><body><select id=s multiple>{}{}</select>",
+            "<option>x".repeat(40_000),
+            "<option selected>x".repeat(40_000)
+        );
+        let mut doc = crate::html_compile::<Config>(&html);
+        let select = doc.node_by_named_id("s").unwrap();
+
+        let start = std::time::Instant::now();
+        assert!(doc.first_selected_option(select).is_some());
+        doc.remove_attribute(select, "multiple");
+        let elapsed = start.elapsed();
+        assert!(doc.first_selected_option(select).is_some());
+        // Unoptimized, a quadratic lookup takes about 6 s here and one pass about 30 ms. The
+        // deadline sits far from both, so a slow or busy machine does not trip it.
+        assert!(elapsed < std::time::Duration::from_secs(2), "{elapsed:?}");
     }
 
     #[test]
