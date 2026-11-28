@@ -142,8 +142,8 @@ mod tests {
         sheet
             .rules
             .iter()
-            .map(|rule| match &rule.selectors[0].complex_at(0)[0] {
-                CssSelectorPart::Type(name) => name.clone(),
+            .map(|rule| match &rule.selector.complex_at(0)[0] {
+                CssSelectorPart::Type(name) => name.to_string(),
                 other => format!("{other:?}"),
             })
             .collect()

@@ -151,8 +151,8 @@ where
 
     for sheet in sheets() {
         for rule in &sheet.rules {
-            selectors += rule.selectors.len() as u64;
-            rule.selectors.heap_size(walk);
+            selectors += rule.selector.complex_count() as u64;
+            rule.selector.heap_size(walk);
         }
     }
     let (owned, shared) = walk.take_counts();

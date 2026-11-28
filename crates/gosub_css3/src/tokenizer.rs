@@ -1,3 +1,4 @@
+use compact_str::CompactString;
 use std::collections::VecDeque;
 use std::fmt;
 use std::fmt::Debug;
@@ -35,16 +36,16 @@ pub enum TokenType {
     /// A [`<at-keyword-token>`](<https://drafts.csswg.org/css-syntax/#at-keyword-token>-     diagram)
     ///
     /// The value does not include the `@` marker.
-    AtKeyword(String),
-    Ident(String),
-    Function(String),
+    AtKeyword(CompactString),
+    Ident(CompactString),
+    Function(CompactString),
     /// A `<unicode-range-token>`, stored as its raw textual form (e.g. `U+0000-00FF`, `U+4??`).
-    UnicodeRange(String),
-    Url(String),
-    BadUrl(String),
+    UnicodeRange(CompactString),
+    Url(CompactString),
+    BadUrl(CompactString),
     Dimension {
         value: Number,
-        unit: String,
+        unit: CompactString,
     },
     Percentage(Number),
     /// A [`<number-token>`](https://drafts.csswg.org/css-syntax/#number-token-diagram), with
@@ -53,17 +54,19 @@ pub enum TokenType {
     /// A [`<string-token>`](https://drafts.csswg.org/css-syntax/#string-token-diagram)
     ///
     /// The value does not include the quotes.
-    QuotedString(String),
+    QuotedString(CompactString),
     /// A `<bad-string-token>`
     ///
     /// This token always indicates a parse error.
-    BadString(String),
+    BadString(CompactString),
     /// A [`<whitespace-token>`](https://drafts.csswg.org/css-syntax/#whitespace-token-diagram)
-    Whitespace(String),
+    ///
+    /// The token has no value; the first character of the run is kept for `Debug` and tests.
+    Whitespace(char),
     /// A [`<hash-token>`](https://drafts.csswg.org/css-syntax/#hash-token-diagram) (with the type flag set to "unrestricted")
     ///
     /// The value does not include the `#` marker.
-    Hash(String),
+    Hash(CompactString),
     /// A `<delim-token>`
     Delim(char),
     /// A `<{-token>`
@@ -91,7 +94,7 @@ pub enum TokenType {
     /// A `<EOF-token>`
     Eof,
     /// A comment
-    Comment(String),
+    Comment(CompactString),
 }
 
 #[derive(Clone, PartialEq)]
@@ -104,11 +107,11 @@ pub struct Token {
 
 impl Debug for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let TokenType::Whitespace(v) = self.token_type.clone() {
-            match v.as_str() {
-                "\t" => write!(f, "TAB at {:?}", self.location),
-                "\r" => write!(f, "CR at {:?}", self.location),
-                "\n" => write!(f, "LF at {:?}", self.location),
+        if let TokenType::Whitespace(v) = self.token_type {
+            match v {
+                '\t' => write!(f, "TAB at {:?}", self.location),
+                '\r' => write!(f, "CR at {:?}", self.location),
+                '\n' => write!(f, "LF at {:?}", self.location),
                 _ => write!(f, "{:?} at {:?}", self.token_type, self.location),
             }
         } else {
@@ -127,11 +130,11 @@ impl Token {
         Token::new(TokenType::Delim(c), location)
     }
 
-    fn new_hash(value: impl Into<String>, location: Location) -> Token {
+    fn new_hash(value: impl Into<CompactString>, location: Location) -> Token {
         Token::new(TokenType::Hash(value.into()), location)
     }
 
-    fn new_atkeyword(keyword: impl Into<String>, location: Location) -> Token {
+    fn new_atkeyword(keyword: impl Into<CompactString>, location: Location) -> Token {
         Token::new(TokenType::AtKeyword(keyword.into()), location)
     }
 
@@ -150,7 +153,7 @@ impl Token {
         Token::new(TokenType::Percentage(value), location)
     }
 
-    fn new_dimension(value: Number, unit: impl Into<String>, location: Location) -> Token {
+    fn new_dimension(value: Number, unit: impl Into<CompactString>, location: Location) -> Token {
         Token::new(
             TokenType::Dimension {
                 value,
@@ -160,27 +163,27 @@ impl Token {
         )
     }
 
-    fn new_ident(value: impl Into<String>, location: Location) -> Token {
+    fn new_ident(value: impl Into<CompactString>, location: Location) -> Token {
         Token::new(TokenType::Ident(value.into()), location)
     }
 
-    fn new_function(value: impl Into<String>, location: Location) -> Token {
+    fn new_function(value: impl Into<CompactString>, location: Location) -> Token {
         Token::new(TokenType::Function(value.into()), location)
     }
 
-    fn new_quoted_string(value: impl Into<String>, location: Location) -> Token {
+    fn new_quoted_string(value: impl Into<CompactString>, location: Location) -> Token {
         Token::new(TokenType::QuotedString(value.into()), location)
     }
 
-    fn new_bad_string(value: impl Into<String>, location: Location) -> Token {
+    fn new_bad_string(value: impl Into<CompactString>, location: Location) -> Token {
         Token::new(TokenType::BadString(value.into()), location)
     }
 
-    fn new_url(value: impl Into<String>, location: Location) -> Token {
+    fn new_url(value: impl Into<CompactString>, location: Location) -> Token {
         Token::new(TokenType::Url(value.into()), location)
     }
 
-    fn new_bad_url(value: impl Into<String>, location: Location) -> Token {
+    fn new_bad_url(value: impl Into<CompactString>, location: Location) -> Token {
         Token::new(TokenType::BadUrl(value.into()), location)
     }
 }
@@ -226,8 +229,8 @@ impl fmt::Display for Token {
             | TokenType::Ident(val)
             | TokenType::Function(val)
             | TokenType::QuotedString(val)
-            | TokenType::BadString(val) => val,
-            TokenType::UnicodeRange(val) => val,
+            | TokenType::BadString(val)
+            | TokenType::UnicodeRange(val) => val.into_string(),
             TokenType::Delim(val) => val.to_string(),
             TokenType::Number(val, _) => val.to_string(),
             TokenType::Percentage(val) => format!("{val}%"),
@@ -376,7 +379,7 @@ impl<'stream> Tokenizer<'stream> {
             Character::StreamEnd => Token::new(TokenType::Eof, loc),
             Ch(c) if is_css_whitespace(current) => {
                 self.consume_whitespace();
-                Token::new(TokenType::Whitespace(c.to_string()), loc)
+                Token::new(TokenType::Whitespace(c), loc)
             }
             // note: consume_string_token doesn't work as expected
             Ch('"' | '\'') => self.consume_string_token(),
@@ -507,21 +510,22 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// 4.3.2. [Consume comments](https://www.w3.org/TR/css-syntax-3/#consume-comment)
-    fn consume_comment(&mut self) -> String {
-        let mut comment = String::new();
+    ///
+    /// The text is skipped, not kept: a comment produces no token.
+    fn consume_comment(&mut self) {
         if self.look_ahead_eq("/*") {
             // consume '/*'
-            comment.push_str(&self.consume_chars(2));
+            self.next_char();
+            self.next_char();
 
             while !self.look_ahead_eq("*/") && !self.stream.eof() {
-                comment.push(self.next_char().into());
+                self.next_char();
             }
 
             // consume '*/'
-            comment.push_str(&self.consume_chars(2));
+            self.next_char();
+            self.next_char();
         }
-
-        comment
     }
 
     /// 4.3.3. [Consume a numeric token]()
@@ -559,7 +563,7 @@ impl<'stream> Tokenizer<'stream> {
     fn consume_unicode_range_token(&mut self) -> Token {
         let loc = self.current_location();
 
-        let mut value = String::new();
+        let mut value = CompactString::default();
         // Consume the `u`/`U` and the `+`.
         value.push(self.next_char().into());
         value.push(self.next_char().into());
@@ -608,9 +612,18 @@ impl<'stream> Tokenizer<'stream> {
 
         // consume string starting: (') or (") ...
         let ending = self.next_char();
-        let mut value = String::new();
+        // The bulk scan stops at non-ASCII anyway, so a non-ASCII terminator needs no byte.
+        let quote = match ending {
+            Ch(c) if c.is_ascii() => c as u8,
+            _ => 0,
+        };
+        let mut value = CompactString::default();
 
         loop {
+            // Most of a string is plain ASCII; take that in one go and leave the rest to the
+            // checks below.
+            value.push_str(self.stream.scan_ascii_while(|b| b != quote && b != b'\\' && b != b'\n'));
+
             // if eof => parser error => return the current string
             if self.current_char() == ending || self.stream.eof() {
                 // consume string ending
@@ -658,7 +671,7 @@ impl<'stream> Tokenizer<'stream> {
     ///
     /// Note: for the sake of simplicity, we exclude the number type mentioned in the algorithm.
     fn consume_number(&mut self) -> (Number, NumberKind) {
-        let mut value = String::new();
+        let mut value = CompactString::default();
         let mut kind = NumberKind::Integer;
         let lookahead = self.current_char();
 
@@ -724,7 +737,7 @@ impl<'stream> Tokenizer<'stream> {
     ///
     /// Returns either a `<url-token>` or a `<bad-url-token>`
     fn consume_url(&mut self) -> Token {
-        let mut url = String::new();
+        let mut url = CompactString::default();
 
         let loc = self.current_location();
 
@@ -788,7 +801,7 @@ impl<'stream> Tokenizer<'stream> {
         // consume '\'
         self.next_char();
 
-        let mut value = String::new();
+        let mut value = CompactString::default();
 
         let default_char = get_unicode_char(&UnicodeChar::ReplacementCharacter);
         // eof: parser error
@@ -831,19 +844,19 @@ impl<'stream> Tokenizer<'stream> {
     /// ensure the returned code points would constitute an <ident-token>.
     /// Caller should ensure that the stream starts with an ident sequence before calling this
     /// algorithm.
-    fn consume_ident(&mut self) -> String {
+    fn consume_ident(&mut self) -> CompactString {
         // Idents are the most common token in real-world CSS. Bulk-consume the plain
         // ASCII run straight off the stream (matches `is_ident_char` for ASCII), then
         // fall back to per-character handling for escapes and non-ASCII ident chars,
         // resuming the bulk scan after each one.
-        let mut value = String::new();
+        let mut value = CompactString::default();
 
         loop {
             let run = self
                 .stream
                 .scan_ascii_while(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
             if value.is_empty() {
-                value = run.to_string();
+                value = CompactString::from(run);
             } else {
                 value.push_str(run);
             }
@@ -880,8 +893,8 @@ impl<'stream> Tokenizer<'stream> {
         value
     }
 
-    fn consume_digits(&mut self) -> String {
-        let mut value = self.stream.scan_ascii_while(|b| b.is_ascii_digit()).to_string();
+    fn consume_digits(&mut self) -> CompactString {
+        let mut value = CompactString::from(self.stream.scan_ascii_while(|b| b.is_ascii_digit()));
 
         // The per-char path also accepted non-ASCII numerics (char::is_numeric); keep that.
         while matches!(self.current_char(), Ch(c) if c.is_numeric()) {
@@ -892,8 +905,8 @@ impl<'stream> Tokenizer<'stream> {
         value
     }
 
-    fn consume_chars(&mut self, mut len: usize) -> String {
-        let mut value = String::with_capacity(len);
+    fn consume_chars(&mut self, mut len: usize) -> CompactString {
+        let mut value = CompactString::with_capacity(len);
 
         while len > 0 {
             value.push(self.next_char().into());
@@ -1226,6 +1239,11 @@ mod test {
             ("#hash#", Token::new_quoted_string("hash", Location::default())),
             ("\"eof", Token::new_quoted_string("eof", Location::default())),
             ("\"\"", Token::new_quoted_string("", Location::default())),
+            // Out of the plain run for each escape, back into it after.
+            (
+                "'it\\'s \\62 ig\\\nger'",
+                Token::new_quoted_string("it's bigger", Location::default()),
+            ),
         ];
 
         for (raw_string, string_token) in string_tokens {
@@ -1245,17 +1263,17 @@ mod test {
         let tokens = vec![
             // `\"\"`
             Token::new_quoted_string("", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // \"Lorem 'îpsum'\"
             Token::new_quoted_string("Lorem 'îpsum'", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `\"a\\\nb\"`
             Token::new_quoted_string("ab", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_bad_string("a", Location::default()),
-            Token::new(TokenType::Whitespace("\n".into()), Location::default()),
+            Token::new(TokenType::Whitespace('\n'), Location::default()),
             Token::new_ident("b", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_quoted_string("eof", Location::default()),
         ];
         let mut tokenizer = Tokenizer::new(&mut stream, Location::default());
@@ -1274,17 +1292,17 @@ mod test {
         let tokens = vec![
             // `\"\"`
             Token::new_quoted_string("", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // \"Lorem 'îpsum'\"
             Token::new_quoted_string("Lorem \"îpsum\"", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `\"a\\\nb\"`
             Token::new_quoted_string("ab", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_bad_string("a", Location::default()),
-            Token::new(TokenType::Whitespace("\n".into()), Location::default()),
+            Token::new(TokenType::Whitespace('\n'), Location::default()),
             Token::new_ident("b", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_quoted_string("eof", Location::default()),
         ];
         let mut tokenizer = Tokenizer::new(&mut stream, Location::default());
@@ -1308,26 +1326,26 @@ mod test {
             Token::new_function("url", Location::default()),
             Token::new_quoted_string("", Location::default()),
             Token::new(TokenType::RParen, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `url('Lorem \"îpsum\"'\n)`
             Token::new_function("url", Location::default()),
             Token::new_quoted_string("Lorem \"îpsum\"", Location::default()),
-            Token::new(TokenType::Whitespace("\n".into()), Location::default()),
+            Token::new(TokenType::Whitespace('\n'), Location::default()),
             Token::new(TokenType::RParen, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `url('a\\\nb' )`
             Token::new_function("url", Location::default()),
             Token::new_quoted_string("ab", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new(TokenType::RParen, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `url('a\nb)`
             Token::new_function("url", Location::default()),
             Token::new_bad_string("a", Location::default()),
-            Token::new(TokenType::Whitespace("\n".into()), Location::default()),
+            Token::new(TokenType::Whitespace('\n'), Location::default()),
             Token::new_ident("b", Location::default()),
             Token::new(TokenType::RParen, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `url('eof`
             Token::new_function("url", Location::default()),
             Token::new_quoted_string("eof", Location::default()),
@@ -1361,48 +1379,48 @@ mod test {
 
         let tokens = vec![
             // 1st css rule
-            Token::new(TokenType::Whitespace("\n".into()), Location::default()),
+            Token::new(TokenType::Whitespace('\n'), Location::default()),
             Token::new_hash("header", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_delim('.', Location::default()),
             Token::new_ident("nav", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new(TokenType::LCurly, Location::default()),
-            Token::new(TokenType::Whitespace("\n".into()), Location::default()),
+            Token::new(TokenType::Whitespace('\n'), Location::default()),
             Token::new_ident("font-size", Location::default()),
             Token::new(TokenType::Colon, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_dimension(1.1, "rem", Location::default()),
             Token::new(TokenType::Semicolon, Location::default()),
-            Token::new(TokenType::Whitespace("\n".into()), Location::default()),
+            Token::new(TokenType::Whitespace('\n'), Location::default()),
             Token::new(TokenType::RCurly, Location::default()),
-            Token::new(TokenType::Whitespace("\n".into()), Location::default()),
+            Token::new(TokenType::Whitespace('\n'), Location::default()),
             // 2nd css rule (AtRule)
             Token::new_atkeyword("media", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_ident("screen", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new(TokenType::LParen, Location::default()),
             Token::new_ident("max-width", Location::default()),
             Token::new(TokenType::Colon, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_dimension(200.0, "px", Location::default()),
             Token::new(TokenType::RParen, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new(TokenType::LCurly, Location::default()),
             Token::new(TokenType::RCurly, Location::default()),
-            Token::new(TokenType::Whitespace("\n".into()), Location::default()),
+            Token::new(TokenType::Whitespace('\n'), Location::default()),
             // 3rd css declaration
             Token::new_ident("content", Location::default()),
             Token::new(TokenType::Colon, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_quoted_string("me & you", Location::default()),
             Token::new(TokenType::Semicolon, Location::default()),
-            Token::new(TokenType::Whitespace("\n".into()), Location::default()),
+            Token::new(TokenType::Whitespace('\n'), Location::default()),
             // 4th css declaration
             Token::new_ident("background", Location::default()),
             Token::new(TokenType::Colon, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_url("https://gosub.io", Location::default()),
         ];
         let mut tokenizer = Tokenizer::new(&mut stream, Location::default());
@@ -1423,20 +1441,20 @@ mod test {
         );
 
         let tokens = vec![
-            Token::new(TokenType::Whitespace("\n".into()), Location::default()),
+            Token::new(TokenType::Whitespace('\n'), Location::default()),
             Token::new_function("rgba", Location::default()),
             Token::new_number(255.0, Location::default()),
             Token::new(TokenType::Comma, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_percentage(50.0, Location::default()),
             Token::new(TokenType::Comma, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_percentage(0.0, Location::default()),
             Token::new(TokenType::Comma, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_number(1.0, Location::default()),
             Token::new(TokenType::RParen, Location::default()),
-            Token::new(TokenType::Whitespace("\n".into()), Location::default()),
+            Token::new(TokenType::Whitespace('\n'), Location::default()),
         ];
         let mut tokenizer = Tokenizer::new(&mut stream, Location::default());
 
@@ -1450,11 +1468,11 @@ mod test {
         let mut stream = ByteStream::from_str("/* CDO/CDC are not special */ <!-- --> {}", Encoding::UTF8);
 
         let tokens = vec![
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new(TokenType::Cdo, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new(TokenType::Cdc, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new(TokenType::LCurly, Location::default()),
             Token::new(TokenType::RCurly, Location::default()),
         ];
@@ -1490,9 +1508,9 @@ mod test {
         let mut stream = ByteStream::from_str("  \t\t\r\n\nRed ", Encoding::UTF8);
 
         let tokens = vec![
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_ident("Red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new(TokenType::Eof, Location::default()),
         ];
         let mut tokenizer = Tokenizer::new(&mut stream, Location::default());
@@ -1513,30 +1531,30 @@ mod test {
 
         let tokens = vec![
             Token::new_atkeyword("media0", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_atkeyword("-Media", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_atkeyword("--media", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `@0media` => [@, 0, meida]
             Token::new_delim('@', Location::default()),
             Token::new_dimension(0.0, "media", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `@-0media` => [@, -0, meida]
             Token::new_delim('@', Location::default()),
             Token::new_dimension(-0.0, "media", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `@_media`
             Token::new_atkeyword("_media", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `@.meida` => [@, ., media]
             Token::new_delim('@', Location::default()),
             Token::new_delim('.', Location::default()),
             Token::new_ident("media", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `@medİa`
             Token::new_atkeyword("medİa", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `@\\30 media`
             Token::new_atkeyword("0media\u{FFFD}", Location::default()),
             Token::new(TokenType::Eof, Location::default()),
@@ -1559,34 +1577,34 @@ mod test {
 
         let tokens = vec![
             Token::new_hash("red0", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_hash("-Red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_hash("--red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `#--\\red`
             Token::new_hash("--red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `#0red` => 0red
             Token::new_hash("0red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `#-0red`
             Token::new_hash("-0red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `#_Red`
             Token::new_hash("_Red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `#.red` => [#, ., red]
             Token::new_delim('#', Location::default()),
             Token::new_delim('.', Location::default()),
             Token::new_ident("red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `#rêd`
             Token::new_hash("rêd", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `#êrd`
             Token::new_hash("êrd", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `#\\.red\\`
             Token::new_hash(".red\u{FFFD}", Location::default()),
             Token::new(TokenType::Eof, Location::default()),
@@ -1610,34 +1628,34 @@ mod test {
         let tokens = vec![
             // `12red0`
             Token::new_dimension(12.0, "red0", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `12.0-red`
             Token::new_dimension(12.0, "-red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `12--red`
             Token::new_dimension(12.0, "--red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `12-\\-red`
             Token::new_dimension(12.0, "--red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `120red`
             Token::new_dimension(120.0, "red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `12-0red` => [12, -0red]
             Token::new_number(12.0, Location::default()),
             Token::new_dimension(-0.0, "red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `12\u{0000}red`
             Token::new_dimension(12.0, "\u{FFFD}red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `12_Red`
             Token::new_dimension(12.0, "_Red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `12.red` => [12, ., red]
             Token::new_number(12.0, Location::default()),
             Token::new_delim('.', Location::default()),
             Token::new_ident("red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `12rêd`
             Token::new_dimension(12.0, "rêd", Location::default()),
         ];
@@ -1660,28 +1678,28 @@ mod test {
         let tokens = vec![
             // `12e2px`
             Token::new_dimension(1200.0, "px", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `+34e+1px`
             Token::new_dimension(340.0, "px", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `-45E-0px`
             Token::new_dimension(-45.0, "px", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `.68e+3px`
             Token::new_dimension(680.0, "px", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `+.79e-1px`
             Token::new_dimension(0.079, "px", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `-.01E2px`
             Token::new_dimension(-1.0, "px", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `2.3E+1px`
             Token::new_dimension(23.0, "px", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `+45.0e6px`
             Token::new_dimension(45000000.0, "px", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `-0.67e0px`
             Token::new_dimension(-0.67, "px", Location::default()),
             Token::new(TokenType::Eof, Location::default()),
@@ -1705,28 +1723,28 @@ mod test {
         let tokens = vec![
             // `12e2%`
             Token::new_percentage(1200.0, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `+34e+1%`
             Token::new_percentage(340.0, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `-45E-0%`
             Token::new_percentage(-45.0, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `.68e+3%`
             Token::new_percentage(680.0, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `+.79e-1%`
             Token::new_percentage(0.079, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `-.01E2%`
             Token::new_percentage(-1.0, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `2.3E+1%`
             Token::new_percentage(23.0, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `+45.0e6%`
             Token::new_percentage(45000000.0, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `-0.67e0%`
             Token::new_percentage(-0.67, Location::default()),
             Token::new(TokenType::Eof, Location::default()),
@@ -1758,34 +1776,34 @@ mod test {
             Token::new_ident("http:", Location::default()),
             Token::new(TokenType::RBracket, Location::default()),
             Token::new(TokenType::Comma, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new(TokenType::LBracket, Location::default()),
             Token::new_ident("href", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_delim('^', Location::default()),
             Token::new_delim('=', Location::default()),
-            Token::new(TokenType::Whitespace("\t".into()), Location::default()),
+            Token::new(TokenType::Whitespace('\t'), Location::default()),
             Token::new_quoted_string("https:", Location::default()),
-            Token::new(TokenType::Whitespace("\n".into()), Location::default()),
+            Token::new(TokenType::Whitespace('\n'), Location::default()),
             Token::new(TokenType::RBracket, Location::default()),
             Token::new(TokenType::RParen, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new(TokenType::LCurly, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_ident("color", Location::default()),
             Token::new(TokenType::Colon, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_function("rgba", Location::default()),
             Token::new_percentage(0.0, Location::default()),
             Token::new(TokenType::Comma, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_percentage(100.0, Location::default()),
             Token::new(TokenType::Comma, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_percentage(50.0, Location::default()),
             Token::new(TokenType::RParen, Location::default()),
             Token::new(TokenType::Semicolon, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new(TokenType::RCurly, Location::default()),
         ];
         let mut tokenizer = Tokenizer::new(&mut stream, Location::default());
@@ -1833,41 +1851,41 @@ mod test {
         let tokens = vec![
             // `\\-`
             Token::new_ident("-", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `red0`
             Token::new_ident("red0", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `-red`
             Token::new_ident("-red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `--red`
             Token::new_ident("--red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `-\\-red\\ blue`
             Token::new_ident("--red blue", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `0red`
             Token::new_dimension(0.0, "red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `-0red`
             Token::new_dimension(-0.0, "red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `\\0000red`
             Token::new_ident("\u{FFFD}red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `_Red`
             Token::new_ident("_Red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `.red` => [., red]
             Token::new_delim('.', Location::default()),
             Token::new_ident("red", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `rêd`
             Token::new_ident("rêd", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `r\\êd`
             Token::new_ident("rêd", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             // `\\007F\\0080\\0081`
             Token::new_ident("\u{7f}\u{80}\u{81}", Location::default()),
         ];
@@ -1936,20 +1954,20 @@ mod test {
 
         let tokens = vec![
             Token::new_ident("test", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new(TokenType::LCurly, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_ident("color", Location::default()),
             Token::new(TokenType::Colon, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_hash("123", Location::default()),
             Token::new(TokenType::Semicolon, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_ident("background-color", Location::default()),
             Token::new(TokenType::Colon, Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new_hash("11223344", Location::default()),
-            Token::new(TokenType::Whitespace(" ".into()), Location::default()),
+            Token::new(TokenType::Whitespace(' '), Location::default()),
             Token::new(TokenType::RCurly, Location::default()),
         ];
         let mut tokenizer = Tokenizer::new(&mut stream, Location::default());
@@ -1967,20 +1985,20 @@ mod test {
 
         let tokens = vec![
             Token::new_ident("test", Location::new(1, 1, 0)),
-            Token::new(TokenType::Whitespace(" ".into()), Location::new(1, 5, 4)),
+            Token::new(TokenType::Whitespace(' '), Location::new(1, 5, 4)),
             Token::new(TokenType::LCurly, Location::new(1, 6, 5)),
-            Token::new(TokenType::Whitespace(" ".into()), Location::new(1, 7, 6)),
+            Token::new(TokenType::Whitespace(' '), Location::new(1, 7, 6)),
             Token::new_ident("color", Location::new(1, 8, 7)),
             Token::new(TokenType::Colon, Location::new(1, 13, 12)),
-            Token::new(TokenType::Whitespace(" ".into()), Location::new(1, 14, 13)),
+            Token::new(TokenType::Whitespace(' '), Location::new(1, 14, 13)),
             Token::new_hash("123", Location::new(1, 15, 14)),
             Token::new(TokenType::Semicolon, Location::new(1, 19, 18)),
-            Token::new(TokenType::Whitespace(" ".into()), Location::new(1, 20, 19)),
+            Token::new(TokenType::Whitespace(' '), Location::new(1, 20, 19)),
             Token::new_ident("background-color", Location::new(1, 21, 20)),
             Token::new(TokenType::Colon, Location::new(1, 37, 36)),
-            Token::new(TokenType::Whitespace(" ".into()), Location::new(1, 38, 37)),
+            Token::new(TokenType::Whitespace(' '), Location::new(1, 38, 37)),
             Token::new_hash("11223344", Location::new(1, 39, 38)),
-            Token::new(TokenType::Whitespace(" ".into()), Location::new(1, 48, 47)),
+            Token::new(TokenType::Whitespace(' '), Location::new(1, 48, 47)),
             Token::new(TokenType::RCurly, Location::new(1, 49, 48)),
         ];
         let mut tokenizer = Tokenizer::new(&mut stream, Location::default());
@@ -2002,20 +2020,20 @@ mod test {
 
         let tokens = vec![
             Token::new_ident("test", Location::new(1, 1, 0)),
-            Token::new(TokenType::Whitespace(" ".into()), Location::new(1, 5, 4)),
+            Token::new(TokenType::Whitespace(' '), Location::new(1, 5, 4)),
             Token::new(TokenType::LCurly, Location::new(1, 6, 5)),
-            Token::new(TokenType::Whitespace("\n".into()), Location::new(1, 7, 6)),
+            Token::new(TokenType::Whitespace('\n'), Location::new(1, 7, 6)),
             Token::new_ident("color", Location::new(2, 5, 11)),
             Token::new(TokenType::Colon, Location::new(2, 10, 16)),
-            Token::new(TokenType::Whitespace(" ".into()), Location::new(2, 11, 17)),
+            Token::new(TokenType::Whitespace(' '), Location::new(2, 11, 17)),
             Token::new_hash("123", Location::new(2, 12, 18)),
             Token::new(TokenType::Semicolon, Location::new(2, 16, 22)),
-            Token::new(TokenType::Whitespace("\n".into()), Location::new(2, 17, 23)),
+            Token::new(TokenType::Whitespace('\n'), Location::new(2, 17, 23)),
             Token::new_ident("background-color", Location::new(3, 5, 28)),
             Token::new(TokenType::Colon, Location::new(3, 21, 44)),
-            Token::new(TokenType::Whitespace(" ".into()), Location::new(3, 22, 45)),
+            Token::new(TokenType::Whitespace(' '), Location::new(3, 22, 45)),
             Token::new_hash("11223344", Location::new(3, 23, 46)),
-            Token::new(TokenType::Whitespace("\n".into()), Location::new(3, 32, 55)),
+            Token::new(TokenType::Whitespace('\n'), Location::new(3, 32, 55)),
             Token::new(TokenType::RCurly, Location::new(4, 1, 56)),
         ];
         let mut tokenizer = Tokenizer::new(&mut stream, Location::default());

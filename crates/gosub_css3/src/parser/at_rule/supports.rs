@@ -11,7 +11,7 @@ impl Css3<'_> {
         // @todo: parse supports condition
         let value = self.consume_raw_condition()?;
 
-        Ok(Node::new(NodeType::Raw { value }, loc))
+        Ok(Node::new(NodeType::Raw { value: value.into() }, loc))
     }
 }
 

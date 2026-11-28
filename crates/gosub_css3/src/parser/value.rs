@@ -152,15 +152,15 @@ impl Css3<'_> {
                     let node = match t.token_type {
                         TokenType::QuotedString(default_value) => Node::new(
                             NodeType::MSIdent {
-                                value: value.to_string(),
+                                value: value.clone(),
                                 default_value,
                             },
                             t.location,
                         ),
                         TokenType::Number(default_value, _) => Node::new(
                             NodeType::MSIdent {
-                                value: value.to_string(),
-                                default_value: default_value.to_string(),
+                                value: value.clone(),
+                                default_value: default_value.to_string().into(),
                             },
                             t.location,
                         ),

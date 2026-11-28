@@ -1,3 +1,4 @@
+use compact_str::CompactString;
 use core::fmt::Debug;
 use cow_utils::CowUtils;
 use std::cmp::Ordering;
@@ -358,7 +359,7 @@ impl Drop for LangMemoScope {
 /// the `lang` attribute of the element or its nearest ancestor that has one (HTML §3.2.6.2);
 /// with none it is unknown, which only the empty range `:lang("")` matches (Selectors L4 §7.2) -
 /// the document-level fallbacks (`Content-Language`, `<meta http-equiv>`) are not consulted.
-fn matches_lang<C: HasDocument>(doc: &C::Document, node: NodeId, ranges: &[String]) -> bool {
+fn matches_lang<C: HasDocument>(doc: &C::Document, node: NodeId, ranges: &[CompactString]) -> bool {
     let test = |lang: Option<&str>| {
         let lang = lang.unwrap_or("");
         ranges.iter().any(|r| language_range_matches(r, lang))

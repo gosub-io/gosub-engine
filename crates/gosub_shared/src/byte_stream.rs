@@ -123,7 +123,12 @@ impl Default for Config {
 pub struct ByteStream {
     /// Raw bytes of the source data, exactly as supplied. Kept so `detect_encoding` and
     /// `set_encoding` can re-interpret the source without the caller re-supplying it.
+    /// Empty while `raw_in_text` is set.
     raw: Vec<u8>,
+    /// The source is `text` itself: a stream made from a `&str` that decoding left unchanged
+    /// (no CR to normalize) keeps no second copy, and whatever needs the raw bytes reads them
+    /// from `text`.
+    raw_in_text: bool,
     /// First byte of `raw` not yet transcoded into `text`. Lets `append_str` resume
     /// transcoding instead of re-scanning the whole buffer (O(n) total, not O(n^2)).
     /// May also point at a trailing element that cannot be classified yet on an open
@@ -358,6 +363,7 @@ impl ByteStream {
         Self {
             config: config.unwrap_or_default(),
             raw: Vec::new(),
+            raw_in_text: false,
             raw_processed: 0,
             text: Vec::new(),
             text_pos: 0,
@@ -373,13 +379,45 @@ impl ByteStream {
     /// Create a stream from a string, fully decoded and closed, ready for parsing.
     pub fn from_str(s: &str, encoding: Encoding) -> Self {
         let mut stream = Self::new(encoding, None);
-        stream.raw = Vec::from(s.as_bytes());
         // Already-decoded text: a `<meta charset>` in it has nothing to re-decode.
         stream.confidence = Confidence::Irrelevant;
         // Close before transcoding so the buffer is processed exactly once.
         stream.closed = true;
-        stream.transcode_pending();
+        if encoding == Encoding::UTF8 {
+            // Decoded straight from `s`. When that changed nothing, `text` is the source and the
+            // input is not held twice; a normalized newline means the original is kept, as a
+            // re-decode in another encoding reads different bytes.
+            stream.text.reserve_exact(s.len());
+            stream.transcode_utf8_from(s.as_bytes(), 0);
+            if stream.text == s.as_bytes() {
+                stream.raw_in_text = true;
+            } else {
+                stream.raw = Vec::from(s.as_bytes());
+                stream.raw_processed = stream.raw.len();
+            }
+        } else {
+            stream.raw = Vec::from(s.as_bytes());
+            stream.transcode_pending();
+        }
         stream
+    }
+
+    /// The source bytes, wherever they are kept.
+    fn source(&self) -> &[u8] {
+        if self.raw_in_text {
+            &self.text
+        } else {
+            &self.raw
+        }
+    }
+
+    /// Give the stream its own copy of the source, for the paths that decode `raw` again.
+    fn own_raw(&mut self) {
+        if self.raw_in_text {
+            self.raw = self.text.clone();
+            self.raw_processed = self.raw.len();
+            self.raw_in_text = false;
+        }
     }
 
     /// Advance past the longest run of leading ASCII bytes satisfying `pred` and
@@ -577,13 +615,20 @@ impl ByteStream {
     /// (normalizing newlines), replace invalid sequences, and stop at an incomplete
     /// trailing sequence on an open stream.
     fn transcode_utf8(&mut self) {
-        while self.raw_processed < self.raw.len() {
-            let start = self.raw_processed;
-            match std::str::from_utf8(&self.raw[start..]) {
+        // Taken out for the call so `src` and `text` can be borrowed apart; no copy.
+        let raw = std::mem::take(&mut self.raw);
+        self.raw_processed = self.transcode_utf8_from(&raw, self.raw_processed);
+        self.raw = raw;
+    }
+
+    /// Transcode `src[processed..]` as UTF-8, returning how far it got.
+    fn transcode_utf8_from(&mut self, src: &[u8], mut processed: usize) -> usize {
+        while processed < src.len() {
+            let start = processed;
+            match std::str::from_utf8(&src[start..]) {
                 Ok(_) => {
-                    let consumed = self.emit_utf8_run(start, self.raw.len(), RunEnd::Stream);
-                    self.raw_processed = start + consumed;
-                    return;
+                    let consumed = self.emit_utf8_run(src, start, src.len(), RunEnd::Stream);
+                    return start + consumed;
                 }
                 Err(e) => {
                     let valid_end = start + e.valid_up_to();
@@ -592,16 +637,16 @@ impl ByteStream {
                     } else {
                         RunEnd::Stream
                     };
-                    let consumed = self.emit_utf8_run(start, valid_end, after);
-                    self.raw_processed = start + consumed;
-                    if start + consumed < valid_end {
+                    let consumed = self.emit_utf8_run(src, start, valid_end, after);
+                    processed = start + consumed;
+                    if processed < valid_end {
                         // A trailing CR was left pending for the next append.
-                        return;
+                        return processed;
                     }
                     match e.error_len() {
                         Some(n) => {
                             self.push_char(REPLACEMENT_CHARACTER);
-                            self.raw_processed += n;
+                            processed += n;
                         }
                         None => {
                             // Incomplete sequence at the end of the buffer. On a closed
@@ -609,25 +654,26 @@ impl ByteStream {
                             // open stream we stop and leave the tail for the next append.
                             if self.closed {
                                 self.push_char(REPLACEMENT_CHARACTER);
-                                self.raw_processed = self.raw.len();
+                                return src.len();
                             }
-                            return;
+                            return processed;
                         }
                     }
                 }
             }
         }
+        processed
     }
 
     /// Copy the valid UTF-8 bytes `raw[start..end]` into `text`, normalizing newlines
     /// per config. `after` says what follows the run so a trailing CR can be
     /// classified. Returns the number of bytes consumed; a trailing CR that cannot be
     /// classified yet on an open stream is left unconsumed.
-    fn emit_utf8_run(&mut self, start: usize, end: usize, after: RunEnd) -> usize {
+    fn emit_utf8_run(&mut self, raw: &[u8], start: usize, end: usize, after: RunEnd) -> usize {
         let cr_merge = self.config.cr_lf_as_one;
         let cr_replace = self.config.replace_cr_as_lf;
         let closed = self.closed;
-        let (raw, text, line_starts) = (&self.raw, &mut self.text, &mut self.line_starts);
+        let (text, line_starts) = (&mut self.text, &mut self.line_starts);
 
         if !cr_merge && !cr_replace {
             Self::push_run(text, line_starts, &raw[start..end]);
@@ -765,6 +811,7 @@ impl ByteStream {
     }
 
     pub fn read_from_file(&mut self, mut f: impl Read) -> io::Result<()> {
+        self.raw_in_text = false;
         self.raw.clear();
         f.read_to_end(&mut self.raw)?;
         // New bytes are a new document: whatever settled the last one's encoding says nothing
@@ -777,6 +824,7 @@ impl ByteStream {
     }
 
     pub fn read_from_str(&mut self, s: &str, encoding: Option<Encoding>) {
+        self.raw_in_text = false;
         self.raw = Vec::from(s.as_bytes());
         self.closed = false;
         self.confidence = Confidence::Irrelevant;
@@ -789,6 +837,7 @@ impl ByteStream {
     }
 
     pub fn append_str(&mut self, s: &str) {
+        self.own_raw();
         self.raw.extend_from_slice(s.as_bytes());
         // Resume transcoding from the first unprocessed byte instead of re-scanning
         // the whole buffer. text_pos indexes already-transcoded text, so it stays valid.
@@ -803,6 +852,7 @@ impl ByteStream {
     }
 
     pub fn read_from_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.raw_in_text = false;
         self.raw = bytes.to_vec();
         // As in `read_from_file`: a new document starts tentative.
         self.confidence = Confidence::Tentative;
@@ -823,7 +873,7 @@ impl ByteStream {
     /// An encoding found this way is certain (WHATWG HTML 13.2.3.1 BOM sniffing).
     #[must_use]
     pub fn detect_bom(&self) -> Option<Encoding> {
-        let buf = self.raw.as_slice();
+        let buf = self.source();
         if buf.starts_with(b"\xEF\xBB\xBF") {
             Some(Encoding::UTF8)
         } else if buf.starts_with(b"\xFF\xFE") {
@@ -842,7 +892,7 @@ impl ByteStream {
             return encoding;
         }
 
-        let mut buf = self.raw.as_slice();
+        let mut buf = self.source();
 
         // Cap the buffer size we will check to max 64KB
         const MAX_BUF_SIZE: usize = 64 * 1024;
@@ -924,6 +974,7 @@ impl ByteStream {
         // a mid-parse encoding change would restart the parse entirely.)
         let char_index = count_chars(&self.text[..self.text_pos]);
         self.encoding = e;
+        self.own_raw();
         self.restart_transcode();
         self.transcode_pending();
         self.reset_stream();
@@ -1215,6 +1266,51 @@ mod test {
         stream.read_from_bytes(&[0xD8, 0x00, 0x00, 0x41]).unwrap(); // lone D800 then 'A'
         assert!(matches!(stream.read_and_next(), Surrogate(0xD800)));
         assert_eq!(stream.read_and_next(), Ch('A'));
+    }
+
+    #[test]
+    fn from_str_holds_the_input_once() {
+        let stream = ByteStream::from_str("a\nb", Encoding::UTF8);
+        assert!(stream.raw.is_empty());
+        assert_eq!(stream.text, b"a\nb");
+        assert_eq!(stream.line_starts, vec![0, 2]);
+    }
+
+    #[test]
+    fn from_str_keeps_the_input_when_newlines_were_normalized() {
+        let mut stream = ByteStream::from_str("a\r\nb", Encoding::UTF8);
+        assert_eq!(stream.text, b"a\nb");
+        stream.set_encoding(Encoding::UTF16LE);
+        assert_eq!(stream.read_and_next(), Ch('\u{0d61}'));
+        assert_eq!(stream.read_and_next(), Ch('\u{620a}'));
+        assert!(stream.eof());
+    }
+
+    #[test]
+    fn from_str_can_still_be_decoded_again() {
+        let mut stream = ByteStream::from_str("a\u{e9}b", Encoding::UTF8);
+        stream.set_encoding(Encoding::Latin1);
+        assert_eq!(stream.read_and_next(), Ch('a'));
+        assert_eq!(stream.read_and_next(), Ch('\u{c3}'));
+        assert_eq!(stream.read_and_next(), Ch('\u{a9}'));
+        assert_eq!(stream.read_and_next(), Ch('b'));
+    }
+
+    #[test]
+    fn from_str_can_still_be_appended_to() {
+        let mut stream = ByteStream::from_str("ab", Encoding::UTF8);
+        stream.append_str("c");
+        stream.set_encoding(Encoding::Latin1);
+        assert_eq!(stream.read_and_next(), Ch('a'));
+        assert_eq!(stream.read_and_next(), Ch('b'));
+        assert_eq!(stream.read_and_next(), Ch('c'));
+        assert!(stream.eof());
+    }
+
+    #[test]
+    fn from_str_still_shows_its_bom() {
+        let stream = ByteStream::from_str("\u{feff}a", Encoding::UTF8);
+        assert_eq!(stream.detect_bom(), Some(Encoding::UTF8));
     }
 
     // ── detect_encoding ──────────────────────────────────────────────────────
