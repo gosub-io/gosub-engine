@@ -126,7 +126,9 @@ impl InteractionSnapshot {
             selected: state
                 .selected
                 .iter()
-                .filter(|(&select, &option)| live(&select) && live(&option) && is_option_of::<C>(doc, option, select))
+                .filter(|(&select, &option)| {
+                    live(&select) && live(&option) && doc.option_select(option) == Some(select)
+                })
                 .map(|(&select, &option)| (select, option))
                 .collect(),
             sizes: live_entries(&state.sizes, live),
@@ -172,17 +174,14 @@ impl InteractionSnapshot {
     }
 
     /// Live checkedness; the `checked` attribute is only the default. An `<option>` is checked
-    /// when it is its select's chosen option.
+    /// when it is selected: the one the user picked in its select, else when the document has
+    /// it selected.
     pub fn is_checked<C: HasDocument>(&self, doc: &C::Document, id: NodeId) -> bool {
-        if doc.tag_name(id) == Some("option") {
-            let mut cur = doc.parent(id);
-            while let Some(p) = cur {
-                if doc.tag_name(p) == Some("select") {
-                    return self.selected_option::<C>(doc, p) == Some(id);
-                }
-                cur = doc.parent(p);
-            }
-            return false;
+        if doc.tag_name(id) == Some("option") && doc.namespace(id) == Some(HTML_NAMESPACE) {
+            return match doc.option_select(id).and_then(|select| self.selected.get(&select)) {
+                Some(&picked) => picked == id,
+                None => doc.is_option_selected(id),
+            };
         }
         match self.checked.get(&id) {
             Some(c) => *c,
@@ -190,46 +189,17 @@ impl InteractionSnapshot {
         }
     }
 
-    /// The chosen `<option>` of a `<select>`: the one the user picked, else the last one with
-    /// the `selected` attribute, else the first one that is not disabled. Every select is taken
-    /// to be a dropdown (display size 1), see
-    /// <https://html.spec.whatwg.org/#selectedness-setting-algorithm>.
+    /// The chosen `<option>` of a `<select>`: the one the user picked, else the first one the
+    /// document has selected (see [`Document::is_option_selected`]).
     pub fn selected_option<C: HasDocument>(&self, doc: &C::Document, select: NodeId) -> Option<NodeId> {
         if let Some(&option) = self.selected.get(&select) {
             return Some(option);
         }
-        let mut last_selected = None;
-        let mut first_enabled = None;
-        // Each node with its optgroup's `disabled`; `None` outside an optgroup.
-        let mut stack: Vec<(NodeId, Option<bool>)> = doc.children(select).iter().rev().map(|&id| (id, None)).collect();
-        while let Some((id, group)) = stack.pop() {
-            match html_tag_name::<C>(doc, id) {
-                Some("option") => {
-                    if doc.attribute(id, "selected").is_some() {
-                        last_selected = Some(id);
-                    }
-                    if group != Some(true) && doc.attribute(id, "disabled").is_none() {
-                        first_enabled.get_or_insert(id);
-                    }
-                }
-                // A nested optgroup's options are not the select's.
-                Some("optgroup") if group.is_none() => {
-                    let disabled = doc.attribute(id, "disabled").is_some();
-                    stack.extend(doc.children(id).iter().rev().map(|&child| (child, Some(disabled))));
-                }
-                _ => {}
-            }
-        }
-        last_selected.or(first_enabled)
+        doc.first_selected_option(select)
     }
 }
 
 const HTML_NAMESPACE: &str = "http://www.w3.org/1999/xhtml";
-
-/// The tag name of `id` if it is an HTML element; an SVG or MathML `option` is not an option.
-fn html_tag_name<C: HasDocument>(doc: &C::Document, id: NodeId) -> Option<&str> {
-    doc.tag_name(id).filter(|_| doc.namespace(id) == Some(HTML_NAMESPACE))
-}
 
 fn live_entries<V: Clone>(map: &HashMap<NodeId, V>, live: impl Fn(&NodeId) -> bool) -> HashMap<NodeId, V> {
     map.iter()
@@ -267,22 +237,4 @@ fn ancestors_and_self<C: HasDocument>(doc: &C::Document, node: Option<NodeId>) -
         current = doc.parent(id);
     }
     chain
-}
-
-/// Whether `option` is in `select`'s list of options, which is the case when `select` is its
-/// nearest ancestor select (<https://html.spec.whatwg.org/#option-element-nearest-ancestor-select>).
-fn is_option_of<C: HasDocument>(doc: &C::Document, option: NodeId, select: NodeId) -> bool {
-    let mut seen_optgroup = false;
-    let mut current = doc.parent(option);
-    while let Some(ancestor) = current {
-        match doc.tag_name(ancestor) {
-            Some("datalist" | "hr" | "option") => return false,
-            Some("optgroup") if seen_optgroup => return false,
-            Some("optgroup") => seen_optgroup = true,
-            Some("select") => return ancestor == select,
-            _ => {}
-        }
-        current = doc.parent(ancestor);
-    }
-    false
 }
