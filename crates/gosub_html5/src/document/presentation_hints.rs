@@ -64,7 +64,7 @@ fn css_dimension(value: DimensionValue) -> String {
 
 /// A non-negative integer, as HTML's rules for parsing one read it: leading whitespace, an
 /// optional `+`, then the digits, and whatever follows is ignored.
-fn non_negative_integer(raw: &str) -> Option<u32> {
+pub(crate) fn non_negative_integer(raw: &str) -> Option<u32> {
     let raw = raw.trim_start_matches([' ', '\t', '\n', '\u{0c}', '\r']);
     let raw = raw.strip_prefix('+').unwrap_or(raw);
     let digits: String = raw.chars().take_while(char::is_ascii_digit).collect();

@@ -110,6 +110,14 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     fn set_attribute(&mut self, id: NodeId, name: &str, value: &str);
     fn remove_attribute(&mut self, id: NodeId, name: &str);
 
+    /// Whether the `<option>` `id` is selected: its selectedness, which starts as its `selected`
+    /// attribute and then follows the changes the spec names. False for anything else.
+    fn is_option_selected(&self, id: NodeId) -> bool;
+    /// The `<select>` whose list of options `option` is in.
+    fn option_select(&self, option: NodeId) -> Option<NodeId>;
+    /// The first option in `select`'s list of options that is selected, in tree order.
+    fn first_selected_option(&self, select: NodeId) -> Option<NodeId>;
+
     fn add_class(&mut self, id: NodeId, class: &str);
     fn has_class(&self, id: NodeId, name: &str) -> bool;
 

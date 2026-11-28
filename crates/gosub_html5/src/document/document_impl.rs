@@ -10,6 +10,7 @@ use std::sync::Arc;
 use url::Url;
 
 use crate::document::presentation_hints;
+use crate::document::selectedness::{self, Selectedness};
 use crate::node::arena::NodeArena;
 use crate::node::data::comment::CommentData;
 use crate::node::data::doctype::DocTypeData;
@@ -37,6 +38,8 @@ pub struct DocumentImpl<C: HasDocument> {
     /// Kept in sync so unregistering a node does not require scanning the whole map. Shares
     /// the id with the key in `named_id_elements`.
     named_ids_by_node: HashMap<NodeId, (NodeId, Arc<str>)>,
+    /// Which `<option>`s are selected, kept up to date by every tree and attribute change.
+    selectedness: Selectedness,
     pub doctype: DocumentType,
     pub quirks_mode: QuirksMode,
     /// The parser's scripting flag determines whether `noscript` text is serialized literally.
@@ -73,6 +76,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             arena: NodeArena::new(),
             named_id_elements: HashMap::new(),
             named_ids_by_node: HashMap::new(),
+            selectedness: Selectedness::default(),
             doctype: document_type,
             quirks_mode: QuirksMode::NoQuirks,
             scripting_enabled: true,
@@ -149,6 +153,8 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
                 stack.push((child, child_copy));
             }
         }
+        // Linked by hand above, so the options of a copied select join it here.
+        self.refresh_options(root);
         root
     }
 
@@ -236,6 +242,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn set_attribute(&mut self, id: NodeId, name: &str, value: &str) {
+        let had = self.attribute(id, name).is_some();
         if let Some(node) = self.arena.node_ref_mut(id) {
             if let NodeDataTypeInternal::Element(ref mut e) = node.data {
                 e.add_attribute(name, value);
@@ -244,9 +251,11 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         if name == "id" {
             self.refresh_named_id(id);
         }
+        self.selectedness_attribute_changed(id, name, had, true);
     }
 
     fn remove_attribute(&mut self, id: NodeId, name: &str) {
+        let had = self.attribute(id, name).is_some();
         if let Some(node) = self.arena.node_ref_mut(id) {
             if let NodeDataTypeInternal::Element(ref mut e) = node.data {
                 e.remove_attribute(name);
@@ -255,6 +264,25 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         if name == "id" {
             self.refresh_named_id(id);
         }
+        self.selectedness_attribute_changed(id, name, had, false);
+    }
+
+    fn is_option_selected(&self, id: NodeId) -> bool {
+        self.selectedness.is_selected(id)
+    }
+
+    fn option_select(&self, option: NodeId) -> Option<NodeId> {
+        self.selectedness.select_of(option)
+    }
+
+    fn first_selected_option(&self, select: NodeId) -> Option<NodeId> {
+        let selected = self.selectedness.selected_in(select);
+        if selected.len() <= 1 {
+            return selected.first().copied();
+        }
+        selectedness::list_of_options::<C>(self, select)
+            .into_iter()
+            .find(|option| selected.contains(option))
     }
 
     fn add_class(&mut self, id: NodeId, class: &str) {
@@ -307,6 +335,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             e.set_template_contents(fragment);
         }
         self.refresh_template_children(id);
+        self.refresh_options(id);
     }
 
     // shadow trees
@@ -611,6 +640,154 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         }
     }
 
+    /// Bring the options at and below `node_id` in line after its ancestors changed. An option
+    /// that is now in another select's list of options, or in none, runs the selectedness
+    /// setting algorithm on both selects: the option insertion and removing steps.
+    fn refresh_options(&mut self, node_id: NodeId) {
+        let mut stack = vec![node_id];
+        while let Some(id) = stack.pop() {
+            // Tree order, as the spec runs the steps for an inserted subtree.
+            if let Some(node) = self.arena.node_ref(id) {
+                stack.extend(node.children.iter().rev());
+            }
+            if self.selectedness.is_option(id) {
+                self.update_nearest_select(id);
+            }
+        }
+    }
+
+    /// Point `option` at its nearest ancestor select; when that changed, run the setting
+    /// algorithm on the select it left and the one it joined
+    /// (<https://html.spec.whatwg.org/#update-an-option%27s-nearest-ancestor-select>).
+    fn update_nearest_select(&mut self, option: NodeId) {
+        let new = selectedness::nearest_ancestor_select::<C>(self, option);
+        let old = self.selectedness.set_select(option, new);
+        if old == new {
+            // Moved within its select, maybe out of a disabled optgroup.
+            if let Some(select) = new {
+                self.selectedness.set_has_no_enabled(select, false);
+            }
+            return;
+        }
+        // A selected option that joins a list deselects the one that was.
+        if self.selectedness.is_selected(option) {
+            self.deselect_others(option);
+        }
+        if let Some(old) = old {
+            self.run_selectedness_setting(old, None);
+        }
+        if let Some(new) = new {
+            self.run_selectedness_setting(new, Some(option));
+        }
+    }
+
+    /// Set `option`'s selectedness. In a select without `multiple` an option that becomes
+    /// selected deselects the others.
+    fn set_option_selected(&mut self, option: NodeId, selected: bool) {
+        self.selectedness.set_selected(option, selected);
+        if selected {
+            self.deselect_others(option);
+        }
+    }
+
+    fn deselect_others(&mut self, option: NodeId) {
+        let Some(select) = self.selectedness.select_of(option) else {
+            return;
+        };
+        if self.attribute(select, "multiple").is_some() {
+            return;
+        }
+        for other in self.selectedness.selected_in(select) {
+            if other != option {
+                self.selectedness.set_selected(other, false);
+            }
+        }
+    }
+
+    /// The selectedness setting algorithm: of the selected options keep the last, and with none
+    /// select the first one that is not disabled, in a select that shows one row
+    /// (<https://html.spec.whatwg.org/#selectedness-setting-algorithm>). `joined` is the option
+    /// that just joined the list, when that is what this runs for.
+    fn run_selectedness_setting(&mut self, select: NodeId, joined: Option<NodeId>) {
+        // A deleted select's options are leaving it; there is nothing left to choose for.
+        if !self.contains(select) || self.attribute(select, "multiple").is_some() {
+            return;
+        }
+        let selected = self.selectedness.selected_in(select);
+        match selected.len() {
+            // Nearly every change ends here, without a walk over the options.
+            1 => {}
+            0 => {
+                if selectedness::display_size::<C>(self, select) != 1 {
+                    return;
+                }
+                let first_enabled = match joined {
+                    // Every other option is disabled, so only the new one can be first.
+                    Some(option) if self.selectedness.has_no_enabled(select) => {
+                        Some(option).filter(|&o| !selectedness::is_disabled::<C>(self, o))
+                    }
+                    _ => selectedness::list_of_options::<C>(self, select)
+                        .into_iter()
+                        .find(|&option| !selectedness::is_disabled::<C>(self, option)),
+                };
+                self.selectedness.set_has_no_enabled(select, first_enabled.is_none());
+                if let Some(option) = first_enabled {
+                    self.selectedness.set_selected(option, true);
+                }
+            }
+            _ => {
+                let options = selectedness::list_of_options::<C>(self, select);
+                let last = options.iter().rev().find(|option| selected.contains(option)).copied();
+                for option in selected {
+                    if Some(option) != last {
+                        self.selectedness.set_selected(option, false);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The option, optgroup and select attribute change steps
+    /// (<https://html.spec.whatwg.org/#the-option-element:html-element-attribute-change-steps>).
+    /// `old` and `new` say whether `name` was there before and is now.
+    fn selectedness_attribute_changed(&mut self, id: NodeId, name: &str, old: bool, new: bool) {
+        if self.selectedness.is_option(id) {
+            if !matches!(name, "selected" | "disabled") || old == new {
+                return;
+            }
+            if name == "selected" {
+                self.set_option_selected(id, new);
+            }
+            if let Some(select) = self.selectedness.select_of(id) {
+                self.run_selectedness_setting(select, None);
+            }
+        } else if selectedness::is_html::<C>(self, id, "optgroup") {
+            if name != "disabled" || old == new {
+                return;
+            }
+            if let Some(select) = selectedness::nearest_ancestor_select::<C>(self, id) {
+                self.run_selectedness_setting(select, None);
+            }
+        } else if selectedness::is_html::<C>(self, id, "select") {
+            let multiple_changed = name == "multiple" && old != new;
+            if multiple_changed && !new {
+                // Back to one choice: the first selected option keeps it.
+                let selected = self.selectedness.selected_in(id);
+                let first = selectedness::list_of_options::<C>(self, id)
+                    .into_iter()
+                    .find(|option| selected.contains(option));
+                for option in selected {
+                    if Some(option) != first {
+                        self.selectedness.set_selected(option, false);
+                    }
+                }
+            }
+            if name == "size" || multiple_changed {
+                self.run_selectedness_setting(id, None);
+            }
+        }
+    }
+
     /// Whether `node_id` has an `id` attribute or is registered under one. When neither holds,
     /// refreshing it changes nothing and the ancestor walk can be skipped.
     fn has_named_id_state(&self, node_id: NodeId) -> bool {
@@ -775,6 +952,10 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         node.set_id(node_id);
         // Not in the document tree yet, so its `id` is registered by `attach_node`.
         self.arena.register_node_with_node_id(node, node_id);
+        if selectedness::is_html::<C>(self, node_id, "option") {
+            let selected = self.attribute(node_id, "selected").is_some();
+            self.selectedness.add(node_id, selected);
+        }
         node_id
     }
 
@@ -826,6 +1007,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         };
         node.parent = Some(parent_id);
         let is_leaf = node.children.is_empty();
+        self.refresh_options(node_id);
         if is_leaf {
             // Most attaches are the parser adding a leaf: skip the ancestor walk when it has no id.
             self.refresh_named_id(node_id);
@@ -931,6 +1113,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                 node.set_parent(None);
                 self.refresh_named_ids(node_id, None);
             }
+            self.refresh_options(node_id);
         }
     }
 
@@ -976,8 +1159,16 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         // The node and everything below it leave the document tree, so `getElementById` must
         // stop finding them. The arena only drops this one slot.
         self.refresh_named_ids(node_id, None);
+        let children = self.children(node_id).to_vec();
         self.orphan_children(node_id);
         self.arena.delete_node(node_id);
+        if let Some(select) = self.selectedness.remove(node_id) {
+            self.run_selectedness_setting(select, None);
+        }
+        self.selectedness.set_has_no_enabled(node_id, false);
+        for child in children {
+            self.refresh_options(child);
+        }
     }
 
     /// Clear the parent link of `node_id`'s children before its slot goes. The arena keeps them,
@@ -1580,12 +1771,53 @@ mod tests {
 
         let ix = snapshot(&doc, &InteractionState::default());
         assert_eq!(ix.selected_option::<Config>(&doc, select), Some(a));
-        assert!(!ix.is_checked::<Config>(&doc, b));
+        assert_eq!(doc.option_select(b), None);
 
-        doc.remove_attribute(a, "selected");
-        doc.set_attribute(a, "disabled", "");
+        // `b` is not there to fall back to.
+        doc.delete_node_by_id(a);
         let ix = snapshot(&doc, &InteractionState::default());
         assert_eq!(ix.selected_option::<Config>(&doc, select), None);
+    }
+
+    #[test]
+    fn disabling_the_default_option_keeps_it_the_default() {
+        let mut doc =
+            crate::html_compile::<Config>("<!DOCTYPE html><body><select id=s><option id=a><option id=b></select>");
+        let [select, a, b] = ["s", "a", "b"].map(|id| doc.node_by_named_id(id).unwrap());
+        doc.set_attribute(a, "disabled", "");
+
+        let ix = snapshot(&doc, &InteractionState::default());
+        assert_eq!(ix.selected_option::<Config>(&doc, select), Some(a));
+        assert!(ix.is_checked::<Config>(&doc, a));
+        assert!(!ix.is_checked::<Config>(&doc, b));
+    }
+
+    #[test]
+    fn a_pick_outlives_a_change_to_the_default() {
+        let mut doc = crate::html_compile::<Config>(
+            "<!DOCTYPE html><body><select id=s><option id=a><option id=b><option id=c></select>",
+        );
+        let [select, a, b, c] = ["s", "a", "b", "c"].map(|id| doc.node_by_named_id(id).unwrap());
+        let mut state = InteractionState::default();
+        state.set_selected(select, Some(b));
+        doc.set_attribute(a, "disabled", "");
+        assert_eq!(snapshot(&doc, &state).selected_option::<Config>(&doc, select), Some(b));
+
+        // Without the pick the document's choice shows again: still `a`, disabled or not.
+        doc.delete_node_by_id(b);
+        let ix = snapshot(&doc, &state);
+        assert_eq!(ix.selected_option::<Config>(&doc, select), Some(a));
+        assert!(!ix.is_checked::<Config>(&doc, c));
+    }
+
+    #[test]
+    fn an_option_outside_a_select_is_checked_when_selected() {
+        let doc = crate::html_compile::<Config>(
+            "<!DOCTYPE html><body><datalist><option id=a selected><option id=b></datalist>",
+        );
+        let ix = snapshot(&doc, &InteractionState::default());
+        assert!(ix.is_checked::<Config>(&doc, doc.node_by_named_id("a").unwrap()));
+        assert!(!ix.is_checked::<Config>(&doc, doc.node_by_named_id("b").unwrap()));
     }
 
     #[test]
